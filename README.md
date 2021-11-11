@@ -4,16 +4,17 @@ Cosmic will be a desktop app that explores a different way to browse/interact wi
 
 ## Components
 Here are several software components we will need to make this work, in no particular order:
-- 2D vector graphics.
-- Font rendering.
-- UI and animation framework at the native level. Inspired by [Flutter](https://github.com/flutter/flutter).
+- 2D vector graphics. *(In progress)*
+- Font rendering. *(In progress)*
+- UI and animation framework at the native level. Inspired by [Flutter](https://github.com/flutter/flutter). *(In progress)*
 - Javascript sandbox and WASM runtime powered by V8. Inspired by [Deno](https://github.com/denoland/deno).
-- General purpose text editor.
-- Incremental AST parser and tokenizer.
+- General purpose text editor. *(In progress)*
+- Incremental AST parser and tokenizer. [(Source)](https://github.com/fubark/cosmic/tree/main/parser)
 - Configurable key bindings.
 - Permissioned ops to desktop. User code/apps should be able to do more and still be safe.
 - Basic HTML/CSS support. The goal is not to support the entire spec, but just enough so the existing web can still be viewed.
 - Image/Video decoding.
+- 3D graphics and GPGPU computing via WebGPU.
 - DNS/HTTP/HTTPS Client.
 - P2P and direct connections to trusted parties. The web should still operate without a central broker.
 - Terminal emulation. To the extent of using native tools.
