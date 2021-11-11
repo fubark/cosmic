@@ -9,7 +9,7 @@ Here are several software components we will need to make this work, in no parti
 - UI and animation framework at the native level. Inspired by [Flutter](https://github.com/flutter/flutter). *(In progress)*
 - Javascript sandbox and WASM runtime powered by V8. Inspired by [Deno](https://github.com/denoland/deno).
 - General purpose text editor. *(In progress)*
-- Incremental AST parser and tokenizer. [(Source)](https://github.com/fubark/cosmic/tree/main/parser)
+- Incremental AST parser and tokenizer. [(Source)](https://github.com/fubark/cosmic/tree/master/parser)
 - Configurable key bindings.
 - Permissioned ops to desktop. User code/apps should be able to do more and still be safe.
 - Basic HTML/CSS support. The goal is not to support the entire spec, but just enough so the existing web can still be viewed.
