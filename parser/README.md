@@ -1,7 +1,7 @@
 # Parser
 
 An interpreted parser that generates grammars at runtime from PEG like config files and parses source files into an AST. The goal is to also implement incremental parsing for use in text editors.
-- Parses in linear time using a match rule cache. *It seems to have trouble with extremely large files, but there is room for optimization.*
+- Parses in linear time using a match rule cache.
 - Supports left recursion
 - Supports look-ahead operators
 - Initial support for incremental retokenize. *Still work to be done on the incremental AST reparse*
@@ -13,7 +13,7 @@ A full example config that parses Zig code can be found [here](https://github.co
 Here is a demo that parses all the zig stdlib sources.
 You will need zig installed and also *REPO/lib/zig* should point to zig's source repo:
 ```sh
-zig build test-file -Dpath=parser/parser_manual.test.zig
+zig build test-file -Dpath=parser/parser_manual.test.zig -Drelease-safe
 ```
 
 ## Creating Grammars

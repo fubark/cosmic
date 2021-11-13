@@ -28,7 +28,7 @@ const Token = _ast.Token;
 const LineTokenBuffer = _ast.LineTokenBuffer;
 
 // Creates a runtime parser from a PEG based config grammar. 
-// Parses in linear time with respect to source size using a memoization cache.
+// Parses in linear time with respect to source size using a memoization cache. Two cache implementations depending on token list size.
 // Supports left recursion.
 // Supports look-ahead operators.
 // Initial support for incremental retokenize.
@@ -41,6 +41,9 @@ const LineTokenBuffer = _ast.LineTokenBuffer;
 // https://pest.rs/book/grammars/peg.html
 
 const DebugParseRule = false and builtin.mode == .Debug;
+
+// Sources with more tokens than this threshold use a cache map instead of a cache stack for parse rule memoization.
+const CacheMapTokenThreshold = 10000;
 
 pub const Parser = struct {
     const Self = @This();
@@ -75,6 +78,9 @@ pub const Parser = struct {
     // TODO: A future optimization could bucket rules that match the same first token together. It could save more memory.
     parse_rule_cache_stack: std.ArrayList(CacheItem),
 
+    // Use a cache map for source with many tokens. It's slower than the cache stack but uses way a lot less memory.
+    parse_rule_cache_map: std.AutoHashMap(u32, CacheItem),
+
     // The current starting pos in the stack bufs.
     rule_stack_start: u32,
 
@@ -88,6 +94,7 @@ pub const Parser = struct {
             .node_list_stack = std.ArrayList(NodePtr).init(alloc),
             .is_parsing_rule_stack = ds.BitArrayList.init(alloc),
             .parse_rule_cache_stack = std.ArrayList(CacheItem).init(alloc),
+            .parse_rule_cache_map = std.AutoHashMap(u32, CacheItem).init(alloc),
             .rule_stack_start = undefined,
             .next_scalar_node_id = 1,
             .buf = .{
@@ -103,12 +110,13 @@ pub const Parser = struct {
         self.node_list_stack.deinit();
         self.is_parsing_rule_stack.deinit();
         self.parse_rule_cache_stack.deinit();
+        self.parse_rule_cache_map.deinit();
         self.buf.node_ptrs.deinit();
         self.buf.node_slices.deinit();
         self.buf.node_tokens.deinit();
     }
 
-    fn parseMatchManyWithLeftTerm(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context,
+    fn parseMatchManyWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context,
         comptime OneOrMore: bool, op_id: MatchOpId, left_id: RuleId, left_node: NodePtr) ParseNodeWithLeftResult {
 
         // Save starting point and accumulate children on the stack.
@@ -119,7 +127,7 @@ pub const Parser = struct {
         inner: {
             while (true) {
                 const mark = ctx.state.mark();
-                const res = self.parseMatchOpWithLeftTerm(Config, ctx, op_id, left_id, left_node);
+                const res = self.parseMatchOpWithLeftTerm(Context, ctx, op_id, left_id, left_node);
                 if (res.matched) {
                     if (res.node_ptr) |node_ptr| {
                         self.node_list_stack.append(node_ptr) catch unreachable;
@@ -136,7 +144,7 @@ pub const Parser = struct {
             // Parse the right terms.
             while (true) {
                 const mark = ctx.state.mark();
-                const res = self.parseMatchOp(Config, ctx, op_id);
+                const res = self.parseMatchOp(Context, ctx, op_id);
                 if (res.matched) {
                     if (res.node_ptr) |node_ptr| {
                         self.node_list_stack.append(node_ptr) catch unreachable;
@@ -173,7 +181,7 @@ pub const Parser = struct {
     }
 
     // TODO: Since we only cache rules, we might need to create a separate stack so we don't keep creating new list nodes at the same pos.
-    fn parseMatchMany(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context,
+    fn parseMatchMany(self: *Self, comptime Context: type, ctx: *Context,
         comptime OneOrMore: bool, op_id: MatchOpId) ParseNodeResult {
 
         // Save starting point and accumulate children on the stack.
@@ -182,7 +190,7 @@ pub const Parser = struct {
 
         while (true) {
             const mark = ctx.state.mark();
-            const res = self.parseMatchOp(Config, ctx, op_id);
+            const res = self.parseMatchOp(Context, ctx, op_id);
             if (res.matched) {
                 if (res.node_ptr) |node_ptr| {
                     self.node_list_stack.append(node_ptr) catch unreachable;
@@ -216,13 +224,13 @@ pub const Parser = struct {
         };
     }
 
-    fn parseMatchOpWithLeftTerm(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context,
+    fn parseMatchOpWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context,
         id: MatchOpId, left_id: RuleId, left_node: NodePtr) ParseNodeWithLeftResult {
 
         const op = self.ops[id];
         switch (op) {
             .MatchOptional => |inner| {
-                const res = self.parseMatchOpWithLeftTerm(Config, ctx, inner.op_id, left_id, left_node);
+                const res = self.parseMatchOpWithLeftTerm(Context, ctx, inner.op_id, left_id, left_node);
                 if (res.matched) {
                     return res;
                 } else {
@@ -235,7 +243,7 @@ pub const Parser = struct {
             },
             .MatchNegLookahead => |m| {
                 const mark = ctx.state.mark();
-                const res = self.parseMatchOpWithLeftTerm(Config, ctx, m.op_id, left_id, left_node);
+                const res = self.parseMatchOpWithLeftTerm(Context, ctx, m.op_id, left_id, left_node);
                 if (res.matched) {
                     ctx.state.restoreMark(&mark);
                     return NoLeftMatch;
@@ -249,7 +257,7 @@ pub const Parser = struct {
             },
             .MatchPosLookahead => |m| {
                 const mark = ctx.state.mark();
-                const res = self.parseMatchOpWithLeftTerm(Config, ctx, m.op_id, left_id, left_node);
+                const res = self.parseMatchOpWithLeftTerm(Context, ctx, m.op_id, left_id, left_node);
                 if (res.matched) {
                     ctx.state.restoreMark(&mark);
                     return .{
@@ -270,7 +278,7 @@ pub const Parser = struct {
                         .node_ptr = left_node,
                     };
                 } else {
-                    const res = self.parseRuleWithLeftTerm(Config, ctx, inner.rule_id, left_id, left_node, true);
+                    const res = self.parseRuleWithLeftTerm(Context, ctx, inner.rule_id, left_id, left_node, true);
                     if (res.matched) {
                         return res;
                     }
@@ -282,7 +290,7 @@ pub const Parser = struct {
                 var last_match: ?NodePtr = null;
                 var i = inner.ops.start;
                 while (i < inner.ops.end) : (i += 1) {
-                    const res = self.parseMatchOpWithLeftTerm(Config, ctx, i, left_id, left_node);
+                    const res = self.parseMatchOpWithLeftTerm(Context, ctx, i, left_id, left_node);
                     if (res.matched) {
                         if (res.node_ptr != null) {
                             last_match = res.node_ptr;
@@ -298,7 +306,7 @@ pub const Parser = struct {
                 }
 
                 while (i < inner.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (res.matched) {
                         if (res.node_ptr != null) {
                             last_match = res.node_ptr;
@@ -316,13 +324,13 @@ pub const Parser = struct {
                 };
             },
             .MatchOneOrMore => |m| {
-                return self.parseMatchManyWithLeftTerm(Config, ctx, true, m.op_id, left_id, left_node);
+                return self.parseMatchManyWithLeftTerm(Context, ctx, true, m.op_id, left_id, left_node);
             },
             .MatchChoice => |inner| {
                 // log.warn("MatchChoice", .{});
                 var i = inner.ops.start;
                 while (i < inner.ops.end) : (i += 1) {
-                    const res = self.parseMatchOpWithLeftTerm(Config, ctx, i, left_id, left_node);
+                    const res = self.parseMatchOpWithLeftTerm(Context, ctx, i, left_id, left_node);
                     if (res.matched) {
                         return res;
                     }
@@ -338,9 +346,9 @@ pub const Parser = struct {
     }
 
     // Assume each op will leave the parser pos in the right place on match or no match.
-    fn parseMatchOp(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context, id: MatchOpId) ParseNodeResult {
+    fn parseMatchOp(self: *Self, comptime Context: type, ctx: *Context, id: MatchOpId) ParseNodeResult {
 
-        if (Config.debug) {
+        if (Context.debug) {
             ctx.debug.stats.parse_match_ops += 1;
         }
 
@@ -354,8 +362,8 @@ pub const Parser = struct {
                 const next = ctx.state.peekNext();
                 if (inner.tag == next.tag) {
                     const token_ctx = ctx.state.getTokenContext();
-                    defer _ = ctx.state.consumeNext();
-                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.next_tok_id.?, inner.capture);
+                    defer _ = ctx.state.consumeNext(Context.useCacheMap);
+                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertedNextTokenId(), inner.capture);
                 }
             },
             .MatchLiteral => |m| {
@@ -366,8 +374,8 @@ pub const Parser = struct {
                 const next = ctx.state.peekNext();
                 if (m.computed_literal_tag == next.literal_tag) {
                     const token_ctx = ctx.state.getTokenContext();
-                    defer _ = ctx.state.consumeNext();
-                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.next_tok_id.?, m.capture);
+                    defer _ = ctx.state.consumeNext(Context.useCacheMap);
+                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertedNextTokenId(), m.capture);
                 }
             },
             .MatchTokenText => |inner| {
@@ -381,16 +389,16 @@ pub const Parser = struct {
                     const str = ctx.state.getTokenString(token_ctx, next);
                     const inner_str = self.grammar.getString(inner.str);
                     if (stdx.string.eq(inner_str, str)) {
-                        defer _ = ctx.state.consumeNext();
-                        return self.createMatchedNodeTokenResult(token_ctx, ctx.state.next_tok_id.?, inner.capture);
+                        defer _ = ctx.state.consumeNext(Context.useCacheMap);
+                        return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertedNextTokenId(), inner.capture);
                     }
                 }
             },
             .MatchZeroOrMore => |inner| {
-                return self.parseMatchMany(Config, ctx, false, inner.op_id);
+                return self.parseMatchMany(Context, ctx, false, inner.op_id);
             },
             .MatchOneOrMore => |inner| {
-                return self.parseMatchMany(Config, ctx, true, inner.op_id);
+                return self.parseMatchMany(Context, ctx, true, inner.op_id);
             },
             .MatchRule => |inner| {
                 if (DebugParseRule) {
@@ -399,7 +407,7 @@ pub const Parser = struct {
                         log.warn("parseRule {s} {} '{s}'", .{self.grammar.getRuleName(inner.rule_id), ctx.state.next_tok_id, str});
                     }
                 }
-                const res = self.parseRule(Config, ctx, inner.rule_id);
+                const res = self.parseRule(Context, ctx, inner.rule_id);
                 if (res.matched) {
                     if (DebugParseRule) {
                         if (ctx.state.next_tok_id != null) {
@@ -412,7 +420,7 @@ pub const Parser = struct {
             },
             .MatchOptional => |m| {
                 // log.warn("MatchOptional", .{});
-                const res = self.parseMatchOp(Config, ctx, m.op_id);
+                const res = self.parseMatchOp(Context, ctx, m.op_id);
                 if (res.matched) {
                     return res;
                 } else {
@@ -427,7 +435,7 @@ pub const Parser = struct {
                 // Returns no match if inner op matches and resets position.
                 // Returns match if inner op doesn't match but does not advance the position.
                 const mark = ctx.state.mark();
-                const res = self.parseMatchOp(Config, ctx, m.op_id);
+                const res = self.parseMatchOp(Context, ctx, m.op_id);
                 if (res.matched) {
                     ctx.state.restoreMark(&mark);
                     return NoMatch;
@@ -442,7 +450,7 @@ pub const Parser = struct {
                 // Returns match if inner op matches but does not advance the position.
                 // Returns no match if inner op doesn't match.
                 const mark = ctx.state.mark();
-                const res = self.parseMatchOp(Config, ctx, m.op_id);
+                const res = self.parseMatchOp(Context, ctx, m.op_id);
                 if (res.matched) {
                     ctx.state.restoreMark(&mark);
                     return .{
@@ -460,7 +468,7 @@ pub const Parser = struct {
                 var last_match: ?NodePtr = null;
                 var i = inner.ops.start;
                 while (i < inner.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (res.matched) {
                         if (res.node_ptr != null) {
                             last_match = res.node_ptr;
@@ -479,7 +487,7 @@ pub const Parser = struct {
                 // log.warn("MatchChoice", .{});
                 var i = inner.ops.start;
                 while (i < inner.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (res.matched) {
                         return res;
                     }
@@ -506,11 +514,11 @@ pub const Parser = struct {
         }
     }
 
-    fn parseRuleWithLeftTerm(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context,
+    fn parseRuleWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context,
         id: RuleId, left_id: RuleId, left_node: NodePtr, check_recursion: bool) ParseNodeWithLeftResult {
         
         // log.warn("parseRuleWithLeftTerm {s} {}", .{self.grammar.getRuleName(id), ctx.state.next_tok_id});
-        if (Config.debug) {
+        if (Context.debug) {
             const frame = CallFrame{
                 .parse_rule_id = id,
                 .next_token_id = ctx.state.next_tok_id,
@@ -522,7 +530,7 @@ pub const Parser = struct {
                 std.mem.copy(CallFrame, ctx.debug.max_call_stack.items, ctx.debug.call_stack.items);
             }
         }
-        defer if (Config.debug) {
+        defer if (Context.debug) {
             _ = ctx.debug.call_stack.pop();
         };
 
@@ -549,7 +557,7 @@ pub const Parser = struct {
                 var last: ?NodePtr = null;
                 var i: u32 = decl.ops.start;
                 while (i < decl.ops.end) : (i += 1) {
-                    const res = self.parseMatchOpWithLeftTerm(Config, ctx, i, left_id, left_node);
+                    const res = self.parseMatchOpWithLeftTerm(Context, ctx, i, left_id, left_node);
                     if (!res.matched) {
                         break :inner;
                     } else {
@@ -564,7 +572,7 @@ pub const Parser = struct {
                 }
 
                 while (i < decl.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (!res.matched) {
                         break :inner;
                     } else {
@@ -590,7 +598,7 @@ pub const Parser = struct {
                 var cur_field: u32 = 0;
                 var i = decl.ops.start;
                 while (i < decl.ops.end) : (i += 1) {
-                    const res = self.parseMatchOpWithLeftTerm(Config, ctx, i, left_id, left_node);
+                    const res = self.parseMatchOpWithLeftTerm(Context, ctx, i, left_id, left_node);
                     if (!res.matched) {
                         break :inner;
                     } else {
@@ -604,7 +612,7 @@ pub const Parser = struct {
 
                 // Parse the rest of the ops normally.
                 while (i < decl.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (!res.matched) {
                         break :inner;
                     } else {
@@ -645,7 +653,7 @@ pub const Parser = struct {
         return NoLeftMatch;
     }
 
-    fn parseRuleDefault(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context, id: RuleId) ParseNodeResult {
+    fn parseRuleDefault(self: *Self, comptime Context: type, ctx: *Context, id: RuleId) ParseNodeResult {
         // log.warn("parsing rule {s}", .{self.grammar.getRuleName(id)});
         const decl = self.decls[id];
         
@@ -657,7 +665,7 @@ pub const Parser = struct {
                 var last: ?NodePtr = null;
                 var i: u32 = decl.ops.start;
                 while (i < decl.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (!res.matched) {
                         break :inner;
                     } else {
@@ -680,7 +688,7 @@ pub const Parser = struct {
                 var cur_field: u32 = 0;
                 var i = decl.ops.start;
                 while (i < decl.ops.end) : (i += 1) {
-                    const res = self.parseMatchOp(Config, ctx, i);
+                    const res = self.parseMatchOp(Context, ctx, i);
                     if (!res.matched) {
                         // log.warn("failed at idx {}", .{i - decl.ops.start});
                         break :inner;
@@ -725,8 +733,26 @@ pub const Parser = struct {
         return self.next_scalar_node_id;
     }
 
-    fn parseRule(self: *Self, comptime Config: InternalParseConfig, ctx: *Config.Context, id: RuleId) ParseNodeResult {
-        if (Config.debug) {
+    fn getCachedParseRule(self: *Self, comptime UseCacheMap: bool, key: u32) ?CacheItem {
+        if (UseCacheMap) {
+            return self.parse_rule_cache_map.get(key);
+        } else {
+            const res = self.parse_rule_cache_stack.items[key];
+            return if (res.state != .Empty) res else null;
+        }
+    }
+
+    fn setCachedParseRule(self: *Self, comptime UseCacheMap: bool, key: u32, res: CacheItem) void {
+        if (UseCacheMap) {
+            // log.warn("set cached {}", .{res});
+            self.parse_rule_cache_map.put(key, res) catch unreachable;
+        } else {
+            self.parse_rule_cache_stack.items[key] = res;
+        }
+    }
+
+    fn parseRule(self: *Self, comptime Context: type, ctx: *Context, id: RuleId) ParseNodeResult {
+        if (Context.debug) {
             const frame = CallFrame{
                 .parse_rule_id = id,
                 .next_token_id = ctx.state.next_tok_id,
@@ -738,7 +764,7 @@ pub const Parser = struct {
                 std.mem.copy(CallFrame, ctx.debug.max_call_stack.items, ctx.debug.call_stack.items);
             }
         }
-        defer if (Config.debug) {
+        defer if (Context.debug) {
             _ = ctx.debug.call_stack.pop();
         };
 
@@ -754,70 +780,74 @@ pub const Parser = struct {
 
         // Check cache.
         // log.warn("{} {}", .{stack_pos, self.parse_rule_cache_stack.items.len});
-        const cache_state = self.parse_rule_cache_stack.items[stack_pos].state;
-        if (cache_state == .NoMatch) {
-            return NoMatch;
-        } else if (cache_state == .Match) {
-            if (Config.Context.State == TokenState) {
-                const mark = TokenState.Mark{
-                    .next_tok_id = self.parse_rule_cache_stack.items[stack_pos].next_token_id,
-                    .rule_stack_start = self.parse_rule_cache_stack.items[stack_pos].rule_stack_start,
-                };
-                ctx.state.restoreMark(&mark);
-            } else if (Config.Context.State == LineTokenState) {
-                const cache_item = self.parse_rule_cache_stack.items[stack_pos];
-                const mark = LineTokenState.Mark{
-                    .rule_stack_start = cache_item.rule_stack_start,
-                    .next_tok_id = cache_item.next_token_id,
-                    .leaf_id = cache_item.next_token_ctx.leaf_id,
-                    .chunk_line_idx = cache_item.next_token_ctx.chunk_line_idx,
-                };
-                ctx.state.restoreMark(&mark);
-            } else unreachable;
+        const mb_cache_res = self.getCachedParseRule(Context.useCacheMap, stack_pos);
+        if (mb_cache_res) |cache_res| {
+            const cache_state = cache_res.state;
+            if (cache_state == .Match) {
+                if (Context.State == TokenState) {
+                    const mark = TokenState.Mark{
+                        .next_tok_id = cache_res.next_token_id.?,
+                        .rule_stack_start = cache_res.rule_stack_start,
+                    };
+                    ctx.state.restoreMark(&mark);
+                } else if (Context.State == LineTokenState) {
+                    const mark = LineTokenState.Mark{
+                        .rule_stack_start = cache_res.rule_stack_start,
+                        .next_tok_id = cache_res.next_token_id,
+                        .leaf_id = cache_res.next_token_ctx.leaf_id,
+                        .chunk_line_idx = cache_res.next_token_ctx.chunk_line_idx,
+                    };
+                    ctx.state.restoreMark(&mark);
+                } else unreachable;
 
-            // Restoring mark either advances the token pointer or stays the same place.
-            if (stack_pos - id < self.rule_stack_start) {
-                // Reset any existing stack frame if we advanced.
-                const new_size = self.rule_stack_start + self.decls.len;
-                self.is_parsing_rule_stack.unsetRange(self.rule_stack_start, new_size);
+                // Restoring mark either advances the token pointer or stays the same place.
+                if (stack_pos - id < self.rule_stack_start) {
+                    // Reset any existing stack frame if we advanced.
+                    const new_size = self.rule_stack_start + self.decls.len;
+                    self.is_parsing_rule_stack.unsetRange(self.rule_stack_start, new_size);
+                }
+
+                return .{
+                    .matched = true,
+                    .node_ptr = cache_res.node_ptr,
+                };
+            } else {
+                return NoMatch;
             }
-
-            return .{
-                .matched = true,
-                .node_ptr = self.parse_rule_cache_stack.items[stack_pos].node_ptr,
-            };
         }
-        defer if (cache_state == .Empty) {
+        defer if (mb_cache_res == null) {
             if (final_res.matched) {
-                if (Config.Context.State == TokenState) {
-                    self.parse_rule_cache_stack.items[stack_pos] = .{
+                if (Context.State == TokenState) {
+                    self.setCachedParseRule(Context.useCacheMap, stack_pos, .{
                         .state = .Match,
                         .node_ptr = final_res.node_ptr,
                         .next_token_id = ctx.state.next_tok_id,
                         .rule_stack_start = self.rule_stack_start,
-                    };
-                } else if (Config.Context.State == LineTokenState) {
-                    self.parse_rule_cache_stack.items[stack_pos] = .{
+                    });
+                } else if (Context.State == LineTokenState) {
+                    self.setCachedParseRule(Context.useCacheMap, stack_pos, .{
                         .state = .Match,
                         .node_ptr = final_res.node_ptr,
                         .next_token_ctx = ctx.state.getTokenContext(),
                         .next_token_id = ctx.state.next_tok_id,
                         .rule_stack_start = self.rule_stack_start,
-                    };
+                    });
                 } else unreachable;
             } else {
-                self.parse_rule_cache_stack.items[stack_pos].state = .NoMatch;
+                self.setCachedParseRule(Context.useCacheMap, stack_pos, .{
+                    .state = .NoMatch,
+                });
             }
         };
 
-        if (Config.debug) {
+        if (Context.debug) {
             ctx.debug.stats.parse_rule_ops_no_cache += 1;
         }
 
         const rule = self.grammar.getRule(id);
         if (rule.is_left_recursive) {
             // First parse rule normally.
-            var res = self.parseRuleDefault(Config, ctx, id);
+            var res = self.parseRuleDefault(Context, ctx, id);
 
             if (res.node_ptr == null) {
                 // Matched but didn't capture. Initialize as a null node_ptr and continue with left recursion.
@@ -829,7 +859,7 @@ pub const Parser = struct {
 
             // Continue to try left recursion until it fails.
             while (true) {
-                const new_res = self.parseRuleWithLeftTerm(Config, ctx, id, id, res.node_ptr.?, false);
+                const new_res = self.parseRuleWithLeftTerm(Context, ctx, id, id, res.node_ptr.?, false);
                 if (new_res.matched) {
                     res = .{ .matched = true, .node_ptr = new_res.node_ptr };
                 } else {
@@ -839,18 +869,23 @@ pub const Parser = struct {
             final_res = res;
             return final_res;
         } else {
-            final_res = self.parseRuleDefault(Config, ctx, id);
+            final_res = self.parseRuleDefault(Context, ctx, id);
             return final_res;
         }
     }
 
-    fn resetParser(self: *Self) void {
+    fn resetParser(self: *Self, comptime UseHashMap: bool) void {
         self.rule_stack_start = 0;
         const size = self.rule_stack_start + self.decls.len;
         self.is_parsing_rule_stack.clearRetainingCapacity();
         self.is_parsing_rule_stack.resizeFillNew(size, false) catch unreachable;
-        self.parse_rule_cache_stack.resize(size) catch unreachable;
-        std.mem.set(CacheItem, self.parse_rule_cache_stack.items[0..size], .{});
+        self.parse_rule_cache_map.clearRetainingCapacity();
+        if (UseHashMap) {
+            self.parse_rule_cache_stack.clearRetainingCapacity();
+        } else {
+            self.parse_rule_cache_stack.resize(size) catch unreachable;
+            std.mem.set(CacheItem, self.parse_rule_cache_stack.items[0..size], .{});
+        }
 
         self.next_scalar_node_id = 1;
         self.node_list_stack.clearRetainingCapacity();
@@ -868,6 +903,26 @@ pub const Parser = struct {
         return self.parseMain(Config, src, debug);
     }
 
+    fn parseInternal(self: *Self, comptime Config: ParseConfig, comptime UseCacheMap: bool, comptime Debug: bool, debug: anytype, src: Source(Config), res: *ParseResult(Config)) void {
+        const State = if (Config.is_incremental) LineTokenState else TokenState;
+        const Context = ParseContext(State, Tree(Config), UseCacheMap, Debug);
+        var ctx: Context = undefined;
+        ctx.state.init(self, src, &res.ast.tokens);
+        ctx.ast = &res.ast;
+        if (Debug) {
+            ctx.debug = debug;
+        }
+        self.resetParser(Context.useCacheMap);
+        res.ast.mb_root = self.parseRule(Context, &ctx, self.grammar.root_rule_id).node_ptr;
+        // Check if we reached the end.
+        if (ctx.state.nextAtEnd()) {
+            res.success = true;
+        } else {
+            res.success = false;
+            res.err_token_id = ctx.state.getErrorToken();
+        }
+    }
+
     fn parseMain(self: *Self, comptime Config: ParseConfig, src: Source(Config), debug: anytype) ParseResult(Config) {
         const trace = tracy.trace(@src());
         defer trace.end();
@@ -876,41 +931,21 @@ pub const Parser = struct {
         ast.init(self.alloc, self, src);
 
         var res: ParseResult(Config) = undefined;
+        res.ast = ast;
 
         const Debug = @TypeOf(debug) == *DebugInfo;
         if (Debug) {
             debug.reset();
         }
 
-        self.tokenizer.tokenize(Config, src, &ast.tokens);
-
+        self.tokenizer.tokenize(Config, src, &res.ast.tokens);
         stdx.debug.abortIfUserFlagSet();
 
-        const State = if (Config.is_incremental) LineTokenState else TokenState;
-        const Context = ParseContext(State, Tree(Config), Debug);
-        const PConfig = InternalParseConfig{
-            .Context = Context,
-            .debug = Debug,
-        };
-
-        var ctx: Context = undefined;
-        ctx.state.init(self, src, &ast.tokens);
-        ctx.ast = &ast;
-        if (Debug) {
-            ctx.debug = debug;
-        }
-
-        self.resetParser();
-
-        ast.mb_root = self.parseRule(PConfig, &ctx, self.grammar.root_rule_id).node_ptr;
-        res.ast = ast;
-
-        // Check if we reached the end.
-        if (ctx.state.nextAtEnd()) {
-            res.success = true;
+        const useCacheMap = res.ast.getNumTokens() > CacheMapTokenThreshold;
+        if (useCacheMap) {
+            self.parseInternal(Config, true, Debug, debug, src, &res);
         } else {
-            res.success = false;
-            res.err_token_id = ctx.state.getErrorToken();
+            self.parseInternal(Config, false, Debug, debug, src, &res);
         }
         return res;
     }
@@ -1014,14 +1049,14 @@ const TokenState = struct {
     const Self = @This();
 
     const Mark = struct {
-        next_tok_id: ?TokenId,
+        next_tok_id: TokenId,
         rule_stack_start: u32,
     };
 
     src: []const u8,
-    tokens: *ds.CompactSinglyLinkedList(TokenId, Token),
+    tokens: *std.ArrayList(Token),
 
-    next_tok_id: ?TokenId,
+    next_tok_id: TokenId,
     rule_stack_start: *u32,
     is_parsing_rule_stack: *ds.BitArrayList,
     parse_rule_cache_stack: *std.ArrayList(CacheItem),
@@ -1030,11 +1065,11 @@ const TokenState = struct {
     fn init(self: *Self,
         parser: *Parser,
         src: []const u8,
-        tokens: *ds.CompactSinglyLinkedList(TokenId, Token),
+        tokens: *std.ArrayList(Token),
     ) void {
         self.* = .{
             .src = src,
-            .next_tok_id = tokens.getFirst(),
+            .next_tok_id = 0,
             .tokens = tokens,
             .rule_stack_start = &parser.rule_stack_start,
             .is_parsing_rule_stack = &parser.is_parsing_rule_stack,
@@ -1057,17 +1092,18 @@ const TokenState = struct {
     }
 
     inline fn nextAtEnd(self: *Self) bool {
-        return self.next_tok_id == null;
+        return self.next_tok_id == self.tokens.items.len;
     }
 
     inline fn peekNext(self: *Self) Token {
-        return self.tokens.get(self.next_tok_id.?);
+        return self.tokens.items[self.next_tok_id];
     }
 
-    fn consumeNext(self: *Self) Token {
-        const item = self.tokens.getItem(self.next_tok_id.?);
-        self.next_tok_id = item.next;
+    inline fn getAssertedNextTokenId(self: *Self) TokenId {
+        return self.next_tok_id;
+    }
 
+    fn consumeNext(self: *Self, comptime UseCacheMap: bool) Token {
         // Push new set since we advanced the parser pos.
         self.rule_stack_start.* += self.num_decls;
         const new_size = self.rule_stack_start.* + self.num_decls;
@@ -1076,17 +1112,21 @@ const TokenState = struct {
         }
         self.is_parsing_rule_stack.unsetRange(self.rule_stack_start.*, new_size);
 
-        if (self.parse_rule_cache_stack.items.len < new_size) {
-            self.parse_rule_cache_stack.resize(new_size) catch unreachable;
-            std.mem.set(CacheItem, self.parse_rule_cache_stack.items[self.rule_stack_start.*..new_size], .{});
+        if (!UseCacheMap) {
+            if (self.parse_rule_cache_stack.items.len < new_size) {
+                self.parse_rule_cache_stack.resize(new_size) catch unreachable;
+                std.mem.set(CacheItem, self.parse_rule_cache_stack.items[self.rule_stack_start.*..new_size], .{});
+            }
         }
-        return item.data;
+
+        defer self.next_tok_id += 1;
+        return self.tokens.items[self.next_tok_id];
     }
 
     // Since we already use a stack frame at each token increment, we can use the len to determine the token index.
     fn getErrorToken(self: *Self) TokenId {
-        const token_idx = self.parse_rule_cache_stack.items.len / self.num_decls - 1;
-        return self.tokens.getAt(token_idx);
+        const token_idx = self.is_parsing_rule_stack.buf.items.len / self.num_decls - 1;
+        return @intCast(u32, token_idx);
     }
 
     inline fn getNextTokenRef(self: *Self) ?TokenId {
@@ -1202,6 +1242,10 @@ const LineTokenState = struct {
         return self.buf.tokens.get(self.next_tok_id.?);
     }
 
+    inline fn getAssertedNextTokenId(self: *Self) TokenId {
+        return self.next_tok_id.?;
+    }
+
     // Find the first next_tok_id and set line context.
     fn seekToFirstToken(self: *Self) void {
         self.leaf_id = self.doc.getFirstLeaf();
@@ -1263,7 +1307,7 @@ const LineTokenState = struct {
     }
 
     // Assumes there is a next token. Shouldn't be called without checking nextAtEnd first.
-    fn consumeNext(self: *Self) Token {
+    fn consumeNext(self: *Self, comptime UseCacheMap: bool) Token {
         // log.warn("parser consume next {}", .{self.next_tok_id});
         const item = self.buf.tokens.getItemPtr(self.next_tok_id.?);
         self.seekToNextToken();
@@ -1276,9 +1320,11 @@ const LineTokenState = struct {
         }
         self.is_parsing_rule_stack.unsetRange(self.rule_stack_start.*, new_size);
 
-        if (self.parse_rule_cache_stack.items.len < new_size) {
-            self.parse_rule_cache_stack.resize(new_size) catch unreachable;
-            std.mem.set(CacheItem, self.parse_rule_cache_stack.items[self.rule_stack_start.*..new_size], .{});
+        if (!UseCacheMap) {
+            if (self.parse_rule_cache_stack.items.len < new_size) {
+                self.parse_rule_cache_stack.resize(new_size) catch unreachable;
+                std.mem.set(CacheItem, self.parse_rule_cache_stack.items[self.rule_stack_start.*..new_size], .{});
+            }
         }
 
         return item.data;
@@ -1381,10 +1427,11 @@ const CallFrame = struct {
     next_token_id: ?TokenId,
 };
 
-fn ParseContext(comptime State: type, comptime Ast: type, comptime Debug: bool) type {
+fn ParseContext(comptime State: type, comptime Ast: type, comptime UseCacheMap: bool, comptime Debug: bool) type {
     return struct {
         const State = State;
-        const Debug = Debug;
+        const debug = Debug;
+        const useCacheMap = UseCacheMap;
 
         state: State,
         ast: *Ast,
@@ -1394,13 +1441,6 @@ fn ParseContext(comptime State: type, comptime Ast: type, comptime Debug: bool) 
 
 pub const ParseConfig = struct {
     is_incremental: bool = true,
-};
-
-const InternalParseConfig = struct {
-    Context: type,
-
-    // TODO: Remove this and flatten to Context, use @TypeOf(ctx.debug) == *DebugInfo or Context.Debug
-    debug: bool,
 };
 
 // Contains parse rule result at some parser position.

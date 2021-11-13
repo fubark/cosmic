@@ -64,6 +64,9 @@ test "Parse zig big" {
 }
 
 test "Parse zig std" {
+    const trace = stdx.debug.trace();
+    defer trace.endPrint("parsed zig std");
+
     var grammar: Grammar = undefined;
     try builder.initGrammar(&grammar, t.alloc, grammars.ZigGrammar);
     defer grammar.deinit();
@@ -91,11 +94,7 @@ test "Parse zig std" {
             if (!stdx.string.endsWith(it.path, ".zig")) {
                 continue;
             }
-            // Skip large files.
-            if (stdx.string.eq(it.path, "special/compiler_rt/udivmodti4_test.zig")) {
-                continue;
-            }
-            if (stdx.string.eq(it.path, "special/compiler_rt/udivmoddi4_test.zig")) {
+            if (stdx.string.endsWith(it.path, "_test.zig")) {
                 continue;
             }
             log.warn("Parsing: {s}", .{it.path});

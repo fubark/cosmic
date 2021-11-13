@@ -59,10 +59,11 @@ pub fn Tree(comptime Config: ParseConfig) type {
                     .lines = std.ArrayList(?TokenListId).init(alloc),
                     .tokens = ds.CompactManySinglyLinkedList(TokenListId, TokenId, Token).init(alloc),
                     .temp_head_id = undefined,
+                    .num_tokens = 0,
                 };
                 self.tokens.temp_head_id = self.tokens.tokens.addDetachedItem(undefined) catch unreachable;
             } else {
-                self.tokens = ds.CompactSinglyLinkedList(TokenId, Token).init(alloc);
+                self.tokens = std.ArrayList(Token).init(alloc);
             }
         }
 
@@ -72,6 +73,14 @@ pub fn Tree(comptime Config: ParseConfig) type {
             // }
             self.nodeptr_buf.deinit();
             self.tokens.deinit();
+        }
+
+        pub fn getNumTokens(self: *const Self) u32 {
+            if (Config.is_incremental) {
+                return self.tokens.num_tokens;
+            } else {
+                return @intCast(u32, self.tokens.items.len);
+            }
         }
 
         pub fn getNodeTagName(self: *const Self, node: NodePtr) []const u8 {
@@ -185,7 +194,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
             if (Config.is_incremental) {
                 return self.tokens.tokens.get(id);
             } else {
-                return self.tokens.get(id);
+                return self.tokens.items[id];
             }
         }
 
@@ -281,7 +290,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
                 const MaxLinesAfter = 30;
 
                 const tok_id = tok_ref;
-                const tok = self.tokens.get(tok_id);
+                const tok = self.tokens.items[tok_id];
                 const before = if (std.mem.lastIndexOf(u8, self.src[0..tok.loc.start], "\n")) |res| res + 1 else 0;
                 const after = if (std.mem.indexOfPos(u8, self.src, tok.loc.end, "\n")) |res| res + 1 else self.src.len;
                 const before_line = self.src[before..tok.loc.start];
@@ -455,7 +464,7 @@ pub fn TokenBuffer(comptime Config: ParseConfig) type {
     if (Config.is_incremental) {
         return LineTokenBuffer;
     } else {
-        return ds.CompactSinglyLinkedList(TokenId, Token);
+        return std.ArrayList(Token);
     }
 }
 
@@ -468,6 +477,8 @@ pub const LineTokenBuffer = struct {
 
     // Temp head to initialize a list's head before using CompactManySinglyLinkedList.insertAfter.
     temp_head_id: TokenId,
+
+    num_tokens: u32,
 
     fn deinit(self: *@This()) void {
         self.lines.deinit();

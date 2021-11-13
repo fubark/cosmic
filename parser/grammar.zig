@@ -1,7 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const algo = stdx.algo;
-const log = stdx.log.scoped(.config);
+const log = stdx.log.scoped(.grammar);
 const ds = stdx.ds;
 
 const parser = @import("parser.zig");

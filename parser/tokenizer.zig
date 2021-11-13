@@ -471,28 +471,25 @@ const StringBufferState = struct {
     next_ch_idx: u32,
     end_idx: u32,
     src: []const u8,
-    buf: *ds.CompactSinglyLinkedList(TokenId, Token),
+    buf: *std.ArrayList(Token),
 
-    cur_token_list_last: TokenId,
-
-    fn init(self: *Self, src: []const u8, buf: *ds.CompactSinglyLinkedList(TokenId, Token)) void {
+    fn init(self: *Self, src: []const u8, buf: *std.ArrayList(Token)) void {
         self.* = .{
             .src = src,
             .end_idx = @intCast(u32, src.len),
             .next_ch_idx = 0,
-            .cur_token_list_last = buf.prepend(Token.init(0, 0, 0, 0)) catch unreachable,
             .buf = buf,
         };
     }
 
     fn deinit(self: *Self) void {
-        _ = self.buf.removeFirst();
+        _ = self;
     }
 
     inline fn appendToken(self: *Self, comptime Debug: bool, debug: anytype, token: Token) void {
         _ = Debug;
         _ = debug;
-        self.cur_token_list_last = self.buf.insertAfter(self.cur_token_list_last, token) catch unreachable;
+        self.buf.append(token) catch unreachable;
     }
 
     inline fn mark(self: *const Self) u32 {
