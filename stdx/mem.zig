@@ -4,6 +4,11 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const log = stdx.log.scoped(.mem);
 
+pub fn ptrCastFromCvoid(comptime Ptr: type, ptr: *c_void) Ptr {
+    const alignment = @typeInfo(Ptr).Pointer.alignment;
+    return @ptrCast(Ptr, @alignCast(alignment, ptr));
+}
+
 // Same as std.mem.replace except we write to an ArrayList.
 pub fn replaceIntoList(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: *std.ArrayList(T)) usize {
     // Clear the array list.
@@ -82,5 +87,5 @@ pub fn lastIndexOfPos(comptime T: type, haystack: []const T, start: usize, needl
     while (i > 0) : (i -= 1) {
         if (std.mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
     }
-    if (std.mem.eql(T, haystack[0 .. needle.len], needle)) return i else return null;
+    if (std.mem.eql(T, haystack[0..needle.len], needle)) return i else return null;
 }

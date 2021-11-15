@@ -1,4 +1,5 @@
 const std = @import("std");
+const t = std.testing;
 
 // Main test suite.
 test {
@@ -9,7 +10,7 @@ test {
     _ = std.meta.declarations(stdx);
 
     const parser = @import("../parser/parser.zig");
-    _ = std.meta.declarations(parser);
+    t.refAllDecls(parser);
     _ = @import("../parser/parser_simple.test.zig");
     _ = @import("../parser/incremental.test.zig");
 }

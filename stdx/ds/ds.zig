@@ -7,14 +7,17 @@ const compact = @import("compact.zig");
 pub const CompactUnorderedList = compact.CompactUnorderedList;
 pub const CompactSinglyLinkedList = compact.CompactSinglyLinkedList;
 pub const CompactManySinglyLinkedList = compact.CompactManySinglyLinkedList;
+pub const CompactIdGenerator = compact.CompactIdGenerator;
 const complete_tree = @import("complete_tree.zig");
 pub const CompleteTreeArray = complete_tree.CompleteTreeArray;
 pub const DynamicArrayList = @import("dynamic_array_list.zig").DynamicArrayList;
 pub const BitArrayList = @import("bit_array_list.zig").BitArrayList;
+const box = @import("box.zig");
+pub const Box = box.Box;
+pub const SizedBox = box.SizedBox;
 
 // Shared opaque type.
-pub const Opaque = opaque{
-
+pub const Opaque = opaque {
     pub fn fromPtr(comptime T: type, ptr: T) *Opaque {
         return @ptrCast(*Opaque, ptr);
     }
@@ -100,3 +103,23 @@ pub fn OwnedKeyStringHashMap(comptime T: type) type {
 pub fn AutoHashSet(comptime Key: type) type {
     return std.AutoHashMap(Key, void);
 }
+
+pub const SizedPtr = struct {
+    const Self = @This();
+
+    ptr: *Opaque,
+    size: u32,
+
+    pub fn init(ptr: anytype) Self {
+        const Ptr = @TypeOf(ptr);
+        return .{
+            .ptr = Opaque.fromPtr(Ptr, ptr),
+            .size = @sizeOf(@typeInfo(Ptr).Pointer.child),
+        };
+    }
+
+    pub fn deinit(self: *Self, alloc: *std.mem.Allocator) void {
+        const slice = Opaque.toPtr([*]u8, self.ptr)[0..self.size];
+        alloc.free(slice);
+    }
+};

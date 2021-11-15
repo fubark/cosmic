@@ -4,23 +4,7 @@ const Allocator = std.mem.Allocator;
 
 // Wrapper around std. Might add support for UTF-8 in the future.
 
-pub const HeapString = struct {
-    const Self = @This();
-
-    buf: []const u8,
-    alloc: *Allocator,
-
-    pub fn deinit(self: Self) void {
-        self.alloc.free(self.buf);
-    }
-
-    pub fn init(alloc: *Allocator, buf: []const u8) Self {
-        return .{
-            .buf = buf,
-            .alloc = alloc,
-        };
-    }
-};
+pub const BoxString = ds.Box([]const u8);
 
 pub inline fn eq(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
@@ -46,14 +30,14 @@ pub fn dupe(alloc: *Allocator, str: []const u8) ![]const u8 {
     return try std.mem.dupe(alloc, u8, str);
 }
 
-pub fn dupeWrapped(alloc: *Allocator, str: []const u8) !HeapString {
+pub fn dupeWrapped(alloc: *Allocator, str: []const u8) !BoxString {
     const copy = try std.mem.dupe(alloc, u8, str);
-    return HeapString.init(alloc, copy);
+    return BoxString.init(alloc, copy);
 }
 
-pub fn concat(alloc: *Allocator, slices: []const []const u8) !HeapString {
+pub fn concat(alloc: *Allocator, slices: []const []const u8) !BoxString {
     const str = try std.mem.concat(alloc, u8, slices);
-    return HeapString.init(alloc, str);
+    return BoxString.init(alloc, str);
 }
 
 pub fn indexOf(str: []const u8, needle: u8) ?usize {
