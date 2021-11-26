@@ -82,3 +82,7 @@ pub fn eqSliceCb(comptime T: type, cb: fn (act: T, exp: T) anyerror!void, act_sl
 pub fn fail() !void {
     return error.Fail;
 }
+
+pub fn setLogLevel(level: std.log.Level) void {
+    std.testing.log_level = level;
+}

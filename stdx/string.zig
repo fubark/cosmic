@@ -40,13 +40,12 @@ pub fn concat(alloc: *Allocator, slices: []const []const u8) !BoxString {
     return BoxString.init(alloc, str);
 }
 
+pub fn indexOfPos(str: []const u8, start_idx: usize, needle: u8) ?usize {
+    return std.mem.indexOfScalarPos(u8, str, start_idx, needle);
+}
+
 pub fn indexOf(str: []const u8, needle: u8) ?usize {
-    for (str) |ch, i| {
-        if (ch == needle) {
-            return i;
-        }
-    }
-    return null;
+    return std.mem.indexOfScalar(u8, str, needle);
 }
 
 pub fn findIndexOf(str: []const u8, cb: fn (u8) bool) ?usize {
@@ -58,7 +57,11 @@ pub fn findIndexOf(str: []const u8, cb: fn (u8) bool) ?usize {
     return null;
 }
 
-pub fn toLower(alloc: *Allocator, str: []const u8) ![]const u8 {
+pub fn toLower(str: []const u8, dst: []u8) []const u8 {
+    return std.ascii.lowerString(dst, str);
+}
+
+pub fn toLowerAlloc(alloc: *Allocator, str: []const u8) ![]const u8 {
     return try std.ascii.allocLowerString(alloc, str);
 }
 

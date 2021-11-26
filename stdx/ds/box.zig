@@ -45,17 +45,17 @@ fn BoxPtr(comptime T: type) type {
             };
         }
 
-        pub fn create(alloc: *std.mem.Allocator) Self {
-            return .{
+        pub fn create(alloc: *std.mem.Allocator) !Self {
+            return Self{
                 .alloc = alloc,
-                .ptr = alloc.create(T) catch unreachable,
+                .ptr = try alloc.create(T),
             };
         }
 
-        pub fn createInit(alloc: *std.mem.Allocator, _init: T) Self {
-            const new = @This(){
+        pub fn createInit(alloc: *std.mem.Allocator, _init: T) !Self {
+            const new = Self{
                 .alloc = alloc,
-                .ptr = alloc.create(T) catch unreachable,
+                .ptr = try alloc.create(T),
             };
             new.ptr.* = _init;
             return new;

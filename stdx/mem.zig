@@ -4,9 +4,13 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const log = stdx.log.scoped(.mem);
 
-pub fn ptrCastFromCvoid(comptime Ptr: type, ptr: *c_void) Ptr {
+pub fn ptrCastAlign(comptime Ptr: type, ptr: anytype) Ptr {
     const alignment = @typeInfo(Ptr).Pointer.alignment;
-    return @ptrCast(Ptr, @alignCast(alignment, ptr));
+    if (alignment == 0) {
+        return @ptrCast(Ptr, ptr);
+    } else {
+        return @ptrCast(Ptr, @alignCast(alignment, ptr));
+    }
 }
 
 // Same as std.mem.replace except we write to an ArrayList.

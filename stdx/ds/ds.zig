@@ -44,6 +44,7 @@ pub fn RelSlice(comptime T: type) type {
 pub fn OwnedKeyStringHashMap(comptime T: type) type {
     return struct {
         const Self = @This();
+
         alloc: *std.mem.Allocator,
         map: std.StringHashMap(T),
 
@@ -62,15 +63,15 @@ pub fn OwnedKeyStringHashMap(comptime T: type) type {
             return self.map.keyIterator();
         }
 
-        pub fn getEntry(self: @This(), key: []const u8) ?std.StringHashMap(T).Entry {
+        pub fn getEntry(self: Self, key: []const u8) ?std.StringHashMap(T).Entry {
             return self.map.getEntry(key);
         }
 
-        pub fn count(self: @This()) std.StringHashMap(T).Size {
+        pub fn count(self: Self) std.StringHashMap(T).Size {
             return self.map.count();
         }
 
-        pub fn getOrPut(self: *@This(), key: []const u8) !std.StringHashMap(T).GetOrPutResult {
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringHashMap(T).GetOrPutResult {
             const res = try self.map.getOrPut(key);
             if (!res.found_existing) {
                 res.key_ptr.* = string.dupe(self.alloc, key) catch unreachable;
@@ -79,17 +80,17 @@ pub fn OwnedKeyStringHashMap(comptime T: type) type {
         }
 
         // Use with care, doesn't free existing key.
-        pub fn put(self: *@This(), key: []const u8, val: T) !void {
+        pub fn put(self: *Self, key: []const u8, val: T) !void {
             const key_dupe = try stdx.string.dupe(self.alloc, key);
             errdefer self.alloc.free(key_dupe);
             try self.map.put(key_dupe, val);
         }
 
-        pub fn iterator(self: *const @This()) std.StringHashMap(T).Iterator {
+        pub fn iterator(self: *const Self) std.StringHashMap(T).Iterator {
             return self.map.iterator();
         }
 
-        pub fn deinit(self: *@This()) void {
+        pub fn deinit(self: *Self) void {
             var iter = self.map.iterator();
             while (iter.next()) |it| {
                 self.alloc.free(it.key_ptr.*);

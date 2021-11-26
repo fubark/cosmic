@@ -6,6 +6,12 @@ pub const tracy = @import("tracy.zig");
 const UseWasm = builtin.target.cpu.arch == .wasm32;
 const log = stdx.log.scoped(.debug);
 
+pub fn assertInRange(val: anytype, min: @TypeOf(val), max: @TypeOf(val)) void {
+    if (val < min or val > max) {
+        unreachable;
+    }
+}
+
 pub fn panicFmt(comptime format: []const u8, args: anytype) noreturn {
     if (UseWasm) {
         log.err(format, args);

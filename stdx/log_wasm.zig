@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 extern fn jsWarn(ptr: [*]const u8, len: usize) void;
 extern fn jsLog(ptr: [*]const u8, len: usize) void;
@@ -14,6 +15,18 @@ pub fn setBuffer(_buffer: *std.ArrayList(u8)) void {
 
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
+
+        pub fn debug(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            if (builtin.mode == .Debug) {
+                const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
+                buffer.shrinkRetainingCapacity(0);
+                std.fmt.format(buffer_writer, "debug" ++ prefix ++ format, args) catch unreachable;
+                jsLog(buffer.items.ptr, buffer.items.len);
+            }
+        }
 
         pub fn info(
             comptime format: []const u8,
