@@ -7,10 +7,13 @@ test {
 
     // Separate imports for packages since they are not included implicitly.
     const stdx = @import("../stdx/stdx.zig");
-    _ = std.meta.declarations(stdx);
+    t.refAllDecls(stdx);
 
     const parser = @import("../parser/parser.zig");
     t.refAllDecls(parser);
     _ = @import("../parser/parser_simple.test.zig");
     _ = @import("../parser/incremental.test.zig");
+
+    const graphics = @import("../graphics/src/graphics.zig");
+    t.refAllDecls(graphics);
 }
