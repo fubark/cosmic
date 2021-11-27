@@ -1,0 +1,19 @@
+[package]
+name = "clyon"
+version = "0.1.0"
+authors = ["fubar"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+#crate-type = ["staticlib"]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+cbindgen = "0.19.0"
+
+[profile.release]
+panic = "abort"
+
+[dependencies]
+lyon = {version = "0.17.10" }
