@@ -58,14 +58,16 @@ const GlyphHMetrics = struct {
     left_side_bearing: i16,
 };
 
-// In px units.
 const GlyphColorBitmap = struct {
+    // In px units.
     width: u8,
     height: u8, 
     left_side_bearing: i8,
+    bearing_y: i8,
     advance_width: u8,
 
-    // How many px in the bitmap represent 1 vertical em. For now, we use this as the Glyph's font size.
+    // How many px in the bitmap represent 1 em. This lets us scale the px units to the font size.
+    x_px_per_em: u8,
     y_px_per_em: u8,
     png_data: []const u8,
 };
@@ -232,7 +234,7 @@ pub const TTF_Font = struct {
             const start_glyph_id = fromBigU16(&self.data[b_offset+40]);
             const end_glyph_id = fromBigU16(&self.data[b_offset+42]);
 
-            // const x_px_per_em = self.data[b_offset+44];
+            const x_px_per_em = self.data[b_offset+44];
             const y_px_per_em = self.data[b_offset+45];
             const flags = @bitCast(i8, self.data[b_offset+47]);
             if (flags != BITMAP_FLAG_HORIZONTAL_METRICS) {
@@ -280,7 +282,9 @@ pub const TTF_Font = struct {
                                 .width = glyph_data[1],
                                 .height = glyph_data[0],
                                 .left_side_bearing = @bitCast(i8, glyph_data[2]),
-                                .advance_width = glyph_data[3],
+                                .bearing_y = @bitCast(i8, glyph_data[3]),
+                                .advance_width = glyph_data[4],
+                                .x_px_per_em = x_px_per_em,
                                 .y_px_per_em = y_px_per_em,
                                 .png_data = glyph_data[9..],
                             };

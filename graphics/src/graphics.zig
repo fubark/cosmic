@@ -21,6 +21,8 @@ pub const FpsLimiter = fps.FpsLimiter;
 pub const DefaultFpsLimiter = fps.DefaultFpsLimiter;
 const _font_group = @import("font_group.zig");
 const FontGroup = _font_group.FontGroup;
+const text_renderer = @import("backend/gl/text_renderer.zig");
+const FontCache = gl.FontCache;
 const log = std.log.scoped(.graphics);
 
 const _text = @import("text.zig");
@@ -34,10 +36,11 @@ pub const font = struct {
     pub const VMetrics = This.VMetrics;
     pub const TTF_Font = _ttf.TTF_Font;
 
+    const _font = @import("backend/gl/font.zig");
+    const glyph = @import("backend/gl/glyph.zig");
+
     pub usingnamespace switch (Backend) {
         .OpenGL => struct {
-            const _font = @import("backend/gl/font.zig");
-            const glyph = @import("backend/gl/glyph.zig");
             pub const Font = _font.Font;
             pub const BitmapFont = _font.BitmapFont;
             pub const Glyph = glyph.Glyph;
@@ -46,6 +49,7 @@ pub const font = struct {
         },
         .Test => struct {
             pub const Font = _font.Font;
+            pub const BitmapFont = _font.BitmapFont;
             pub const Glyph = glyph.Glyph;
             pub const FontCache = gl.FontCache;
             pub const FontGroup = _font_group.FontGroup;
