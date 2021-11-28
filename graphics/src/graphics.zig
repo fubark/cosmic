@@ -425,6 +425,14 @@ pub const Graphics = struct {
         }
     }
 
+    // Loads an image from various data formats.
+    pub fn createImageFromData(self: *Self, data: []const u8) !Image {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.createImageFromData(&self.g, data),
+            else => @compileError("unsupported"),
+        }
+    }
+
     // Assumes data is rgba in row major starting from top left of image.
     pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: []const u8, linear_filter: bool) ImageId {
         switch (Backend) {

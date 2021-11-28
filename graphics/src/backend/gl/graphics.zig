@@ -338,7 +338,10 @@ pub const Graphics = struct {
     pub fn createImageFromFile(self: *Self, path: []const u8) !graphics.Image {
         const data = try std.fs.cwd().readFileAlloc(self.alloc, path, 1024 * 1024 * 30);
         defer self.alloc.free(data);
+        return createImageFromData(data);
+    }
 
+    pub fn createImageFromData(self: *Self, data: []const u8) !graphics.Image {
         var src_width: c_int = undefined;
         var src_height: c_int = undefined;
         var channels: c_int = undefined;

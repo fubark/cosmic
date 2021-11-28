@@ -53,8 +53,10 @@ pub fn build(b: *Builder) void {
     const test_file = ctx.createTestFileStep();
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
-    const run = ctx.createRunStep();
-    b.step("run", "Run with main file defined by -Dpath").dependOn(&run.run().step);
+    const build_exe = ctx.createBuildExeStep();
+    b.step("exe", "Build exe with main file at -Dpath").dependOn(&build_exe.step);
+
+    b.step("run", "Run with main file at -Dpath").dependOn(&build_exe.run().step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestStep();
@@ -84,35 +86,24 @@ const BuilderContext = struct {
         return self.builder.pathFromRoot(path);
     }
 
-    fn createRunStep(self: *Self) *std.build.LibExeObjStep {
-        const step = self.builder.addExecutable("run", self.path);
+    fn createBuildExeStep(self: *Self) *LibExeObjStep {
+        const basename = std.fs.path.basename(self.path);
+        const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
+        const name = basename[0..i];
+
+        const build_options = self.buildOptionsPkg();
+        const step = self.builder.addExecutable(name, self.path);
         step.setBuildMode(self.mode);
         self.setTarget(step);
 
-        const build_options = self.buildOptionsPkg();
-        addStdx(step, build_options);
-        if (self.link_sdl) {
-            addSDL(step);
-            linkSDL(step);
-        }
-        if (self.link_stbtt) {
-            addStbtt(step);
-            self.buildLinkStbtt(step);
-        }
-        if (self.link_gl) {
-            addGL(step);
-            linkGL(step);
-        }
-        if (self.link_stbi) {
-            addStbi(step);
-            self.buildLinkStbi(step);
-        }
-        if (self.link_lyon) {
-            addLyon(step);
-            linkLyon(step, self.target);
-        }
-        addGraphics(step);
+        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{"zig-out/", name}) catch unreachable;
+        const output_dir = self.fromRoot(output_dir_rel);
+        step.setOutputDir(output_dir);
 
+        addStdx(step, build_options);
+        addGraphics(step);
+        self.addDeps(step);
+        self.copyAssets(step, output_dir);
         return step;
     }
 
@@ -167,6 +158,29 @@ const BuilderContext = struct {
         }
     }
 
+    fn addDeps(self: *Self, step: *LibExeObjStep) void {
+        if (self.link_sdl) {
+            addSDL(step);
+            linkSDL(step);
+        }
+        if (self.link_stbtt) {
+            addStbtt(step);
+            self.buildLinkStbtt(step);
+        }
+        if (self.link_gl) {
+            addGL(step);
+            linkGL(step);
+        }
+        if (self.link_lyon) {
+            addLyon(step);
+            linkLyon(step, self.target);
+        }
+        if (self.link_stbi) {
+            addStbi(step);
+            self.buildLinkStbi(step);
+        }
+    }
+
     fn setTarget(self: *Self, step: *std.build.LibExeObjStep) void {
         var target = self.target;
         if (target.os_tag == null) {
@@ -211,7 +225,7 @@ const BuilderContext = struct {
         // }
     }
 
-    fn buildLinkStbtt(self: *BuilderContext, step: *LibExeObjStep) void {
+    fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addSharedLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"), .unversioned);
         lib.addIncludeDir(self.fromRoot("./vendor/stb"));
         lib.linkLibC();
@@ -220,7 +234,7 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    fn buildLinkStbi(self: *BuilderContext, step: *std.build.LibExeObjStep) void {
+    fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
         const lib = self.builder.addSharedLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"), .unversioned);
         lib.addIncludeDir(self.fromRoot("./vendor/stb"));
         lib.linkLibC();
@@ -230,10 +244,55 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    fn buildLinkMock(self: *BuilderContext, step: *LibExeObjStep) void {
+    fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addSharedLibrary("mock", self.fromRoot("./test/lib_mock.zig"), .unversioned);
         addGL(lib);
         step.linkLibrary(lib);
+    }
+
+    fn copyAssets(self: *Self, step: *LibExeObjStep, output_dir_abs: []const u8) void {
+        if (self.path.len == 0) {
+            return;
+        }
+        // Parses the main file for @buildCopy in doc comments
+        const main_path = self.fromRoot(self.path);
+        const main_dir = std.fs.path.dirname(main_path).?;
+        const file = std.fs.openFileAbsolute(main_path, .{ .read = true, .write = false }) catch unreachable;
+        defer file.close();
+        const source = file.readToEndAllocOptions(self.builder.allocator, 1024 * 1000 * 10, null, @alignOf(u8), 0) catch unreachable;
+        defer self.builder.allocator.free(source);
+
+        var tree = std.zig.parse(self.builder.allocator, source) catch unreachable;
+        defer tree.deinit(self.builder.allocator);
+
+        const root_members = tree.rootDecls();
+        for (root_members) |member| {
+            // Search for doc comments.
+            const tok_start = tree.firstToken(member);
+            if (tok_start == 0) {
+                continue;
+            }
+            var tok = tok_start - 1;
+            while (tok >= 0) {
+                if (tree.tokens.items(.tag)[tok] == .doc_comment) {
+                    const str = tree.tokenSlice(tok);
+                    var i: usize = 0;
+                    i = std.mem.indexOfScalarPos(u8, str, i, '@') orelse continue;
+                    var end = std.mem.indexOfScalarPos(u8, str, i, ' ') orelse continue;
+                    if (!std.mem.eql(u8, str[i..end], "@buildCopy")) continue;
+                    i = std.mem.indexOfScalarPos(u8, str, i, '"') orelse continue;
+                    end = std.mem.indexOfScalarPos(u8, str, i+1, '"') orelse continue;
+                    const src_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{main_dir, str[i+1..end]}) catch unreachable;
+                    i = std.mem.indexOfScalarPos(u8, str, end+1, '"') orelse continue;
+                    end = std.mem.indexOfScalarPos(u8, str, i+1, '"') orelse continue;
+                    const dst_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{output_dir_abs, str[i+1..end]}) catch unreachable;
+                    _ = self.builder.execFromStep(&[_][]const u8{ "cp", src_path, dst_path }, &step.step) catch unreachable;
+                } else {
+                    break;
+                }
+                if (tok > 0) tok -= 1;
+            }
+        }
     }
 };
 

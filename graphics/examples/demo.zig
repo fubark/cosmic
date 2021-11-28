@@ -21,18 +21,20 @@ var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
 var win: Window = undefined;
 var g: Graphics = undefined;
 
-const zig_logo_svg = @embedFile("../../vendor/assets/zig-logo-dark.svg");
-const tiger_head_svg = @embedFile("../../vendor/assets/tiger-head.svg");
-
-const default_font = @embedFile("../../vendor/fonts/NunitoSans-Regular.ttf");
-const default_emoji = @embedFile("../../vendor/fonts/NotoColorEmoji.ttf");
-
+var zig_logo_svg: []const u8 = undefined;
 var tiger_head_draw_list: graphics.DrawCommandList = undefined;
 var game_char_image: Image = undefined;
 
 var font_id: FontId = undefined;
 
+/// @buildCopy "../../vendor/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
+/// @buildCopy "../../vendor/assets/tiger-head.svg" "tiger-head.svg"
+/// @buildCopy "../../vendor/fonts/NunitoSans-Regular.ttf" "NunitoSans-Regular.ttf"
+/// @buildCopy "../../vendor/fonts/NotoColorEmoji.ttf" "NotoColorEmoji.ttf"
+/// @buildCopy "../../vendor/assets/game-char.png" "game-char.png"
+
 pub fn main() !void {
+
     const alloc = if (IsWasm) std.heap.page_allocator else b: {
         gpa = std.heap.GeneralPurposeAllocator(.{}){};
         break :b &gpa.allocator;
@@ -54,16 +56,33 @@ pub fn main() !void {
     g.init(alloc, win.inner.width, win.inner.height);
     defer g.deinit();
 
+    const MaxFileSize = 1024 * 1000 * 20;
+
+    const default_font = try stdx.fs.readFileFromExeDir(alloc, "NunitoSans-Regular.ttf", MaxFileSize);
+    defer alloc.free(default_font);
+
+    const default_emoji = try stdx.fs.readFileFromExeDir(alloc, "NotoColorEmoji.ttf", MaxFileSize);
+    defer alloc.free(default_emoji);
+
     font_id = g.addTTF_Font(default_font);
     const emoji_font = g.addTTF_Font(default_emoji);
     g.addFallbackFont(emoji_font);
 
-    game_char_image = try g.createImageFromFile("./vendor/assets/game-char.png");
+    const image_data = try stdx.fs.readFileFromExeDir(alloc, "game-char.png", MaxFileSize);
+    game_char_image = try g.createImageFromData(image_data);
+    alloc.free(image_data);
+
+    zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
+    defer alloc.free(zig_logo_svg);
+
+    const tiger_head_svg = try stdx.fs.readFileFromExeDir(alloc, "tiger-head.svg", MaxFileSize);
 
     var parser = svg.SvgParser.init(alloc);
     defer parser.deinit();
     tiger_head_draw_list = try parser.parseAlloc(alloc, tiger_head_svg);
     defer tiger_head_draw_list.deinit();
+
+    alloc.free(tiger_head_svg);
 
     while (update()) {
         std.time.sleep(30);

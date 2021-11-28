@@ -8,6 +8,7 @@ pub const mem = @import("mem.zig");
 pub const math = @import("math/math.zig");
 pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
+pub const fs = @import("fs.zig");
 
 // Common utils.
 pub const panic = debug.panic;
