@@ -122,6 +122,10 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             return &self.data.items[id];
         }
 
+        pub fn hasItem(self: *const Self, id: Id) bool {
+            return self.data_exists.isSet(id);
+        }
+
         pub fn size(self: *const Self) usize {
             return self.data.items.len - self.id_gen.next_ids.count;
         }

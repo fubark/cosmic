@@ -1,0 +1,82 @@
+<html>
+<head>
+    <style>
+        html, body {
+            margin: 0px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="./stdx.js"></script>
+    <script src="./graphics.js"></script>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const wasm = {
+            imports: {
+                graphics: {},
+                stdx: {},
+            },
+            exports: {},
+            inputPtr: 0,
+            inputCap: 0,
+        };
+        wasm.imports.graphics = initGraphicsImports(wasm, canvas);
+        wasm.imports.stdx = initStdxImports(wasm);
+
+        // Load wasm.
+        fetch('./demo.wasm')
+            .then(resp => resp.arrayBuffer())
+            .then(buf => WebAssembly.instantiate(buf, wasm.imports))
+            .then(res => {
+                wasm.exports = res.instance.exports;
+                console.log(wasm);
+                wasmOutputPtr = wasm.exports.wasmInit();
+                processWasmResult();
+                window.requestAnimationFrame(loop);
+            });
+
+        const target_fps = 30;
+        const target_ms_per_frame = 1000 / target_fps;
+        // Since there is no sleep logic, we add up time to see if we should perform a frame update.
+        // Sometimes we could miss the target_ms_per_frame by a little and as a result affect the fps greatly,
+        // so we have a minimum target instead.
+        const min_ms_per_frame = target_ms_per_frame / 2;
+
+        let last_time_ms = performance.now();
+
+        // App loop.
+        function loop(now_ms) {
+            const req_id = window.requestAnimationFrame(loop);
+            const delta_ms = now_ms - last_time_ms;
+            if (delta_ms >= min_ms_per_frame) {
+                last_time_ms = now_ms;
+                // Perform app update after reaching target ms.
+                try {
+                    wasmOutputPtr = wasm.exports.wasmUpdate(now_ms, wasmInputLen);
+                    processWasmResult();
+                } catch (e) {
+                    // Report error and stop the loop.
+                    console.error(e);
+                    window.cancelAnimationFrame(req_id);
+                }
+            }
+        }
+
+        let wasmOutputPtr = 0;
+        let wasmInputCurPtr = 0;
+        let wasmInputLen = 0;
+        let wasmBufferView = null;
+        function processWasmResult(ptr) {
+            wasmOutputPtr = ptr;
+            // Must create a view directly over the buffer (slices won't allow writing to the original buffer)
+            wasmBufferView = new DataView(wasm.exports.memory.buffer);
+
+            wasm.inputPtr = wasmBufferView.getUint32(wasmOutputPtr, true);
+            wasm.inputCap = wasmBufferView.getUint32(wasmOutputPtr + 4, true);
+            wasmInputCurPtr = wasm.inputPtr;
+            wasmInputLen = 0;
+        }
+    </script>
+</body>
+</html>

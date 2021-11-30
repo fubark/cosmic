@@ -506,38 +506,38 @@ pub const Graphics = struct {
 
     pub fn fillRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         // Top left corner.
-        self.fillCircleArcN(x + radius, y + radius, radius, math.pi_half, math.pi, 90);
+        self.fillCircleSectorN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
         self.fillRect(x, y + radius, radius, height - radius*2);
         // Bottom left corner.
-        self.fillCircleArcN(x + radius, y + height - radius, radius, math.pi, 3 * math.pi_half, 90);
+        self.fillCircleSectorN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
         // Middle.
         self.fillRect(x + radius, y, width - radius*2, height);
         // Top right corner.
-        self.fillCircleArcN(x + width - radius, y + radius, radius, 0, math.pi_half, 90);
+        self.fillCircleSectorN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
         self.fillRect(x + width - radius, y + radius, radius, height - radius*2);
         // Bottom right corner.
-        self.fillCircleArcN(x + width - radius, y + height - radius, radius, 3 * math.pi_half, math.pi_2, 90);
+        self.fillCircleSectorN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
     }
 
     pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         // Top left corner.
-        self.drawCircleArcN(x + radius, y + radius, radius, math.pi_half, math.pi, 90);
+        self.drawCircleArcN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
         self.fillRectColor(x - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius*2, self.cur_stroke_color);
         // Bottom left corner.
-        self.drawCircleArcN(x + radius, y + height - radius, radius, math.pi, 3 * math.pi_half, 90);
+        self.drawCircleArcN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
         // Top.
         self.fillRectColor(x + radius, y - self.cur_line_width_half, width - radius*2, self.cur_line_width, self.cur_stroke_color);
         // Bottom.
         self.fillRectColor(x + radius, y + height - self.cur_line_width_half, width - radius*2, self.cur_line_width, self.cur_stroke_color);
         // Top right corner.
-        self.drawCircleArcN(x + width - radius, y + radius, radius, 0, math.pi_half, 90);
+        self.drawCircleArcN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
         self.fillRectColor(x + width - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius*2, self.cur_stroke_color);
         // Bottom right corner.
-        self.drawCircleArcN(x + width - radius, y + height - radius, radius, 3 * math.pi_half, math.pi_2, 90);
+        self.drawCircleArcN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
     }
 
     pub fn fillRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
@@ -578,19 +578,18 @@ pub const Graphics = struct {
         self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, end_rad: f32) void {
+    pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
-            stdx.debug.assertInRange(start_rad, 0, math.pi_2);
-            stdx.debug.assertInRange(end_rad, 0, math.pi_2);
-            std.debug.assert(start_rad <= end_rad);
+            stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
+            stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc sector per degree.
-        var n = @floatToInt(u32, std.math.ceil(((end_rad - start_rad) / math.pi_2) * 360));
-        self.drawCircleArcN(x, y, radius, start_rad, end_rad, n);
+        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        self.drawCircleArcN(x, y, radius, start_rad, sweep_rad, n);
     }
 
     // n is the number of sections in the arc we will draw.
-    pub fn drawCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, end_rad: f32, n: u32) void {
+    pub fn drawCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
 
@@ -604,12 +603,12 @@ pub const Graphics = struct {
         // Add first two vertices.
         var cos = std.math.cos(start_rad);
         var sin = std.math.sin(start_rad);
-        vert.setXY(x + cos * inner_rad, y - sin * inner_rad);
+        vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
         self.batcher.mesh.addVertex(&vert);
-        vert.setXY(x + cos * outer_rad, y - sin * outer_rad);
+        vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
         self.batcher.mesh.addVertex(&vert);
 
-        const rad_per_n = (end_rad - start_rad) / @intToFloat(f32, n);
+        const rad_per_n = sweep_rad / @intToFloat(f32, n);
         var cur_vert_idx = self.batcher.mesh.getNextIndexId();
         var i: u32 = 1;
         while (i <= n) : (i += 1) {
@@ -618,9 +617,9 @@ pub const Graphics = struct {
             // Add inner/outer vertex.
             cos = std.math.cos(rad);
             sin = std.math.sin(rad);
-            vert.setXY(x + cos * inner_rad, y - sin * inner_rad);
+            vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
             self.batcher.mesh.addVertex(&vert);
-            vert.setXY(x + cos * outer_rad, y - sin * outer_rad);
+            vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
             self.batcher.mesh.addVertex(&vert);
 
             // Add arc sector.
@@ -629,7 +628,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, end_rad: f32, num_tri: u32) void {
+    pub fn fillCircleSectorN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, num_tri: u32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(num_tri + 2, num_tri * 3);
 
@@ -645,11 +644,11 @@ pub const Graphics = struct {
         // Add first circle vertex.
         var cos = std.math.cos(start_rad);
         var sin = std.math.sin(start_rad);
-        vert.setUV(0.5 + cos, 0.5 - sin);
-        vert.setXY(x + cos * radius, y - sin * radius);
+        vert.setUV(0.5 + cos, 0.5 + sin);
+        vert.setXY(x + cos * radius, y + sin * radius);
         self.batcher.mesh.addVertex(&vert);
 
-        const rad_per_tri = (end_rad - start_rad) / @intToFloat(f32, num_tri);
+        const rad_per_tri = sweep_rad / @intToFloat(f32, num_tri);
         var last_vert_idx = center + 1;
         var i: u32 = 1;
         while (i <= num_tri) : (i += 1) {
@@ -658,8 +657,8 @@ pub const Graphics = struct {
             // Add next circle vertex.
             cos = std.math.cos(rad);
             sin = std.math.sin(rad);
-            vert.setUV(0.5 + cos, 0.5 - sin);
-            vert.setXY(x + cos * radius, y - sin * radius);
+            vert.setUV(0.5 + cos, 0.5 + sin);
+            vert.setXY(x + cos * radius, y + sin * radius);
             self.batcher.mesh.addVertex(&vert);
 
             // Add triangle.
@@ -669,20 +668,19 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, end_rad: f32) void {
+    pub fn fillCircleSector(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
-            stdx.debug.assertInRange(start_rad, 0, math.pi_2);
-            stdx.debug.assertInRange(end_rad, 0, math.pi_2);
-            std.debug.assert(start_rad <= end_rad);
+            stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
+            stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 triangle per degree.
-        var num_tri = @floatToInt(u32, std.math.ceil(((end_rad - start_rad) / math.pi_2) * 360));
-        self.fillCircleArcN(x, y, radius, start_rad, end_rad, num_tri);
+        var num_tri = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        self.fillCircleSectorN(x, y, radius, start_rad, sweep_rad, num_tri);
     }
 
     // Same implementation as fillEllipse when h_radius = v_radius.
     pub fn fillCircle(self: *Self, x: f32, y: f32, radius: f32) void {
-        self.fillCircleArcN(x, y, radius, 0, math.pi_2, 360);
+        self.fillCircleSectorN(x, y, radius, 0, math.pi_2, 360);
     }
 
     // Same implementation as drawEllipse when h_radius = v_radius. Might be slightly faster since we use fewer vars.
@@ -690,7 +688,7 @@ pub const Graphics = struct {
         self.drawCircleArcN(x, y, radius, 0, math.pi_2, 360);
     }
 
-    pub fn fillEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, end_rad: f32, n: u32) void {
+    pub fn fillEllipseSectorN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(n + 2, n * 3);
 
@@ -706,11 +704,11 @@ pub const Graphics = struct {
         // Add first circle vertex.
         var cos = std.math.cos(start_rad);
         var sin = std.math.sin(start_rad);
-        vert.setUV(0.5 + cos, 0.5 - sin);
-        vert.setXY(x + cos * h_radius, y - sin * v_radius);
+        vert.setUV(0.5 + cos, 0.5 + sin);
+        vert.setXY(x + cos * h_radius, y + sin * v_radius);
         self.batcher.mesh.addVertex(&vert);
 
-        const rad_per_tri = (end_rad - start_rad) / @intToFloat(f32, n);
+        const rad_per_tri = sweep_rad / @intToFloat(f32, n);
         var last_vert_idx = center + 1;
         var i: u32 = 1;
         while (i <= n) : (i += 1) {
@@ -719,8 +717,8 @@ pub const Graphics = struct {
             // Add next circle vertex.
             cos = std.math.cos(rad);
             sin = std.math.sin(rad);
-            vert.setUV(0.5 + cos, 0.5 - sin);
-            vert.setXY(x + cos * h_radius, y - sin * v_radius);
+            vert.setUV(0.5 + cos, 0.5 + sin);
+            vert.setXY(x + cos * h_radius, y + sin * v_radius);
             self.batcher.mesh.addVertex(&vert);
 
             // Add triangle.
@@ -730,34 +728,32 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, end_rad: f32) void {
+    pub fn fillEllipseSector(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
-            stdx.debug.assertInRange(start_rad, 0, math.pi_2);
-            stdx.debug.assertInRange(end_rad, 0, math.pi_2);
-            std.debug.assert(start_rad <= end_rad);
+            stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
+            stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc section per degree.
-        var n = @floatToInt(u32, std.math.ceil(((end_rad - start_rad) / math.pi_2) * 360));
-        self.fillEllipseArcN(x, y, h_radius, v_radius, start_rad, end_rad, n);
+        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        self.fillEllipseSectorN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
     pub fn fillEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
-        self.fillEllipseArcN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
+        self.fillEllipseSectorN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, end_rad: f32) void {
+    pub fn drawEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
-            stdx.debug.assertInRange(start_rad, 0, math.pi_2);
-            stdx.debug.assertInRange(end_rad, 0, math.pi_2);
-            std.debug.assert(start_rad <= end_rad);
+            stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
+            stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc sector per degree.
-        var n = @floatToInt(u32, std.math.ceil(((end_rad - start_rad) / math.pi_2) * 360));
-        self.drawEllipseArcN(x, y, h_radius, v_radius, start_rad, end_rad, n);
+        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        self.drawEllipseArcN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
     // n is the number of sections in the arc we will draw.
-    pub fn drawEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, end_rad: f32, n: u32) void {
+    pub fn drawEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
 
@@ -773,12 +769,12 @@ pub const Graphics = struct {
         // Add first two vertices.
         var cos = std.math.cos(start_rad);
         var sin = std.math.sin(start_rad);
-        vert.setXY(x + cos * inner_h_rad, y - sin * inner_v_rad);
+        vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
         self.batcher.mesh.addVertex(&vert);
-        vert.setXY(x + cos * outer_h_rad, y - sin * outer_v_rad);
+        vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
         self.batcher.mesh.addVertex(&vert);
 
-        const rad_per_n = (end_rad - start_rad) / @intToFloat(f32, n);
+        const rad_per_n = sweep_rad / @intToFloat(f32, n);
         var cur_vert_idx = self.batcher.mesh.getNextIndexId();
         var i: u32 = 1;
         while (i <= n) : (i += 1) {
@@ -787,9 +783,9 @@ pub const Graphics = struct {
             // Add inner/outer vertex.
             cos = std.math.cos(rad);
             sin = std.math.sin(rad);
-            vert.setXY(x + cos * inner_h_rad, y - sin * inner_v_rad);
+            vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
             self.batcher.mesh.addVertex(&vert);
-            vert.setXY(x + cos * outer_h_rad, y - sin * outer_v_rad);
+            vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
             self.batcher.mesh.addVertex(&vert);
 
             // Add arc sector.

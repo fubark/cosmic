@@ -11,16 +11,17 @@ const Image = graphics.Image;
 const Color = graphics.Color;
 const svg = graphics.svg;
 const sdl = @import("sdl");
+const WasmJsBuffer = stdx.wasm.WasmJsBuffer;
 
 const log = stdx.log.scoped(.demo);
 
 const IsWasm = builtin.target.cpu.arch == .wasm32;
 
-var gpa: std.heap.GeneralPurposeAllocator(.{}) = undefined;
-
 var win: Window = undefined;
 var g: Graphics = undefined;
 
+var default_font: []const u8 = undefined;
+var default_emoji: []const u8 = undefined;
 var zig_logo_svg: []const u8 = undefined;
 var tiger_head_draw_list: graphics.DrawCommandList = undefined;
 var game_char_image: Image = undefined;
@@ -34,16 +35,8 @@ var font_id: FontId = undefined;
 /// @buildCopy "../../vendor/assets/game-char.png" "game-char.png"
 
 pub fn main() !void {
-
-    const alloc = if (IsWasm) std.heap.page_allocator else b: {
-        gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        break :b &gpa.allocator;
-    };
-    defer {
-        if (!IsWasm) {
-            _ = gpa.deinit();
-        }
-    }
+    const alloc = stdx.heap.getDefaultAllocator();
+    defer stdx.heap.deinitDefaultAllocator();
 
     win = try Window.init(alloc, .{
         .title = "Demo",
@@ -53,55 +46,30 @@ pub fn main() !void {
     });
     defer win.deinit();
 
-    g.init(alloc, win.inner.width, win.inner.height);
+    g.init(alloc, win.getWidth(), win.getHeight());
     defer g.deinit();
 
-    const MaxFileSize = 1024 * 1000 * 20;
+    try initAssets(alloc);
+    defer deinitAssets(alloc);
 
-    const default_font = try stdx.fs.readFileFromExeDir(alloc, "NunitoSans-Regular.ttf", MaxFileSize);
-    defer alloc.free(default_font);
-
-    const default_emoji = try stdx.fs.readFileFromExeDir(alloc, "NotoColorEmoji.ttf", MaxFileSize);
-    defer alloc.free(default_emoji);
-
-    font_id = g.addTTF_Font(default_font);
-    const emoji_font = g.addTTF_Font(default_emoji);
-    g.addFallbackFont(emoji_font);
-
-    const image_data = try stdx.fs.readFileFromExeDir(alloc, "game-char.png", MaxFileSize);
-    game_char_image = try g.createImageFromData(image_data);
-    alloc.free(image_data);
-
-    zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
-    defer alloc.free(zig_logo_svg);
-
-    const tiger_head_svg = try stdx.fs.readFileFromExeDir(alloc, "tiger-head.svg", MaxFileSize);
-
-    var parser = svg.SvgParser.init(alloc);
-    defer parser.deinit();
-    tiger_head_draw_list = try parser.parseAlloc(alloc, tiger_head_svg);
-    defer tiger_head_draw_list.deinit();
-
-    alloc.free(tiger_head_svg);
-
-    while (update()) {
-        std.time.sleep(30);
-    }
-}
-
-fn update() bool {
-    if (!IsWasm) {
+    var loop = true;
+    while (loop) {
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
             switch (event.@"type") {
                 sdl.SDL_QUIT => {
-                    return false;
+                    loop = false;
+                    break;
                 },
                 else => {},
             }
         }
+        update();
+        std.time.sleep(30);
     }
+}
 
+fn update() void {
     g.beginFrame();
 
     // Shapes.
@@ -133,7 +101,7 @@ fn update() bool {
     g.setFillColor(Color.Green);
     g.fillCircle(550, 150, 100);
     g.setFillColor(Color.Green.darker());
-    g.fillCircleArcDeg(550, 150, 100, 0, 120);
+    g.fillCircleSectorDeg(550, 150, 100, 0, 120);
 
     g.setStrokeColor(Color.Yellow);
     g.drawCircle(700, 200, 70);
@@ -143,7 +111,7 @@ fn update() bool {
     g.setFillColor(Color.Purple);
     g.fillEllipse(850, 70, 80, 40);
     g.setFillColor(Color.Purple.lighter());
-    g.fillEllipseArcDeg(850, 70, 80, 40, 0, 240);
+    g.fillEllipseSectorDeg(850, 70, 80, 40, 0, 240);
     g.setStrokeColor(Color.Brown);
     g.drawEllipse(850, 70, 80, 40);
     g.setStrokeColor(Color.Brown.lighter());
@@ -188,11 +156,16 @@ fn update() bool {
     g.setFillColor(Color.White);
     g.fillRect(0, 0, 400, 140);
     g.drawSvgContent(zig_logo_svg) catch unreachable;
+    g.resetTransform();
 
     // Bigger Svg.
-    g.resetTransform();
-    g.translate(840, 360);
-    g.executeDrawList(tiger_head_draw_list);
+    if (IsWasm) {
+        // It's much faster to use an svg image on web canvas.
+        g.drawImageSized(670, 220, 500, 500, tiger_head_image.id);
+    } else {
+        g.translate(840, 360);
+        g.executeDrawList(tiger_head_draw_list);
+    }
 
     // g.drawSvgPathStr(0, 0,
     //     \\M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1
@@ -212,6 +185,78 @@ fn update() bool {
 
     g.endFrame();
     win.swapBuffers();
+}
 
-    return true;
+fn initAssets(alloc: *std.mem.Allocator) !void {
+    const MaxFileSize = 1024 * 1000 * 20;
+
+    default_font = try stdx.fs.readFileFromExeDir(alloc, "NunitoSans-Regular.ttf", MaxFileSize);
+    default_emoji = try stdx.fs.readFileFromExeDir(alloc, "NotoColorEmoji.ttf", MaxFileSize);
+
+    font_id = g.addTTF_Font(default_font);
+    const emoji_font = g.addTTF_Font(default_emoji);
+    g.addFallbackFont(emoji_font);
+
+    const image_data = try stdx.fs.readFileFromExeDir(alloc, "game-char.png", MaxFileSize);
+    game_char_image = try g.createImageFromData(image_data);
+    alloc.free(image_data);
+
+    zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
+
+    const tiger_head_svg = try stdx.fs.readFileFromExeDir(alloc, "tiger-head.svg", MaxFileSize);
+
+    var parser = svg.SvgParser.init(alloc);
+    defer parser.deinit();
+    tiger_head_draw_list = try parser.parseAlloc(alloc, tiger_head_svg);
+    alloc.free(tiger_head_svg);
+}
+
+fn deinitAssets(alloc: *std.mem.Allocator) void {
+    alloc.free(default_font);
+    alloc.free(default_emoji);
+    tiger_head_draw_list.deinit();
+    alloc.free(zig_logo_svg);
+}
+
+var js_buf: *WasmJsBuffer = undefined;
+
+export fn wasmInit() *const u8 {
+    if (!IsWasm) {
+        unreachable;
+    }
+    const alloc = stdx.heap.getDefaultAllocator();
+    stdx.wasm.init(alloc);
+    js_buf = stdx.wasm.getJsBuffer();
+
+    win = Window.init(alloc, .{
+        .title = "Demo",
+        .width = 1200,
+        .height = 720,
+    }) catch unreachable;
+
+    g.init(alloc, win.getWidth(), win.getHeight());
+
+    const MaxFileSize = 1024 * 1000 * 20;
+    const p1 = stdx.fs.readFileFromExeDirPromise(alloc, "./zig-logo-dark.svg", MaxFileSize).thenCopyTo(&zig_logo_svg).autoFree();
+    const p2 = g.createImageFromExeDirPromise("./game-char.png").thenCopyTo(&game_char_image).autoFree();
+    const p3 = g.createImageFromExeDirPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
+    load_assets_p = stdx.wasm.createAndPromise(&.{p1.id, p2.id, p3.id});
+
+    return js_buf.writeResult();
+}
+
+var load_assets_p: stdx.wasm.Promise(void) = undefined;
+var tiger_head_image: Image = undefined;
+
+export fn wasmUpdate() *const u8 {
+    if (!IsWasm) {
+        unreachable;
+    }
+
+    if (!load_assets_p.isResolved()) {
+        return js_buf.writeResult();
+    }
+
+    update();
+    return js_buf.writeResult();
 }

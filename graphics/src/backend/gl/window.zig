@@ -75,9 +75,10 @@ fn initGL_Window(alloc: *std.mem.Allocator, win: *Window, config: Config, flags:
     try glSetAttr(sdl.SDL_GL_STENCIL_SIZE, 8);
 
     var window_flags = flags | sdl.SDL_WINDOW_OPENGL;
-    win.sdl_window = sdl.CreateWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED, config.width, config.height, @bitCast(u32, window_flags)) orelse {
-        log.warn("unable to create window: {s}", .{sdl.SDL_GetError()});
-        return error.Failed;
+    win.sdl_window = sdl.CreateWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED,
+        @intCast(c_int, config.width), @intCast(c_int, config.height), @bitCast(u32, window_flags)) orelse {
+            log.warn("unable to create window: {s}", .{sdl.SDL_GetError()});
+            return error.Failed;
     };
 
     win.gl_ctx = sdl.SDL_GL_CreateContext(win.sdl_window);

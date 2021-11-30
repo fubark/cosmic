@@ -58,6 +58,12 @@ pub fn build(b: *Builder) void {
 
     b.step("run", "Run with main file at -Dpath").dependOn(&build_exe.run().step);
 
+    const build_lib = ctx.createBuildLibStep();
+    b.step("lib", "Build lib with main file at -Dpath").dependOn(&build_lib.step);
+
+    const build_wasm = ctx.createBuildWasmBundleStep();
+    b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestStep();
     whitelist_test.setFilter("INCLUDE");
@@ -86,6 +92,69 @@ const BuilderContext = struct {
         return self.builder.pathFromRoot(path);
     }
 
+    fn createBuildLibStep(self: *Self) *LibExeObjStep {
+        const basename = std.fs.path.basename(self.path);
+        const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
+        const name = basename[0..i];
+
+        const build_options = self.buildOptionsPkg();
+        const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
+        step.setBuildMode(self.mode);
+        self.setTarget(step);
+
+        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
+        const output_dir = self.fromRoot(output_dir_rel);
+        step.setOutputDir(output_dir);
+
+        addStdx(step, build_options);
+        addGraphics(step);
+        self.addDeps(step);
+
+        return step;
+    }
+
+    // Similar to createBuildLibStep except we also copy over index.html and required js libs.
+    fn createBuildWasmBundleStep(self: *Self) *LibExeObjStep {
+        const basename = std.fs.path.basename(self.path);
+        const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
+        const name = basename[0..i];
+
+        const build_options = self.buildOptionsPkg();
+        const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
+        step.setBuildMode(self.mode);
+        step.setTarget(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+        });
+
+        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
+        const output_dir = self.fromRoot(output_dir_rel);
+        step.setOutputDir(output_dir);
+
+        addStdx(step, build_options);
+        addGraphics(step);
+        self.addDeps(step);
+        self.copyAssets(step, output_dir);
+
+        // index.html
+        var exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/index.html", output_dir });
+        step.step.dependOn(&exec.step);
+
+        // graphics.js
+        exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/graphics.js", output_dir });
+        step.step.dependOn(&exec.step);
+
+        // stdx.js
+        exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/stdx.js", output_dir });
+        step.step.dependOn(&exec.step);
+
+        return step;
+    }
+
+    fn joinResolvePath(self: *Self, paths: []const []const u8) []const u8 {
+        return std.fs.path.join(self.builder.allocator, paths) catch unreachable;
+    }
+
     fn createBuildExeStep(self: *Self) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
@@ -96,7 +165,7 @@ const BuilderContext = struct {
         step.setBuildMode(self.mode);
         self.setTarget(step);
 
-        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{"zig-out/", name}) catch unreachable;
+        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
         const output_dir = self.fromRoot(output_dir_rel);
         step.setOutputDir(output_dir);
 
@@ -265,6 +334,9 @@ const BuilderContext = struct {
         var tree = std.zig.parse(self.builder.allocator, source) catch unreachable;
         defer tree.deinit(self.builder.allocator);
 
+        var exec = ExecStep.create(self.builder, &[_][]const u8{ "mkdir", "-p", output_dir_abs });
+        step.step.dependOn(&exec.step);
+
         const root_members = tree.rootDecls();
         for (root_members) |member| {
             // Search for doc comments.
@@ -281,12 +353,13 @@ const BuilderContext = struct {
                     var end = std.mem.indexOfScalarPos(u8, str, i, ' ') orelse continue;
                     if (!std.mem.eql(u8, str[i..end], "@buildCopy")) continue;
                     i = std.mem.indexOfScalarPos(u8, str, i, '"') orelse continue;
-                    end = std.mem.indexOfScalarPos(u8, str, i+1, '"') orelse continue;
-                    const src_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{main_dir, str[i+1..end]}) catch unreachable;
-                    i = std.mem.indexOfScalarPos(u8, str, end+1, '"') orelse continue;
-                    end = std.mem.indexOfScalarPos(u8, str, i+1, '"') orelse continue;
-                    const dst_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{output_dir_abs, str[i+1..end]}) catch unreachable;
-                    _ = self.builder.execFromStep(&[_][]const u8{ "cp", src_path, dst_path }, &step.step) catch unreachable;
+                    end = std.mem.indexOfScalarPos(u8, str, i + 1, '"') orelse continue;
+                    const src_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{ main_dir, str[i + 1 .. end] }) catch unreachable;
+                    i = std.mem.indexOfScalarPos(u8, str, end + 1, '"') orelse continue;
+                    end = std.mem.indexOfScalarPos(u8, str, i + 1, '"') orelse continue;
+                    const dst_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{ output_dir_abs, str[i + 1 .. end] }) catch unreachable;
+                    exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", src_path, dst_path });
+                    step.step.dependOn(&exec.step);
                 } else {
                     break;
                 }
@@ -443,6 +516,33 @@ const BuildLyonStep = struct {
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
             _ = try self.builder.exec(&[_][]const u8{ "strip", to_path });
         }
+    }
+};
+
+const ExecStep = struct {
+    const Self = @This();
+
+    step: std.build.Step,
+    b: *Builder,
+    args: []const []const u8,
+
+    fn create(b: *Builder, args: []const []const u8) *Self {
+        // Dupe arg list.
+        const new_args = b.allocator.alloc([]const u8, args.len) catch unreachable;
+        std.mem.copy([]const u8, new_args, args);
+
+        const new = b.allocator.create(Self) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("exec", .{}), b.allocator, make),
+            .b = b,
+            .args = new_args,
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(Self, "step", step);
+        _ = self.b.execFromStep(self.args, &self.step) catch unreachable;
     }
 };
 

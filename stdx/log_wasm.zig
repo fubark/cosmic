@@ -1,17 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const stdx = @import("stdx.zig");
 
-extern fn jsWarn(ptr: [*]const u8, len: usize) void;
-extern fn jsLog(ptr: [*]const u8, len: usize) void;
-extern fn jsErr(ptr: [*]const u8, len: usize) void;
+extern "stdx" fn jsWarn(ptr: [*]const u8, len: usize) void;
+extern "stdx" fn jsLog(ptr: [*]const u8, len: usize) void;
+extern "stdx" fn jsErr(ptr: [*]const u8, len: usize) void;
 
-var buffer: *std.ArrayList(u8) = undefined;
-var buffer_writer: std.ArrayList(u8).Writer = undefined;
-
-pub fn setBuffer(_buffer: *std.ArrayList(u8)) void {
-    buffer = _buffer;
-    buffer_writer = buffer.writer();
-}
+const js_buf = stdx.wasm.getJsBuffer();
 
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
@@ -22,9 +17,9 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
         ) void {
             if (builtin.mode == .Debug) {
                 const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-                buffer.shrinkRetainingCapacity(0);
-                std.fmt.format(buffer_writer, "debug" ++ prefix ++ format, args) catch unreachable;
-                jsLog(buffer.items.ptr, buffer.items.len);
+                js_buf.output_buf.clearRetainingCapacity();
+                std.fmt.format(js_buf.output_writer, "debug" ++ prefix ++ format, args) catch unreachable;
+                jsLog(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
             }
         }
 
@@ -33,9 +28,9 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-            buffer.shrinkRetainingCapacity(0);
-            std.fmt.format(buffer_writer, prefix ++ format, args) catch unreachable;
-            jsLog(buffer.items.ptr, buffer.items.len);
+            js_buf.output_buf.clearRetainingCapacity();
+            std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
+            jsLog(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
         }
 
         pub fn warn(
@@ -43,9 +38,9 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-            buffer.shrinkRetainingCapacity(0);
-            std.fmt.format(buffer_writer, prefix ++ format, args) catch unreachable;
-            jsWarn(buffer.items.ptr, buffer.items.len);
+            js_buf.output_buf.clearRetainingCapacity();
+            std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
+            jsWarn(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
         }
 
         pub fn err(
@@ -53,9 +48,9 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-            buffer.shrinkRetainingCapacity(0);
-            std.fmt.format(buffer_writer, prefix ++ format, args) catch unreachable;
-            jsErr(buffer.items.ptr, buffer.items.len);
+            js_buf.output_buf.clearRetainingCapacity();
+            std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
+            jsErr(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
         }
     };
 }

@@ -34,6 +34,14 @@ pub const Window = struct {
         }
     }
 
+    pub fn getWidth(self: Self) u32 {
+        return self.inner.width;
+    }
+
+    pub fn getHeight(self: Self) u32 {
+        return self.inner.height;
+    }
+
     pub fn swapBuffers(self: Self) void {
         switch (Backend) {
             .OpenGL => gl.Window.swapBuffers(self.inner),
@@ -53,8 +61,8 @@ pub fn quit() void {
 
 pub const Config = struct {
     title: []const u8 = "My Window",
-    width: c_int = 1024,
-    height: c_int = 768,
+    width: u32 = 1024,
+    height: u32 = 768,
     resizable: bool = false,
     high_dpi: bool = false,
     fullscreen: bool = false,
