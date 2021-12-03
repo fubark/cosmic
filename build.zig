@@ -15,6 +15,7 @@ pub fn build(b: *Builder) void {
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const link_stbtt = b.option(bool, "stbtt", "Link stbtt") orelse false;
     const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const static_link = b.option(bool, "static", "Statically link deps") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -27,6 +28,7 @@ pub fn build(b: *Builder) void {
         .link_gl = false,
         .link_stbi = false,
         .link_lyon = false,
+        .static_link = static_link,
         .path = path,
         .filter = filter,
         .mode = b.standardReleaseOptions(),
@@ -83,6 +85,7 @@ const BuilderContext = struct {
     link_sdl: bool,
     link_gl: bool,
     link_lyon: bool,
+    static_link: bool,
     builder: *std.build.Builder,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
@@ -99,7 +102,7 @@ const BuilderContext = struct {
 
         const build_options = self.buildOptionsPkg();
         const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
-        step.setBuildMode(self.mode);
+        self.setBuildMode(step);
         self.setTarget(step);
 
         const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
@@ -121,7 +124,7 @@ const BuilderContext = struct {
 
         const build_options = self.buildOptionsPkg();
         const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
-        step.setBuildMode(self.mode);
+        self.setBuildMode(step);
         step.setTarget(.{
             .cpu_arch = .wasm32,
             .os_tag = .freestanding,
@@ -168,7 +171,7 @@ const BuilderContext = struct {
 
         const build_options = self.buildOptionsPkg();
         const step = self.builder.addExecutable(name, self.path);
-        step.setBuildMode(self.mode);
+        self.setBuildMode(step);
         self.setTarget(step);
 
         const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
@@ -184,7 +187,7 @@ const BuilderContext = struct {
 
     fn createTestFileStep(self: *Self) *std.build.LibExeObjStep {
         const step = self.builder.addTest(self.path);
-        step.setBuildMode(self.mode);
+        self.setBuildMode(step);
         self.setTarget(step);
         step.setMainPkgPath(".");
         step.setFilter(self.filter);
@@ -204,7 +207,7 @@ const BuilderContext = struct {
 
     fn createTestStep(self: *Self) *std.build.LibExeObjStep {
         const step = self.builder.addTest("./test/main_test.zig");
-        step.setBuildMode(self.mode);
+        self.setBuildMode(step);
         self.setTarget(step);
         // This fixes test files that import above, eg. @import("../foo")
         step.setMainPkgPath(".");
@@ -248,11 +251,18 @@ const BuilderContext = struct {
         }
         if (self.link_lyon) {
             addLyon(step);
-            linkLyon(step, self.target);
+            self.linkLyon(step, self.target);
         }
         if (self.link_stbi) {
             addStbi(step);
             self.buildLinkStbi(step);
+        }
+    }
+
+    fn setBuildMode(self: *Self, step: *std.build.LibExeObjStep) void {
+        step.setBuildMode(self.mode);
+        if (self.mode == .ReleaseSafe) {
+            step.strip = true;
         }
     }
 
@@ -301,7 +311,12 @@ const BuilderContext = struct {
     }
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addSharedLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"), .unversioned);
+        var lib: *LibExeObjStep = undefined;
+        if (self.mode == .ReleaseSafe or self.static_link) {
+            lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
+        } else {
+            lib = self.builder.addSharedLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"), .unversioned);
+        }
         lib.addIncludeDir(self.fromRoot("./vendor/stb"));
         lib.linkLibC();
         const c_flags = [_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
@@ -310,13 +325,34 @@ const BuilderContext = struct {
     }
 
     fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
-        const lib = self.builder.addSharedLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"), .unversioned);
+        var lib: *LibExeObjStep = undefined;
+        if (self.mode == .ReleaseSafe or self.static_link) {
+            lib = self.builder.addStaticLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"));
+        } else {
+            lib = self.builder.addSharedLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"), .unversioned);
+        }
         lib.addIncludeDir(self.fromRoot("./vendor/stb"));
         lib.linkLibC();
 
         const c_flags = [_][]const u8{ "-O3", "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
         lib.addCSourceFiles(&.{ self.fromRoot("./lib/stbi/stb_image.c"), self.fromRoot("./lib/stbi/stb_image_write.c") }, &c_flags);
         step.linkLibrary(lib);
+    }
+
+    fn linkLyon(self: *Self, step: *LibExeObjStep, target: std.zig.CrossTarget) void {
+        if (self.static_link) {
+            // Currently static linking lyon requires you to build it yourself.
+            step.addAssemblyFile("./lib/clyon/target/release/libclyon.a");
+            // Currently clyon needs unwind. It would be nice to remove this dependency.
+            step.linkSystemLibrary("unwind");
+        } else {
+            if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
+                step.addAssemblyFile("./vendor/prebuilt/linux64/libclyon.so");
+            } else {
+                step.addLibPath("./lib/clyon/target/release");
+                step.linkSystemLibrary("clyon");
+            }
+        }
     }
 
     fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
@@ -398,15 +434,6 @@ const lyon_pkg = Pkg{
 fn addLyon(step: *LibExeObjStep) void {
     step.addPackage(lyon_pkg);
     step.addIncludeDir("./lib/clyon");
-}
-
-fn linkLyon(step: *LibExeObjStep, target: std.zig.CrossTarget) void {
-    if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
-        step.addLibPath("./vendor/prebuilt/linux64");
-    } else {
-        step.addLibPath("./lib/clyon/target/release");
-    }
-    step.linkSystemLibrary("clyon");
 }
 
 const gl_pkg = Pkg{

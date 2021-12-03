@@ -27,8 +27,8 @@
 
 | Status | Platform | Size (demo)* |
 | --- | --- | --- |
-| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png) | demo - 1.7 MB |
-| ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/site/demo) | demo.wasm - 120 KB |
+| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png) | demo - 953 KB |
+| ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/site/demo) | demo.wasm - 162 KB |
 | Soon | Windows x64 with OpenGL | |
 | Soon | macOS x64/arm64 with OpenGL | |
 | Undecided | Android/iOS |
@@ -58,7 +58,7 @@ zig build run -Dpath=graphics/examples/demo.zig -Dgraphics -Drelease-safe
 ```sh
 zig build wasm -Dpath=graphics/examples/demo.zig -Drelease-safe
 cd zig-out/demo
-python -m SimpleHTTPServer
+python3 -m http.server
 ```
 Then fire up your browser to see the demo.
 
