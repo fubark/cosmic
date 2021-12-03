@@ -239,7 +239,7 @@ const BuilderContext = struct {
     fn addDeps(self: *Self, step: *LibExeObjStep) void {
         if (self.link_sdl) {
             addSDL(step);
-            linkSDL(step);
+            self.linkSDL(step);
         }
         if (self.link_stbtt) {
             addStbtt(step);
@@ -339,6 +339,31 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    fn linkSDL(self: *Self, step: *LibExeObjStep) void {
+        if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
+            if (self.static_link) {
+                // "sdl2_config --static-libs" tells us what we need
+                step.addFrameworkDir("/System/Library/Frameworks");
+                step.linkFramework("Cocoa");
+                step.linkFramework("IOKit");
+                step.linkFramework("CoreAudio");
+                step.linkFramework("CoreVideo");
+                step.linkFramework("Carbon");
+                step.linkFramework("Metal");
+                step.linkFramework("ForceFeedback");
+                step.linkFramework("AudioToolbox");
+                step.linkFramework("CFNetwork");
+                step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2.a");
+                step.linkSystemLibrary("iconv");
+                step.linkSystemLibrary("m");
+            } else {
+                step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2-2.0.0.dylib");
+            }
+        } else {
+            step.linkSystemLibrary("SDL2");
+        }
+    }
+
     fn linkLyon(self: *Self, step: *LibExeObjStep, target: std.zig.CrossTarget) void {
         if (self.static_link) {
             // Currently static linking lyon requires you to build it yourself.
@@ -348,6 +373,8 @@ const BuilderContext = struct {
         } else {
             if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
                 step.addAssemblyFile("./vendor/prebuilt/linux64/libclyon.so");
+            } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
+                step.addAssemblyFile("./vendor/prebuilt/mac64/libclyon.dylib");
             } else {
                 step.addLibPath("./lib/clyon/target/release");
                 step.linkSystemLibrary("clyon");
@@ -422,10 +449,6 @@ fn addSDL(step: *LibExeObjStep) void {
     step.addIncludeDir("./vendor");
 }
 
-fn linkSDL(step: *LibExeObjStep) void {
-    step.linkSystemLibrary("SDL2");
-}
-
 const lyon_pkg = Pkg{
     .name = "lyon",
     .path = FileSource.relative("./lib/clyon/lyon.zig"),
@@ -448,6 +471,9 @@ fn addGL(step: *LibExeObjStep) void {
 }
 
 fn linkGL(step: *LibExeObjStep) void {
+    if (builtin.os.tag == .macos) {
+        step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
+    }
     step.linkSystemLibrary("GL");
 }
 

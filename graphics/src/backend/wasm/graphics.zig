@@ -40,6 +40,7 @@ extern "graphics" fn jsDrawCubicBezierCurve(x1: f32, y1: f32, c1x: f32, c1y: f32
 extern "graphics" fn jsDrawQuadraticBezierCurve(x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void;
 extern "graphics" fn jsFillStyle(r: f32, g: f32, b: f32, a: f32) void;
 extern "graphics" fn jsStrokeStyle(r: f32, g: f32, b: f32, a: f32) void;
+extern "graphics" fn jsSetClearColor(r: f32, g: f32, b: f32, a: f32) void;
 extern "graphics" fn jsFillText(x: f32, y: f32, ptr: [*]const u8, len: usize) void;
 extern "graphics" fn jsSetLineWidth(width: f32) void;
 extern "graphics" fn jsMeasureTexts(args_buffer: [*]const u8) usize;
@@ -54,6 +55,7 @@ extern "graphics" fn jsResetTransform() void;
 extern "graphics" fn jsCreateImage(promise_id: u32, ptr: [*]const u8, len: usize) void;
 extern "graphics" fn jsDrawImageSized(image_id: u32, x: f32, y: f32, width: f32, height: f32) void;
 extern "graphics" fn jsDrawImage(image_id: u32, x: f32, y: f32) void;
+extern "graphics" fn jsBeginFrame() void;
 
 // Incremental path ops.
 extern "graphics" fn jsFill() void;
@@ -93,6 +95,7 @@ pub const Graphics = struct {
             .cur_font_size = 0,
             .js_buf = stdx.wasm.getJsBuffer(),
         };
+        self.setClearColor(self.clear_color);
         self.forceSetFillColor(Color.Black);
         self.forceSetStrokeColor(Color.Black);
     }
@@ -104,8 +107,8 @@ pub const Graphics = struct {
     }
 
     pub fn beginFrame(self: *Self) void {
-        self.setFillColor(self.clear_color);
-        self.fillRect(0, 0, @intToFloat(f32, self.buffer_width), @intToFloat(f32, self.buffer_height));
+        _ = self;
+        jsBeginFrame();
     }
 
     pub fn endFrame(self: *Self) void {
@@ -344,6 +347,15 @@ pub const Graphics = struct {
         const last = self.text_measures_buffer.items[self.text_measures_buffer.items.len-1];
         self.cur_font_gid = last.font_gid;
         self.cur_font_size = last.font_size;
+    }
+
+    fn setClearColor(self: *Self, color: Color) void {
+        _ = self;
+        jsSetClearColor(
+            @intToFloat(f32, color.channels.r),
+            @intToFloat(f32, color.channels.g),
+            @intToFloat(f32, color.channels.b),
+            @intToFloat(f32, color.channels.a) / 255);
     }
 
     fn forceSetStrokeColor(self: *Self, color: Color) void {

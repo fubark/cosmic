@@ -30,7 +30,8 @@
 | ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png) | demo - 953 KB |
 | ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/site/demo) | demo.wasm - 162 KB |
 | Soon | Windows x64 with OpenGL | |
-| Soon | macOS x64/arm64 with OpenGL | |
+| ✅ | macOS x64 with OpenGL [(Screennshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-macos.png) | demo - 620 KB |
+| Soon | macOS arm64 with OpenGL | |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
@@ -43,7 +44,7 @@
 ![Linux Demo](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png)
 
 ### Dependencies
-You'll need OpenGL and SDL2 installed locally. Additionally you'll need to pull the vendor repo which has header files and assets for the demo:
+You'll need OpenGL installed locally which is a given on most os. On Linux you'll need SDL2 installed. You need to pull the vendor repo which has header files, prebuilt libs, and assets for the demo:
 ```sh
 zig build get-deps
 ```
