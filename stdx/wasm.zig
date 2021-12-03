@@ -148,12 +148,12 @@ export fn wasmEnsureInputCapacity(size: u32) *const u8 {
 
 // Called from js to resolve a promise.
 export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
-    _ = data_size;
     const p = promises.getPtr(id);
 
     if (p.dynamic_size) {
         // We have to allocate heap memory for variable sized values.
         const copy = stdx.heap.getDefaultAllocator().alloc(u8, data_size) catch unreachable;
+        js_buffer.input_buf.resize(data_size) catch unreachable;
         std.mem.copy(u8, copy, js_buffer.input_buf.items[0..data_size]);
         if (p.then_copy_to) |dst| {
             stdx.mem.ptrCastAlign(*[]u8, dst).* = copy;

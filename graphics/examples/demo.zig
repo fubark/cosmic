@@ -25,7 +25,7 @@ var default_emoji: []const u8 = undefined;
 var zig_logo_svg: []const u8 = undefined;
 var tiger_head_draw_list: graphics.DrawCommandList = undefined;
 var game_char_image: Image = undefined;
-
+var last_frame_time_ns: u64 = undefined;
 var font_id: FontId = undefined;
 
 /// @buildCopy "../../vendor/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
@@ -52,6 +52,9 @@ pub fn main() !void {
     try initAssets(alloc);
     defer deinitAssets(alloc);
 
+    const timer = std.time.Timer.start() catch unreachable;
+    last_frame_time_ns = timer.read();
+
     var loop = true;
     while (loop) {
         var event: sdl.SDL_Event = undefined;
@@ -64,12 +67,17 @@ pub fn main() !void {
                 else => {},
             }
         }
-        update();
-        std.time.sleep(30);
+
+        const diff_ms = @intToFloat(f32, timer.read() - last_frame_time_ns) / 1e6;
+        last_frame_time_ns = timer.read();
+
+        update(diff_ms);
+        std.time.sleep(15);
     }
 }
 
-fn update() void {
+// Main loop shared by desktop and web.
+fn update(delta_ms: f32) void {
     g.beginFrame();
 
     // Shapes.
@@ -183,6 +191,11 @@ fn update() void {
     // Images.
     g.drawImageSized(450, 290, @intToFloat(f32, game_char_image.width)/3,@intToFloat(f32, game_char_image.height)/3, game_char_image.id);
 
+    g.setFillColor(Color.Blue.lighter());
+    const fps = 1000 / delta_ms;
+    g.setFont(font_id, 26);
+    g.fillTextFmt(1100, 10, "fps {d:.1}", .{fps});
+
     g.endFrame();
     win.swapBuffers();
 }
@@ -219,6 +232,8 @@ fn deinitAssets(alloc: *std.mem.Allocator) void {
 }
 
 var js_buf: *WasmJsBuffer = undefined;
+var load_assets_p: stdx.wasm.Promise(void) = undefined;
+var tiger_head_image: Image = undefined;
 
 export fn wasmInit() *const u8 {
     if (!IsWasm) {
@@ -242,21 +257,25 @@ export fn wasmInit() *const u8 {
     const p3 = g.createImageFromExeDirPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
     load_assets_p = stdx.wasm.createAndPromise(&.{p1.id, p2.id, p3.id});
 
+    font_id = g.addTTF_FontFromExeDir("./NunitoSans-Regular.ttf", "Nunito Sans");
+
     return js_buf.writeResult();
 }
 
-var load_assets_p: stdx.wasm.Promise(void) = undefined;
-var tiger_head_image: Image = undefined;
-
-export fn wasmUpdate() *const u8 {
+export fn wasmUpdate(cur_time_ms: f32) *const u8 {
     if (!IsWasm) {
         unreachable;
     }
 
+    // Wait for assets to load in the browser before getting to main loop.
     if (!load_assets_p.isResolved()) {
         return js_buf.writeResult();
     }
 
-    update();
+    const now_ns = @floatToInt(u64, cur_time_ms * 1e6);
+    const diff_ms = @intToFloat(f32, now_ns - last_frame_time_ns) / 1e6;
+    last_frame_time_ns = now_ns;
+
+    update(diff_ms);
     return js_buf.writeResult();
 }

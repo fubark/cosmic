@@ -45,7 +45,7 @@ pub fn build(b: *Builder) void {
     b.step("get-deps", "Clone/pull the required external dependencies into vendor folder").dependOn(&get_deps.step);
 
     const build_lyon = BuildLyonStep.create(b, ctx.target);
-    b.step("build-lyon", "Builds rust lib with cargo and copies to vendor/prebuilt").dependOn(&build_lyon.step);
+    b.step("lyon", "Builds rust lib with cargo and copies to vendor/prebuilt").dependOn(&build_lyon.step);
 
     const main_test = ctx.createTestStep();
     b.step("test", "Run tests").dependOn(&main_test.step);
@@ -139,6 +139,12 @@ const BuilderContext = struct {
         // index.html
         var exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/index.html", output_dir });
         step.step.dependOn(&exec.step);
+
+        // Replace wasm file name in index.html
+        const index_path = self.joinResolvePath(&[_][]const u8{ output_dir, "index.html" });
+        const new_str = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "wasmFile = '", name, ".wasm'"}) catch unreachable;
+        const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
+        step.step.dependOn(&replace.step);
 
         // graphics.js
         exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/graphics.js", output_dir });
@@ -497,7 +503,7 @@ const BuildLyonStep = struct {
     fn create(builder: *Builder, target: std.zig.CrossTarget) *Self {
         const new = builder.allocator.create(Self) catch unreachable;
         new.* = .{
-            .step = std.build.Step.init(.custom, builder.fmt("build_lyon", .{}), builder.allocator, make),
+            .step = std.build.Step.init(.custom, builder.fmt("lyon", .{}), builder.allocator, make),
             .builder = builder,
             .target = target,
         };
@@ -516,6 +522,44 @@ const BuildLyonStep = struct {
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
             _ = try self.builder.exec(&[_][]const u8{ "strip", to_path });
         }
+    }
+};
+
+const ReplaceInFileStep = struct {
+    const Self = @This();
+
+    step: std.build.Step,
+    b: *Builder,
+    path: []const u8,
+    old_str: []const u8,
+    new_str: []const u8,
+
+    fn create(b: *Builder, path: []const u8, old_str: []const u8, new_str: []const u8) *Self {
+        const new = b.allocator.create(Self) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("exec", .{}), b.allocator, make),
+            .b = b,
+            .path = path,
+            .old_str = old_str,
+            .new_str = new_str,
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(Self, "step", step);
+
+        const file = std.fs.openFileAbsolute(self.path, .{ .read = true, .write = false }) catch unreachable;
+        errdefer file.close();
+        const source = file.readToEndAllocOptions(self.b.allocator, 1024 * 1000 * 10, null, @alignOf(u8), 0) catch unreachable;
+        defer self.b.allocator.free(source);
+
+        const new_source = std.mem.replaceOwned(u8, self.b.allocator, source, self.old_str, self.new_str) catch unreachable;
+        file.close();
+
+        const write = std.fs.openFileAbsolute(self.path, .{ .read = false, .write = true }) catch unreachable;
+        defer write.close();
+        write.writeAll(new_source) catch unreachable;
     }
 };
 

@@ -80,8 +80,6 @@ pub const Graphics = struct {
     cur_scissors: bool,
     cur_blend_mode: BlendMode,
 
-    text_buf: std.ArrayList(u8),
-
     // We can initialize without gl calls for use in tests.
     pub fn init(self: *Self, alloc: *std.mem.Allocator, buf_width: usize, buf_height: usize) void {
 
@@ -108,7 +106,6 @@ pub const Graphics = struct {
             .state_stack = std.ArrayList(DrawState).init(alloc),
             .cur_clip_rect = undefined,
             .cur_scissors = undefined,
-            .text_buf = std.ArrayList(u8).init(alloc),
         };
 
         const max_total_textures = gl.getMaxTotalTextures();
@@ -182,7 +179,6 @@ pub const Graphics = struct {
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
-        self.text_buf.deinit();
         lyon.deinit();
 
         // Delete images after since some deinit could have removed images.
@@ -402,13 +398,6 @@ pub const Graphics = struct {
     // Since MeasureTextIterator init needs to do a fieldParentPtr, we pass the res pointer in.
     pub fn measureFontTextIter(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *MeasureTextIterator) void {
         self.font_cache.measureTextIter(self, group_id, size, str, res);
-    }
-
-    pub fn fillTextFmt(self: *Self, x: f32, y: f32, comptime fmt: []const u8, args: anytype) void {
-        // Will write as much as it can to the buffer, will return the entire buf if capacity is exceeded.
-        self.text_buf.clearRetainingCapacity();
-        std.fmt.format(self.text_buf.writer(), fmt, args) catch unreachable;
-        self.fillText(x, y, self.text_buf.items);
     }
 
     pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {

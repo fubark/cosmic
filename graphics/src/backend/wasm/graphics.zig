@@ -10,6 +10,7 @@ const ImageId = graphics.ImageId;
 const svg = graphics.svg;
 const BlendMode = graphics.BlendMode;
 const Color = graphics.Color;
+const FontId = graphics.font.FontId;
 const FontGroupId = graphics.font.FontGroupId;
 const UserVMetrics = graphics.font.UserVMetrics;
 const TextMeasure = graphics.TextMeasure;
@@ -43,7 +44,8 @@ extern "graphics" fn jsFillText(x: f32, y: f32, ptr: [*]const u8, len: usize) vo
 extern "graphics" fn jsSetLineWidth(width: f32) void;
 extern "graphics" fn jsMeasureTexts(args_buffer: [*]const u8) usize;
 extern "graphics" fn jsGetPrimaryFontVMetrics(font_gid: usize, font_size: f32, res_ptr: [*]const u8) void;
-extern "graphics" fn jsGetFontGroup(name_ptr: [*]const u8, name_len: usize) FontGroupId;
+extern "graphics" fn jsAddFont(path_ptr: [*]const u8, path_len: usize, name_ptr: [*]const u8, name_len: usize) FontId;
+extern "graphics" fn jsGetFont(name_ptr: [*]const u8, name_len: usize) FontId;
 extern "graphics" fn jsSetFontStyle(font_gid: FontGroupId, font_size: f32) void;
 extern "graphics" fn jsTranslate(x: f32, y: f32) void;
 extern "graphics" fn jsRotate(rad: f32) void;
@@ -74,15 +76,12 @@ pub const Graphics = struct {
     cur_fill_color: Color,
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
-    text_buf: std.ArrayList(u8),
-    text_writer: std.ArrayList(u8).Writer,
 
     // Used to keep link results back to TextMeasures
     text_measures_buffer: std.ArrayList(*TextMeasure),
 
     pub fn init(self: *Self, alloc: *std.mem.Allocator, width: usize, height: usize) void {
         _ = alloc;
-        var text_buf = std.ArrayList(u8).init(alloc);
         self.* = .{
             .buffer_width = width,
             .buffer_height = height,
@@ -92,8 +91,6 @@ pub const Graphics = struct {
             .cur_fill_color = undefined,
             .cur_font_gid = 0,
             .cur_font_size = 0,
-            .text_buf = text_buf,
-            .text_writer = text_buf.writer(),
             .js_buf = stdx.wasm.getJsBuffer(),
         };
         self.forceSetFillColor(Color.Black);
@@ -170,13 +167,6 @@ pub const Graphics = struct {
     pub fn fillText(self: *Self, x: f32, y: f32, text: []const u8) void {
         _ = self;
         jsFillText(x, y, text.ptr, text.len);
-    }
-
-    pub fn fillTextFmt(self: *Self, x: f32, y: f32, comptime fmt: []const u8, args: anytype) void {
-        _ = self;
-        self.text_buf.shrinkRetainingCapacity(0);
-        std.fmt.format(self.text_writer, fmt, args) catch unreachable;
-        jsFillText(x, y, self.text_buf.items.ptr, self.text_buf.items.len);
     }
 
     pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
@@ -411,10 +401,20 @@ pub const Graphics = struct {
         };
     }
 
-    pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
+    pub fn addTTF_FontFromExeDir(self: *Self, path: []const u8, name: []const u8) FontId {
         _ = self;
-        return jsGetFontGroup(name.ptr, name.len);
+        return jsAddFont(path.ptr, path.len, name.ptr, name.len);
     }
+
+    pub fn getFontByName(self: *Self, name: []const u8) FontId {
+        _ = self;
+        return jsGetFont(name.ptr, name.len);
+    }
+
+    // pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
+    //     _ = self;
+    //     return jsGetFontGroup(name.ptr, name.len);
+    // }
 
     pub fn fillSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
         self.drawSvgPath(x, y, path, true);

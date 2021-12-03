@@ -91,20 +91,26 @@ pub const Graphics = struct {
     },
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
+    text_buf: std.ArrayList(u8),
 
     pub fn init(self: *Self, alloc: *std.mem.Allocator, buf_width: u32, buf_height: u32) void {
+        self.* = .{
+            .path_parser = svg.PathParser.init(alloc),
+            .svg_parser = svg.SvgParser.init(alloc),
+            .text_buf = std.ArrayList(u8).init(alloc),
+            .g = undefined,
+        };
         switch (Backend) {
             .OpenGL => gl.Graphics.init(&self.g, alloc, buf_width, buf_height),
             .WasmCanvas => canvas.Graphics.init(&self.g, alloc, buf_width, buf_height),
             .Test => testg.Graphics.init(&self.g, alloc),
         }
-        self.path_parser = svg.PathParser.init(alloc);
-        self.svg_parser = svg.SvgParser.init(alloc);
     }
 
     pub fn deinit(self: *Self) void {
         self.path_parser.deinit();
         self.svg_parser.deinit();
+        self.text_buf.deinit();
         switch (Backend) {
             .OpenGL => self.g.deinit(),
             .WasmCanvas => self.g.deinit(),
@@ -521,6 +527,14 @@ pub const Graphics = struct {
         }
     }
 
+    // Currently used just for wasm.
+    pub fn addTTF_FontFromExeDir(self: *Self, path: []const u8, name: []const u8) FontId {
+        switch (Backend) {
+            .WasmCanvas => return canvas.Graphics.addTTF_FontFromExeDir(&self.g, path, name),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn setFont(self: *Self, font_gid: FontId, font_size: f32) void {
         switch (Backend) {
             .OpenGL => {
@@ -552,10 +566,9 @@ pub const Graphics = struct {
     }
 
     pub fn fillTextFmt(self: *Self, x: f32, y: f32, comptime format: []const u8, args: anytype) void {
-        switch (Backend) {
-            .OpenGL => gl.Graphics.fillTextFmt(&self.g, x, y, format, args),
-            else => stdx.panic("unsupported"),
-        }
+        self.text_buf.clearRetainingCapacity();
+        std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
+        self.fillText(x, y, self.text_buf.items);
     }
 
     // Measure many text at once.
@@ -623,10 +636,18 @@ pub const Graphics = struct {
 //         }
 //     }
 
+    pub fn getFontByName(self: *Self, name: []const u8) ?FontId {
+        switch (Backend) {
+            .OpenGL => return FontCache.getFontId(&self.g.font_cache, name),
+            .WasmCanvas => return canvas.Graphics.getFontByName(&self.g, name),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
         switch (Backend) {
             .OpenGL => return FontCache.getOrLoadFontGroupByNameSeq(&self.g.font_cache, &.{name}).?,
-            .WasmCanvas => return canvas.Graphics.getFontGroupBySingleFontName(&self.g, name),
+            .WasmCanvas => stdx.panic("TODO"),
             .Test => return testg.Graphics.getFontGroupBySingleFontName(&self.g, name),
         }
     }

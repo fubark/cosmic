@@ -20,23 +20,25 @@
             exports: {},
             inputPtr: 0,
             inputCap: 0,
+            inputLen: 0,
         };
         wasm.imports.graphics = initGraphicsImports(wasm, canvas);
         wasm.imports.stdx = initStdxImports(wasm);
 
         // Load wasm.
-        fetch('./demo.wasm')
+        const wasmFile = 'demo.wasm';
+        fetch(wasmFile)
             .then(resp => resp.arrayBuffer())
             .then(buf => WebAssembly.instantiate(buf, wasm.imports))
             .then(res => {
                 wasm.exports = res.instance.exports;
-                console.log(wasm);
-                wasmOutputPtr = wasm.exports.wasmInit();
-                processWasmResult();
+                // console.log(wasm);
+                const ptr = wasm.exports.wasmInit();
+                processWasmResult(ptr);
                 window.requestAnimationFrame(loop);
             });
 
-        const target_fps = 30;
+        const target_fps = 60;
         const target_ms_per_frame = 1000 / target_fps;
         // Since there is no sleep logic, we add up time to see if we should perform a frame update.
         // Sometimes we could miss the target_ms_per_frame by a little and as a result affect the fps greatly,
@@ -53,8 +55,8 @@
                 last_time_ms = now_ms;
                 // Perform app update after reaching target ms.
                 try {
-                    wasmOutputPtr = wasm.exports.wasmUpdate(now_ms, wasmInputLen);
-                    processWasmResult();
+                    const ptr = wasm.exports.wasmUpdate(now_ms, wasm.inputLen);
+                    processWasmResult(ptr);
                 } catch (e) {
                     // Report error and stop the loop.
                     console.error(e);
@@ -63,19 +65,12 @@
             }
         }
 
-        let wasmOutputPtr = 0;
-        let wasmInputCurPtr = 0;
-        let wasmInputLen = 0;
-        let wasmBufferView = null;
         function processWasmResult(ptr) {
-            wasmOutputPtr = ptr;
             // Must create a view directly over the buffer (slices won't allow writing to the original buffer)
-            wasmBufferView = new DataView(wasm.exports.memory.buffer);
-
-            wasm.inputPtr = wasmBufferView.getUint32(wasmOutputPtr, true);
-            wasm.inputCap = wasmBufferView.getUint32(wasmOutputPtr + 4, true);
-            wasmInputCurPtr = wasm.inputPtr;
-            wasmInputLen = 0;
+            let wasmBufferView = new DataView(wasm.exports.memory.buffer);
+            wasm.inputPtr = wasmBufferView.getUint32(ptr, true);
+            wasm.inputCap = wasmBufferView.getUint32(ptr + 4, true);
+            wasm.inputLen = 0;
         }
     </script>
 </body>
