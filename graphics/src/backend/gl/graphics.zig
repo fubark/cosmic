@@ -127,18 +127,18 @@ pub const Graphics = struct {
         self.batcher.setCurrentTexture(self.white_tex);
 
         // Setup tex shader vao.
-        gl.glBindVertexArray(self.tex_shader.vao_id);
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.batcher.vert_buf_id);
+        gl.bindVertexArray(self.tex_shader.vao_id);
+        gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.batcher.vert_buf_id);
         // a_pos
-        gl.glEnableVertexAttribArray(0);
+        gl.enableVertexAttribArray(0);
         vertexAttribPointer(0, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(0));
         // a_uv
-        gl.glEnableVertexAttribArray(1);
+        gl.enableVertexAttribArray(1);
         vertexAttribPointer(1, 2, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(4 * 4));
         // a_color
-        gl.glEnableVertexAttribArray(2);
+        gl.enableVertexAttribArray(2);
         vertexAttribPointer(2, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(6 * 4));
-        gl.glBindVertexArray(0);
+        gl.bindVertexArray(0);
 
         self.font_cache.init(alloc, self);
 
@@ -307,7 +307,7 @@ pub const Graphics = struct {
         }
 
         gl.glGenTextures(1, &image.tex_id);
-        gl.glActiveTexture(gl.GL_TEXTURE0 + 0);
+        gl.activeTexture(gl.GL_TEXTURE0 + 0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, image.tex_id);
 
         // A GLint specifying the level of detail. Level 0 is the base image level and level n is the nth mipmap reduction level.
@@ -1194,12 +1194,12 @@ pub const Graphics = struct {
         gl.glDisable(gl.GL_SCISSOR_TEST);
 
         // This clears the main framebuffer that is swapped to window.
-        gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+        gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
         if (self.cur_fbo_id != 0) {
             // Set the frame buffer we are drawing to.
-            gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, self.cur_fbo_id);
+            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, self.cur_fbo_id);
 
             // This clears the app canvas buffer. This is typically what you'd do to clear the buffer before each frame.
             gl.glClear(gl.GL_COLOR_BUFFER_BIT);
@@ -1214,10 +1214,10 @@ pub const Graphics = struct {
         self.flushDraw();
         if (self.cur_fbo_id != 0) {
             // If we were drawing to custom framebuffer such as msaa buffer, then blit the custom buffer into the default ogl buffer.
-            gl.glBindFramebuffer(gl.GL_READ_FRAMEBUFFER, self.cur_fbo_id);
-            gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, self.cur_fbo_id);
+            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
             // blit's filter is only used when the sizes between src and dst buffers are different.
-            gl.glBlitFramebuffer(0, 0, self.cur_buffer_width, self.cur_buffer_height, 0, 0, self.cur_buffer_width, self.cur_buffer_height, gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
+            gl.blitFramebuffer(0, 0, self.cur_buffer_width, self.cur_buffer_height, 0, 0, self.cur_buffer_width, self.cur_buffer_height, gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
     }
 
@@ -1250,7 +1250,7 @@ pub const Graphics = struct {
     pub fn setBlendModeCustom(self: *Self, src: gl.GLenum, dst: gl.GLenum, eq: gl.GLenum) void {
         _ = self;
         gl.glBlendFunc(src, dst);
-        gl.glBlendEquation(eq);
+        gl.blendEquation(eq);
     }
 
     pub fn setBlendMode(self: *Self, mode: BlendMode) void {
@@ -1261,27 +1261,27 @@ pub const Graphics = struct {
                 .Add,
                 .Glow => {
                     gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
-                    gl.glBlendEquation(gl.GL_FUNC_ADD);
+                    gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Subtract => {
                     gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
-                    gl.glBlendEquation(gl.GL_FUNC_SUBTRACT);
+                    gl.blendEquation(gl.GL_FUNC_SUBTRACT);
                 },
                 .Multiplied => {
                     gl.glBlendFunc(gl.GL_DST_COLOR, gl.GL_ONE_MINUS_SRC_ALPHA);
-                    gl.glBlendEquation(gl.GL_FUNC_ADD);
+                    gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Opaque => {
                     gl.glBlendFunc(gl.GL_ONE, gl.GL_ZERO);
-                    gl.glBlendEquation(gl.GL_FUNC_ADD);
+                    gl.blendEquation(gl.GL_FUNC_ADD);
                 }, 
                 .Additive => {
                     gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
-                    gl.glBlendEquation(gl.GL_FUNC_ADD);
+                    gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .PremultipliedAlpha => {
                     gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
-                    gl.glBlendEquation(gl.GL_FUNC_ADD);
+                    gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 else => @panic("unsupported"),
             }
@@ -1302,7 +1302,7 @@ pub const Graphics = struct {
 
     pub fn updateTextureData(self: *const Self, image: *const Image, buf: []const u8) void {
         _ = self;
-        gl.glActiveTexture(gl.GL_TEXTURE0 + 0);
+        gl.activeTexture(gl.GL_TEXTURE0 + 0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, image.tex_id);
         gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0);
@@ -1317,8 +1317,8 @@ pub const Graphics = struct {
         const msaa_preferred_samples: u32 = 8;
         if (max_samples >= 4) {
             var ms_fbo: gl.GLuint = 0;
-            gl.glGenFramebuffers(1, &ms_fbo);
-            gl.glBindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);
+            gl.genFramebuffers(1, &ms_fbo);
+            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);
 
             var ms_tex: gl.GLuint = 0;
             gl.glGenTextures(1, &ms_tex);
@@ -1327,8 +1327,8 @@ pub const Graphics = struct {
             // gl.glHint(gl.GL_MULTISAMPLE_FILTER_HINT_NV, gl.GL_NICEST);
             const num_samples = std.math.min(max_samples, msaa_preferred_samples);
             gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
-            gl.glTexImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, self.cur_buffer_width, self.cur_buffer_height, gl.GL_TRUE);
-            gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
+            gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, self.cur_buffer_width, self.cur_buffer_height, gl.GL_TRUE);
+            gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
             gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);  
 
             self.setCurrentFrameBuffer(ms_fbo);
@@ -1348,7 +1348,7 @@ pub const Graphics = struct {
 // stride - number of bytes for each vertex. 0 indicates that the stride is size * sizeof(type)
 // offset - offset in bytes of the first component of first vertex.
 fn vertexAttribPointer(attr_idx: gl.GLuint, size: gl.GLint, data_type: gl.GLenum, stride: gl.GLsizei, offset: ?*const gl.GLvoid) void {
-    gl.glVertexAttribPointer(attr_idx, size, data_type, gl.GL_FALSE, stride, offset);
+    gl.vertexAttribPointer(attr_idx, size, data_type, gl.GL_FALSE, stride, offset);
 }
 
 fn u32ToVoidPtr(val: u32) ?*const gl.GLvoid {

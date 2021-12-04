@@ -1,6 +1,8 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const sdl = @import("sdl");
+const gl = @import("gl");
+const builtin = @import("builtin");
 
 const window = @import("../../window.zig");
 const Config = window.Config;
@@ -11,7 +13,7 @@ pub const Window = struct {
 
     id: u32,
     sdl_window: *sdl.SDL_Window,
-    gl_ctx: sdl.SDL_GLContext,
+    gl_ctx: *c_void,
     width: u32,
     height: u32,
 
@@ -75,17 +77,27 @@ fn initGL_Window(alloc: *std.mem.Allocator, win: *Window, config: Config, flags:
     try glSetAttr(sdl.SDL_GL_STENCIL_SIZE, 8);
 
     var window_flags = flags | sdl.SDL_WINDOW_OPENGL;
-    win.sdl_window = sdl.CreateWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED,
+    win.sdl_window = sdl.createWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED,
         @intCast(c_int, config.width), @intCast(c_int, config.height), @bitCast(u32, window_flags)) orelse {
-            log.warn("unable to create window: {s}", .{sdl.SDL_GetError()});
+            log.err("Unable to create window: {s}", .{sdl.SDL_GetError()});
             return error.Failed;
     };
 
-    win.gl_ctx = sdl.SDL_GL_CreateContext(win.sdl_window);
+    if (sdl.SDL_GL_CreateContext(win.sdl_window)) |ctx| {
+        win.gl_ctx = ctx;
+        log.debug("OpenGL: {s}", .{gl.glGetString(gl.GL_VERSION)});
+    } else {
+        log.err("Create GLContext: {s}", .{sdl.SDL_GetError()});
+        return error.Failed;
+    }
+
+    if (builtin.os.tag == .windows) {
+        gl.initWinGL_Functions();
+    }
 
     // Not necessary but better to be explicit.
     if (sdl.SDL_GL_MakeCurrent(win.sdl_window, win.gl_ctx) != 0) {
-        log.warn("unable to attach ogl context to window: {s}", .{sdl.SDL_GetError()});
+        log.err("Unable to attach gl context to window: {s}", .{sdl.SDL_GetError()});
         return error.Failed;
     }
 }

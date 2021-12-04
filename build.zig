@@ -137,7 +137,7 @@ const BuilderContext = struct {
         addStdx(step, build_options);
         addGraphics(step);
         self.addDeps(step);
-        self.copyAssets(step, output_dir);
+        self.copyAssets(step, output_dir_rel);
 
         // index.html
         var exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/index.html", output_dir });
@@ -181,7 +181,7 @@ const BuilderContext = struct {
         addStdx(step, build_options);
         addGraphics(step);
         self.addDeps(step);
-        self.copyAssets(step, output_dir);
+        self.copyAssets(step, output_dir_rel);
         return step;
     }
 
@@ -312,7 +312,9 @@ const BuilderContext = struct {
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
         var lib: *LibExeObjStep = undefined;
-        if (self.mode == .ReleaseSafe or self.static_link) {
+        // For windows-gnu adding a shared library would result in an almost empty stbtt.lib file leading to undefined symbols during linking. 
+        // As a workaround we always static link for windows.
+        if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
             lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
         } else {
             lib = self.builder.addSharedLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"), .unversioned);
@@ -326,7 +328,7 @@ const BuilderContext = struct {
 
     fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
         var lib: *LibExeObjStep = undefined;
-        if (self.mode == .ReleaseSafe or self.static_link) {
+        if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
             lib = self.builder.addStaticLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"));
         } else {
             lib = self.builder.addSharedLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"), .unversioned);
@@ -359,6 +361,14 @@ const BuilderContext = struct {
             } else {
                 step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2-2.0.0.dylib");
             }
+        } else if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
+            const path = self.fromRoot("./vendor/prebuilt/win64/SDL2.dll");
+            step.addAssemblyFile(path);
+            if (step.output_dir) |out_dir| {
+                const dst = self.joinResolvePath(&.{ out_dir, "SDL2.dll" });
+                const cp = CopyFileStep.create(self.builder, path, dst);
+                step.step.dependOn(&cp.step);
+            }
         } else {
             step.linkSystemLibrary("SDL2");
         }
@@ -375,6 +385,14 @@ const BuilderContext = struct {
                 step.addAssemblyFile("./vendor/prebuilt/linux64/libclyon.so");
             } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
                 step.addAssemblyFile("./vendor/prebuilt/mac64/libclyon.dylib");
+            } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
+                const path = self.fromRoot("./vendor/prebuilt/win64/clyon.dll");
+                step.addAssemblyFile(path);
+                if (step.output_dir) |out_dir| {
+                    const dst = self.joinResolvePath(&.{ out_dir, "clyon.dll" });
+                    const cp = CopyFileStep.create(self.builder, path, dst);
+                    step.step.dependOn(&cp.step);
+                }
             } else {
                 step.addLibPath("./lib/clyon/target/release");
                 step.linkSystemLibrary("clyon");
@@ -388,7 +406,7 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    fn copyAssets(self: *Self, step: *LibExeObjStep, output_dir_abs: []const u8) void {
+    fn copyAssets(self: *Self, step: *LibExeObjStep, output_dir_rel: []const u8) void {
         if (self.path.len == 0) {
             return;
         }
@@ -403,8 +421,10 @@ const BuilderContext = struct {
         var tree = std.zig.parse(self.builder.allocator, source) catch unreachable;
         defer tree.deinit(self.builder.allocator);
 
-        var exec = ExecStep.create(self.builder, &[_][]const u8{ "mkdir", "-p", output_dir_abs });
-        step.step.dependOn(&exec.step);
+        const mkpath = MakePathStep.create(self.builder, output_dir_rel);
+        step.step.dependOn(&mkpath.step);
+
+        const output_dir_abs = self.fromRoot(output_dir_rel);
 
         const root_members = tree.rootDecls();
         for (root_members) |member| {
@@ -427,8 +447,9 @@ const BuilderContext = struct {
                     i = std.mem.indexOfScalarPos(u8, str, end + 1, '"') orelse continue;
                     end = std.mem.indexOfScalarPos(u8, str, i + 1, '"') orelse continue;
                     const dst_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{ output_dir_abs, str[i + 1 .. end] }) catch unreachable;
-                    exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", src_path, dst_path });
-                    step.step.dependOn(&exec.step);
+
+                    const cp = CopyFileStep.create(self.builder, src_path, dst_path);
+                    step.step.dependOn(&cp.step);
                 } else {
                     break;
                 }
@@ -473,8 +494,12 @@ fn addGL(step: *LibExeObjStep) void {
 fn linkGL(step: *LibExeObjStep) void {
     if (builtin.os.tag == .macos) {
         step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
+        step.linkSystemLibrary("GL");
+    } else if (builtin.os.tag == .windows) {
+        step.linkSystemLibrary("opengl32");
+    } else {
+        step.linkSystemLibrary("GL");
     }
-    step.linkSystemLibrary("GL");
 }
 
 const stbi_pkg = Pkg{
@@ -520,7 +545,10 @@ fn addGraphics(step: *std.build.LibExeObjStep) void {
     var lyon = lyon_pkg;
     lyon.dependencies = &.{stdx_pkg};
 
-    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl_pkg, sdl_pkg, stdx_pkg, lyon };
+    var gl = gl_pkg;
+    gl.dependencies = &.{sdl_pkg, stdx_pkg};
+
+    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_pkg, stdx_pkg, lyon };
     step.addPackage(pkg);
 }
 
@@ -578,6 +606,54 @@ const BuildLyonStep = struct {
     }
 };
 
+const MakePathStep = struct {
+    const Self = @This();
+
+    step: std.build.Step,
+    b: *Builder,
+    path: []const u8,
+
+    fn create(b: *Builder, root_path: []const u8) *Self {
+        const new = b.allocator.create(Self) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("make-path", .{}), b.allocator, make),
+            .b = b,
+            .path = root_path,
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(Self, "step", step);
+        try self.b.makePath(self.path);
+    }
+};
+
+const CopyFileStep = struct {
+    const Self = @This();
+
+    step: std.build.Step,
+    b: *Builder,
+    src_path: []const u8,
+    dst_path: []const u8,
+
+    fn create(b: *Builder, src_path: []const u8, dst_path: []const u8) *Self {
+        const new = b.allocator.create(Self) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("cp", .{}), b.allocator, make),
+            .b = b,
+            .src_path = src_path,
+            .dst_path = dst_path,
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(Self, "step", step);
+        try std.fs.copyFileAbsolute(self.src_path, self.dst_path, .{});
+    }
+};
+
 const ReplaceInFileStep = struct {
     const Self = @This();
 
@@ -590,7 +666,7 @@ const ReplaceInFileStep = struct {
     fn create(b: *Builder, path: []const u8, old_str: []const u8, new_str: []const u8) *Self {
         const new = b.allocator.create(Self) catch unreachable;
         new.* = .{
-            .step = std.build.Step.init(.custom, b.fmt("exec", .{}), b.allocator, make),
+            .step = std.build.Step.init(.custom, b.fmt("replace_in_file", .{}), b.allocator, make),
             .b = b,
             .path = path,
             .old_str = old_str,

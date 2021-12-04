@@ -45,7 +45,7 @@ pub const Batcher = struct {
         };
         // Generate buffers.
         var buf_ids: [2]gl.GLuint = undefined;
-        gl.glGenBuffers(2, &buf_ids);
+        gl.genBuffers(2, &buf_ids);
         new.vert_buf_id = buf_ids[0];
         new.index_buf_id = buf_ids[1];
         return new;
@@ -55,7 +55,7 @@ pub const Batcher = struct {
         self.mesh.deinit();
 
         const bufs = [_]gl.GLuint{self.vert_buf_id, self.index_buf_id};
-        gl.glDeleteBuffers(2, &bufs);
+        gl.deleteBuffers(2, &bufs);
     }
 
     pub fn shouldFlushBeforeSetCurrentTexture(self: *Self, tex_id: GLTextureId) bool {
@@ -110,34 +110,34 @@ pub const Batcher = struct {
 
     fn drawMesh(self: *const Self, mesh: *Mesh) void {
         _ = mesh;
-        gl.glUseProgram(self.tex_shader.prog_id);
+        gl.useProgram(self.tex_shader.prog_id);
 
-        gl.glActiveTexture(gl.GL_TEXTURE0);
+        gl.activeTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.cur_tex_image.tex_id);
 
         // set u_mvp, since transpose is false, it expects to receive in column major order.
-        gl.glUniformMatrix4fv(0, 1, gl.GL_FALSE, &self.mvp);
+        gl.uniformMatrix4fv(0, 1, gl.GL_FALSE, &self.mvp);
 
         // text_program.get_uniform_loc("u_texture");
         // set u_tex
-        gl.glUniform1i(1, gl.GL_TEXTURE0 + 0);
+        gl.uniform1i(1, gl.GL_TEXTURE0 + 0);
 
         // Recall how to pull data from the buffer for shader.
-        gl.glBindVertexArray(self.tex_shader.vao_id);
+        gl.bindVertexArray(self.tex_shader.vao_id);
 
         // Update vertex buffer.
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vert_buf_id);
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_vert_buf_size * 10 * 4),
+        gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.vert_buf_id);
+        gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_vert_buf_size * 10 * 4),
             self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
         // Update index buffer.
-        gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.index_buf_id);
-        gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_index_buf_size * 2),
+        gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.index_buf_id);
+        gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_index_buf_size * 2),
             self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
         gl.drawElements(gl.GL_TRIANGLES, self.mesh.cur_index_buf_size, self.mesh.index_buffer_type, 0);
 
         // Unbind vao.
-        gl.glBindVertexArray(0);
+        gl.bindVertexArray(0);
     }
 };

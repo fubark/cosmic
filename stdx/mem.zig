@@ -4,6 +4,11 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const log = stdx.log.scoped(.mem);
 
+pub fn ptrCastTo(ptr_to_ptr: anytype, from: anytype) void {
+    const Ptr = std.meta.Child(@TypeOf(ptr_to_ptr));
+    ptr_to_ptr.* = @ptrCast(Ptr, from);
+}
+
 pub fn ptrCastAlign(comptime Ptr: type, ptr: anytype) Ptr {
     const alignment = @typeInfo(Ptr).Pointer.alignment;
     if (alignment == 0) {
