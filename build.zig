@@ -140,8 +140,8 @@ const BuilderContext = struct {
         self.copyAssets(step, output_dir_rel);
 
         // index.html
-        var exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/index.html", output_dir });
-        step.step.dependOn(&exec.step);
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.joinResolvePath(&.{output_dir, "index.html"}));
+        step.step.dependOn(&cp.step);
 
         // Replace wasm file name in index.html
         const index_path = self.joinResolvePath(&[_][]const u8{ output_dir, "index.html" });
@@ -150,12 +150,12 @@ const BuilderContext = struct {
         step.step.dependOn(&replace.step);
 
         // graphics.js
-        exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/graphics.js", output_dir });
-        step.step.dependOn(&exec.step);
+        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics.js"), self.joinResolvePath(&.{output_dir, "graphics.js"}));
+        step.step.dependOn(&cp.step);
 
         // stdx.js
-        exec = ExecStep.create(self.builder, &[_][]const u8{ "cp", "./lib/wasm-js/stdx.js", output_dir });
-        step.step.dependOn(&exec.step);
+        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.joinResolvePath(&.{output_dir, "stdx.js"}));
+        step.step.dependOn(&cp.step);
 
         return step;
     }
@@ -190,7 +190,6 @@ const BuilderContext = struct {
         self.setBuildMode(step);
         self.setTarget(step);
         step.setMainPkgPath(".");
-        step.setFilter(self.filter);
 
         const build_options = self.buildOptionsPkg();
         addStdx(step, build_options);
@@ -211,7 +210,6 @@ const BuilderContext = struct {
         self.setTarget(step);
         // This fixes test files that import above, eg. @import("../foo")
         step.setMainPkgPath(".");
-        step.setFilter(self.filter);
 
         const build_options = self.buildOptionsPkg();
         addStdx(step, build_options);
@@ -233,6 +231,9 @@ const BuilderContext = struct {
     fn postStep(self: *Self, step: *std.build.LibExeObjStep) void {
         if (self.enable_tracy) {
             self.linkTracy(step);
+        }
+        if (self.filter.len > 0) {
+            step.setFilter(self.filter);
         }
     }
 
@@ -365,6 +366,9 @@ const BuilderContext = struct {
             const path = self.fromRoot("./vendor/prebuilt/win64/SDL2.dll");
             step.addAssemblyFile(path);
             if (step.output_dir) |out_dir| {
+                const mkpath = MakePathStep.create(self.builder, out_dir);
+                step.step.dependOn(&mkpath.step);
+
                 const dst = self.joinResolvePath(&.{ out_dir, "SDL2.dll" });
                 const cp = CopyFileStep.create(self.builder, path, dst);
                 step.step.dependOn(&cp.step);
@@ -389,6 +393,9 @@ const BuilderContext = struct {
                 const path = self.fromRoot("./vendor/prebuilt/win64/clyon.dll");
                 step.addAssemblyFile(path);
                 if (step.output_dir) |out_dir| {
+                    const mkpath = MakePathStep.create(self.builder, out_dir);
+                    step.step.dependOn(&mkpath.step);
+
                     const dst = self.joinResolvePath(&.{ out_dir, "clyon.dll" });
                     const cp = CopyFileStep.create(self.builder, path, dst);
                     step.step.dependOn(&cp.step);
@@ -753,7 +760,7 @@ const GetDepsStep = struct {
                 alloc.free(res.stdout);
                 alloc.free(res.stderr);
             }
-            std.debug.print("{s}{s}", .{ res.stdout, res.stderr });
+            print("{s}{s}", .{ res.stdout, res.stderr });
             switch (res.term) {
                 .Exited => |code| {
                     if (code != 0) {

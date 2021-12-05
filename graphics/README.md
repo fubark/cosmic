@@ -23,13 +23,13 @@
 - [x] Blending.
 - [ ] Gradients.
 - [ ] Custom Shaders.
-- [ ] Cross platform.
+- [x] Cross platform.
 
 | Status | Platform | Size (demo)* |
 | --- | --- | --- |
 | ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png) | demo - 953 KB |
 | ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/site/demo) | demo.wasm - 162 KB |
-| Soon | Windows x64 with OpenGL | |
+| ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-win11.png) | demo.exe - 442 KB |
 | ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-macos.png) | demo - 620 KB |
 | Soon | macOS arm64 with OpenGL | |
 | Undecided | Android/iOS |
@@ -51,13 +51,13 @@ zig build get-deps
 
 ### Run demo (Desktop)
 ```sh
-zig build run -Dpath=graphics/examples/demo.zig -Dgraphics -Drelease-safe
+zig build run -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
 ```
 
 ### Run demo (Web/Wasm)
 
 ```sh
-zig build wasm -Dpath=graphics/examples/demo.zig -Drelease-safe
+zig build wasm -Dpath="graphics/examples/demo.zig" -Drelease-safe
 cd zig-out/demo
 python3 -m http.server
 ```
