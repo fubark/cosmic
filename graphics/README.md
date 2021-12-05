@@ -35,17 +35,18 @@
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
-  \* Size does not include font and image assets. Compiled with -Drelease-safe.
+  \* Size does not include dynamic libs (SDL2, lyon) and demo assets. Compiled with -Drelease-safe.
 
 - [ ] Cross compilation.
 - [ ] C bindings.
 
 ## Screenshot
-![Linux Demo](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png)
+<a href="https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
 
 ### Dependencies
-Get a master build of [zig](https://ziglang.org/download/). You'll need OpenGL installed locally which is a given on most os. On Linux you'll need SDL2 installed. You need to pull the vendor repo which has header files, prebuilt libs, and assets for the demo:
+Get a master build of [zig](https://ziglang.org/download/). On Linux you'll need SDL2 installed. You need to pull the vendor repo which has header files, prebuilt libs, and assets for the demo:
 ```sh
+git clone https://github.com/fubark/cosmic.git
 zig build get-deps
 ```
 
