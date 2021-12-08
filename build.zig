@@ -140,21 +140,21 @@ const BuilderContext = struct {
         self.copyAssets(step, output_dir_rel);
 
         // index.html
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.joinResolvePath(&.{output_dir, "index.html"}));
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.joinResolvePath(&.{ output_dir, "index.html" }));
         step.step.dependOn(&cp.step);
 
         // Replace wasm file name in index.html
         const index_path = self.joinResolvePath(&[_][]const u8{ output_dir, "index.html" });
-        const new_str = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "wasmFile = '", name, ".wasm'"}) catch unreachable;
+        const new_str = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
         step.step.dependOn(&replace.step);
 
         // graphics.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics.js"), self.joinResolvePath(&.{output_dir, "graphics.js"}));
+        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics.js"), self.joinResolvePath(&.{ output_dir, "graphics.js" }));
         step.step.dependOn(&cp.step);
 
         // stdx.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.joinResolvePath(&.{output_dir, "stdx.js"}));
+        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.joinResolvePath(&.{ output_dir, "stdx.js" }));
         step.step.dependOn(&cp.step);
 
         return step;
@@ -313,7 +313,7 @@ const BuilderContext = struct {
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
         var lib: *LibExeObjStep = undefined;
-        // For windows-gnu adding a shared library would result in an almost empty stbtt.lib file leading to undefined symbols during linking. 
+        // For windows-gnu adding a shared library would result in an almost empty stbtt.lib file leading to undefined symbols during linking.
         // As a workaround we always static link for windows.
         if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
             lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
@@ -342,6 +342,7 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    // TODO: We should probably build SDL locally instead of using a prebuilt version.
     fn linkSDL(self: *Self, step: *LibExeObjStep) void {
         if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
             if (self.static_link) {
@@ -553,7 +554,7 @@ fn addGraphics(step: *std.build.LibExeObjStep) void {
     lyon.dependencies = &.{stdx_pkg};
 
     var gl = gl_pkg;
-    gl.dependencies = &.{sdl_pkg, stdx_pkg};
+    gl.dependencies = &.{ sdl_pkg, stdx_pkg };
 
     pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_pkg, stdx_pkg, lyon };
     step.addPackage(pkg);
@@ -696,33 +697,6 @@ const ReplaceInFileStep = struct {
         const write = std.fs.openFileAbsolute(self.path, .{ .read = false, .write = true }) catch unreachable;
         defer write.close();
         write.writeAll(new_source) catch unreachable;
-    }
-};
-
-const ExecStep = struct {
-    const Self = @This();
-
-    step: std.build.Step,
-    b: *Builder,
-    args: []const []const u8,
-
-    fn create(b: *Builder, args: []const []const u8) *Self {
-        // Dupe arg list.
-        const new_args = b.allocator.alloc([]const u8, args.len) catch unreachable;
-        std.mem.copy([]const u8, new_args, args);
-
-        const new = b.allocator.create(Self) catch unreachable;
-        new.* = .{
-            .step = std.build.Step.init(.custom, b.fmt("exec", .{}), b.allocator, make),
-            .b = b,
-            .args = new_args,
-        };
-        return new;
-    }
-
-    fn make(step: *std.build.Step) anyerror!void {
-        const self = @fieldParentPtr(Self, "step", step);
-        _ = self.b.execFromStep(self.args, &self.step) catch unreachable;
     }
 };
 
