@@ -13,8 +13,8 @@ pub fn build(b: *Builder) void {
     const path = b.option([]const u8, "path", "Path to file, for: test-file, run") orelse "";
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
-    const link_stbtt = b.option(bool, "stbtt", "Link stbtt") orelse false;
     const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
 
     const build_options = b.addOptions();
@@ -23,11 +23,8 @@ pub fn build(b: *Builder) void {
     var ctx = BuilderContext{
         .builder = b,
         .enable_tracy = tracy,
-        .link_stbtt = link_stbtt,
-        .link_sdl = false,
-        .link_gl = false,
-        .link_stbi = false,
-        .link_lyon = false,
+        .link_graphics = graphics,
+        .link_v8 = v8,
         .static_link = static_link,
         .path = path,
         .filter = filter,
@@ -35,13 +32,6 @@ pub fn build(b: *Builder) void {
         .target = b.standardTargetOptions(.{}),
         .build_options = build_options,
     };
-    if (graphics) {
-        ctx.link_sdl = true;
-        ctx.link_stbtt = true;
-        ctx.link_stbi = true;
-        ctx.link_gl = true;
-        ctx.link_lyon = true;
-    }
 
     const get_deps = GetDepsStep.create(b);
     b.step("get-deps", "Clone/pull the required external dependencies into vendor folder").dependOn(&get_deps.step);
@@ -80,11 +70,8 @@ const BuilderContext = struct {
     path: []const u8,
     filter: []const u8,
     enable_tracy: bool,
-    link_stbtt: bool,
-    link_stbi: bool,
-    link_sdl: bool,
-    link_gl: bool,
-    link_lyon: bool,
+    link_graphics: bool,
+    link_v8: bool,
     static_link: bool,
     builder: *std.build.Builder,
     mode: std.builtin.Mode,
@@ -194,7 +181,7 @@ const BuilderContext = struct {
         const build_options = self.buildOptionsPkg();
         addStdx(step, build_options);
         addCommon(step);
-        if (self.link_stbtt) {
+        if (self.link_graphics) {
             addStbtt(step);
             self.buildLinkStbtt(step);
         }
@@ -238,25 +225,26 @@ const BuilderContext = struct {
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) void {
-        if (self.link_sdl) {
+        if (self.link_graphics) {
             addSDL(step);
             self.linkSDL(step);
-        }
-        if (self.link_stbtt) {
+
             addStbtt(step);
             self.buildLinkStbtt(step);
-        }
-        if (self.link_gl) {
+
             addGL(step);
             linkGL(step);
-        }
-        if (self.link_lyon) {
+
             addLyon(step);
             self.linkLyon(step, self.target);
-        }
-        if (self.link_stbi) {
+
             addStbi(step);
             self.buildLinkStbi(step);
+        }
+
+        if (self.link_v8) {
+            addZigV8(step);
+            self.linkZigV8(step);
         }
     }
 
@@ -342,6 +330,15 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
+        if (self.target.getOsTag() == .linux) {
+            step.addAssemblyFile("./lib/zig-v8/v8-out/ninja/obj/zig/libc_v8.a");
+            step.linkSystemLibrary("unwind");
+        } else {
+            @panic("Unsupported");
+        }
+    }
+
     // TODO: We should probably build SDL locally instead of using a prebuilt version.
     fn linkSDL(self: *Self, step: *LibExeObjStep) void {
         if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
@@ -357,9 +354,9 @@ const BuilderContext = struct {
                 step.linkFramework("ForceFeedback");
                 step.linkFramework("AudioToolbox");
                 step.linkFramework("CFNetwork");
-                step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2.a");
                 step.linkSystemLibrary("iconv");
                 step.linkSystemLibrary("m");
+                step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2.a");
             } else {
                 step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2-2.0.0.dylib");
             }
@@ -466,6 +463,17 @@ const BuilderContext = struct {
         }
     }
 };
+
+const zig_v8_pkg = Pkg{
+    .name = "zig-v8",
+    .path = FileSource.relative("./lib/zig-v8/src/v8.zig"),
+};
+
+fn addZigV8(step: *LibExeObjStep) void {
+    step.addPackage(zig_v8_pkg);
+    step.linkLibC();
+    step.addIncludeDir("./lib/zig-v8/src");
+}
 
 const sdl_pkg = Pkg{
     .name = "sdl",
@@ -717,36 +725,42 @@ const GetDepsStep = struct {
 
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
-        var exists = true;
-        const path = self.builder.pathFromRoot("./vendor");
-        std.fs.accessAbsolute(path, .{}) catch {
-            exists = false;
-        };
-        if (exists) {
-            const alloc = self.builder.allocator;
-            const res = try std.ChildProcess.exec(.{
-                .allocator = alloc,
-                .argv = &[_][]const u8{ "git", "pull" },
-                .cwd = path,
-                .max_output_bytes = 50 * 1024,
-            });
-            defer {
-                alloc.free(res.stdout);
-                alloc.free(res.stderr);
-            }
-            print("{s}{s}", .{ res.stdout, res.stderr });
-            switch (res.term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        return error.ExitCodeFailure;
-                    }
-                },
-                .Signal, .Stopped, .Unknown => {
-                    return error.ProcessTerminated;
-                },
-            }
-        } else {
+
+        var path = self.builder.pathFromRoot("./vendor");
+        if ((try statPath(path)) == .NotExist) {
             _ = try self.builder.exec(&[_][]const u8{ "git", "clone", "--depth=1", "https://github.com/fubark/cosmic-vendor", path });
+        }
+
+        path = self.builder.pathFromRoot("./lib/zig-v8");
+        if ((try statPath(path)) == .NotExist) {
+            _ = try self.builder.exec(&[_][]const u8{ "git", "clone", "--depth=1", "https://github.com/fubark/zig-v8", path });
         }
     }
 };
+
+const PathStat = enum {
+    NotExist,
+    Directory,
+    File,
+    SymLink,
+    Unknown,
+};
+
+fn statPath(path_abs: []const u8) !PathStat {
+    const file = std.fs.openFileAbsolute(path_abs, .{ .read = false, .write = false }) catch |err| {
+        if (err == error.FileNotFound) {
+            return .NotExist;
+        } else {
+            return err;
+        }
+    };
+    defer file.close();
+
+    const stat = try file.stat();
+    switch (stat.kind) {
+        .SymLink => return .SymLink,
+        .Directory => return .Directory,
+        .File => return .File,
+        else => return .Unknown,
+    }
+}

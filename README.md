@@ -12,7 +12,7 @@ Along the way we'll build some cool libs for zig! In no particular order:
 - XScript, a new scripting language for the future. (*In progress*)
 - General purpose text editor. (*In progress*)
 - Incremental AST parser and tokenizer. ([Source](https://github.com/fubark/cosmic/tree/master/parser))
-- Main Cosmic app. (*Not started.*)
+- Main Cosmic app. (*In progress*)
 - Bundling/distribution. (*Not started.*)
 
 ## Contributing

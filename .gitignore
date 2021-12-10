@@ -3,4 +3,5 @@
 /lib/zig
 /lib/clyon/target/
 /lib/clyon/Cargo.lock
+/lib/zig-v8
 /vendor
