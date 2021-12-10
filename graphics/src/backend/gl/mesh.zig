@@ -13,18 +13,17 @@ const MaxVertexBufferSize = 2048 * 10;
 const MaxIndexBufferSize = MaxVertexBufferSize * 4;
 
 // Vertex and index buffer.
-// Buffer is fixed size.
 pub const Mesh = struct {
     const Self = @This();
 
     index_buffer_type: gl.GLenum = gl.GL_UNSIGNED_SHORT,
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     index_buf: []u16,
     cur_index_buf_size: u32,
     vert_buf: []TexShaderVertex,
     cur_vert_buf_size: u32,
 
-    pub fn init(alloc: *std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) Self {
         const vertex_buf = alloc.alloc(TexShaderVertex, StartVertexBufferSize) catch unreachable;
         const index_buf = alloc.alloc(u16, StartIndexBufferSize) catch unreachable;
         return Mesh{

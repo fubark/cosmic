@@ -7,7 +7,7 @@ const FontId = graphics.font.FontId;
 pub const FontGroup = struct {
     const Self = @This();
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
 
     // Ordered by font fallback priority.
     // There are also library fallback fonts, that FontCache will use.
@@ -16,8 +16,8 @@ pub const FontGroup = struct {
 
     primary_font: FontId,
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, fonts: []const FontId) void {
-        const _fonts = std.mem.dupe(alloc, FontId, fonts) catch unreachable;
+    pub fn init(self: *Self, alloc: std.mem.Allocator, fonts: []const FontId) void {
+        const _fonts = alloc.dupe(FontId, fonts) catch unreachable;
         self.* = .{
             .alloc = alloc,
             .fonts = _fonts,

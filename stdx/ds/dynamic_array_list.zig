@@ -19,7 +19,7 @@ pub fn DynamicArrayList(comptime Id: type, comptime T: type) type {
 
         data: std.ArrayList(T),
 
-        pub fn init(alloc: *std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .data = std.ArrayList(T).init(alloc),
             };

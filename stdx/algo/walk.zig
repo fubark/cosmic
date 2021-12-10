@@ -53,7 +53,7 @@ pub fn walkPre(
 }
 
 pub fn walkPreAlloc(
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     comptime Config: WalkerConfig,
     comptime Context: type,
     user_ctx: Context,
@@ -135,7 +135,7 @@ pub fn walkPost(
 }
 
 pub fn walkPostAlloc(
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     comptime Config: WalkerConfig,
     comptime Context: type,
     user_ctx: Context,
@@ -231,7 +231,7 @@ pub fn walkPrePost(
 }
 
 pub fn walkPrePostAlloc(
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     comptime Config: WalkerConfig,
     comptime Context: type,
     user_ctx: Context,

@@ -28,7 +28,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
         const Self = @This();
 
         mb_root: ?NodePtr,
-        alloc: *std.mem.Allocator,
+        alloc: std.mem.Allocator,
         grammar: *Grammar,
 
         // TODO: rename to token_buf
@@ -42,7 +42,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
 
         src: Source(Config),
 
-        pub fn init(self: *Self, alloc: *std.mem.Allocator, parser: *Parser, src: Source(Config)) void {
+        pub fn init(self: *Self, alloc: std.mem.Allocator, parser: *Parser, src: Source(Config)) void {
             self.* = .{
                 .mb_root = null,
                 .alloc = alloc,

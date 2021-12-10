@@ -15,7 +15,7 @@ pub const Window = struct {
         .Test => void,
     },
 
-    pub fn init(alloc: *std.mem.Allocator, config: Config) !Self {
+    pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         const inner = try switch (Backend) {
             .OpenGL => gl.Window.init(alloc, config),
             .WasmCanvas => wasm.Window.init(config),

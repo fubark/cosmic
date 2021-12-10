@@ -5,10 +5,10 @@ const mem = std.mem;
 const log = stdx.log.scoped(.unicode);
 
 // Adapted from std.unicode.utf16lToUtf8Alloc
-pub fn utf16beToUtf8Alloc(alloc: *mem.Allocator, utf16be: []const u16) ![]u8 {
+pub fn utf16beToUtf8Alloc(alloc: mem.Allocator, utf16be: []const u16) ![]u8 {
     var result = std.ArrayList(u8).init(alloc);
     // optimistically guess that it will all be ascii.
-    try result.ensureCapacity(utf16be.len);
+    try result.ensureTotalCapacity(utf16be.len);
     var out_index: usize = 0;
     var it = Utf16BeIterator.init(utf16be);
     while (try it.nextCodepoint()) |codepoint| {

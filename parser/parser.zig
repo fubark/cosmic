@@ -48,7 +48,7 @@ const CacheMapTokenThreshold = 10000;
 pub const Parser = struct {
     const Self = @This();
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     tokenizer: Tokenizer,
     decls: []const RuleDecl,
     ops: []const MatchOp,
@@ -84,7 +84,7 @@ pub const Parser = struct {
     // The current starting pos in the stack bufs.
     rule_stack_start: u32,
 
-    pub fn init(alloc: *std.mem.Allocator, g: *Grammar) Self {
+    pub fn init(alloc: std.mem.Allocator, g: *Grammar) Self {
         var new = Self{
             .alloc = alloc,
             .tokenizer = Tokenizer.init(g),
@@ -1387,7 +1387,7 @@ pub const DebugInfo = struct {
     // If parsing failed, this is the call stack we want.
     max_call_stack: std.ArrayList(CallFrame),
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
             .stats = undefined,
             .call_stack = std.ArrayList(CallFrame).init(alloc),

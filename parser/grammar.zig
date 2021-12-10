@@ -12,7 +12,7 @@ const builder = @import("builder.zig");
 pub const Grammar = struct {
     const Self = @This();
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     token_decls: std.ArrayList(TokenDecl),
 
     // The decls used in the first pass to start matching each char.
@@ -53,7 +53,7 @@ pub const Grammar = struct {
     match_op_buf: std.ArrayList(*MatchOp),
     bit_buf: ds.BitArrayList,
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, root_rule_name: []const u8) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, root_rule_name: []const u8) void {
         self.* = .{
             .alloc = alloc,
             .token_decls = std.ArrayList(TokenDecl).init(alloc),
@@ -122,7 +122,7 @@ pub const Grammar = struct {
     }
 
     // Build config before it can be used by the Parser.
-    pub fn build(self: *Self, alloc: *std.mem.Allocator) void {
+    pub fn build(self: *Self, alloc: std.mem.Allocator) void {
         self.root_rule_id = self.findRuleDeclId(self.root_rule_name) orelse stdx.panicFmt("Couldn't find {s}", .{self.root_rule_name});
 
         // Assumes CharSlice is a unique key to the same string.

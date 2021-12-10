@@ -13,7 +13,7 @@ A full example config that parses Zig code can be found [here](https://github.co
 Here is a demo that parses all the zig stdlib sources.
 You will need zig installed and also *REPO/lib/zig* should point to zig's source repo:
 ```sh
-zig build test-file -Dpath=parser/parser_manual.test.zig -Drelease-safe
+zig build test-file -Dpath="parser/parser_manual.test.zig" -Drelease-safe
 ```
 
 ## Creating Grammars

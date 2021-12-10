@@ -42,7 +42,7 @@ const TreeBranchFactor = 3;
 pub const Document = struct {
     const Self = @This();
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     line_tree: ds.CompleteTreeArray(TreeBranchFactor, Node),
     line_chunks: ds.CompactUnorderedList(LineChunkId, LineChunkArray),
     lines: ds.CompactUnorderedList(LineId, Line),
@@ -51,7 +51,7 @@ pub const Document = struct {
     node_buf: std.ArrayList(NodeId),
     str_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
             .line_tree = ds.CompleteTreeArray(3, Node).init(alloc),
             .alloc = alloc,

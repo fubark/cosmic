@@ -38,7 +38,7 @@ pub const BitmapFont = struct {
     // should just be ascent + descent amounts.
     font_height: f32,
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, font: *Font, bm_font_size: u16) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, font: *Font, bm_font_size: u16) void {
         const scale = font.ttf_font.getScaleToUserFontSize(@intToFloat(f32, bm_font_size));
 
         const v_metrics = font.ttf_font.getVerticalMetrics();
@@ -58,7 +58,7 @@ pub const BitmapFont = struct {
             .missing_glyph = null,
         };
         // Start with enough memory for ascii codepoints.
-        self.glyphs.ensureCapacity(256) catch unreachable;
+        self.glyphs.ensureTotalCapacity(256) catch unreachable;
     }
 
     pub fn deinit(self: *Self) void {
@@ -93,7 +93,7 @@ pub const Font = struct {
     stbtt_font: stbtt.fontinfo,
     name: stdx.string.BoxString,
     
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, id: FontId, data: []const u8) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const u8) void {
         const ttf_font = TTF_Font.init(alloc, data, 0) catch unreachable;
 
         var stbtt_font: stbtt.fontinfo = undefined;

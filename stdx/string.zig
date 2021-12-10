@@ -26,12 +26,12 @@ pub inline fn trimRight(str: []const u8, to_remove: []const u8) []const u8 {
     return std.mem.trimRight(u8, str, to_remove);
 }
 
-pub fn dupe(alloc: *Allocator, str: []const u8) ![]const u8 {
-    return try std.mem.dupe(alloc, u8, str);
+pub fn dupe(alloc: Allocator, str: []const u8) ![]const u8 {
+    return try alloc.dupe(u8, str);
 }
 
-pub fn dupeWrapped(alloc: *Allocator, str: []const u8) !BoxString {
-    const copy = try std.mem.dupe(alloc, u8, str);
+pub fn dupeWrapped(alloc: Allocator, str: []const u8) !BoxString {
+    const copy = try alloc.dupe(u8, str);
     return BoxString.init(alloc, copy);
 }
 

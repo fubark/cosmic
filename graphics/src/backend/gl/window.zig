@@ -17,7 +17,7 @@ pub const Window = struct {
     width: u32,
     height: u32,
 
-    pub fn init(alloc: *std.mem.Allocator, config: Config) !Self {
+    pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         var res: Window = undefined;
         if (sdl.SDL_InitSubSystem(sdl.SDL_INIT_VIDEO) != 0) {
             log.warn("unable to initialize SDL: {s}", .{sdl.SDL_GetError()});
@@ -64,7 +64,7 @@ fn glSetAttr(attr: sdl.SDL_GLattr, val: c_int) !void {
     }
 }
 
-fn initGL_Window(alloc: *std.mem.Allocator, win: *Window, config: Config, flags: c_int) !void {
+fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: c_int) !void {
     try glSetAttr(sdl.SDL_GL_CONTEXT_FLAGS, sdl.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
     try glSetAttr(sdl.SDL_GL_CONTEXT_PROFILE_MASK, sdl.SDL_GL_CONTEXT_PROFILE_CORE);
 

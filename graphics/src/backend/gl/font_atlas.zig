@@ -16,7 +16,7 @@ pub const FontAtlas = struct {
 
     g: *Graphics,
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     buf: []u8,
 
     // For single channel buffer, we still want to upload a 4 channel image since
@@ -40,7 +40,7 @@ pub const FontAtlas = struct {
 
     needs_texture_resize: bool,
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, g: *Graphics, width: u32, height: u32, channels: u8) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics, width: u32, height: u32, channels: u8) void {
         self.* = .{
             .g = g,
             .alloc = alloc,

@@ -40,7 +40,7 @@ const NullFontSize: u16 = 0;
 pub const FontCache = struct {
     const Self = @This();
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
 
     fonts: std.ArrayList(Font),
 
@@ -64,7 +64,7 @@ pub const FontCache = struct {
     // System fallback fonts. Used when user fallback fonts was not enough.
     system_fonts: std.ArrayList(FontId),
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, g: *Graphics) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics) void {
         // For testing resizing:
         // const bm_width = 128;
         // const bm_height = 128;

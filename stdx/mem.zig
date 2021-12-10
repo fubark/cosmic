@@ -50,7 +50,7 @@ pub fn readFloat32Little(ptr: *[4]u8) f32 {
     return @bitCast(f32, std.mem.readIntLittle(u32, ptr));
 }
 
-pub fn freeOpaqueWithSize(alloc: *std.mem.Allocator, ptr: *ds.Opaque, size: usize) void {
+pub fn freeOpaqueWithSize(alloc: std.mem.Allocator, ptr: *ds.Opaque, size: usize) void {
     alloc.free(@ptrCast([*]u8, ptr)[0..size]);
 }
 

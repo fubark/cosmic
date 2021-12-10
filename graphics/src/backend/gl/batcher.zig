@@ -31,7 +31,7 @@ pub const Batcher = struct {
 
     cur_tex_image: ImageDesc,
 
-    pub fn init(alloc: *std.mem.Allocator, tex_shader: Shader) Self {
+    pub fn init(alloc: std.mem.Allocator, tex_shader: Shader) Self {
         var new = Self{
             .mesh = Mesh.init(alloc),
             .vert_buf_id = undefined,

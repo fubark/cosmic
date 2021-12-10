@@ -16,9 +16,9 @@ fn BoxSlice(comptime T: type) type {
         const Self = @This();
 
         slice: T,
-        alloc: *std.mem.Allocator,
+        alloc: std.mem.Allocator,
 
-        pub fn init(alloc: *std.mem.Allocator, slice: T) Self {
+        pub fn init(alloc: std.mem.Allocator, slice: T) Self {
             return .{
                 .alloc = alloc,
                 .slice = slice,
@@ -36,23 +36,23 @@ fn BoxPtr(comptime T: type) type {
         const Self = @This();
 
         ptr: *T,
-        alloc: *std.mem.Allocator,
+        alloc: std.mem.Allocator,
 
-        pub fn init(alloc: *std.mem.Allocator, ptr: *T) Self {
+        pub fn init(alloc: std.mem.Allocator, ptr: *T) Self {
             return .{
                 .alloc = alloc,
                 .ptr = ptr,
             };
         }
 
-        pub fn create(alloc: *std.mem.Allocator) !Self {
+        pub fn create(alloc: std.mem.Allocator) !Self {
             return Self{
                 .alloc = alloc,
                 .ptr = try alloc.create(T),
             };
         }
 
-        pub fn createInit(alloc: *std.mem.Allocator, _init: T) !Self {
+        pub fn createInit(alloc: std.mem.Allocator, _init: T) !Self {
             const new = Self{
                 .alloc = alloc,
                 .ptr = try alloc.create(T),
@@ -87,7 +87,7 @@ pub const SizedBox = struct {
     const Self = @This();
 
     ptr: *ds.Opaque,
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     size: u32,
 
     pub fn deinit(self: *const Self) void {

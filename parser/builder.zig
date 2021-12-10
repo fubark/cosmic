@@ -27,7 +27,7 @@ const grammars = @import("grammars.zig");
 
 // Creates a grammar to parse the grammar format.
 // Since parsers currently only exist at runtime, we need to hardcode the rules.
-pub fn initMetaGrammar(c: *Grammar, alloc: *std.mem.Allocator) void {
+pub fn initMetaGrammar(c: *Grammar, alloc: std.mem.Allocator) void {
     c.init(alloc, "Grammar");
     const op = c.addOp;
     const top = c.addTokenOp;
@@ -491,7 +491,7 @@ fn BuildConfigContext(comptime Config: ParseConfig) type {
     };
 }
 
-pub fn initGrammar(c: *Grammar, alloc: *std.mem.Allocator, src: []const u8) !void {
+pub fn initGrammar(c: *Grammar, alloc: std.mem.Allocator, src: []const u8) !void {
     var gc: Grammar = undefined;
     initMetaGrammar(&gc, alloc);
     defer gc.deinit();
@@ -534,7 +534,7 @@ pub fn initGrammar(c: *Grammar, alloc: *std.mem.Allocator, src: []const u8) !voi
     initGrammarFromAst(Config, c, alloc, res.ast);
 }
 
-pub fn initGrammarFromAst(comptime Config: ParseConfig, c: *Grammar, alloc: *std.mem.Allocator, ast: Tree(Config)) void {
+pub fn initGrammarFromAst(comptime Config: ParseConfig, c: *Grammar, alloc: std.mem.Allocator, ast: Tree(Config)) void {
     const root = ast.mb_root.?;
     c.init(alloc, "Program");
 

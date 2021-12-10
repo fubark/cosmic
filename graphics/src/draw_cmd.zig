@@ -7,7 +7,7 @@ const std = @import("std");
 pub const DrawCommandList = struct {
     const Self = @This();
 
-    alloc: ?*std.mem.Allocator,
+    alloc: ?std.mem.Allocator,
     extra_data: []const f32,
     cmd_data: []const f32,
     cmds: []DrawCommandPtr,

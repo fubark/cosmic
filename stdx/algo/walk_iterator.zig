@@ -13,7 +13,7 @@ pub fn WalkIterator(comptime Node: type) type {
         queuer: walk.ReverseAddToBuffer(Node),
         walker: *walk.WalkerIface(Node),
 
-        pub fn initPre(self: *Self, alloc: *std.mem.Allocator, root: Node, walker: *walk.WalkerIface(Node)) void {
+        pub fn initPre(self: *Self, alloc: std.mem.Allocator, root: Node, walker: *walk.WalkerIface(Node)) void {
             self.buf = std.ArrayList(Node).init(alloc);
             self.queuer = walk.ReverseAddToBuffer(Node){ .buf = &self.buf };
             self.walker = walker;

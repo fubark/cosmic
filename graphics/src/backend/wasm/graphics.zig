@@ -82,7 +82,7 @@ pub const Graphics = struct {
     // Used to keep link results back to TextMeasures
     text_measures_buffer: std.ArrayList(*TextMeasure),
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, width: usize, height: usize) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, width: usize, height: usize) void {
         _ = alloc;
         self.* = .{
             .buffer_width = width,

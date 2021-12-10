@@ -45,7 +45,7 @@ const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
 pub const Graphics = struct {
     const Self = @This();
 
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
 
     white_tex: ImageDesc,
     tex_shader: Shader,
@@ -81,7 +81,7 @@ pub const Graphics = struct {
     cur_blend_mode: BlendMode,
 
     // We can initialize without gl calls for use in tests.
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, buf_width: usize, buf_height: usize) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, buf_width: usize, buf_height: usize) void {
 
         self.* = .{
             .alloc = alloc,

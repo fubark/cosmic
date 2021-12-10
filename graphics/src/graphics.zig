@@ -93,7 +93,7 @@ pub const Graphics = struct {
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator, buf_width: u32, buf_height: u32) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, buf_width: u32, buf_height: u32) void {
         self.* = .{
             .path_parser = svg.PathParser.init(alloc),
             .svg_parser = svg.SvgParser.init(alloc),

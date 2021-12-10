@@ -23,7 +23,7 @@ pub const Graphics = struct {
 
     getOrLoadFontGlyphFn: fn (*Self, font: *Font, cp: u21) ?*Glyph,
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         _ = alloc;
         self.* = .{
             .default_font_id = 1,

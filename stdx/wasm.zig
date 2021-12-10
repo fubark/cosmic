@@ -6,7 +6,7 @@ const log = stdx.log.scoped(.wasm);
 
 var js_buffer: WasmJsBuffer = undefined;
 
-pub fn init(alloc: *std.mem.Allocator) void {
+pub fn init(alloc: std.mem.Allocator) void {
     js_buffer.init(alloc);
     promises = ds.CompactUnorderedList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
@@ -27,7 +27,7 @@ pub const WasmJsBuffer = struct {
 
     input_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Self, alloc: *std.mem.Allocator) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
             .output_buf = std.ArrayList(u8).init(alloc),
             .output_writer = undefined,

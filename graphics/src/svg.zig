@@ -121,7 +121,7 @@ pub const PathMoveToRel = struct {
 };
 
 pub const SvgPath = struct {
-    alloc: ?*std.mem.Allocator,
+    alloc: ?std.mem.Allocator,
     data: []const f32,
     cmds: []const PathCommand,
 
@@ -151,7 +151,7 @@ pub const PathParser = struct {
     cur_data: std.ArrayList(f32),
     cur_cmds: std.ArrayList(u8),
 
-    pub fn init(alloc: *std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) Self {
         return .{
             .data = std.ArrayList(f32).init(alloc),
             .temp_buf = std.ArrayList(u8).init(alloc),
@@ -180,7 +180,7 @@ pub const PathParser = struct {
         return self.parseInternal(str);
     }
 
-    fn parseAlloc(self: *Self, alloc: *std.mem.Allocator, str: []const u8) !SvgPath {
+    fn parseAlloc(self: *Self, alloc: std.mem.Allocator, str: []const u8) !SvgPath {
         const path = try self.parse(str);
         const new_cmds = try alloc.alloc(PathCommand, path.cmds.len);
         std.mem.copy(PathCommand, new_cmds, path.cmds);
@@ -506,7 +506,7 @@ pub const PathParser = struct {
 
 const SvgPathDelimiters = " ,\n\t";
 
-pub fn parseSvgPath(alloc: *std.mem.Allocator, str: []const u8) !SvgPath {
+pub fn parseSvgPath(alloc: std.mem.Allocator, str: []const u8) !SvgPath {
     var parser = PathParser.init(alloc);
     defer parser.deinit();
     return parser.parseAlloc(alloc, str);
@@ -618,7 +618,7 @@ pub const SvgParser = struct {
     // append transform commands to DrawCommandList in a way similar to setFillColor
     cur_transform: ?Transform,
 
-    pub fn init(alloc: *std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) Self {
         var elem_map = ds.OwnedKeyStringHashMap(SvgElement).init(alloc);
         elem_map.put("g", .Group) catch unreachable;
         elem_map.put("polygon", .Polygon) catch unreachable;
@@ -652,7 +652,7 @@ pub const SvgParser = struct {
         self.path_parser.deinit();
     }
 
-    pub fn parseAlloc(self: *Self, alloc: *std.mem.Allocator, src: []const u8) !DrawCommandList {
+    pub fn parseAlloc(self: *Self, alloc: std.mem.Allocator, src: []const u8) !DrawCommandList {
         const res = try self.parse(src);
         const new_cmd_data = alloc.alloc(f32, res.cmd_data.len) catch unreachable;
         std.mem.copy(f32, new_cmd_data, res.cmd_data);

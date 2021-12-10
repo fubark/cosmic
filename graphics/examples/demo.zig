@@ -200,7 +200,7 @@ fn update(delta_ms: f32) void {
     win.swapBuffers();
 }
 
-fn initAssets(alloc: *std.mem.Allocator) !void {
+fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 1024 * 1000 * 20;
 
     default_font = try stdx.fs.readFileFromExeDir(alloc, "NunitoSans-Regular.ttf", MaxFileSize);
@@ -224,7 +224,7 @@ fn initAssets(alloc: *std.mem.Allocator) !void {
     alloc.free(tiger_head_svg);
 }
 
-fn deinitAssets(alloc: *std.mem.Allocator) void {
+fn deinitAssets(alloc: std.mem.Allocator) void {
     alloc.free(default_font);
     alloc.free(default_emoji);
     tiger_head_draw_list.deinit();

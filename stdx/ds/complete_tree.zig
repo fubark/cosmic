@@ -17,7 +17,7 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
 
         nodes: std.ArrayList(T),
 
-        pub fn init(alloc: *std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .nodes = std.ArrayList(T).init(alloc),
             };

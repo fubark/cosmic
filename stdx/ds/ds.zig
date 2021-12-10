@@ -45,10 +45,10 @@ pub fn OwnedKeyStringHashMap(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        alloc: *std.mem.Allocator,
+        alloc: std.mem.Allocator,
         map: std.StringHashMap(T),
 
-        pub fn init(alloc: *std.mem.Allocator) @This() {
+        pub fn init(alloc: std.mem.Allocator) @This() {
             return .{
                 .alloc = alloc,
                 .map = std.StringHashMap(T).init(alloc),
@@ -119,7 +119,7 @@ pub const SizedPtr = struct {
         };
     }
 
-    pub fn deinit(self: *Self, alloc: *std.mem.Allocator) void {
+    pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
         const slice = Opaque.toPtr([*]u8, self.ptr)[0..self.size];
         alloc.free(slice);
     }

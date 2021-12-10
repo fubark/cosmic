@@ -142,7 +142,7 @@ pub const TTF_Font = struct {
 
     // start_offset is offset that begins the font data in a font collection file (ttc).
     // start_offset is 0 if it's a ttf/otf file.
-    pub fn init(alloc: *std.mem.Allocator, data: []const u8, start_offset: usize) !Self {
+    pub fn init(alloc: std.mem.Allocator, data: []const u8, start_offset: usize) !Self {
         var new = Self{
             .data = data,
             .start = start_offset,
@@ -303,13 +303,13 @@ pub const TTF_Font = struct {
         return self.glyph_mapper.getGlyphId(cp);
     }
 
-    pub fn getFontFamilyName(self: *const Self, alloc: *std.mem.Allocator) ?string.BoxString {
+    pub fn getFontFamilyName(self: *const Self, alloc: std.mem.Allocator) ?string.BoxString {
         return self.getNameString(alloc, NAME_ID_FONT_FAMILY);
     }
 
     // stbtt has GetFontNameString but requires you to pass in specific platformId, encodingId and languageId.
     // This will return the first acceptable value for a given nameId. Useful for getting things like font family.
-    pub fn getNameString(self: *const Self, alloc: *std.mem.Allocator, name_id: u16) ?string.BoxString {
+    pub fn getNameString(self: *const Self, alloc: std.mem.Allocator, name_id: u16) ?string.BoxString {
         const pos = self.findTable("name".*) orelse return null;
         const data = self.data;
         const count = fromBigU16(&data[pos+2]);
@@ -351,7 +351,7 @@ pub const TTF_Font = struct {
 
     // Only retrieves offset info.
     // Returns error if minimum data isn't 
-    fn loadTables(self: *Self, alloc: *std.mem.Allocator) !void {
+    fn loadTables(self: *Self, alloc: std.mem.Allocator) !void {
         var loaded_glyph_map = false;
         var found_hhea = false;
         var found_hmtx = false;
@@ -646,7 +646,7 @@ const UvsGlyphMapper = struct {
     }
 };
 
-fn fromBigUTF16(alloc: *std.mem.Allocator, data: []const u8) string.BoxString {
+fn fromBigUTF16(alloc: std.mem.Allocator, data: []const u8) string.BoxString {
     const utf16 = std.mem.bytesAsSlice(u16, data);
 
     const aligned = alloc.alloc(u16, utf16.len) catch unreachable;
