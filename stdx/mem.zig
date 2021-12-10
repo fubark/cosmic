@@ -21,7 +21,7 @@ pub fn ptrCastAlign(comptime Ptr: type, ptr: anytype) Ptr {
 // Same as std.mem.replace except we write to an ArrayList.
 pub fn replaceIntoList(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: *std.ArrayList(T)) usize {
     // Clear the array list.
-    output.shrinkRetainingCapacity(0);
+    output.clearRetainingCapacity();
     var i: usize = 0;
     var slide: usize = 0;
     var replacements: usize = 0;

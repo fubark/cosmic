@@ -66,7 +66,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
         // Keep track of whether an item exists at id in order to perform iteration.
         data_exists: ds.BitArrayList,
 
-        pub fn init(alloc: *std.mem.Allocator) @This() {
+        pub fn init(alloc: std.mem.Allocator) @This() {
             const new = @This(){
                 .id_gen = CompactIdGenerator(Id).init(alloc, 0),
                 .data = std.ArrayList(T).init(alloc),
@@ -178,7 +178,7 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
         first: ?Id,
         items: CompactUnorderedList(Id, Item),
 
-        pub fn init(alloc: *std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .first = null,
                 .items = CompactUnorderedList(Id, Item).init(alloc),
@@ -300,7 +300,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
         items: CompactUnorderedList(ItemId, Item),
         lists: CompactUnorderedList(ListId, List),
 
-        pub fn init(alloc: *std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .items = CompactUnorderedList(ItemId, Item).init(alloc),
                 .lists = CompactUnorderedList(ListId, List).init(alloc),
@@ -458,7 +458,7 @@ pub fn CompactIdGenerator(comptime T: type) type {
         next_default_id: T,
         next_ids: std.fifo.LinearFifo(T, .Dynamic),
 
-        pub fn init(alloc: *std.mem.Allocator, start_id: T) Self {
+        pub fn init(alloc: std.mem.Allocator, start_id: T) Self {
             return .{
                 .start_id = start_id,
                 .next_default_id = start_id,

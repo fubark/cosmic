@@ -5,11 +5,11 @@ const IsWasm = builtin.target.cpu.arch == .wasm32;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-pub fn getDefaultAllocator() *std.mem.Allocator {
+pub fn getDefaultAllocator() std.mem.Allocator {
     if (IsWasm) {
         return std.heap.page_allocator;
     } else {
-        return &gpa.allocator;
+        return gpa.allocator();
     }
 }
 

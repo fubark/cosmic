@@ -40,3 +40,13 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
         }
     };
 }
+
+const default = if (UseStd) std.log.default else wasm.scoped(.default);
+
+pub fn info(comptime format: []const u8, args: anytype) void {
+    default.info(format, args);
+}
+
+pub fn err(comptime format: []const u8, args: anytype) void {
+    default.err(format, args);
+}

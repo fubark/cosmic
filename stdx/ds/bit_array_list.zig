@@ -7,7 +7,7 @@ pub const BitArrayList = struct {
 
     buf: std.ArrayList(bool),
 
-    pub fn init(alloc: *std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) Self {
         return .{
             .buf = std.ArrayList(bool).init(alloc),
         };
