@@ -10,8 +10,8 @@ pub const Window = struct {
     const Self = @This();
 
     inner: switch (Backend) {
-        .WasmCanvas => wasm.Window,
         .OpenGL => gl.Window,
+        .WasmCanvas => wasm.Window,
         .Test => void,
     },
 
@@ -53,8 +53,8 @@ pub const Window = struct {
 
 pub fn quit() void {
     switch (Backend) {
-        .WasmCanvas => {},
         .OpenGL => gl.quit(),
+        .WasmCanvas => {},
         else => stdx.panic("unsupported"),
     }
 }

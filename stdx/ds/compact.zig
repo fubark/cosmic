@@ -379,6 +379,16 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
             }
         }
 
+        pub fn removeNext(self: *Self, id: ItemId) void {
+            const at = self.items.getPtr(id);
+            if (at.next != null) {
+                const next = at.next.?;
+                const next_item = self.items.getPtr(next);
+                at.next = next_item.next;
+                self.items.remove(next);
+            }
+        }
+
         pub fn removeDetached(self: *Self, id: ItemId) void {
             self.items.remove(id);
         }

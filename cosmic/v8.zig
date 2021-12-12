@@ -5,21 +5,26 @@ pub const Platform = v8.Platform;
 pub const Isolate = v8.Isolate;
 pub const Context = v8.Context;
 pub const HandleScope = v8.HandleScope;
+pub const ObjectTemplate = v8.ObjectTemplate;
+pub const FunctionTemplate = v8.FunctionTemplate;
+pub const RawFunctionCallbackInfo = v8.RawFunctionCallbackInfo;
+pub const FunctionCallbackInfo = v8.FunctionCallbackInfo;
+pub const PropertyAttribute = v8.PropertyAttribute;
 const ScriptOrigin = v8.ScriptOrigin;
 const TryCatch = v8.TryCatch;
-const String = v8.String;
+pub const String = v8.String;
 const Value = v8.Value;
 const log = stdx.log.scoped(.v8);
 
 pub const initV8Platform = v8.initV8Platform;
-pub const deinitV8Platform = v8.deinitV8Platform();
+pub const deinitV8Platform = v8.deinitV8Platform;
 pub const initV8 = v8.initV8;
 pub const deinitV8 = v8.deinitV8;
+pub const getVersion = v8.getVersion;
 
 pub const initCreateParams = v8.initCreateParams;
 pub const createDefaultArrayBufferAllocator = v8.createDefaultArrayBufferAllocator;
 pub const destroyArrayBufferAllocator = v8.destroyArrayBufferAllocator;
-pub const createUtf8String = v8.createUtf8String;
 
 pub const ExecuteResult = struct {
     const Self = @This();
@@ -27,8 +32,9 @@ pub const ExecuteResult = struct {
     alloc: std.mem.Allocator,
     result: ?[]const u8,
     err: ?[]const u8,
+    success: bool,
 
-    fn deinit(self: Self) void {
+    pub fn deinit(self: Self) void {
         if (self.result) |result| {
             self.alloc.free(result);
         }
@@ -39,7 +45,7 @@ pub const ExecuteResult = struct {
 };
 
 /// Executes a string within the current v8 context.
-pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: *const String, origin_val: *const Value, result: *ExecuteResult) bool {
+pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: String, src_origin: String, result: *ExecuteResult) void {
     var hscope: HandleScope = undefined;
     hscope.init(isolate);
     defer hscope.deinit();
@@ -48,25 +54,23 @@ pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: *const Str
     try_catch.init(isolate);
     defer try_catch.deinit();
 
-    var origin = ScriptOrigin.initDefault(isolate, origin_val);
+    var origin = ScriptOrigin.initDefault(isolate, src_origin.handle);
 
     var context = isolate.getCurrentContext();
 
-    if (v8.compileScript(context, src, origin)) |script| {
-        if (v8.runScript(context, script)) |script_res| {
+    if (v8.Script.compile(context, src, origin)) |script| {
+        if (script.run(context)) |script_res| {
             result.* = .{
                 .alloc = alloc,
                 .result = valueToRawUtf8Alloc(alloc, isolate, context, script_res),
                 .err = null,
+                .success = true,
             };
-            return true;
         } else {
             setResultError(alloc, isolate, try_catch, result);
-            return false;
         }
     } else {
         setResultError(alloc, isolate, try_catch, result);
-        return false;
     }
 }
 
@@ -117,8 +121,8 @@ fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatc
             .alloc = alloc,
             .result = null,
             .err = buf.toOwnedSlice(),
+            .success = false,
         };
-        return;
     } else {
         // V8 didn't provide any extra information about this error, just get exception str.
         const exception = try_catch.getException();
@@ -127,23 +131,24 @@ fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatc
             .alloc = alloc,
             .result = null,
             .err = exception_str,
+            .success = false,
         };
-        return;
     }
 }
 
-pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, val: *const Value) void {
-    const str = v8.valueToString(ctx, val);
-    const len = v8.utf8Len(isolate, str);
+pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) void {
+    const val = v8.getValue(any_value);
+    const str = val.toString(ctx);
+    const len = str.lenUtf8(isolate);
     const start = arr.items.len;
     arr.resize(start + len) catch unreachable;
-    _ = v8.writeUtf8String(str, isolate, arr.items[start..arr.items.len]);
+    _ = str.writeUtf8(isolate, arr.items[start..arr.items.len]);
 }
 
-pub fn valueToRawUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context, val: *const Value) []const u8 {
-    const str = v8.valueToString(ctx, val);
-    const len = v8.utf8Len(isolate, str);
+pub fn valueToRawUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context, val: Value) []const u8 {
+    const str = val.toString(ctx);
+    const len = str.lenUtf8(isolate);
     const buf = alloc.alloc(u8, len) catch unreachable;
-    _ = v8.writeUtf8String(str, isolate, buf);
+    _ = str.writeUtf8(isolate, buf);
     return buf;
 }

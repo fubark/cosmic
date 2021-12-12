@@ -16,6 +16,7 @@ pub fn build(b: *Builder) void {
     const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
+    const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -48,7 +49,9 @@ pub fn build(b: *Builder) void {
     const build_exe = ctx.createBuildExeStep();
     b.step("exe", "Build exe with main file at -Dpath").dependOn(&build_exe.step);
 
-    b.step("run", "Run with main file at -Dpath").dependOn(&build_exe.run().step);
+    const run_exe = build_exe.run();
+    run_exe.addArgs(args);
+    b.step("run", "Run with main file at -Dpath").dependOn(&run_exe.step);
 
     const build_lib = ctx.createBuildLibStep();
     b.step("lib", "Build lib with main file at -Dpath").dependOn(&build_lib.step);
