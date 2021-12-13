@@ -6,6 +6,9 @@ const print = std.debug.print;
 const builtin = @import("builtin");
 const Pkg = std.build.Pkg;
 
+// During development you might want zls to see all the lib packages, remember to reset to false.
+const IncludeAllLibs = false;
+
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
 pub fn build(b: *Builder) void {
@@ -228,25 +231,25 @@ const BuilderContext = struct {
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) void {
-        if (self.link_graphics) {
+        if (self.link_graphics or IncludeAllLibs) {
             addSDL(step);
-            self.linkSDL(step);
-
             addStbtt(step);
-            self.buildLinkStbtt(step);
-
             addGL(step);
-            linkGL(step);
-
             addLyon(step);
-            self.linkLyon(step, self.target);
-
             addStbi(step);
+        }
+        if (self.link_graphics) {
+            self.linkSDL(step);
+            self.buildLinkStbtt(step);
+            linkGL(step);
+            self.linkLyon(step, self.target);
             self.buildLinkStbi(step);
         }
 
-        if (self.link_v8) {
+        if (self.link_v8 or IncludeAllLibs) {
             addZigV8(step);
+        }
+        if (self.link_v8) {
             self.linkZigV8(step);
         }
     }

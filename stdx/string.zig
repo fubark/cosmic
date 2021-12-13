@@ -35,9 +35,8 @@ pub fn dupeWrapped(alloc: Allocator, str: []const u8) !BoxString {
     return BoxString.init(alloc, copy);
 }
 
-pub fn concat(alloc: *Allocator, slices: []const []const u8) !BoxString {
-    const str = try std.mem.concat(alloc, u8, slices);
-    return BoxString.init(alloc, str);
+pub fn concat(alloc: Allocator, slices: []const []const u8) ![]const u8 {
+    return try std.mem.concat(alloc, u8, slices);
 }
 
 pub fn indexOfPos(str: []const u8, start_idx: usize, needle: u8) ?usize {
@@ -61,7 +60,7 @@ pub fn toLower(str: []const u8, dst: []u8) []const u8 {
     return std.ascii.lowerString(dst, str);
 }
 
-pub fn toLowerAlloc(alloc: *Allocator, str: []const u8) ![]const u8 {
+pub fn toLowerAlloc(alloc: Allocator, str: []const u8) ![]const u8 {
     return try std.ascii.allocLowerString(alloc, str);
 }
 

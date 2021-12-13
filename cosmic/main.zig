@@ -4,6 +4,7 @@ const stdx = @import("stdx");
 const string = stdx.string;
 const ds = stdx.ds;
 const graphics = @import("graphics");
+const Color = graphics.Color;
 const sdl = @import("sdl");
 
 const v8 = @import("v8.zig");
@@ -52,9 +53,6 @@ fn runAndExit(src_path: []const u8) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    v8_ctx.init(alloc);
-    defer v8_ctx.deinit();
-
     const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
     defer alloc.free(src);
 
@@ -74,6 +72,9 @@ fn runAndExit(src_path: []const u8) !void {
     var isolate = v8.Isolate.init(&params);
     defer isolate.deinit();
 
+    v8_ctx.init(alloc, isolate);
+    defer v8_ctx.deinit();
+
     isolate.enter();
     defer isolate.exit();
 
@@ -86,15 +87,19 @@ fn runAndExit(src_path: []const u8) !void {
     defer context.exit();
 
     const origin = v8.String.initUtf8(isolate, src_path);
-    const src_js = v8.String.initUtf8(isolate, src);
 
     var res: v8.ExecuteResult = undefined;
     defer res.deinit();
-    v8.executeString(alloc, isolate, src_js, origin, &res);
+    v8.executeString(alloc, isolate, src, origin, &res);
 
     while (platform.pumpMessageLoop(isolate, false)) {
         log.info("What does this do?", .{});
         unreachable;
+    }
+
+    if (!res.success) {
+        printFmt("{s}", .{res.err.?});
+        process.exit(1);
     }
 
     // Check if we need to enter an app loop.
@@ -102,15 +107,208 @@ fn runAndExit(src_path: []const u8) !void {
         runUserLoop(&v8_ctx);
     }
 
-    if (res.success) {
-        process.exit(0);
-    } else {
-        printFmt("{s}", .{res.err.?});
-        process.exit(1);
+    process.exit(0);
+}
+
+pub const CsWindow = struct {
+    const Self = @This();
+
+    window: graphics.Window,
+    onDrawFrameCbs: std.ArrayList(v8.Function),
+    js_window: v8.Persistent,
+
+    // Currently, each window has its own graphics handle.
+    graphics: *graphics.Graphics,
+
+    pub fn init(self: *Self, alloc: std.mem.Allocator, window: graphics.Window, js_window: v8.Persistent) void {
+        self.* = .{
+            .window = window,
+            .onDrawFrameCbs = std.ArrayList(v8.Function).init(alloc),
+            .js_window = js_window,
+            .graphics = undefined,
+        };
+        self.graphics = alloc.create(graphics.Graphics) catch unreachable;
+        self.graphics.init(alloc, window.getWidth(), window.getHeight());
+    }
+
+    pub fn deinit(self: Self) void {
+        self.graphics.deinit();
+        self.window.deinit();
+        for (self.onDrawFrameCbs.items) |onDrawFrame| {
+            onDrawFrame.castToPersistent().deinit();
+        }
+        self.onDrawFrameCbs.deinit();
+        self.js_window.deinit();
+    }
+};
+
+fn csWindow_OnDrawFrame(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    const len = info.length();
+    if (len == 0) {
+        v8.throwErrorException(isolate, "Expected callback arg");
+        return;
+    }
+    const arg = info.getArg(0);
+    if (!arg.isFunction()) {
+        v8.throwErrorException(isolate, "Expected callback arg");
+        return;
+    }
+
+    const this = info.getThis();
+    const window_id = this.getInternalField(0).toU32(ctx);
+
+    const res = v8_ctx.resources.get(window_id);
+    if (res.tag == .CsWindow) {
+        const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+        
+        // Persist callback func.
+        const p = v8.Persistent.init(isolate, arg);
+        window.onDrawFrameCbs.append(p.castToFunction()) catch unreachable;
     }
 }
 
-fn window_create(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+fn csColor_Get(comptime c: Color) v8.FunctionCallback {
+    const S = struct {
+        fn get(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+            const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+            const isolate = info.getIsolate();
+            const ctx = isolate.getCurrentContext();
+
+            var hscope: v8.HandleScope = undefined;
+            hscope.init(isolate);
+            defer hscope.deinit();
+
+            const new = v8_ctx.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, c.channels.r));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, c.channels.g));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, c.channels.b));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, c.channels.a));
+
+            const return_value = info.getReturnValue();
+            return_value.set(new);
+        }
+    };
+    return S.get;
+}
+
+fn csGraphics_SetFillColor(key: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+    _ = key;
+    const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    const val = v8.Value{ .handle = value.? };
+    if (val.isObject()) {
+        const r = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
+        const g = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
+        const b = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
+        const a = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
+        v8_ctx.active_graphics.setFillColor(Color.init(
+            @intCast(u8, r),
+            @intCast(u8, g),
+            @intCast(u8, b),
+            @intCast(u8, a),
+        ));
+    }
+}
+
+fn csGraphics_GetFillColor(key: ?*const v8.Name, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+    const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    // const return_value = info.getReturnValue();
+    // return_value.set();
+
+    _ = key;
+}
+
+fn csGraphics_FillRect(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+    var x: f32 = 0;
+    var y: f32 = 0;
+    var width: f32 = 0;
+    var height: f32 = 0;
+
+    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    const len = info.length();
+    if (len >= 1) {
+        x = info.getArg(0).toF32(ctx);
+    }
+    if (len >= 2) {
+        y = info.getArg(1).toF32(ctx);
+    }
+    if (len >= 3) {
+        width = info.getArg(2).toF32(ctx);
+    }
+    if (len >= 4) {
+        height = info.getArg(3).toF32(ctx);
+    }
+
+    v8_ctx.active_graphics.fillRect(x, y, width, height);
+}
+
+fn csColor_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    var r: u32 = 0;
+    var g: u32 = 0;
+    var b: u32 = 0;
+    var a: u32 = 255;
+
+    const len = info.length();
+    if (len == 3) {
+        r = info.getArg(0).toU32(ctx);
+        g = info.getArg(1).toU32(ctx);
+        b = info.getArg(2).toU32(ctx);
+    } else if (len == 4) {
+        r = info.getArg(0).toU32(ctx);
+        g = info.getArg(1).toU32(ctx);
+        b = info.getArg(2).toU32(ctx);
+        a = info.getArg(3).toU32(ctx);
+    } else {
+        v8.throwErrorException(isolate, "Expected (r, g, b) or (r, g, b, a)");
+        return;
+    }
+
+    const new = v8_ctx.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, r));
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, g));
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, b));
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, a));
+
+    const return_value = info.getReturnValue();
+    return_value.set(new);
+}
+
+fn csWindow_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
     var title: []const u8 = undefined;
     var width: u32 = 800;
     var height: u32 = 600;
@@ -125,7 +323,7 @@ fn window_create(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void
 
     const len = info.length();
     if (len >= 1) {
-        title = v8.valueToRawUtf8Alloc(v8_ctx.alloc, isolate, ctx, info.getArg(0));
+        title = v8.valueToUtf8Alloc(v8_ctx.alloc, isolate, ctx, info.getArg(0));
     } else {
         title = string.dupe(v8_ctx.alloc, "Window") catch unreachable;
     }
@@ -139,18 +337,24 @@ fn window_create(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void
 
     log.debug("dim {} {}", .{width, height});
 
-    const res = v8_ctx.createWindowResource();
-    res.ptr.* = graphics.Window.init(v8_ctx.alloc, .{
+    const res = v8_ctx.createCsWindowResource();
+
+    const js_window = v8_ctx.window_class.initInstance(ctx);
+    log.debug("js_window ptr {*}", .{js_window.handle});
+    const js_window_id = v8.Integer.initU32(isolate, res.id);
+    js_window.setInternalField(0, js_window_id);
+    const return_value = info.getReturnValue();
+    return_value.set(js_window);
+
+    const window = graphics.Window.init(v8_ctx.alloc, .{
         .width = width,
         .height = height,
         .title = title,
     }) catch unreachable;
+    res.ptr.init(v8_ctx.alloc, window, v8.Persistent.init(isolate, js_window));
 
     v8_ctx.active_window = res.ptr;
-
-    const new = v8_ctx.window_class.initInstance(ctx);
-    const return_value = info.getReturnValue();
-    return_value.set(new);
+    v8_ctx.active_graphics = v8_ctx.active_window.graphics;
 }
 
 fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
@@ -165,39 +369,108 @@ fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
 
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        const str = v8.valueToRawUtf8Alloc(v8_ctx.alloc, isolate, ctx, info.getArg(i));
+        const str = v8.valueToUtf8Alloc(v8_ctx.alloc, isolate, ctx, info.getArg(i));
         defer v8_ctx.alloc.free(str);
-        printFmt("{} {s}\n", .{i, str});
+        printFmt("{s} ", .{str});
     }
+    printFmt("\n", .{});
 }
 
+// TODO: Use comptime to generate zig callback functions.
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
-fn initCosmicJsContext(ctx: *V8_CallbackContext, isolate: v8.Isolate) v8.Context {
+fn initCosmicJsContext(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
+    // We set with the same undef values for each type, it might help the optimizing compiler if it knows the field types ahead of time.
+    const undef_u32 = v8.Integer.initU32(isolate, 0);
+
+    // JsWindow
     const window_class = v8.ObjectTemplate.initDefault(isolate);
+    window_class.setInternalFieldCount(1);
+    ctx.setProp(window_class, "onDrawFrame", v8.FunctionTemplate.initCallback(isolate, csWindow_OnDrawFrame));
     ctx.window_class = window_class;
 
-    var key: v8.String = undefined;
+    // JsColor
+    const color_class = v8.FunctionTemplate.initDefault(isolate);
+    var instance = color_class.getInstanceTemplate();
+    ctx.setProp(instance, "r", undef_u32);
+    ctx.setProp(instance, "g", undef_u32);
+    ctx.setProp(instance, "b", undef_u32);
+    ctx.setProp(instance, "a", undef_u32);
+    ctx.setProp(color_class, "new", v8.FunctionTemplate.initCallback(isolate, csColor_New));
+    const colors = &[_]std.meta.Tuple(&.{[]const u8, Color}){
+        .{"LightGray", Color.LightGray},
+        .{"Gray", Color.Gray},
+        .{"DarkGray", Color.DarkGray},
+        .{"Yellow", Color.Yellow},
+        .{"Gold", Color.Gold},
+        .{"Orange", Color.Orange},
+        .{"Pink", Color.Pink},
+        .{"Red", Color.Red},
+        .{"Maroon", Color.Maroon},
+        .{"Green", Color.Green},
+        .{"Lime", Color.Lime},
+        .{"DarkGreen", Color.DarkGreen},
+        .{"SkyBlue", Color.SkyBlue},
+        .{"Blue", Color.Blue},
+        .{"DarkBlue", Color.DarkBlue},
+        .{"Purple", Color.Purple},
+        .{"Violet", Color.Violet},
+        .{"DarkPurple", Color.DarkPurple},
+        .{"Beige", Color.Beige},
+        .{"Brown", Color.Brown},
+        .{"DarkBrown", Color.DarkBrown},
+        .{"White", Color.White},
+        .{"Black", Color.Black},
+        .{"Transparent", Color.Transparent},
+        .{"Magenta", Color.Magenta},
+    };
+    inline for (colors) |it| {
+        ctx.setFuncGetter(color_class, it.@"0", csColor_Get(it.@"1"));
+    }
+    ctx.color_class = color_class;
 
-    const global = v8.ObjectTemplate.initDefault(isolate);
+    const global_constructor = v8.FunctionTemplate.initDefault(isolate);
+    global_constructor.setClassName(v8.String.initUtf8(isolate, "Global"));
+    // Since Context.init only accepts ObjectTemplate, we can still name the global by using a FunctionTemplate as the constructor.
+    const global = v8.ObjectTemplate.init(isolate, global_constructor);
 
     // cs
-    const cs = v8.ObjectTemplate.initDefault(isolate);
+    const cs_constructor = v8.FunctionTemplate.initDefault(isolate);
+    cs_constructor.setClassName(v8.String.initUtf8(isolate, "cosmic"));
+    const cs = v8.ObjectTemplate.init(isolate, cs_constructor);
 
     // cs.window
-    const window = v8.ObjectTemplate.initDefault(isolate);
-    key = v8.String.initUtf8(isolate, "create");
-    window.set(key, v8.FunctionTemplate.initDefault(isolate, window_create), v8.PropertyAttribute.None);
+    const window_constructor = v8.FunctionTemplate.initDefault(isolate);
+    window_constructor.setClassName(v8.String.initUtf8(isolate, "window"));
+    const window = v8.ObjectTemplate.init(isolate, window_constructor);
+    ctx.setConstProp(window, "new", v8.FunctionTemplate.initCallback(isolate, csWindow_New));
+    ctx.setConstProp(cs, "window", window);
 
-    key = v8.String.initUtf8(isolate, "window");
-    cs.set(key, window, v8.PropertyAttribute.None);
+    // cs.graphics
+    const cs_graphics = v8.ObjectTemplate.initDefault(isolate);
 
-    key = v8.String.initUtf8(isolate, "print");
-    global.set(key, v8.FunctionTemplate.initDefault(isolate, print), v8.PropertyAttribute.None);
+    // cs.graphics.Color
+    ctx.setConstProp(cs_graphics, "Color", color_class);
+    ctx.setConstProp(cs, "graphics", cs_graphics);
 
-    key = v8.String.initUtf8(isolate, "cs");
-    global.set(key, cs, v8.PropertyAttribute.None);
+    const graphics_class = v8.FunctionTemplate.initDefault(isolate);
+    graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
+    {
+        const proto = graphics_class.getPrototypeTemplate();
+        ctx.setAccessor(proto, "fillColor", csGraphics_GetFillColor, csGraphics_SetFillColor);
+        ctx.setConstProp(proto, "fillRect", v8.FunctionTemplate.initCallback(isolate, csGraphics_FillRect));
+    }
 
-    return v8.Context.init(isolate, global, null);
+    ctx.setConstProp(global, "cs", cs);
+    ctx.setConstProp(global, "print", v8.FunctionTemplate.initCallback(isolate, print));
+
+    const res = v8.Context.init(isolate, global, null);
+
+    // const rt_global = res.getGlobal();
+    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(isolate, "cs")).castToObject();
+    // For now, just create one JsGraphics instance for everything.
+    ctx.js_graphics = graphics_class.getFunction(res).newInstance(res, &.{}).?;
+
+    return res;
 }
 
 fn replAndExit() void {
@@ -249,11 +522,9 @@ fn replAndExit() void {
             break;
         }
 
-        const input_js = v8.String.initUtf8(isolate, input);
-
         var res: v8.ExecuteResult = undefined;
         defer res.deinit();
-        v8.executeString(alloc, isolate, input_js, origin, &res);
+        v8.executeString(alloc, isolate, input, origin, &res);
         if (res.success) {
             printFmt("{s}", .{res.result.?});
         } else {
@@ -289,7 +560,7 @@ fn getInputOrExit(input_buf: *std.ArrayList(u8)) []const u8 {
     return input_buf.items;
 }
 
-var v8_ctx: V8_CallbackContext = undefined;
+var v8_ctx: RuntimeContext = undefined;
 
 const ResourceHandle = struct {
     ptr: *c_void,
@@ -306,17 +577,19 @@ fn CreatedResource(comptime T: type) type {
 const ResourceListId = u32;
 const ResourceId = u32;
 const ResourceTag = enum {
-    Window,
+    CsWindow,
 };
 
-// Context for V8 calling into app code.
-const V8_CallbackContext = struct {
+// Manages runtime resources. 
+// Used by V8 callback functions.
+const RuntimeContext = struct {
     const Self = @This();
 
     alloc: std.mem.Allocator,
     str_buf: std.ArrayList(u8),
 
     window_class: v8.ObjectTemplate,
+    color_class: v8.FunctionTemplate,
 
     // Collection of mappings from id to resource handles.
     resources: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle),
@@ -326,18 +599,29 @@ const V8_CallbackContext = struct {
     // Keep track of active windows so we know when to stop the app.
     num_windows: u32,
     // Window that has keyboard focus and will receive swap buffer.
-    active_window: *graphics.Window,
+    // Note: This is only safe if the allocation doesn't change.
+    active_window: *CsWindow,
+    // Active graphics handle for receiving js draw calls.
+    active_graphics: *graphics.Graphics,
 
-    fn init(self: *Self, alloc: std.mem.Allocator) void {
+    cur_isolate: v8.Isolate,
+
+    js_graphics: v8.Object,
+
+    fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate) void {
         self.* = .{
             .alloc = alloc,
             .str_buf = std.ArrayList(u8).init(alloc),
             .window_class = undefined,
+            .color_class = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .window_resource_list = undefined,
             .window_resource_list_last = undefined,
             .num_windows = 0,
             .active_window = undefined,
+            .active_graphics = undefined,
+            .cur_isolate = isolate,
+            .js_graphics = undefined,
         };
 
         // Insert dummy head so we can set last.
@@ -362,11 +646,11 @@ const V8_CallbackContext = struct {
         self.resources.deinit();
     }
 
-    fn createWindowResource(self: *Self) CreatedResource(graphics.Window) {
-        const ptr = self.alloc.create(graphics.Window) catch unreachable;
+    fn createCsWindowResource(self: *Self) CreatedResource(CsWindow) {
+        const ptr = self.alloc.create(CsWindow) catch unreachable;
         self.window_resource_list_last = self.resources.insertAfter(self.window_resource_list_last, .{
             .ptr = ptr,
-            .tag = .Window,
+            .tag = .CsWindow,
         }) catch unreachable;
         self.num_windows += 1;
         return .{
@@ -375,19 +659,19 @@ const V8_CallbackContext = struct {
         };
     }
 
-    fn deleteWindowBySdlId(self: *Self, sdl_win_id: u32) void {
+    fn deleteCsWindowBySdlId(self: *Self, sdl_win_id: u32) void {
         // Head is always a dummy resource for convenience.
         var last_window_id: ResourceId = self.resources.getListHead(self.window_resource_list).?;
         var mb_window_id = self.resources.getNext(last_window_id);
         while (mb_window_id) |window_id| {
             const res = self.resources.get(window_id);
-            const window = stdx.mem.ptrCastAlign(*graphics.Window, res.ptr);
+            const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
             switch (graphics.Backend) {
                 .OpenGL => {
-                    if (window.inner.id == sdl_win_id) {
+                    if (cs_window.window.inner.id == sdl_win_id) {
                         // Deinit and destroy.
-                        window.deinit();
-                        self.alloc.destroy(window);
+                        cs_window.deinit();
+                        self.alloc.destroy(cs_window);
 
                         // Remove from resources.
                         self.resources.removeNext(last_window_id);
@@ -398,12 +682,14 @@ const V8_CallbackContext = struct {
                         }
                         self.num_windows -= 1;
                         if (self.num_windows > 0) {
-                            if (self.active_window == window) {
+                            if (self.active_window == cs_window) {
                                 // TODO: Revisit this. For now just pick the last window.
-                                self.active_window = stdx.mem.ptrCastAlign(*graphics.Window, self.resources.get(last_window_id).ptr);
+                                self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(last_window_id).ptr);
+                                self.active_graphics = self.active_window.graphics;
                             }
                         } else {
                             self.active_window = undefined;
+                            self.active_graphics = undefined;
                         }
                         break;
                     }
@@ -414,13 +700,59 @@ const V8_CallbackContext = struct {
             mb_window_id = self.resources.getNext(window_id);
         }
     }
+
+    fn setFuncGetter(self: Self, tmpl: v8.FunctionTemplate, key: []const u8, getter: v8.FunctionCallback) void {
+        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.cur_isolate, getter));
+    }
+
+    fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, getter: v8.AccessorNameGetterCallback) void {
+        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        tmpl.setGetter(js_key, getter);
+    }
+
+    fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, getter: v8.AccessorNameGetterCallback, setter: v8.AccessorNameSetterCallback) void {
+        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        tmpl.setGetterAndSetter(js_key, getter, setter);
+    }
+
+    fn setConstProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
+        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        switch (@TypeOf(value)) {
+            u32 => {
+                tmpl.set(js_key, v8.Integer.initU32(self.cur_isolate, value), v8.PropertyAttribute.ReadOnly);
+            },
+            else => {
+                tmpl.set(js_key, value, v8.PropertyAttribute.ReadOnly);
+            }
+        }
+    }
+
+    fn setProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
+        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        switch (@TypeOf(value)) {
+            u32 => {
+                tmpl.set(js_key, v8.Integer.initU32(self.cur_isolate, value), v8.PropertyAttribute.None);
+            },
+            else => {
+                tmpl.set(js_key, value, v8.PropertyAttribute.None);
+            }
+        }
+    }
 };
 
 // Main loop for running user apps.
-fn runUserLoop(ctx: *V8_CallbackContext) void {
+fn runUserLoop(ctx: *RuntimeContext) void {
 
     var fps_limiter = graphics.DefaultFpsLimiter.init(30);
     var fps: u64 = 0;
+
+    const isolate = ctx.cur_isolate;
+    const isolate_ctx = ctx.cur_isolate.getCurrentContext();
+
+    var try_catch: v8.TryCatch = undefined;
+    try_catch.init(isolate);
+    defer try_catch.deinit();
 
     while (true) {
         var event: sdl.SDL_Event = undefined;
@@ -429,7 +761,7 @@ fn runUserLoop(ctx: *V8_CallbackContext) void {
                 sdl.SDL_WINDOWEVENT => {
                     switch (event.window.event) {
                         sdl.SDL_WINDOWEVENT_CLOSE => {
-                            ctx.deleteWindowBySdlId(event.window.windowID);
+                            ctx.deleteCsWindowBySdlId(event.window.windowID);
                         },
                         else => {},
                     }
@@ -443,14 +775,25 @@ fn runUserLoop(ctx: *V8_CallbackContext) void {
 
         const should_update = ctx.num_windows > 0;
         if (!should_update) {
-            break;
+            return;
         }
 
-        // TODO: User draw frame.
+        ctx.active_graphics.beginFrame();
+
+        for (ctx.active_window.onDrawFrameCbs.items) |onDrawFrame| {
+            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ctx.js_graphics.toValue()}) orelse {
+                const trace = v8.getTryCatchErrorString(ctx.alloc, isolate, try_catch);
+                defer ctx.alloc.free(trace);
+                printFmt("{s}", .{trace});
+                return;
+            };
+        }
+        ctx.active_graphics.endFrame();
 
         // TODO: Run any queued micro tasks.
 
-        ctx.active_window.swapBuffers();
+        ctx.active_window.window.swapBuffers();
+
         fps_limiter.endFrameAndDelay();
         fps = fps_limiter.getFps();
     }

@@ -9,11 +9,23 @@ pub const ObjectTemplate = v8.ObjectTemplate;
 pub const FunctionTemplate = v8.FunctionTemplate;
 pub const RawFunctionCallbackInfo = v8.RawFunctionCallbackInfo;
 pub const FunctionCallbackInfo = v8.FunctionCallbackInfo;
+pub const RawPropertyCallbackInfo = v8.RawPropertyCallbackInfo;
+pub const PropertyCallbackInfo = v8.PropertyCallbackInfo;
+pub const AccessorNameGetterCallback = v8.AccessorNameGetterCallback;
+pub const AccessorNameSetterCallback = v8.AccessorNameSetterCallback;
+pub const FunctionCallback = v8.FunctionCallback;
+pub const Name = v8.Name;
+pub const Primitive = v8.Primitive;
 pub const PropertyAttribute = v8.PropertyAttribute;
 const ScriptOrigin = v8.ScriptOrigin;
-const TryCatch = v8.TryCatch;
+pub const TryCatch = v8.TryCatch;
 pub const String = v8.String;
-const Value = v8.Value;
+pub const Value = v8.Value;
+pub const Object = v8.Object;
+pub const Persistent = v8.Persistent;
+pub const Function = v8.Function;
+pub const Integer = v8.Integer;
+pub const Exception = v8.Exception;
 const log = stdx.log.scoped(.v8);
 
 pub const initV8Platform = v8.initV8Platform;
@@ -45,7 +57,7 @@ pub const ExecuteResult = struct {
 };
 
 /// Executes a string within the current v8 context.
-pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: String, src_origin: String, result: *ExecuteResult) void {
+pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: []const u8, src_origin: String, result: *ExecuteResult) void {
     var hscope: HandleScope = undefined;
     hscope.init(isolate);
     defer hscope.deinit();
@@ -58,11 +70,19 @@ pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: String, sr
 
     var context = isolate.getCurrentContext();
 
-    if (v8.Script.compile(context, src, origin)) |script| {
+    // Since es modules are in strict mode it makes sense that everything else should also be in strict mode.
+    // Append 'use strict'; There isn't an internal api to enable it.
+    // Append void 0 so empty source still evaluates to undefined.
+    const final_src = stdx.string.concat(alloc, &[_][]const u8{"'use strict';void 0;\n", src}) catch unreachable;
+    defer alloc.free(final_src);
+
+    const js_src = v8.String.initUtf8(isolate, final_src);
+
+    if (v8.Script.compile(context, js_src, origin)) |script| {
         if (script.run(context)) |script_res| {
             result.* = .{
                 .alloc = alloc,
-                .result = valueToRawUtf8Alloc(alloc, isolate, context, script_res),
+                .result = valueToUtf8Alloc(alloc, isolate, context, script_res),
                 .err = null,
                 .success = true,
             };
@@ -74,13 +94,13 @@ pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: String, sr
     }
 }
 
-fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatch, result: *ExecuteResult) void {
+pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatch) []const u8 {
     var hscope: HandleScope = undefined;
     hscope.init(isolate);
     defer hscope.deinit();
 
     const ctx = isolate.getCurrentContext();
-    
+
     if (try_catch.getMessage()) |message| {
         var buf = std.ArrayList(u8).init(alloc);
         const writer = buf.writer();
@@ -114,26 +134,26 @@ fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatc
         }
         writer.writeByte('\n') catch unreachable;
 
-        const trace = try_catch.getStackTrace(ctx).?;
-        appendValueAsUtf8(&buf, isolate, ctx, trace);
+        if (try_catch.getStackTrace(ctx)) |trace| {
+            appendValueAsUtf8(&buf, isolate, ctx, trace);
+            writer.writeByte('\n') catch unreachable;
+        }
 
-        result.* = .{
-            .alloc = alloc,
-            .result = null,
-            .err = buf.toOwnedSlice(),
-            .success = false,
-        };
+        return buf.toOwnedSlice();
     } else {
         // V8 didn't provide any extra information about this error, just get exception str.
         const exception = try_catch.getException();
-        const exception_str = valueToRawUtf8Alloc(alloc, isolate, ctx, exception);
-        result.* = .{
-            .alloc = alloc,
-            .result = null,
-            .err = exception_str,
-            .success = false,
-        };
+        return valueToUtf8Alloc(alloc, isolate, ctx, exception);
     }
+}
+
+fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatch, result: *ExecuteResult) void {
+    result.* = .{
+        .alloc = alloc,
+        .result = null,
+        .err = getTryCatchErrorString(alloc, isolate, try_catch),
+        .success = false,
+    };
 }
 
 pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) void {
@@ -145,10 +165,16 @@ pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context
     _ = str.writeUtf8(isolate, arr.items[start..arr.items.len]);
 }
 
-pub fn valueToRawUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context, val: Value) []const u8 {
+pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
+    const val = v8.getValue(any_value);
     const str = val.toString(ctx);
     const len = str.lenUtf8(isolate);
     const buf = alloc.alloc(u8, len) catch unreachable;
     _ = str.writeUtf8(isolate, buf);
     return buf;
+}
+
+/// Throws an exception with a stack trace.
+pub fn throwErrorException(isolate: Isolate, msg: []const u8) void {
+    _ = isolate.throwException(v8.Exception.initError(v8.String.initUtf8(isolate, msg)));
 }
