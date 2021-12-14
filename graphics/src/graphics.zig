@@ -177,6 +177,14 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getFillColor(self: Self) Color {
+        return switch (Backend) {
+            .OpenGL => gl.Graphics.getFillColor(self.g),
+            .WasmCanvas => canvas.Graphics.getFillColor(self.g),
+            else => stdx.panic("unsupported"),
+        };
+    }
+
     pub fn setFillColor(self: *Self, color: Color) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.setFillColor(&self.g, color),
@@ -185,12 +193,28 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getStrokeColor(self: Self) Color {
+        return switch (Backend) {
+            .OpenGL => gl.Graphics.getStrokeColor(self.g),
+            .WasmCanvas => canvas.Graphics.getStrokeColor(self.g),
+            else => stdx.panic("unsupported"),
+        };
+    }
+
     pub fn setStrokeColor(self: *Self, color: Color) void {
         switch (Backend) {
-            .WasmCanvas => canvas.Graphics.setStrokeColor(&self.g, color),
             .OpenGL => gl.Graphics.setStrokeColor(&self.g, color),
+            .WasmCanvas => canvas.Graphics.setStrokeColor(&self.g, color),
             else => stdx.panic("unsupported"),
         }
+    }
+
+    pub fn getLineWidth(self: Self) f32 {
+        return switch (Backend) {
+            .OpenGL => gl.Graphics.getLineWidth(self.g),
+            .WasmCanvas => canvas.Graphics.getLineWidth(self.g),
+            else => stdx.panic("unsupported"),
+        };
     }
 
     pub fn setLineWidth(self: *Self, width: f32) void {

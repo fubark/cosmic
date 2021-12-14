@@ -260,6 +260,10 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getLineWidth(self: Self) f32 {
+        return self.cur_line_width;
+    }
+
     pub fn setLineWidth(self: *Self, width: f32) void {
         self.cur_line_width = width;
         self.cur_line_width_half = width * 0.5; 
@@ -277,8 +281,16 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getFillColor(self: Self) Color {
+        return self.cur_fill_color;
+    }
+
     pub fn setFillColor(self: *Self, color: Color) void {
         self.cur_fill_color = color;
+    }
+
+    pub fn getStrokeColor(self: Self) Color {
+        return self.cur_stroke_color;
     }
 
     pub fn setStrokeColor(self: *Self, color: Color) void {

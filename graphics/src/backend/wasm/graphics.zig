@@ -78,6 +78,7 @@ pub const Graphics = struct {
     cur_fill_color: Color,
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
+    cur_line_width: f32,
 
     // Used to keep link results back to TextMeasures
     text_measures_buffer: std.ArrayList(*TextMeasure),
@@ -93,11 +94,13 @@ pub const Graphics = struct {
             .cur_fill_color = undefined,
             .cur_font_gid = 0,
             .cur_font_size = 0,
+            .cur_line_width = undefined,
             .js_buf = stdx.wasm.getJsBuffer(),
         };
         self.setClearColor(self.clear_color);
         self.forceSetFillColor(Color.Black);
         self.forceSetStrokeColor(Color.Black);
+        self.setLineWidth(1);
     }
 
     pub fn deinit(self: *Self) void {
@@ -160,8 +163,13 @@ pub const Graphics = struct {
         jsTranslate(x, y);
     }
 
+    pub fn getLineWidth(self: Self) f32 {
+        return self.cur_line_width;
+    }
+
     pub fn setLineWidth(self: *Self, width: f32) void {
         _ = self;
+        self.cur_line_width = width;
         jsSetLineWidth(width);
     }
 
@@ -384,10 +392,18 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getStrokeColor(self: Self) Color {
+        return self.cur_stroke_color;
+    }
+
     pub fn setStrokeColor(self: *Self, color: Color) void {
         if (!std.meta.eql(color, self.cur_stroke_color)) {
             self.forceSetStrokeColor(color);
         }
+    }
+
+    pub fn getFillColor(self: Self) Color {
+        return self.cur_fill_color;
     }
 
     pub fn setFillColor(self: *Self, color: Color) void {

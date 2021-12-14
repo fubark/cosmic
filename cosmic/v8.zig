@@ -25,6 +25,7 @@ pub const Object = v8.Object;
 pub const Persistent = v8.Persistent;
 pub const Function = v8.Function;
 pub const Integer = v8.Integer;
+pub const Number = v8.Number;
 pub const Exception = v8.Exception;
 const log = stdx.log.scoped(.v8);
 

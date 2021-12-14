@@ -29,6 +29,11 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
 
     // JsColor
     const color_class = v8.FunctionTemplate.initDefault(isolate);
+    {
+        const proto = color_class.getPrototypeTemplate();
+        ctx.setProp(proto, "darker", v8.FunctionTemplate.initCallback(isolate, csColor_Darker));
+        ctx.setProp(proto, "lighter", v8.FunctionTemplate.initCallback(isolate, csColor_Lighter));
+    }
     var instance = color_class.getInstanceTemplate();
     ctx.setProp(instance, "r", undef_u32);
     ctx.setProp(instance, "g", undef_u32);
@@ -91,12 +96,19 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     ctx.setConstProp(cs_graphics, "Color", color_class);
     ctx.setConstProp(cs, "graphics", cs_graphics);
 
+    const get = genJsGetter;
+    const set = genJsSetter;
+
     const graphics_class = v8.FunctionTemplate.initDefault(isolate);
     graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
     {
         const proto = graphics_class.getPrototypeTemplate();
-        ctx.setAccessor(proto, "fillColor", csGraphics_GetFillColor, csGraphics_SetFillColor);
+        ctx.setAccessor(proto, "fillColor", get(Color, graphics_GetFillColor), set(Color, graphics_SetFillColor));
+        ctx.setAccessor(proto, "strokeColor", get(Color, graphics_GetStrokeColor), set(Color, graphics_SetStrokeColor));
+        ctx.setAccessor(proto, "lineWidth", get(f32, graphics_GetLineWidth), set(f32, graphics_SetLineWidth));
+
         ctx.setConstProp(proto, "fillRect", v8.FunctionTemplate.initCallback(isolate, csGraphics_FillRect));
+        ctx.setConstProp(proto, "drawRect", v8.FunctionTemplate.initCallback(isolate, csGraphics_DrawRect));
     }
 
     ctx.setConstProp(global, "cs", cs);
@@ -205,17 +217,62 @@ fn csColor_Get(comptime c: Color) v8.FunctionCallback {
             hscope.init(isolate);
             defer hscope.deinit();
 
-            const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, c.channels.r));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, c.channels.g));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, c.channels.b));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, c.channels.a));
-
             const return_value = info.getReturnValue();
-            return_value.set(new);
+            return_value.set(toJsColor(isolate, ctx, c));
         }
     };
     return S.get;
+}
+
+fn toJsColor(isolate: v8.Isolate, ctx: v8.Context, c: Color) v8.Object {
+    const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, c.channels.r));
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, c.channels.g));
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, c.channels.b));
+    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, c.channels.a));
+    return new;
+}
+
+fn csColor_Lighter(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    const this = info.getThis();
+    const r = this.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
+    const g = this.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
+    const b = this.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
+    const a = this.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
+
+    const lighter = Color.init(@intCast(u8, r), @intCast(u8, g), @intCast(u8, b), @intCast(u8, a)).lighter();
+
+    const return_value = info.getReturnValue();
+    return_value.set(toJsColor(isolate, ctx, lighter));
+}
+
+fn csColor_Darker(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+    const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    const this = info.getThis();
+    const r = this.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
+    const g = this.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
+    const b = this.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
+    const a = this.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
+
+    const darker = Color.init(@intCast(u8, r), @intCast(u8, g), @intCast(u8, b), @intCast(u8, a)).darker();
+
+    const return_value = info.getReturnValue();
+    return_value.set(toJsColor(isolate, ctx, darker));
 }
 
 fn csColor_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
@@ -257,18 +314,47 @@ fn csColor_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
     return_value.set(new);
 }
 
-fn csGraphics_GetFillColor(key: ?*const v8.Name, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
-    const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
+fn graphics_GetLineWidth() f32 {
+    return rt.active_graphics.getLineWidth();
+}
+
+fn graphics_GetStrokeColor() Color {
+    return rt.active_graphics.getStrokeColor();
+}
+
+fn graphics_SetStrokeColor(color: Color) void {
+    rt.active_graphics.setStrokeColor(color);
+}
+
+fn csGraphics_DrawRect(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+    var x: f32 = 0;
+    var y: f32 = 0;
+    var width: f32 = 0;
+    var height: f32 = 0;
+
+    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
     const isolate = info.getIsolate();
+    const ctx = isolate.getCurrentContext();
 
     var hscope: v8.HandleScope = undefined;
     hscope.init(isolate);
     defer hscope.deinit();
 
-    // const return_value = info.getReturnValue();
-    // return_value.set();
+    const len = info.length();
+    if (len >= 1) {
+        x = info.getArg(0).toF32(ctx);
+    }
+    if (len >= 2) {
+        y = info.getArg(1).toF32(ctx);
+    }
+    if (len >= 3) {
+        width = info.getArg(2).toF32(ctx);
+    }
+    if (len >= 4) {
+        height = info.getArg(3).toF32(ctx);
+    }
 
-    _ = key;
+    rt.active_graphics.drawRect(x, y, width, height);
 }
 
 fn csGraphics_FillRect(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
@@ -302,29 +388,16 @@ fn csGraphics_FillRect(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C
     rt.active_graphics.fillRect(x, y, width, height);
 }
 
-fn csGraphics_SetFillColor(key: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
-    _ = key;
-    const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
+fn graphics_SetLineWidth(width: f32) void {
+    rt.active_graphics.setLineWidth(width);
+}
 
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
+fn graphics_SetFillColor(color: Color) void {
+    rt.active_graphics.setFillColor(color);
+}
 
-    const val = v8.Value{ .handle = value.? };
-    if (val.isObject()) {
-        const r = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
-        const g = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
-        const b = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
-        const a = val.castToObject().getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
-        rt.active_graphics.setFillColor(Color.init(
-            @intCast(u8, r),
-            @intCast(u8, g),
-            @intCast(u8, b),
-            @intCast(u8, a),
-        ));
-    }
+fn graphics_GetFillColor() Color {
+    return rt.active_graphics.getFillColor();
 }
 
 fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
@@ -344,4 +417,76 @@ fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
         printFmt("{s} ", .{str});
     }
     printFmt("\n", .{});
+}
+
+fn genJsSetter(comptime Param: type, comptime native_fn: fn (Param) void) v8.AccessorNameSetterCallback {
+    const gen = struct {
+        fn set(_: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+            const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
+            const isolate = info.getIsolate();
+            const ctx = isolate.getCurrentContext();
+
+            var hscope: v8.HandleScope = undefined;
+            hscope.init(isolate);
+            defer hscope.deinit();
+
+            const val = v8.Value{ .handle = value.? };
+
+            switch (Param) {
+                f32 => native_fn(val.toF32(ctx)),
+                Color => {
+                    if (val.isObject()) {
+                        const obj = val.castToObject();
+                        const r = obj.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
+                        const g = obj.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
+                        const b = obj.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
+                        const a = obj.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
+                        const param = Color.init(
+                            @intCast(u8, r),
+                            @intCast(u8, g),
+                            @intCast(u8, b),
+                            @intCast(u8, a),
+                        );
+                        native_fn(param);
+                    }
+                },
+                else => @compileError(std.fmt.comptimePrint("Unsupported param type {s}", .{@typeName(Param)})),
+            }
+        }
+    };
+    return gen.set;
+}
+
+fn genJsGetter(comptime Param: type, comptime native_fn: fn () Param) v8.AccessorNameGetterCallback {
+    const gen = struct {
+        fn set(_: ?*const v8.Name, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+            const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
+            const isolate = info.getIsolate();
+            const ctx = isolate.getCurrentContext();
+
+            var hscope: v8.HandleScope = undefined;
+            hscope.init(isolate);
+            defer hscope.deinit();
+
+            switch (Param) {
+                f32 => {
+                    const new = v8.Number.init(isolate, native_fn());
+                    const return_value = info.getReturnValue();
+                    return_value.set(new);
+                },
+                Color => {
+                    const native = native_fn();
+                    const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
+                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, native.channels.r));
+                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, native.channels.g));
+                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, native.channels.b));
+                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, native.channels.a));
+                    const return_value = info.getReturnValue();
+                    return_value.set(new);
+                },
+                else => @compileError(std.fmt.comptimePrint("Unsupported param type {s}", .{@typeName(Param)})),
+            }
+        }
+    };
+    return gen.set;
 }
