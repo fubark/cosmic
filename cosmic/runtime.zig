@@ -5,6 +5,7 @@ const graphics = @import("graphics");
 const sdl = @import("sdl");
 
 const v8 = @import("v8.zig");
+const js_env = @import("js_env.zig");
 
 // Manages runtime resources. 
 // Used by V8 callback functions.
@@ -140,6 +141,10 @@ pub const RuntimeContext = struct {
     pub fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, getter: v8.AccessorNameGetterCallback, setter: v8.AccessorNameSetterCallback) void {
         const js_key = v8.String.initUtf8(self.cur_isolate, key);
         tmpl.setGetterAndSetter(js_key, getter, setter);
+    }
+
+    pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime func: anytype) void {
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFunc(func)));
     }
 
     pub fn setConstProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {

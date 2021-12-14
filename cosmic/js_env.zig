@@ -107,8 +107,8 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         ctx.setAccessor(proto, "strokeColor", get(Color, graphics_GetStrokeColor), set(Color, graphics_SetStrokeColor));
         ctx.setAccessor(proto, "lineWidth", get(f32, graphics_GetLineWidth), set(f32, graphics_SetLineWidth));
 
-        ctx.setConstProp(proto, "fillRect", v8.FunctionTemplate.initCallback(isolate, csGraphics_FillRect));
-        ctx.setConstProp(proto, "drawRect", v8.FunctionTemplate.initCallback(isolate, csGraphics_DrawRect));
+        ctx.setConstFuncT(proto, "fillRect", graphics_FillRect);
+        ctx.setConstFuncT(proto, "drawRect", graphics_DrawRect);
     }
 
     ctx.setConstProp(global, "cs", cs);
@@ -326,65 +326,11 @@ fn graphics_SetStrokeColor(color: Color) void {
     rt.active_graphics.setStrokeColor(color);
 }
 
-fn csGraphics_DrawRect(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    var x: f32 = 0;
-    var y: f32 = 0;
-    var width: f32 = 0;
-    var height: f32 = 0;
-
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    const len = info.length();
-    if (len >= 1) {
-        x = info.getArg(0).toF32(ctx);
-    }
-    if (len >= 2) {
-        y = info.getArg(1).toF32(ctx);
-    }
-    if (len >= 3) {
-        width = info.getArg(2).toF32(ctx);
-    }
-    if (len >= 4) {
-        height = info.getArg(3).toF32(ctx);
-    }
-
+fn graphics_DrawRect(x: f32, y: f32, width: f32, height: f32) void {
     rt.active_graphics.drawRect(x, y, width, height);
 }
 
-fn csGraphics_FillRect(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    var x: f32 = 0;
-    var y: f32 = 0;
-    var width: f32 = 0;
-    var height: f32 = 0;
-
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    const len = info.length();
-    if (len >= 1) {
-        x = info.getArg(0).toF32(ctx);
-    }
-    if (len >= 2) {
-        y = info.getArg(1).toF32(ctx);
-    }
-    if (len >= 3) {
-        width = info.getArg(2).toF32(ctx);
-    }
-    if (len >= 4) {
-        height = info.getArg(3).toF32(ctx);
-    }
-
+fn graphics_FillRect(x: f32, y: f32, width: f32, height: f32) void {
     rt.active_graphics.fillRect(x, y, width, height);
 }
 
@@ -489,4 +435,34 @@ fn genJsGetter(comptime Param: type, comptime native_fn: fn () Param) v8.Accesso
         }
     };
     return gen.set;
+}
+
+pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
+    const gen = struct {
+        fn cb(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+            const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+            const isolate = info.getIsolate();
+            const ctx = isolate.getCurrentContext();
+
+            var hscope: v8.HandleScope = undefined;
+            hscope.init(isolate);
+            defer hscope.deinit();
+
+            const arg_types_t = std.meta.ArgsTuple(@TypeOf(native_fn));
+            const arg_fields = std.meta.fields(arg_types_t);
+
+            if (info.length() < arg_fields.len) {
+                v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {} args.", .{arg_fields.len});
+                return;
+            }
+            var native_args: arg_types_t = undefined;
+            inline for (arg_fields) |field, i| {
+                if (field.field_type == f32) {
+                    @field(native_args, field.name) = info.getArg(i).toF32(ctx);
+                }
+            }
+            @call(.{}, native_fn, native_args);
+        }
+    };
+    return gen.cb;
 }

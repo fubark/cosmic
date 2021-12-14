@@ -179,3 +179,9 @@ pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context
 pub fn throwErrorException(isolate: Isolate, msg: []const u8) void {
     _ = isolate.throwException(v8.Exception.initError(v8.String.initUtf8(isolate, msg)));
 }
+
+pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: Isolate, comptime format: []const u8, args: anytype) void {
+    const str = std.fmt.allocPrint(alloc, format, args) catch unreachable;
+    defer alloc.free(str);
+    throwErrorException(isolate, str);
+}
