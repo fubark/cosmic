@@ -35,6 +35,11 @@ pub const RuntimeContext = struct {
 
     js_graphics: v8.Object,
 
+    // This is used to store native string slices copied from v8.String for use in the immediate native callback functions.
+    // It will automatically clear at the pre callback step if the current size is too large.
+    // Native callback functions that have []const u8 in their params should assume they only live until end of function scope.
+    cb_str_buf: std.ArrayList(u8),
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate) void {
         self.* = .{
             .alloc = alloc,
@@ -49,6 +54,7 @@ pub const RuntimeContext = struct {
             .active_graphics = undefined,
             .cur_isolate = isolate,
             .js_graphics = undefined,
+            .cb_str_buf = std.ArrayList(u8).init(alloc),
         };
 
         // Insert dummy head so we can set last.
@@ -59,6 +65,7 @@ pub const RuntimeContext = struct {
 
     fn deinit(self: *Self) void {
         self.str_buf.deinit();
+        self.cb_str_buf.deinit();
 
         var iter = self.resources.items.iterator();
         while (iter.next()) |item| {
@@ -128,23 +135,31 @@ pub const RuntimeContext = struct {
         }
     }
 
-    pub fn setFuncGetter(self: Self, tmpl: v8.FunctionTemplate, key: []const u8, getter: v8.FunctionCallback) void {
+    pub fn setFuncGetter(self: Self, tmpl: v8.FunctionTemplate, key: []const u8, comptime native_val_or_cb: anytype) void {
         const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.cur_isolate, getter));
+        if (@typeInfo(@TypeOf(native_val_or_cb)) == .Fn) {
+            @compileError("TODO");
+        } else {
+            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFuncGetValue(native_val_or_cb)));
+        }
     }
 
-    pub fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, getter: v8.AccessorNameGetterCallback) void {
+    pub fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_cb: anytype) void {
         const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        tmpl.setGetter(js_key, getter);
+        tmpl.setGetter(js_key, js_env.genJsGetter(native_cb));
     }
 
-    pub fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, getter: v8.AccessorNameGetterCallback, setter: v8.AccessorNameSetterCallback) void {
+    pub fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_getter_cb: anytype, comptime native_setter_cb: anytype) void {
         const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        tmpl.setGetterAndSetter(js_key, getter, setter);
+        tmpl.setGetterAndSetter(js_key, js_env.genJsGetter(native_getter_cb), js_env.genJsSetter(native_setter_cb));
     }
 
-    pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime func: anytype) void {
-        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFunc(func)));
+    pub fn setFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
+        self.setProp(tmpl, key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFunc(native_cb)));
+    }
+
+    pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFunc(native_cb)));
     }
 
     pub fn setConstProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {

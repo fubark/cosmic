@@ -13,7 +13,6 @@ const log = stdx.log.scoped(.js_env);
 
 var rt: *RuntimeContext = undefined;
 
-// TODO: Use comptime to generate zig callback functions.
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
 pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     rt = ctx;
@@ -24,15 +23,15 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     // JsWindow
     const window_class = v8.ObjectTemplate.initDefault(isolate);
     window_class.setInternalFieldCount(1);
-    ctx.setProp(window_class, "onDrawFrame", v8.FunctionTemplate.initCallback(isolate, csWindow_OnDrawFrame));
+    ctx.setFuncT(window_class, "onDrawFrame", window_OnDrawFrame);
     ctx.window_class = window_class;
 
     // JsColor
     const color_class = v8.FunctionTemplate.initDefault(isolate);
     {
         const proto = color_class.getPrototypeTemplate();
-        ctx.setProp(proto, "darker", v8.FunctionTemplate.initCallback(isolate, csColor_Darker));
-        ctx.setProp(proto, "lighter", v8.FunctionTemplate.initCallback(isolate, csColor_Lighter));
+        ctx.setFuncT(proto, "darker", color_Darker);
+        ctx.setFuncT(proto, "lighter", color_Lighter);
     }
     var instance = color_class.getInstanceTemplate();
     ctx.setProp(instance, "r", undef_u32);
@@ -68,7 +67,7 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         .{"Magenta", Color.Magenta},
     };
     inline for (colors) |it| {
-        ctx.setFuncGetter(color_class, it.@"0", csColor_Get(it.@"1"));
+        ctx.setFuncGetter(color_class, it.@"0", it.@"1");
     }
     ctx.color_class = color_class;
 
@@ -86,7 +85,7 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     const window_constructor = v8.FunctionTemplate.initDefault(isolate);
     window_constructor.setClassName(v8.String.initUtf8(isolate, "window"));
     const window = v8.ObjectTemplate.init(isolate, window_constructor);
-    ctx.setConstProp(window, "new", v8.FunctionTemplate.initCallback(isolate, csWindow_New));
+    ctx.setConstFuncT(window, "new", window_New);
     ctx.setConstProp(cs, "window", window);
 
     // cs.graphics
@@ -96,16 +95,13 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     ctx.setConstProp(cs_graphics, "Color", color_class);
     ctx.setConstProp(cs, "graphics", cs_graphics);
 
-    const get = genJsGetter;
-    const set = genJsSetter;
-
     const graphics_class = v8.FunctionTemplate.initDefault(isolate);
     graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
     {
         const proto = graphics_class.getPrototypeTemplate();
-        ctx.setAccessor(proto, "fillColor", get(Color, graphics_GetFillColor), set(Color, graphics_SetFillColor));
-        ctx.setAccessor(proto, "strokeColor", get(Color, graphics_GetStrokeColor), set(Color, graphics_SetStrokeColor));
-        ctx.setAccessor(proto, "lineWidth", get(f32, graphics_GetLineWidth), set(f32, graphics_SetLineWidth));
+        ctx.setAccessor(proto, "fillColor", graphics_GetFillColor, graphics_SetFillColor);
+        ctx.setAccessor(proto, "strokeColor", graphics_GetStrokeColor, graphics_SetStrokeColor);
+        ctx.setAccessor(proto, "lineWidth", graphics_GetLineWidth, graphics_SetLineWidth);
 
         ctx.setConstFuncT(proto, "fillRect", graphics_FillRect);
         ctx.setConstFuncT(proto, "drawRect", graphics_DrawRect);
@@ -124,43 +120,17 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     return res;
 }
 
-fn csWindow_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    var title: []const u8 = undefined;
-    var width: u32 = 800;
-    var height: u32 = 600;
-
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    const len = info.length();
-    if (len >= 1) {
-        title = v8.valueToUtf8Alloc(rt.alloc, isolate, ctx, info.getArg(0));
-    } else {
-        title = string.dupe(rt.alloc, "Window") catch unreachable;
-    }
-    defer rt.alloc.free(title);
-    if (len >= 2) {
-        width = info.getArg(1).toU32(ctx);
-    }
-    if (len >= 3) {
-        height = info.getArg(2).toU32(ctx);
-    }
-
+fn window_New(title: []const u8, width: u32, height: u32) v8.Object {
     log.debug("dim {} {}", .{width, height});
 
+    const isolate = rt.cur_isolate;
+    const ctx = isolate.getCurrentContext();
     const res = rt.createCsWindowResource();
 
     const js_window = rt.window_class.initInstance(ctx);
     log.debug("js_window ptr {*}", .{js_window.handle});
     const js_window_id = v8.Integer.initU32(isolate, res.id);
     js_window.setInternalField(0, js_window_id);
-    const return_value = info.getReturnValue();
-    return_value.set(js_window);
 
     const window = graphics.Window.init(rt.alloc, .{
         .width = width,
@@ -171,29 +141,13 @@ fn csWindow_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void 
 
     rt.active_window = res.ptr;
     rt.active_graphics = rt.active_window.graphics;
+
+    return js_window;
 }
 
-fn csWindow_OnDrawFrame(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    const len = info.length();
-    if (len == 0) {
-        v8.throwErrorException(isolate, "Expected callback arg");
-        return;
-    }
-    const arg = info.getArg(0);
-    if (!arg.isFunction()) {
-        v8.throwErrorException(isolate, "Expected callback arg");
-        return;
-    }
-
-    const this = info.getThis();
+fn window_OnDrawFrame(this: v8.Object, arg: v8.Function) void {
+    const isolate = rt.cur_isolate;
+    const ctx = rt.cur_isolate.getCurrentContext();
     const window_id = this.getInternalField(0).toU32(ctx);
 
     const res = rt.resources.get(window_id);
@@ -206,73 +160,14 @@ fn csWindow_OnDrawFrame(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.
     }
 }
 
-fn csColor_Get(comptime c: Color) v8.FunctionCallback {
-    const S = struct {
-        fn get(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-            const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-            const isolate = info.getIsolate();
-            const ctx = isolate.getCurrentContext();
-
-            var hscope: v8.HandleScope = undefined;
-            hscope.init(isolate);
-            defer hscope.deinit();
-
-            const return_value = info.getReturnValue();
-            return_value.set(toJsColor(isolate, ctx, c));
-        }
-    };
-    return S.get;
+fn color_Lighter(this: v8.Object) Color {
+    const ctx = rt.cur_isolate.getCurrentContext();
+    return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.lighter();
 }
 
-fn toJsColor(isolate: v8.Isolate, ctx: v8.Context, c: Color) v8.Object {
-    const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, c.channels.r));
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, c.channels.g));
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, c.channels.b));
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, c.channels.a));
-    return new;
-}
-
-fn csColor_Lighter(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    const this = info.getThis();
-    const r = this.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
-    const g = this.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
-    const b = this.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
-    const a = this.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
-
-    const lighter = Color.init(@intCast(u8, r), @intCast(u8, g), @intCast(u8, b), @intCast(u8, a)).lighter();
-
-    const return_value = info.getReturnValue();
-    return_value.set(toJsColor(isolate, ctx, lighter));
-}
-
-fn csColor_Darker(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    const this = info.getThis();
-    const r = this.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
-    const g = this.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
-    const b = this.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
-    const a = this.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
-
-    const darker = Color.init(@intCast(u8, r), @intCast(u8, g), @intCast(u8, b), @intCast(u8, a)).darker();
-
-    const return_value = info.getReturnValue();
-    return_value.set(toJsColor(isolate, ctx, darker));
+fn color_Darker(this: v8.Object) Color {
+    const ctx = rt.cur_isolate.getCurrentContext();
+    return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.darker();
 }
 
 fn csColor_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
@@ -365,7 +260,40 @@ fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
     printFmt("\n", .{});
 }
 
-fn genJsSetter(comptime Param: type, comptime native_fn: fn (Param) void) v8.AccessorNameSetterCallback {
+fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v8.Value) ?T {
+    switch (T) {
+        []const u8 => {
+            return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
+        },
+        u32 => return val.toU32(ctx),
+        f32 => return val.toF32(ctx),
+        Color => {
+            if (val.isObject()) {
+                const obj = val.castToObject();
+                const r = obj.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
+                const g = obj.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
+                const b = obj.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
+                const a = obj.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
+                return Color.init(
+                    @intCast(u8, r),
+                    @intCast(u8, g),
+                    @intCast(u8, b),
+                    @intCast(u8, a),
+                );
+            } else return null;
+        },
+        v8.Function => {
+            if (val.isFunction()) {
+                return val.castToFunction();
+            } else return null;
+        },
+        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from v8.Value to {s}", .{@typeName(T)})),
+    }
+}
+
+// native_cb: fn (Param) void
+pub fn genJsSetter(comptime native_fn: anytype) v8.AccessorNameSetterCallback {
+    const Param = stdx.meta.FunctionArgs(@TypeOf(native_fn))[0].arg_type.?;
     const gen = struct {
         fn set(_: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
@@ -378,34 +306,59 @@ fn genJsSetter(comptime Param: type, comptime native_fn: fn (Param) void) v8.Acc
 
             const val = v8.Value{ .handle = value.? };
 
-            switch (Param) {
-                f32 => native_fn(val.toF32(ctx)),
-                Color => {
-                    if (val.isObject()) {
-                        const obj = val.castToObject();
-                        const r = obj.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
-                        const g = obj.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
-                        const b = obj.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
-                        const a = obj.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
-                        const param = Color.init(
-                            @intCast(u8, r),
-                            @intCast(u8, g),
-                            @intCast(u8, b),
-                            @intCast(u8, a),
-                        );
-                        native_fn(param);
-                    }
-                },
-                else => @compileError(std.fmt.comptimePrint("Unsupported param type {s}", .{@typeName(Param)})),
+            if (getNativeValue(isolate, ctx, Param, val)) |native_val| {
+                native_fn(native_val);
+            } else {
+                v8.throwErrorExceptionFmt(rt.alloc, isolate, "Could not convert to {s}", .{@typeName(Param)});
+                return;
             }
         }
     };
     return gen.set;
 }
 
-fn genJsGetter(comptime Param: type, comptime native_fn: fn () Param) v8.AccessorNameGetterCallback {
+pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
     const gen = struct {
-        fn set(_: ?*const v8.Name, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+        fn cb(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+            const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+            const isolate = info.getIsolate();
+            const ctx = isolate.getCurrentContext();
+
+            var hscope: v8.HandleScope = undefined;
+            hscope.init(isolate);
+            defer hscope.deinit();
+
+            const return_value = info.getReturnValue();
+            return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
+        }
+    };
+    return gen.cb;
+}
+
+/// Returns raw value pointer so we don't need to convert back to a v8.Value.
+pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *const c_void {
+    const Type = @TypeOf(native_val);
+    switch (Type) {
+        f32 => return v8.Number.init(isolate, native_val).handle,
+        Color => {
+            const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, native_val.channels.r));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, native_val.channels.g));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, native_val.channels.b));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, native_val.channels.a));
+            return new.handle;
+        },
+        v8.Object => {
+            return native_val.handle;
+        },
+        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)})),
+    }
+}
+
+/// native_cb: fn () Param
+pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
+    const gen = struct {
+        fn get(_: ?*const v8.Name, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
             const isolate = info.getIsolate();
             const ctx = isolate.getCurrentContext();
@@ -414,27 +367,11 @@ fn genJsGetter(comptime Param: type, comptime native_fn: fn () Param) v8.Accesso
             hscope.init(isolate);
             defer hscope.deinit();
 
-            switch (Param) {
-                f32 => {
-                    const new = v8.Number.init(isolate, native_fn());
-                    const return_value = info.getReturnValue();
-                    return_value.set(new);
-                },
-                Color => {
-                    const native = native_fn();
-                    const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
-                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, native.channels.r));
-                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, native.channels.g));
-                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, native.channels.b));
-                    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, native.channels.a));
-                    const return_value = info.getReturnValue();
-                    return_value.set(new);
-                },
-                else => @compileError(std.fmt.comptimePrint("Unsupported param type {s}", .{@typeName(Param)})),
-            }
+            const return_value = info.getReturnValue();
+            return_value.setValueHandle(getJsValue(isolate, ctx, native_cb()));
         }
     };
-    return gen.set;
+    return gen.get;
 }
 
 pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
@@ -451,17 +388,46 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
             const arg_types_t = std.meta.ArgsTuple(@TypeOf(native_fn));
             const arg_fields = std.meta.fields(arg_types_t);
 
-            if (info.length() < arg_fields.len) {
-                v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {} args.", .{arg_fields.len});
+            // If first param is v8.Object then it refers to "this".
+            const has_this_arg = arg_fields.len > 0 and arg_fields[0].field_type == v8.Object;
+            const final_arg_fields = if (has_this_arg) arg_fields[1..] else arg_fields;
+
+            if (info.length() < final_arg_fields.len) {
+                v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {} args.", .{final_arg_fields.len});
                 return;
             }
-            var native_args: arg_types_t = undefined;
-            inline for (arg_fields) |field, i| {
-                if (field.field_type == f32) {
-                    @field(native_args, field.name) = info.getArg(i).toF32(ctx);
+
+            const has_string_param = b: {
+                inline for (final_arg_fields) |field| {
+                    if (field.field_type == []const u8) {
+                        break :b true;
+                    }
+                }
+                break :b false;
+            };
+            if (has_string_param) {
+                // Clear the converted string buffer if too large.
+                if (rt.cb_str_buf.items.len > 1000 * 1000) {
+                    rt.cb_str_buf.clearRetainingCapacity();
                 }
             }
-            @call(.{}, native_fn, native_args);
+
+            var native_args: arg_types_t = undefined;
+            if (has_this_arg) {
+                @field(native_args, arg_fields[0].name) = info.getThis(); 
+            }
+            inline for (final_arg_fields) |field, i| {
+                if (getNativeValue(isolate, ctx, field.field_type, info.getArg(i))) |native_val| {
+                    @field(native_args, field.name) = native_val;
+                }
+            }
+            if (stdx.meta.FunctionReturnType(@TypeOf(native_fn)) == void) {
+                @call(.{}, native_fn, native_args);
+            } else {
+                const new = getJsValue(isolate, ctx, @call(.{}, native_fn, native_args));
+                const return_value = info.getReturnValue();
+                return_value.setValueHandle(new);
+            }
         }
     };
     return gen.cb;

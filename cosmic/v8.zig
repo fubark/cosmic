@@ -119,7 +119,7 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_ca
 
         // Append source line.
         const source_line = message.getSourceLine(ctx).?;
-        appendValueAsUtf8(&buf, isolate, ctx, source_line);
+        _ = appendValueAsUtf8(&buf, isolate, ctx, source_line);
         writer.writeAll("\n") catch unreachable;
 
         // Print wavy underline.
@@ -136,7 +136,7 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_ca
         writer.writeByte('\n') catch unreachable;
 
         if (try_catch.getStackTrace(ctx)) |trace| {
-            appendValueAsUtf8(&buf, isolate, ctx, trace);
+            _ = appendValueAsUtf8(&buf, isolate, ctx, trace);
             writer.writeByte('\n') catch unreachable;
         }
 
@@ -157,13 +157,14 @@ fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatc
     };
 }
 
-pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) void {
+pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);
     const len = str.lenUtf8(isolate);
     const start = arr.items.len;
     arr.resize(start + len) catch unreachable;
     _ = str.writeUtf8(isolate, arr.items[start..arr.items.len]);
+    return arr.items[start..];
 }
 
 pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
