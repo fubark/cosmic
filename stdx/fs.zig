@@ -4,9 +4,11 @@ const builtin = @import("builtin");
 
 extern "stdx" fn jsFetchData(promise_id: u32, ptr: [*]const u8, len: usize) void;
 
+/// An absolute path will take precedence.
 pub fn pathFromExeDir(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
     const exe_dir = try std.fs.selfExeDirPathAlloc(alloc);
     defer alloc.free(exe_dir);
+    // If absolute path is provided resolve will return it.
     return std.fs.path.resolve(alloc, &[_][]const u8{ exe_dir, path });
 }
 

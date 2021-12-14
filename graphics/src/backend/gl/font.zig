@@ -92,13 +92,18 @@ pub const Font = struct {
     ttf_font: TTF_Font,
     stbtt_font: stbtt.fontinfo,
     name: stdx.string.BoxString,
+    data: []const u8,
+    alloc: std.mem.Allocator,
     
     pub fn init(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const u8) void {
-        const ttf_font = TTF_Font.init(alloc, data, 0) catch unreachable;
+        // Dupe font data since we will be continually querying data from it.
+        const own_data = alloc.dupe(u8, data) catch unreachable;
+
+        const ttf_font = TTF_Font.init(alloc, own_data, 0) catch unreachable;
 
         var stbtt_font: stbtt.fontinfo = undefined;
         if (ttf_font.hasGlyphOutlines()) {
-            stbtt.InitFont(&stbtt_font, data, 0) catch @panic("failed to load font");
+            stbtt.InitFont(&stbtt_font, own_data, 0) catch @panic("failed to load font");
         }
 
         const family_name = ttf_font.getFontFamilyName(alloc) orelse unreachable;
@@ -108,11 +113,14 @@ pub const Font = struct {
             .ttf_font = ttf_font,
             .stbtt_font = stbtt_font,
             .name = family_name,
+            .data = own_data,
+            .alloc = alloc,
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.ttf_font.deinit();
         self.name.deinit();
+        self.alloc.free(self.data);
     }
 };

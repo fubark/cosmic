@@ -21,10 +21,40 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     const undef_u32 = v8.Integer.initU32(isolate, 0);
 
     // JsWindow
-    const window_class = v8.ObjectTemplate.initDefault(isolate);
-    window_class.setInternalFieldCount(1);
-    ctx.setFuncT(window_class, "onDrawFrame", window_OnDrawFrame);
+    const window_class = v8.FunctionTemplate.initDefault(isolate);
+    {
+        const inst = window_class.getInstanceTemplate();
+        inst.setInternalFieldCount(1);
+
+        const proto = window_class.getPrototypeTemplate();
+        ctx.setFuncT(proto, "onDrawFrame", window_OnDrawFrame);
+        ctx.setFuncT(proto, "getGraphics", window_GetGraphics);
+    }
     ctx.window_class = window_class;
+
+    // JsGraphics
+    const graphics_class = v8.FunctionTemplate.initDefault(isolate);
+    graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
+    {
+        const inst = graphics_class.getInstanceTemplate();
+        inst.setInternalFieldCount(1);
+
+        const proto = graphics_class.getPrototypeTemplate();
+        ctx.setAccessor(proto, "fillColor", graphics_GetFillColor, graphics_SetFillColor);
+        ctx.setAccessor(proto, "strokeColor", graphics_GetStrokeColor, graphics_SetStrokeColor);
+        ctx.setAccessor(proto, "lineWidth", graphics_GetLineWidth, graphics_SetLineWidth);
+
+        ctx.setConstFuncT(proto, "fillRect", graphics_FillRect);
+        ctx.setConstFuncT(proto, "drawRect", graphics_DrawRect);
+        ctx.setConstFuncT(proto, "translate", graphics_Translate);
+        ctx.setConstFuncT(proto, "rotateDeg", graphics_RotateDeg);
+        ctx.setConstFuncT(proto, "resetTransform", graphics_ResetTransform);
+        ctx.setConstFuncT(proto, "addTtfFont", graphics_AddTtfFont);
+        ctx.setConstFuncT(proto, "addFallbackFont", graphics_AddFallbackFont);
+        ctx.setConstFuncT(proto, "setFont", graphics_SetFont);
+        ctx.setConstFuncT(proto, "fillText", graphics_FillText);
+    }
+    ctx.graphics_class = graphics_class;
 
     // JsColor
     const color_class = v8.FunctionTemplate.initDefault(isolate);
@@ -32,13 +62,14 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         const proto = color_class.getPrototypeTemplate();
         ctx.setFuncT(proto, "darker", color_Darker);
         ctx.setFuncT(proto, "lighter", color_Lighter);
+        ctx.setFuncT(proto, "withAlpha", color_WithAlpha);
     }
     var instance = color_class.getInstanceTemplate();
     ctx.setProp(instance, "r", undef_u32);
     ctx.setProp(instance, "g", undef_u32);
     ctx.setProp(instance, "b", undef_u32);
     ctx.setProp(instance, "a", undef_u32);
-    ctx.setProp(color_class, "new", v8.FunctionTemplate.initCallback(isolate, csColor_New));
+    ctx.setFuncT(color_class, "new", color_New);
     const colors = &[_]std.meta.Tuple(&.{[]const u8, Color}){
         .{"LightGray", Color.LightGray},
         .{"Gray", Color.Gray},
@@ -95,18 +126,6 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     ctx.setConstProp(cs_graphics, "Color", color_class);
     ctx.setConstProp(cs, "graphics", cs_graphics);
 
-    const graphics_class = v8.FunctionTemplate.initDefault(isolate);
-    graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
-    {
-        const proto = graphics_class.getPrototypeTemplate();
-        ctx.setAccessor(proto, "fillColor", graphics_GetFillColor, graphics_SetFillColor);
-        ctx.setAccessor(proto, "strokeColor", graphics_GetStrokeColor, graphics_SetStrokeColor);
-        ctx.setAccessor(proto, "lineWidth", graphics_GetLineWidth, graphics_SetLineWidth);
-
-        ctx.setConstFuncT(proto, "fillRect", graphics_FillRect);
-        ctx.setConstFuncT(proto, "drawRect", graphics_DrawRect);
-    }
-
     ctx.setConstProp(global, "cs", cs);
     ctx.setConstProp(global, "print", v8.FunctionTemplate.initCallback(isolate, print));
 
@@ -114,35 +133,40 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
 
     // const rt_global = res.getGlobal();
     // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(isolate, "cs")).castToObject();
-    // For now, just create one JsGraphics instance for everything.
-    ctx.js_graphics = graphics_class.getFunction(res).newInstance(res, &.{}).?;
 
     return res;
 }
 
 fn window_New(title: []const u8, width: u32, height: u32) v8.Object {
-    log.debug("dim {} {}", .{width, height});
-
-    const isolate = rt.cur_isolate;
-    const ctx = isolate.getCurrentContext();
     const res = rt.createCsWindowResource();
-
-    const js_window = rt.window_class.initInstance(ctx);
-    log.debug("js_window ptr {*}", .{js_window.handle});
-    const js_window_id = v8.Integer.initU32(isolate, res.id);
-    js_window.setInternalField(0, js_window_id);
 
     const window = graphics.Window.init(rt.alloc, .{
         .width = width,
         .height = height,
         .title = title,
     }) catch unreachable;
-    res.ptr.init(rt.alloc, window, v8.Persistent.init(isolate, js_window));
+    res.ptr.init(rt.alloc, rt, window, res.id);
 
     rt.active_window = res.ptr;
     rt.active_graphics = rt.active_window.graphics;
 
-    return js_window;
+    return res.ptr.js_window.castToObject();
+}
+
+fn window_GetGraphics(this: v8.Object) *const c_void {
+    const isolate = rt.cur_isolate;
+    const ctx = isolate.getCurrentContext();
+
+    const window_id = this.getInternalField(0).toU32(ctx);
+
+    const res = rt.resources.get(window_id);
+    if (res.tag == .CsWindow) {
+        const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+        return window.js_graphics.handle;
+    } else {
+        v8.throwErrorExceptionFmt(rt.alloc, isolate, "Window no longer exists for id {}", .{window_id});
+        return @ptrCast(*const c_void, rt.js_undefined.handle);
+    }
 }
 
 fn window_OnDrawFrame(this: v8.Object, arg: v8.Function) void {
@@ -170,43 +194,13 @@ fn color_Darker(this: v8.Object) Color {
     return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.darker();
 }
 
-fn csColor_New(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
-    const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
+fn color_WithAlpha(this: v8.Object, a: u8) Color {
+    const ctx = rt.cur_isolate.getCurrentContext();
+    return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.withAlpha(a);
+}
 
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    var r: u32 = 0;
-    var g: u32 = 0;
-    var b: u32 = 0;
-    var a: u32 = 255;
-
-    const len = info.length();
-    if (len == 3) {
-        r = info.getArg(0).toU32(ctx);
-        g = info.getArg(1).toU32(ctx);
-        b = info.getArg(2).toU32(ctx);
-    } else if (len == 4) {
-        r = info.getArg(0).toU32(ctx);
-        g = info.getArg(1).toU32(ctx);
-        b = info.getArg(2).toU32(ctx);
-        a = info.getArg(3).toU32(ctx);
-    } else {
-        v8.throwErrorException(isolate, "Expected (r, g, b) or (r, g, b, a)");
-        return;
-    }
-
-    const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, r));
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, g));
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, b));
-    _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, a));
-
-    const return_value = info.getReturnValue();
-    return_value.set(new);
+fn color_New(r: u8, g: u8, b: u8, a: u8) *const c_void {
+    return getJsValue(rt.cur_isolate, rt.cur_isolate.getCurrentContext(), Color.init(r, g, b, a));
 }
 
 fn graphics_GetLineWidth() f32 {
@@ -219,6 +213,44 @@ fn graphics_GetStrokeColor() Color {
 
 fn graphics_SetStrokeColor(color: Color) void {
     rt.active_graphics.setStrokeColor(color);
+}
+
+fn graphics_Translate(x: f32, y: f32) void {
+    rt.active_graphics.translate(x, y);
+}
+
+fn graphics_RotateDeg(deg: f32) void {
+    rt.active_graphics.rotateDeg(deg);
+}
+
+fn graphics_ResetTransform() void {
+    rt.active_graphics.resetTransform();
+}
+
+fn graphics_SetFont(font_id: graphics.font.FontId, font_size: f32) void {
+    rt.active_graphics.setFont(font_id, font_size);
+}
+
+fn graphics_FillText(x: f32, y: f32, str: []const u8) void {
+    rt.active_graphics.fillText(x, y, str);
+}
+
+/// Path can be absolute or relative to the current executing script.
+fn graphics_AddTtfFont(path: []const u8) graphics.font.FontId {
+    const abs_path = std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
+    defer rt.alloc.free(abs_path);
+    return rt.active_graphics.addTTF_FontPath(abs_path) catch |err| {
+        if (err == error.FileNotFound) {
+            v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
+            return 0;
+        } else {
+            unreachable;
+        }
+    };
+}
+
+fn graphics_AddFallbackFont(font_id: graphics.font.FontId) void {
+    rt.active_graphics.addFallbackFont(font_id);
 }
 
 fn graphics_DrawRect(x: f32, y: f32, width: f32, height: f32) void {
@@ -265,6 +297,7 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v
         []const u8 => {
             return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
         },
+        u8 => return @intCast(u8, val.toU32(ctx)),
         u32 => return val.toU32(ctx),
         f32 => return val.toF32(ctx),
         Color => {
@@ -339,9 +372,10 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
 pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *const c_void {
     const Type = @TypeOf(native_val);
     switch (Type) {
+        u32 => return v8.Integer.initU32(isolate, native_val).handle,
         f32 => return v8.Number.init(isolate, native_val).handle,
         Color => {
-            const new = rt.color_class.getFunction(ctx).newInstance(ctx, &.{}).?;
+            const new = rt.color_class.getFunction(ctx).initInstance(ctx, &.{}).?;
             _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, native_val.channels.r));
             _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, native_val.channels.g));
             _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, native_val.channels.b));
@@ -350,6 +384,9 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
         },
         v8.Object => {
             return native_val.handle;
+        },
+        *const c_void => {
+            return native_val;
         },
         else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)})),
     }
@@ -374,6 +411,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
     return gen.get;
 }
 
+/// Calling v8.throwErrorException inside a native callback function will trigger in v8 when the callback returns.
 pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
     const gen = struct {
         fn cb(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
@@ -397,7 +435,7 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 return;
             }
 
-            const has_string_param = b: {
+            const has_string_param: bool = b: {
                 inline for (final_arg_fields) |field| {
                     if (field.field_type == []const u8) {
                         break :b true;

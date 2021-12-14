@@ -57,60 +57,9 @@ fn runAndExit(src_path: []const u8) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
-    defer alloc.free(src);
-
-    const platform = v8.Platform.initDefault(0, true);
-    defer platform.deinit();
-
-    v8.initV8Platform(platform);
-    v8.initV8();
-    defer {
-        _ = v8.deinitV8();
-        v8.deinitV8Platform();
-    }
-
-    var params = v8.initCreateParams();
-    params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
-    defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
-    var isolate = v8.Isolate.init(&params);
-    defer isolate.deinit();
-
-    rt.init(alloc, isolate);
-    defer rt.deinit();
-
-    isolate.enter();
-    defer isolate.exit();
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
-    defer hscope.deinit();
-
-    var context = js_env.init(&rt, isolate);
-    context.enter();
-    defer context.exit();
-
-    const origin = v8.String.initUtf8(isolate, src_path);
-
-    var res: v8.ExecuteResult = undefined;
-    defer res.deinit();
-    v8.executeString(alloc, isolate, src, origin, &res);
-
-    while (platform.pumpMessageLoop(isolate, false)) {
-        log.info("What does this do?", .{});
-        unreachable;
-    }
-
-    if (!res.success) {
-        printFmt("{s}", .{res.err.?});
+    runtime.runUserMain(alloc, src_path) catch {
         process.exit(1);
-    }
-
-    // Check if we need to enter an app loop.
-    if (rt.num_windows > 0) {
-        runtime.runUserLoop(&rt);
-    }
-
+    };
     process.exit(0);
 }
 
@@ -195,8 +144,6 @@ fn getInputOrExit(input_buf: *std.ArrayList(u8)) []const u8 {
     };
     return input_buf.items;
 }
-
-var rt: RuntimeContext = undefined;
 
 const main_usage =
     \\Usage: cosmic [command] [options]

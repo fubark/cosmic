@@ -89,12 +89,14 @@ pub const Graphics = struct {
         .WasmCanvas => canvas.Graphics,
         .Test => testg.Graphics,
     },
+    alloc: std.mem.Allocator,
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, buf_width: u32, buf_height: u32) void {
         self.* = .{
+            .alloc = alloc,
             .path_parser = svg.PathParser.init(alloc),
             .svg_parser = svg.SvgParser.init(alloc),
             .text_buf = std.ArrayList(u8).init(alloc),
@@ -547,13 +549,24 @@ pub const Graphics = struct {
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
         switch (Backend) {
             .OpenGL => return gl.Graphics.addTTF_Font(&self.g, data),
+            .WasmCanvas => stdx.panic("Unsupported for WasmCanvas. Use addTTF_FontPathForName instead."),
             else => stdx.panic("unsupported"),
         }
     }
 
-    // Currently used just for wasm.
-    pub fn addTTF_FontFromExeDir(self: *Self, path: []const u8, name: []const u8) FontId {
+    /// Path can be absolute or relative to exe dir.
+    pub fn addTTF_FontPath(self: *Self, path: []const u8) !FontId {
+        const MaxFileSize = 1024 * 1000 * 20;
+        const data = try stdx.fs.readFileFromExeDir(self.alloc, path, MaxFileSize);
+        defer self.alloc.free(data);
+        return self.addTTF_Font(data);
+    }
+
+    /// Wasm relies on css to load fonts so it doesn't have access to the font family name.
+    /// Other backends will just ignore the name arg. 
+    pub fn addTTF_FontPathForName(self: *Self, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
+            .OpenGL => return self.addTTF_FontPath(path),
             .WasmCanvas => return canvas.Graphics.addTTF_FontFromExeDir(&self.g, path, name),
             else => stdx.panic("unsupported"),
         }

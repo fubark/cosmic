@@ -6,6 +6,7 @@ const sdl = @import("sdl");
 
 const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
+const log = stdx.log.scoped(.runtime);
 
 // Manages runtime resources. 
 // Used by V8 callback functions.
@@ -15,7 +16,8 @@ pub const RuntimeContext = struct {
     alloc: std.mem.Allocator,
     str_buf: std.ArrayList(u8),
 
-    window_class: v8.ObjectTemplate,
+    window_class: v8.FunctionTemplate,
+    graphics_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
 
     // Collection of mappings from id to resource handles.
@@ -32,20 +34,22 @@ pub const RuntimeContext = struct {
     active_graphics: *graphics.Graphics,
 
     cur_isolate: v8.Isolate,
-
-    js_graphics: v8.Object,
+    cur_script_dir_abs: []const u8,
 
     // This is used to store native string slices copied from v8.String for use in the immediate native callback functions.
     // It will automatically clear at the pre callback step if the current size is too large.
     // Native callback functions that have []const u8 in their params should assume they only live until end of function scope.
     cb_str_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate) void {
+    js_undefined: v8.Primitive,
+
+    pub fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate, src_path: []const u8) void {
         self.* = .{
             .alloc = alloc,
             .str_buf = std.ArrayList(u8).init(alloc),
             .window_class = undefined,
             .color_class = undefined,
+            .graphics_class = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .window_resource_list = undefined,
             .window_resource_list_last = undefined,
@@ -53,28 +57,33 @@ pub const RuntimeContext = struct {
             .active_window = undefined,
             .active_graphics = undefined,
             .cur_isolate = isolate,
-            .js_graphics = undefined,
+            .cur_script_dir_abs = getSrcPathDirAbs(alloc, src_path) catch unreachable,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
+
+            // Store locally for quick access.
+            .js_undefined = v8.Primitive.initUndefined(isolate),
         };
 
         // Insert dummy head so we can set last.
-        const dummy: ResourceHandle = undefined;
+        const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
         self.window_resource_list = self.resources.addListWithHead(dummy) catch unreachable;
         self.window_resource_list_last = self.resources.getListHead(self.window_resource_list).?;
     }
 
     fn deinit(self: *Self) void {
+        self.alloc.free(self.cur_script_dir_abs);
         self.str_buf.deinit();
         self.cb_str_buf.deinit();
 
         var iter = self.resources.items.iterator();
         while (iter.next()) |item| {
             switch (item.data.tag) {
-                .Window => {
-                    const window = stdx.mem.ptrCastAlign(*graphics.Window, item.data.ptr);
+                .CsWindow => {
+                    const window = stdx.mem.ptrCastAlign(*CsWindow, item.data.ptr);
                     window.deinit();
                     self.alloc.destroy(window);
                 },
+                .Dummy => {},
             }
         }
         self.resources.deinit();
@@ -227,7 +236,7 @@ pub fn runUserLoop(ctx: *RuntimeContext) void {
         ctx.active_graphics.beginFrame();
 
         for (ctx.active_window.onDrawFrameCbs.items) |onDrawFrame| {
-            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ctx.js_graphics.toValue()}) orelse {
+            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ctx.active_window.js_graphics.toValue()}) orelse {
                 const trace = v8.getTryCatchErrorString(ctx.alloc, isolate, try_catch);
                 defer ctx.alloc.free(trace);
                 printFmt("{s}", .{trace});
@@ -249,6 +258,7 @@ const ResourceListId = u32;
 const ResourceId = u32;
 const ResourceTag = enum {
     CsWindow,
+    Dummy,
 };
 
 const ResourceHandle = struct {
@@ -272,19 +282,30 @@ pub const CsWindow = struct {
 
     // Currently, each window has its own graphics handle.
     graphics: *graphics.Graphics,
+    js_graphics: v8.Persistent,
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, window: graphics.Window, js_window: v8.Persistent) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
+        const isolate = rt.cur_isolate;
+        const ctx = isolate.getCurrentContext();
+
+        const js_window = rt.window_class.getFunction(ctx).initInstance(ctx, &.{}).?;
+        const js_window_id = v8.Integer.initU32(isolate, window_id);
+        js_window.setInternalField(0, js_window_id);
+
+        const js_graphics = rt.graphics_class.getFunction(ctx).initInstance(ctx, &.{}).?;
+        js_graphics.setInternalField(0, js_window_id);
+
         self.* = .{
             .window = window,
             .onDrawFrameCbs = std.ArrayList(v8.Function).init(alloc),
-            .js_window = js_window,
-            .graphics = undefined,
+            .js_window = v8.Persistent.init(isolate, js_window),
+            .js_graphics = v8.Persistent.init(isolate, js_graphics),
+            .graphics = alloc.create(graphics.Graphics) catch unreachable,
         };
-        self.graphics = alloc.create(graphics.Graphics) catch unreachable;
         self.graphics.init(alloc, window.getWidth(), window.getHeight());
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.graphics.deinit();
         self.window.deinit();
         for (self.onDrawFrameCbs.items) |onDrawFrame| {
@@ -292,6 +313,7 @@ pub const CsWindow = struct {
         }
         self.onDrawFrameCbs.deinit();
         self.js_window.deinit();
+        self.js_graphics.deinit();
     }
 };
 
@@ -299,3 +321,73 @@ pub fn printFmt(comptime format: []const u8, args: anytype) void {
     const stdout = std.io.getStdOut().writer();
     stdout.print(format, args) catch unreachable;
 }
+
+fn getSrcPathDirAbs(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
+    if (std.fs.path.dirname(path)) |dir| {
+        return try std.fs.path.resolve(alloc, &.{ dir });
+    } else {
+        const cwd = try std.process.getCwdAlloc(alloc);
+        defer alloc.free(cwd);
+        return try std.fs.path.resolve(alloc, &.{ cwd });
+    }
+}
+
+/// Returns false if main script run encountered an error.
+pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
+    const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
+    defer alloc.free(src);
+
+    const platform = v8.Platform.initDefault(0, true);
+    defer platform.deinit();
+
+    v8.initV8Platform(platform);
+    v8.initV8();
+    defer {
+        _ = v8.deinitV8();
+        v8.deinitV8Platform();
+    }
+
+    var params = v8.initCreateParams();
+    params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
+    defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
+    var isolate = v8.Isolate.init(&params);
+    defer isolate.deinit();
+
+    global_rt.init(alloc, isolate, src_path);
+    defer global_rt.deinit();
+
+    isolate.enter();
+    defer isolate.exit();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    var context = js_env.init(&global_rt, isolate);
+    context.enter();
+    defer context.exit();
+
+    const origin = v8.String.initUtf8(isolate, src_path);
+
+    var res: v8.ExecuteResult = undefined;
+    defer res.deinit();
+    v8.executeString(alloc, isolate, src, origin, &res);
+
+    while (platform.pumpMessageLoop(isolate, false)) {
+        log.debug("What does this do?", .{});
+        unreachable;
+    }
+
+    if (!res.success) {
+        printFmt("{s}", .{res.err.?});
+        return error.MainScriptError;
+    }
+
+    // Check if we need to enter an app loop.
+    if (global_rt.num_windows > 0) {
+        runUserLoop(&global_rt);
+    }
+}
+
+// TODO: Move out of global scope.
+var global_rt: RuntimeContext = undefined;
