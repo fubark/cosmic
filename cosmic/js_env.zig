@@ -59,6 +59,7 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "translate", Graphics.translate);
         ctx.setConstFuncT(proto, "rotateDeg", Graphics.rotateDeg);
         ctx.setConstFuncT(proto, "resetTransform", Graphics.resetTransform);
+        ctx.setConstFuncT(proto, "newImage", graphics_NewImage);
         ctx.setConstFuncT(proto, "addTtfFont", graphics_AddTtfFont);
         ctx.setConstFuncT(proto, "addFallbackFont", Graphics.addFallbackFont);
         ctx.setConstFuncT(proto, "setFont", Graphics.setFont);
@@ -82,8 +83,22 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "drawSvgContent", graphics_DrawSvgContent);
         ctx.setConstFuncT(proto, "compileSvgContent", graphics_CompileSvgContent);
         ctx.setConstFuncT(proto, "executeDrawList", graphics_ExecuteDrawList);
+        ctx.setConstFuncT(proto, "drawQuadraticBezierCurve", Graphics.drawQuadraticBezierCurve);
+        ctx.setConstFuncT(proto, "drawCubicBezierCurve", Graphics.drawCubicBezierCurve);
+        ctx.setConstFuncT(proto, "drawImageSized", graphics_DrawImageSized);
     }
     ctx.graphics_class = graphics_class;
+
+    // JsImage
+    const image_class = ctx.initFuncT("Image");
+    {
+        const inst = image_class.getInstanceTemplate();
+        ctx.setProp(inst, "width", undef_u32);
+        ctx.setProp(inst, "height", undef_u32);
+        // For image id.
+        inst.setInternalFieldCount(1);
+    }
+    ctx.image_class = image_class;
 
     // JsColor
     const color_class = v8.FunctionTemplate.initDefault(isolate);
@@ -253,6 +268,10 @@ fn graphics_DrawSvgContent(g: *Graphics, content: []const u8) void {
     g.drawSvgContent(content) catch unreachable;
 }
 
+fn graphics_DrawImageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
+    g.drawImageSized(x, y, width, height, image.id);
+}
+
 fn graphics_ExecuteDrawList(g: *Graphics, handle: v8.Object) void {
     const ctx = rt.cur_isolate.getCurrentContext();
     const ptr = handle.getInternalField(0).bitCastToU64(ctx);
@@ -307,12 +326,12 @@ fn graphics_FillConvexPolygon(g: *Graphics, pts: []const f32) void {
 }
 
 /// Path can be absolute or relative to the current executing script.
-fn getAbsPath(path: []const u8) []const u8 {
+fn resolveEnvPath(path: []const u8) []const u8 {
     return std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
 }
 
 fn files_ReadFile(path: []const u8) []const u8 {
-    const abs_path = getAbsPath(path);
+    const abs_path = resolveEnvPath(path);
     defer rt.alloc.free(abs_path);
 
     const file = std.fs.openFileAbsolute(abs_path, .{ .read = true, .write = false }) catch unreachable;
@@ -322,10 +341,24 @@ fn files_ReadFile(path: []const u8) []const u8 {
 }
 
 /// Path can be absolute or relative to the current executing script.
-fn graphics_AddTtfFont(g: *Graphics, path: []const u8) graphics.font.FontId {
-    const abs_path = getAbsPath(path);
+fn graphics_NewImage(g: *Graphics, path: []const u8) graphics.Image {
+    const abs_path = resolveEnvPath(path);
     defer rt.alloc.free(abs_path);
-    return g.addTTF_FontPath(abs_path) catch |err| {
+    return g.createImageFromPath(abs_path) catch |err| {
+        if (err == error.FileNotFound) {
+            v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
+            return undefined;
+        } else {
+            unreachable;
+        }
+    };
+}
+
+/// Path can be absolute or relative to the current executing script.
+fn graphics_AddTtfFont(g: *Graphics, path: []const u8) graphics.font.FontId {
+    const abs_path = resolveEnvPath(path);
+    defer rt.alloc.free(abs_path);
+    return g.addTTF_FontFromPath(abs_path) catch |err| {
         if (err == error.FileNotFound) {
             v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
             return 0;
@@ -375,6 +408,16 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v
         u8 => return @intCast(u8, val.toU32(ctx)),
         u32 => return val.toU32(ctx),
         f32 => return val.toF32(ctx),
+        graphics.Image => {
+            if (val.isObject()) {
+                const obj = val.castToObject();
+                if (obj.toValue().instanceOf(ctx, rt.image_class.getFunction(ctx).toObject())) {
+                    const image_id = obj.getInternalField(0).toU32(ctx);
+                    return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
+                }
+            }
+            return null;
+        },
         Color => {
             if (val.isObject()) {
                 const obj = val.castToObject();
@@ -467,6 +510,13 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
     switch (Type) {
         u32 => return v8.Integer.initU32(isolate, native_val).handle,
         f32 => return v8.Number.init(isolate, native_val).handle,
+        graphics.Image => {
+            const new = rt.image_class.getFunction(ctx).initInstance(ctx, &.{}).?;
+            new.setInternalField(0, v8.Integer.initU32(isolate, native_val.id));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "width"), v8.Integer.initU32(isolate, @intCast(u32, native_val.width)));
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "height"), v8.Integer.initU32(isolate, @intCast(u32, native_val.height)));
+            return new.handle;
+        },
         Color => {
             const new = rt.color_class.getFunction(ctx).initInstance(ctx, &.{}).?;
             _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, native_val.channels.r));
@@ -594,11 +644,17 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                     return;
                 }
             }
+            var has_args = true;
             inline for (final_arg_fields) |field, i| {
                 if (getNativeValue(isolate, ctx, field.field_type, info.getArg(i))) |native_val| {
                     @field(native_args, field.name) = native_val;
+                } else {
+                    v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {s}", .{@typeName(field.field_type)});
+                    // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
+                    has_args = false;
                 }
             }
+            if (!has_args) return;
             if (stdx.meta.FunctionReturnType(@TypeOf(native_fn)) == void) {
                 @call(.{}, native_fn, native_args);
             } else {

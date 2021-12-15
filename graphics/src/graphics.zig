@@ -485,26 +485,33 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn createImageFromExeDirPromise(self: *Self, path: []const u8) stdx.wasm.Promise(Image) {
+    pub fn createImageFromPathPromise(self: *Self, path: []const u8) stdx.wasm.Promise(Image) {
         switch (Backend) {
             // Only web wasm is supported.
-            .WasmCanvas => return canvas.Graphics.createImageFromExeDirPromise(&self.g, path),
+            .WasmCanvas => return canvas.Graphics.createImageFromPathPromise(&self.g, path),
             else => @compileError("unsupported"),
         }
     }
 
-    pub fn createImageFromFile(self: *Self, path: []const u8) !Image {
+    /// Path can be absolute or relative to exe dir.
+    pub fn createImageFromPath(self: *Self, path: []const u8) !Image {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.createImageFromFile(&self.g, path),
+            .OpenGL => {
+                const MaxFileSize = 1000 * 1000 * 30;
+                const data = try stdx.fs.readFileFromExeDir(self.alloc, path, MaxFileSize);
+                defer self.alloc.free(data);
+                return self.createImage(data);
+            },
+            .WasmCanvas => stdx.panic("unsupported, use createImageFromPathPromise"),
             else => stdx.panic("unsupported"),
         }
     }
 
     // Loads an image from various data formats.
-    pub fn createImageFromData(self: *Self, data: []const u8) !Image {
+    pub fn createImage(self: *Self, data: []const u8) !Image {
         switch (Backend) {
             .OpenGL => return gl.Graphics.createImageFromData(&self.g, data),
-            .WasmCanvas => stdx.panic("unsupported, use createImageFromExeFile"),
+            .WasmCanvas => stdx.panic("unsupported, use createImageFromPathPromise"),
             else => stdx.panic("unsupported"),
         }
     }
@@ -559,8 +566,8 @@ pub const Graphics = struct {
     }
 
     /// Path can be absolute or relative to exe dir.
-    pub fn addTTF_FontPath(self: *Self, path: []const u8) !FontId {
-        const MaxFileSize = 1024 * 1000 * 20;
+    pub fn addTTF_FontFromPath(self: *Self, path: []const u8) !FontId {
+        const MaxFileSize = 1000 * 1000 * 20;
         const data = try stdx.fs.readFileFromExeDir(self.alloc, path, MaxFileSize);
         defer self.alloc.free(data);
         return self.addTTF_Font(data);
@@ -568,7 +575,7 @@ pub const Graphics = struct {
 
     /// Wasm relies on css to load fonts so it doesn't have access to the font family name.
     /// Other backends will just ignore the name arg. 
-    pub fn addTTF_FontPathForName(self: *Self, path: []const u8, name: []const u8) !FontId {
+    pub fn addTTF_FontFromPathForName(self: *Self, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
             .OpenGL => return self.addTTF_FontPath(path),
             .WasmCanvas => return canvas.Graphics.addTTF_FontFromExeDir(&self.g, path, name),

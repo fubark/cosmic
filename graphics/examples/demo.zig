@@ -201,13 +201,11 @@ fn update(delta_ms: f32) void {
 fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 1024 * 1000 * 20;
 
-    font_id = try g.addTTF_FontPath("NunitoSans-Regular.ttf");
-    const emoji_font = try g.addTTF_FontPath("NotoColorEmoji.ttf");
+    font_id = try g.addTTF_FontFromPath("NunitoSans-Regular.ttf");
+    const emoji_font = try g.addTTF_FontFromPath("NotoColorEmoji.ttf");
     g.addFallbackFont(emoji_font);
 
-    const image_data = try stdx.fs.readFileFromExeDir(alloc, "game-char.png", MaxFileSize);
-    game_char_image = try g.createImageFromData(image_data);
-    alloc.free(image_data);
+    game_char_image = try g.createImageFromPath("game-char.png");
 
     zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
 
@@ -215,7 +213,7 @@ fn initAssets(alloc: std.mem.Allocator) !void {
 
     var parser = svg.SvgParser.init(alloc);
     defer parser.deinit();
-    g.
+
     tiger_head_draw_list = try parser.parseAlloc(alloc, tiger_head_svg);
     alloc.free(tiger_head_svg);
 }
@@ -251,7 +249,7 @@ export fn wasmInit() *const u8 {
     const p3 = g.createImageFromExeDirPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
     load_assets_p = stdx.wasm.createAndPromise(&.{p1.id, p2.id, p3.id});
 
-    font_id = g.addTTF_FontPathForName("./NunitoSans-Regular.ttf", "Nunito Sans") catch unreachable;
+    font_id = g.addTTF_FontFromPathForName("./NunitoSans-Regular.ttf", "Nunito Sans") catch unreachable;
 
     return js_buf.writeResult();
 }

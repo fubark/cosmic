@@ -19,6 +19,7 @@ pub const RuntimeContext = struct {
 
     window_class: v8.FunctionTemplate,
     graphics_class: v8.FunctionTemplate,
+    image_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
     handle_class: v8.ObjectTemplate,
 
@@ -57,6 +58,7 @@ pub const RuntimeContext = struct {
             .window_class = undefined,
             .color_class = undefined,
             .graphics_class = undefined,
+            .image_class = undefined,
             .handle_class = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
@@ -219,6 +221,12 @@ pub const RuntimeContext = struct {
         }
     }
 
+    pub fn initFuncT(self: Self, name: []const u8) v8.FunctionTemplate {
+        const new = v8.FunctionTemplate.initDefault(self.cur_isolate);
+        new.setClassName(v8.String.initUtf8(self.cur_isolate, name));
+        return new;
+    }
+
     pub fn setProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
         const js_key = v8.String.initUtf8(self.cur_isolate, key);
         switch (@TypeOf(value)) {
@@ -235,7 +243,7 @@ pub const RuntimeContext = struct {
 // Main loop for running user apps.
 pub fn runUserLoop(ctx: *RuntimeContext) void {
 
-    var fps_limiter = graphics.DefaultFpsLimiter.init(30);
+    var fps_limiter = graphics.DefaultFpsLimiter.init(60);
     var fps: u64 = 0;
 
     const isolate = ctx.cur_isolate;
@@ -272,7 +280,7 @@ pub fn runUserLoop(ctx: *RuntimeContext) void {
         ctx.active_graphics.beginFrame();
 
         for (ctx.active_window.onDrawFrameCbs.items) |onDrawFrame| {
-            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ctx.active_window.js_graphics.toValue()}) orelse {
+            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ctx.active_window.js_graphics.toValue(), v8.Number.init(isolate, @intToFloat(f64, fps)).toValue()}) orelse {
                 const trace = v8.getTryCatchErrorString(ctx.alloc, isolate, try_catch);
                 defer ctx.alloc.free(trace);
                 printFmt("{s}", .{trace});

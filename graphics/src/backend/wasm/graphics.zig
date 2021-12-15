@@ -587,7 +587,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn createImageFromExeDirPromise(self: *Self, path: []const u8) stdx.wasm.Promise(Image) {
+    pub fn createImageFromPathPromise(self: *Self, path: []const u8) stdx.wasm.Promise(Image) {
         _ = self;
         const p = stdx.wasm.createPromise(Image);
         jsCreateImage(p.id, path.ptr, path.len);
