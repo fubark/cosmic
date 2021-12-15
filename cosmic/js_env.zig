@@ -1,7 +1,9 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const Vec2 = stdx.math.Vec2;
 const string = stdx.string;
 const graphics = @import("graphics");
+const Graphics = graphics.Graphics;
 const Color = graphics.Color;
 
 const v8 = @import("v8.zig");
@@ -14,11 +16,17 @@ const log = stdx.log.scoped(.js_env);
 var rt: *RuntimeContext = undefined;
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
+// A parent HandleScope should persist the values we create in here until the end of the script execution.
 pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     rt = ctx;
 
     // We set with the same undef values for each type, it might help the optimizing compiler if it knows the field types ahead of time.
     const undef_u32 = v8.Integer.initU32(isolate, 0);
+
+    // GenericHandle
+    const handle_class = v8.ObjectTemplate.initDefault(isolate);
+    handle_class.setInternalFieldCount(1);
+    ctx.handle_class = handle_class;
 
     // JsWindow
     const window_class = v8.FunctionTemplate.initDefault(isolate);
@@ -37,22 +45,43 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
     {
         const inst = graphics_class.getInstanceTemplate();
+        // Currently we set a native pointer with bitCastedU64, seems to work fine.
+        // TODO: What is the advantage of using the builtin v8::External instead of a ptr int?
         inst.setInternalFieldCount(1);
 
         const proto = graphics_class.getPrototypeTemplate();
-        ctx.setAccessor(proto, "fillColor", graphics_GetFillColor, graphics_SetFillColor);
-        ctx.setAccessor(proto, "strokeColor", graphics_GetStrokeColor, graphics_SetStrokeColor);
-        ctx.setAccessor(proto, "lineWidth", graphics_GetLineWidth, graphics_SetLineWidth);
+        ctx.setAccessor(proto, "fillColor", Graphics.getFillColor, Graphics.setFillColor);
+        ctx.setAccessor(proto, "strokeColor", Graphics.getStrokeColor, Graphics.setStrokeColor);
+        ctx.setAccessor(proto, "lineWidth", Graphics.getLineWidth, Graphics.setLineWidth);
 
-        ctx.setConstFuncT(proto, "fillRect", graphics_FillRect);
-        ctx.setConstFuncT(proto, "drawRect", graphics_DrawRect);
-        ctx.setConstFuncT(proto, "translate", graphics_Translate);
-        ctx.setConstFuncT(proto, "rotateDeg", graphics_RotateDeg);
-        ctx.setConstFuncT(proto, "resetTransform", graphics_ResetTransform);
+        ctx.setConstFuncT(proto, "fillRect", Graphics.fillRect);
+        ctx.setConstFuncT(proto, "drawRect", Graphics.drawRect);
+        ctx.setConstFuncT(proto, "translate", Graphics.translate);
+        ctx.setConstFuncT(proto, "rotateDeg", Graphics.rotateDeg);
+        ctx.setConstFuncT(proto, "resetTransform", Graphics.resetTransform);
         ctx.setConstFuncT(proto, "addTtfFont", graphics_AddTtfFont);
-        ctx.setConstFuncT(proto, "addFallbackFont", graphics_AddFallbackFont);
-        ctx.setConstFuncT(proto, "setFont", graphics_SetFont);
-        ctx.setConstFuncT(proto, "fillText", graphics_FillText);
+        ctx.setConstFuncT(proto, "addFallbackFont", Graphics.addFallbackFont);
+        ctx.setConstFuncT(proto, "setFont", Graphics.setFont);
+        ctx.setConstFuncT(proto, "fillText", Graphics.fillText);
+        ctx.setConstFuncT(proto, "fillCircle", Graphics.fillCircle);
+        ctx.setConstFuncT(proto, "fillCircleSectorDeg", Graphics.fillCircleSectorDeg);
+        ctx.setConstFuncT(proto, "drawCircle", Graphics.drawCircle);
+        ctx.setConstFuncT(proto, "drawCircleArcDeg", Graphics.drawCircleArcDeg);
+        ctx.setConstFuncT(proto, "fillEllipse", Graphics.fillEllipse);
+        ctx.setConstFuncT(proto, "fillEllipseSectorDeg", Graphics.fillEllipseSectorDeg);
+        ctx.setConstFuncT(proto, "drawEllipse", Graphics.drawEllipse);
+        ctx.setConstFuncT(proto, "drawEllipseArcDeg", Graphics.drawEllipseArcDeg);
+        ctx.setConstFuncT(proto, "fillTriangle", Graphics.fillTriangle);
+        ctx.setConstFuncT(proto, "fillConvexPolygon", graphics_FillConvexPolygon);
+        ctx.setConstFuncT(proto, "fillPolygon", graphics_FillPolygon);
+        ctx.setConstFuncT(proto, "drawPolygon", graphics_DrawPolygon);
+        ctx.setConstFuncT(proto, "fillRoundRect", Graphics.fillRoundRect);
+        ctx.setConstFuncT(proto, "drawRoundRect", Graphics.drawRoundRect);
+        ctx.setConstFuncT(proto, "drawPoint", Graphics.drawPoint);
+        ctx.setConstFuncT(proto, "drawLine", Graphics.drawLine);
+        ctx.setConstFuncT(proto, "drawSvgContent", graphics_DrawSvgContent);
+        ctx.setConstFuncT(proto, "compileSvgContent", graphics_CompileSvgContent);
+        ctx.setConstFuncT(proto, "executeDrawList", graphics_ExecuteDrawList);
     }
     ctx.graphics_class = graphics_class;
 
@@ -118,6 +147,13 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     const window = v8.ObjectTemplate.init(isolate, window_constructor);
     ctx.setConstFuncT(window, "new", window_New);
     ctx.setConstProp(cs, "window", window);
+
+    // cs.files
+    const files_constructor = v8.FunctionTemplate.initDefault(isolate);
+    files_constructor.setClassName(v8.String.initUtf8(isolate, "files"));
+    const files = v8.ObjectTemplate.init(isolate, files_constructor);
+    ctx.setConstFuncT(files, "readFile", files_ReadFile);
+    ctx.setConstProp(cs, "files", files);
 
     // cs.graphics
     const cs_graphics = v8.ObjectTemplate.initDefault(isolate);
@@ -203,43 +239,93 @@ fn color_New(r: u8, g: u8, b: u8, a: u8) *const c_void {
     return getJsValue(rt.cur_isolate, rt.cur_isolate.getCurrentContext(), Color.init(r, g, b, a));
 }
 
-fn graphics_GetLineWidth() f32 {
-    return rt.active_graphics.getLineWidth();
+fn graphics_FillPolygon(g: *Graphics, pts: []const f32) void {
+    rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+    var i: u32 = 0;
+    var vec_idx: u32 = 0;
+    while (i < pts.len-1) : ({i += 2; vec_idx += 1;}) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i+1]);
+    }
+    g.fillPolygon(rt.vec2_buf.items);
 }
 
-fn graphics_GetStrokeColor() Color {
-    return rt.active_graphics.getStrokeColor();
+fn graphics_DrawSvgContent(g: *Graphics, content: []const u8) void {
+    g.drawSvgContent(content) catch unreachable;
 }
 
-fn graphics_SetStrokeColor(color: Color) void {
-    rt.active_graphics.setStrokeColor(color);
+fn graphics_ExecuteDrawList(g: *Graphics, handle: v8.Object) void {
+    const ctx = rt.cur_isolate.getCurrentContext();
+    const ptr = handle.getInternalField(0).bitCastToU64(ctx);
+    const list = @intToPtr(*graphics.DrawCommandList, ptr);
+    g.executeDrawList(list.*);
 }
 
-fn graphics_Translate(x: f32, y: f32) void {
-    rt.active_graphics.translate(x, y);
+fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) *const c_void {
+    const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
+
+    const native_ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
+    native_ptr.* = draw_list;
+    _ = rt.weak_handles.add(.{
+        .ptr = native_ptr,
+        .tag = .DrawCommandList,
+    }) catch unreachable;
+
+    const ctx = rt.cur_isolate.getCurrentContext();
+    const new = rt.handle_class.initInstance(ctx);
+    new.setInternalField(0, v8.Number.initBitCastedU64(rt.cur_isolate, @ptrToInt(native_ptr)));
+
+    var new_p = v8.Persistent.init(rt.cur_isolate, new);
+    new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
+
+    return new_p.handle;
 }
 
-fn graphics_RotateDeg(deg: f32) void {
-    rt.active_graphics.rotateDeg(deg);
+fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
+    const info = v8.WeakCallbackInfo.initFromC(c_info);
+    const ptr = info.getParameter();
+    rt.destroyWeakHandleByPtr(ptr);
 }
 
-fn graphics_ResetTransform() void {
-    rt.active_graphics.resetTransform();
+fn graphics_DrawPolygon(g: *Graphics, pts: []const f32) void {
+    rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+    var i: u32 = 0;
+    var vec_idx: u32 = 0;
+    while (i < pts.len-1) : ({i += 2; vec_idx += 1;}) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i+1]);
+    }
+    g.drawPolygon(rt.vec2_buf.items);
 }
 
-fn graphics_SetFont(font_id: graphics.font.FontId, font_size: f32) void {
-    rt.active_graphics.setFont(font_id, font_size);
-}
-
-fn graphics_FillText(x: f32, y: f32, str: []const u8) void {
-    rt.active_graphics.fillText(x, y, str);
+fn graphics_FillConvexPolygon(g: *Graphics, pts: []const f32) void {
+    rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+    var i: u32 = 0;
+    var vec_idx: u32 = 0;
+    while (i < pts.len-1) : ({i += 2; vec_idx += 1;}) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i+1]);
+    }
+    g.fillConvexPolygon(rt.vec2_buf.items);
 }
 
 /// Path can be absolute or relative to the current executing script.
-fn graphics_AddTtfFont(path: []const u8) graphics.font.FontId {
-    const abs_path = std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
+fn getAbsPath(path: []const u8) []const u8 {
+    return std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
+}
+
+fn files_ReadFile(path: []const u8) []const u8 {
+    const abs_path = getAbsPath(path);
     defer rt.alloc.free(abs_path);
-    return rt.active_graphics.addTTF_FontPath(abs_path) catch |err| {
+
+    const file = std.fs.openFileAbsolute(abs_path, .{ .read = true, .write = false }) catch unreachable;
+    defer file.close();
+    const MaxSize = 1e9;
+    return file.readToEndAlloc(rt.alloc, MaxSize) catch unreachable;
+}
+
+/// Path can be absolute or relative to the current executing script.
+fn graphics_AddTtfFont(g: *Graphics, path: []const u8) graphics.font.FontId {
+    const abs_path = getAbsPath(path);
+    defer rt.alloc.free(abs_path);
+    return g.addTTF_FontPath(abs_path) catch |err| {
         if (err == error.FileNotFound) {
             v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
             return 0;
@@ -249,31 +335,7 @@ fn graphics_AddTtfFont(path: []const u8) graphics.font.FontId {
     };
 }
 
-fn graphics_AddFallbackFont(font_id: graphics.font.FontId) void {
-    rt.active_graphics.addFallbackFont(font_id);
-}
-
-fn graphics_DrawRect(x: f32, y: f32, width: f32, height: f32) void {
-    rt.active_graphics.drawRect(x, y, width, height);
-}
-
-fn graphics_FillRect(x: f32, y: f32, width: f32, height: f32) void {
-    rt.active_graphics.fillRect(x, y, width, height);
-}
-
-fn graphics_SetLineWidth(width: f32) void {
-    rt.active_graphics.setLineWidth(width);
-}
-
-fn graphics_SetFillColor(color: Color) void {
-    rt.active_graphics.setFillColor(color);
-}
-
-fn graphics_GetFillColor() Color {
-    return rt.active_graphics.getFillColor();
-}
-
-fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
     const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
     const len = info.length();
 
@@ -294,6 +356,19 @@ fn print(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
 
 fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v8.Value) ?T {
     switch (T) {
+        []const f32 => {
+            if (val.isArray()) {
+                const len = val.castToArray().length();
+                var i: u32 = 0;
+                const obj = val.castToObject();
+                const start = rt.cb_f32_buf.items.len;
+                rt.cb_f32_buf.resize(start + len) catch unreachable;
+                while (i < len) : (i += 1) {
+                    rt.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx);
+                }
+                return rt.cb_f32_buf.items[start..];
+            } else return null;
+        },
         []const u8 => {
             return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
         },
@@ -320,15 +395,22 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v
                 return val.castToFunction();
             } else return null;
         },
+        v8.Object => {
+            if (val.isObject()) {
+                return val.castToObject();
+            } else return null;
+        },
         else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from v8.Value to {s}", .{@typeName(T)})),
     }
 }
 
-// native_cb: fn (Param) void
-pub fn genJsSetter(comptime native_fn: anytype) v8.AccessorNameSetterCallback {
-    const Param = stdx.meta.FunctionArgs(@TypeOf(native_fn))[0].arg_type.?;
+// native_cb: fn (Param) void | fn (Ptr, Param) void
+pub fn genJsSetter(comptime native_cb: anytype) v8.AccessorNameSetterCallback {
+    const Args = stdx.meta.FunctionArgs(@TypeOf(native_cb));
+    const HasPtr = Args.len > 0 and comptime std.meta.trait.isSingleItemPtr(Args[0].arg_type.?);
+    const Param = if (HasPtr) Args[1].arg_type.? else Args[0].arg_type.?;
     const gen = struct {
-        fn set(_: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+        fn set(_: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
             const isolate = info.getIsolate();
             const ctx = isolate.getCurrentContext();
@@ -340,7 +422,18 @@ pub fn genJsSetter(comptime native_fn: anytype) v8.AccessorNameSetterCallback {
             const val = v8.Value{ .handle = value.? };
 
             if (getNativeValue(isolate, ctx, Param, val)) |native_val| {
-                native_fn(native_val);
+                if (HasPtr) {
+                    const Ptr = Args[0].arg_type.?;
+                    const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
+                    if (ptr > 0) {
+                        native_cb(@intToPtr(Ptr, ptr), native_val);
+                    } else {
+                        v8.throwErrorException(isolate, "Handle has expired.");
+                        return;
+                    }
+                } else {
+                    native_cb(native_val);
+                }
             } else {
                 v8.throwErrorExceptionFmt(rt.alloc, isolate, "Could not convert to {s}", .{@typeName(Param)});
                 return;
@@ -352,7 +445,7 @@ pub fn genJsSetter(comptime native_fn: anytype) v8.AccessorNameSetterCallback {
 
 pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
     const gen = struct {
-        fn cb(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+        fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
             const isolate = info.getIsolate();
             const ctx = isolate.getCurrentContext();
@@ -385,6 +478,11 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
         v8.Object => {
             return native_val.handle;
         },
+        []const u8 => {
+            // Free after turning into JsString.
+            defer rt.alloc.free(native_val);
+            return v8.String.initUtf8(isolate, native_val).handle;
+        },
         *const c_void => {
             return native_val;
         },
@@ -392,10 +490,13 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
     }
 }
 
-/// native_cb: fn () Param
+/// native_cb: fn () Param | fn (Ptr) Param
 pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
+    const Args = stdx.meta.FunctionArgs(@TypeOf(native_cb));
+    const HasSelf = Args.len > 0;
+    const HasSelfPtr = Args.len > 0 and comptime std.meta.trait.isSingleItemPtr(Args[0].arg_type.?);
     const gen = struct {
-        fn get(_: ?*const v8.Name, raw_info: ?*const v8.RawPropertyCallbackInfo) callconv(.C) void {
+        fn get(_: ?*const v8.Name, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
             const isolate = info.getIsolate();
             const ctx = isolate.getCurrentContext();
@@ -405,7 +506,22 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
             defer hscope.deinit();
 
             const return_value = info.getReturnValue();
-            return_value.setValueHandle(getJsValue(isolate, ctx, native_cb()));
+            if (HasSelf) {
+                const Self = Args[0].arg_type.?;
+                const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
+                if (ptr > 0) {
+                    if (HasSelfPtr) {
+                        return_value.setValueHandle(getJsValue(isolate, ctx, native_cb(@intToPtr(Self, ptr))));
+                    } else {
+                        return_value.setValueHandle(getJsValue(isolate, ctx, native_cb(@intToPtr(*Self, ptr).*)));
+                    }
+                } else {
+                    v8.throwErrorException(isolate, "Handle has expired.");
+                    return;
+                }
+            } else {
+                return_value.setValueHandle(getJsValue(isolate, ctx, native_cb()));
+            }
         }
     };
     return gen.get;
@@ -414,7 +530,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
 /// Calling v8.throwErrorException inside a native callback function will trigger in v8 when the callback returns.
 pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
     const gen = struct {
-        fn cb(raw_info: ?*const v8.RawFunctionCallbackInfo) callconv(.C) void {
+        fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
             const isolate = info.getIsolate();
             const ctx = isolate.getCurrentContext();
@@ -428,7 +544,9 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
 
             // If first param is v8.Object then it refers to "this".
             const has_this_arg = arg_fields.len > 0 and arg_fields[0].field_type == v8.Object;
-            const final_arg_fields = if (has_this_arg) arg_fields[1..] else arg_fields;
+            // If first param is a Pointer then it extracted from This->getInternalField(0)
+            const has_ptr = arg_fields.len > 0 and comptime std.meta.trait.isSingleItemPtr(arg_fields[0].field_type);
+            const final_arg_fields = if (has_this_arg or has_ptr) arg_fields[1..] else arg_fields;
 
             if (info.length() < final_arg_fields.len) {
                 v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {} args.", .{final_arg_fields.len});
@@ -443,16 +561,38 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 }
                 break :b false;
             };
+            const has_f32_slice_param: bool = b: {
+                inline for (final_arg_fields) |field| {
+                    if (field.field_type == []const f32) {
+                        break :b true;
+                    }
+                }
+                break :b false;
+            };
             if (has_string_param) {
                 // Clear the converted string buffer if too large.
                 if (rt.cb_str_buf.items.len > 1000 * 1000) {
                     rt.cb_str_buf.clearRetainingCapacity();
                 }
             }
+            if (has_f32_slice_param) {
+                if (rt.cb_f32_buf.items.len > 1000 * 1000) {
+                    rt.cb_f32_buf.clearRetainingCapacity();
+                }
+            }
 
             var native_args: arg_types_t = undefined;
             if (has_this_arg) {
                 @field(native_args, arg_fields[0].name) = info.getThis(); 
+            } else if (has_ptr) {
+                const Ptr = arg_fields[0].field_type;
+                const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
+                if (ptr > 0) {
+                    @field(native_args, arg_fields[0].name) = @intToPtr(Ptr, ptr);
+                } else {
+                    v8.throwErrorException(isolate, "Native handle expired");
+                    return;
+                }
             }
             inline for (final_arg_fields) |field, i| {
                 if (getNativeValue(isolate, ctx, field.field_type, info.getArg(i))) |native_val| {

@@ -407,6 +407,10 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn compileSvgContent(self: *Self, alloc: std.mem.Allocator, str: []const u8) !DrawCommandList {
+        return try self.svg_parser.parseAlloc(alloc, str);
+    }
+
     // This is not the recommended way to draw svg content but is available for convenience.
     // For small/medium svg content, first parse the svg into a DrawCommandList and reuse that.
     // For large svg content, render into an image and then draw the image.

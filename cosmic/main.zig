@@ -58,8 +58,10 @@ fn runAndExit(src_path: []const u8) !void {
     defer stdx.heap.deinitDefaultAllocator();
 
     runtime.runUserMain(alloc, src_path) catch {
+        stdx.heap.deinitDefaultAllocator();
         process.exit(1);
     };
+    stdx.heap.deinitDefaultAllocator();
     process.exit(0);
 }
 

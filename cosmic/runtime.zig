@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const Vec2 = stdx.math.Vec2;
 const ds = stdx.ds;
 const graphics = @import("graphics");
 const sdl = @import("sdl");
@@ -19,9 +20,12 @@ pub const RuntimeContext = struct {
     window_class: v8.FunctionTemplate,
     graphics_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
+    handle_class: v8.ObjectTemplate,
 
     // Collection of mappings from id to resource handles.
     resources: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle),
+
+    weak_handles: ds.CompactUnorderedList(u32, WeakHandle),
 
     window_resource_list: ResourceListId,
     window_resource_list_last: ResourceId,
@@ -40,6 +44,9 @@ pub const RuntimeContext = struct {
     // It will automatically clear at the pre callback step if the current size is too large.
     // Native callback functions that have []const u8 in their params should assume they only live until end of function scope.
     cb_str_buf: std.ArrayList(u8),
+    cb_f32_buf: std.ArrayList(f32),
+
+    vec2_buf: std.ArrayList(Vec2),
 
     js_undefined: v8.Primitive,
 
@@ -50,7 +57,9 @@ pub const RuntimeContext = struct {
             .window_class = undefined,
             .color_class = undefined,
             .graphics_class = undefined,
+            .handle_class = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
+            .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
             .window_resource_list = undefined,
             .window_resource_list_last = undefined,
             .num_windows = 0,
@@ -59,6 +68,8 @@ pub const RuntimeContext = struct {
             .cur_isolate = isolate,
             .cur_script_dir_abs = getSrcPathDirAbs(alloc, src_path) catch unreachable,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
+            .cb_f32_buf = std.ArrayList(f32).init(alloc),
+            .vec2_buf = std.ArrayList(Vec2).init(alloc),
 
             // Store locally for quick access.
             .js_undefined = v8.Primitive.initUndefined(isolate),
@@ -74,19 +85,44 @@ pub const RuntimeContext = struct {
         self.alloc.free(self.cur_script_dir_abs);
         self.str_buf.deinit();
         self.cb_str_buf.deinit();
+        self.cb_f32_buf.deinit();
+        self.vec2_buf.deinit();
 
-        var iter = self.resources.items.iterator();
-        while (iter.next()) |item| {
-            switch (item.data.tag) {
-                .CsWindow => {
-                    const window = stdx.mem.ptrCastAlign(*CsWindow, item.data.ptr);
-                    window.deinit();
-                    self.alloc.destroy(window);
-                },
-                .Dummy => {},
+        {
+            var iter = self.weak_handles.iterator();
+            while (iter.nextPtr()) |handle| {
+                handle.deinit(self);
+            }
+            self.weak_handles.deinit();
+        }
+        {
+            var iter = self.resources.items.iterator();
+            while (iter.next()) |item| {
+                switch (item.data.tag) {
+                    .CsWindow => {
+                        const window = stdx.mem.ptrCastAlign(*CsWindow, item.data.ptr);
+                        window.deinit(self);
+                        self.alloc.destroy(window);
+                    },
+                    .Dummy => {},
+                }
+            }
+            self.resources.deinit();
+        }
+    }
+
+    pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const c_void) void {
+        var id: u32 = 0;
+        while (id < self.weak_handles.data.items.len) : (id += 1) {
+            if (self.weak_handles.hasItem(id)) {
+                var handle = self.weak_handles.get(id);
+                if (handle.ptr == ptr) {
+                    handle.deinit(self);
+                    self.weak_handles.remove(id);
+                    break;
+                }
             }
         }
-        self.resources.deinit();
     }
 
     pub fn createCsWindowResource(self: *Self) CreatedResource(CsWindow) {
@@ -113,7 +149,7 @@ pub const RuntimeContext = struct {
                 .OpenGL => {
                     if (cs_window.window.inner.id == sdl_win_id) {
                         // Deinit and destroy.
-                        cs_window.deinit();
+                        cs_window.deinit(self);
                         self.alloc.destroy(cs_window);
 
                         // Remove from resources.
@@ -292,27 +328,32 @@ pub const CsWindow = struct {
         const js_window_id = v8.Integer.initU32(isolate, window_id);
         js_window.setInternalField(0, js_window_id);
 
+        const g = alloc.create(graphics.Graphics) catch unreachable;
         const js_graphics = rt.graphics_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-        js_graphics.setInternalField(0, js_window_id);
+        const js_graphics_ptr = v8.Number.initBitCastedU64(isolate, @ptrToInt(g));
+        js_graphics.setInternalField(0, js_graphics_ptr);
 
         self.* = .{
             .window = window,
             .onDrawFrameCbs = std.ArrayList(v8.Function).init(alloc),
             .js_window = v8.Persistent.init(isolate, js_window),
             .js_graphics = v8.Persistent.init(isolate, js_graphics),
-            .graphics = alloc.create(graphics.Graphics) catch unreachable,
+            .graphics = g,
         };
         self.graphics.init(alloc, window.getWidth(), window.getHeight());
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, rt: *RuntimeContext) void {
         self.graphics.deinit();
+        rt.alloc.destroy(self.graphics);
         self.window.deinit();
         for (self.onDrawFrameCbs.items) |onDrawFrame| {
             onDrawFrame.castToPersistent().deinit();
         }
         self.onDrawFrameCbs.deinit();
         self.js_window.deinit();
+        // Invalidate graphics ptr.
+        self.js_graphics.castToObject().setInternalField(0, v8.Number.initBitCastedU64(rt.cur_isolate, 0));
         self.js_graphics.deinit();
     }
 };
@@ -353,15 +394,15 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     var isolate = v8.Isolate.init(&params);
     defer isolate.deinit();
 
-    global_rt.init(alloc, isolate, src_path);
-    defer global_rt.deinit();
-
     isolate.enter();
     defer isolate.exit();
 
     var hscope: v8.HandleScope = undefined;
     hscope.init(isolate);
     defer hscope.deinit();
+
+    global_rt.init(alloc, isolate, src_path);
+    defer global_rt.deinit();
 
     var context = js_env.init(&global_rt, isolate);
     context.enter();
@@ -391,3 +432,24 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
 
 // TODO: Move out of global scope.
 var global_rt: RuntimeContext = undefined;
+
+const WeakHandle = struct {
+    const Self = @This();
+
+    ptr: *const c_void,
+    tag: WeakHandleTag,
+
+    fn deinit(self: *Self, rt: *RuntimeContext) void {
+        switch (self.tag) {
+            .DrawCommandList => {
+                const list = stdx.mem.ptrCastAlign(*const graphics.DrawCommandList, self.ptr);
+                list.deinit();
+                rt.alloc.destroy(list);
+            },
+        }
+    }
+};
+
+const WeakHandleTag = enum {
+    DrawCommandList,
+};

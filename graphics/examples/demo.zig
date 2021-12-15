@@ -215,6 +215,7 @@ fn initAssets(alloc: std.mem.Allocator) !void {
 
     var parser = svg.SvgParser.init(alloc);
     defer parser.deinit();
+    g.
     tiger_head_draw_list = try parser.parseAlloc(alloc, tiger_head_svg);
     alloc.free(tiger_head_svg);
 }
