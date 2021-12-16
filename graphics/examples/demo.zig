@@ -245,8 +245,8 @@ export fn wasmInit() *const u8 {
 
     const MaxFileSize = 1024 * 1000 * 20;
     const p1 = stdx.fs.readFileFromExeDirPromise(alloc, "./zig-logo-dark.svg", MaxFileSize).thenCopyTo(&zig_logo_svg).autoFree();
-    const p2 = g.createImageFromExeDirPromise("./game-char.png").thenCopyTo(&game_char_image).autoFree();
-    const p3 = g.createImageFromExeDirPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
+    const p2 = g.createImageFromPathPromise("./game-char.png").thenCopyTo(&game_char_image).autoFree();
+    const p3 = g.createImageFromPathPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
     load_assets_p = stdx.wasm.createAndPromise(&.{p1.id, p2.id, p3.id});
 
     font_id = g.addTTF_FontFromPathForName("./NunitoSans-Regular.ttf", "Nunito Sans") catch unreachable;
