@@ -1,4 +1,4 @@
-# Graphics
+# Cosmic Graphics
 
 2D graphics library for GUI and games in Zig. See the [Web Demo](https://fubark.github.io/site/demo).
 
@@ -73,3 +73,6 @@ zig build lyon
 ### Usage
 * To use this library in your own projects, use this repo as a template including build.zig and build your main just like demo.zig.
 * This might be simpler once we have an official package manager for zig or when we have c bindings. There might also be a way to reuse lib project's build.zig.
+
+## License
+Cosmic Graphics is free and open source under the MIT License.

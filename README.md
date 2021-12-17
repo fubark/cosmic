@@ -41,4 +41,4 @@ After Cosmic, we'll use what we built to start exploring a different way to brow
 
 ## License
 
-Cosmic will be free and open source under the MIT License.
+Cosmic is free and open source under the MIT License.
