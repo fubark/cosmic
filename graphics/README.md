@@ -1,6 +1,6 @@
 # Cosmic Graphics
 
-2D graphics library for GUI and games in Zig. See the [Web Demo](https://fubark.github.io/site/demo).
+2D graphics library for GUI and games in Zig. See the [Web Demo](https://fubark.github.io/cosmic-site/demo).
 
 - [x] Create window with OpenGL(3.3) context.
 - [x] Canvas API / Vector graphics
@@ -27,10 +27,10 @@
 
 | Status | Platform | Size (demo)* |
 | --- | --- | --- |
-| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png) | demo - 953 KB |
-| ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/site/demo) | demo.wasm - 162 KB |
-| ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-win11.png) | demo.exe - 442 KB |
-| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/site/master/graphics-demo-macos.png) | demo - 620 KB |
+| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | demo - 953 KB |
+| ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/cosmic-site/demo) | demo.wasm - 162 KB |
+| ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | demo.exe - 442 KB |
+| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 620 KB |
 | Soon | macOS arm64 with OpenGL | |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
@@ -41,7 +41,7 @@
 - [ ] C bindings.
 
 ## Screenshot
-<a href="https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
+<a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
 
 ### Dependencies
 Get a master build of [zig](https://ziglang.org/download/). On Linux you'll need SDL2 installed. You need to pull the vendor repo which has header files, prebuilt libs, and assets for the demo:
