@@ -429,7 +429,8 @@ pub const Graphics = struct {
         };
     }
 
-    pub fn addTTF_FontFromExeDir(self: *Self, path: []const u8, name: []const u8) FontId {
+    /// Path is absolute or relative to the current web dir.
+    pub fn addTTF_FontFromPath(self: *Self, path: []const u8, name: []const u8) FontId {
         _ = self;
         return jsAddFont(path.ptr, path.len, name.ptr, name.len);
     }

@@ -493,12 +493,11 @@ pub const Graphics = struct {
         }
     }
 
-    /// Path can be absolute or relative to exe dir.
+    /// Path can be absolute or relative to cwd.
     pub fn createImageFromPath(self: *Self, path: []const u8) !Image {
         switch (Backend) {
             .OpenGL => {
-                const MaxFileSize = 1000 * 1000 * 30;
-                const data = try stdx.fs.readFileFromExeDir(self.alloc, path, MaxFileSize);
+                const data = try stdx.fs.readFileFromPathAlloc(self.alloc, path, 30e6);
                 defer self.alloc.free(data);
                 return self.createImage(data);
             },
@@ -565,10 +564,10 @@ pub const Graphics = struct {
         }
     }
 
-    /// Path can be absolute or relative to exe dir.
+    /// Path can be absolute or relative to cwd.
     pub fn addTTF_FontFromPath(self: *Self, path: []const u8) !FontId {
-        const MaxFileSize = 1000 * 1000 * 20;
-        const data = try stdx.fs.readFileFromExeDir(self.alloc, path, MaxFileSize);
+        const MaxFileSize = 20e6;
+        const data = try stdx.fs.readFileFromPathAlloc(self.alloc, path, MaxFileSize);
         defer self.alloc.free(data);
         return self.addTTF_Font(data);
     }
@@ -578,7 +577,7 @@ pub const Graphics = struct {
     pub fn addTTF_FontFromPathForName(self: *Self, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
             .OpenGL => return self.addTTF_FontPath(path),
-            .WasmCanvas => return canvas.Graphics.addTTF_FontFromExeDir(&self.g, path, name),
+            .WasmCanvas => return canvas.Graphics.addTTF_FontFromPath(&self.g, path, name),
             else => stdx.panic("unsupported"),
         }
     }
