@@ -23,6 +23,7 @@ pub const PropertyAttribute = v8.PropertyAttribute;
 const ScriptOrigin = v8.ScriptOrigin;
 pub const TryCatch = v8.TryCatch;
 pub const String = v8.String;
+pub const Boolean = v8.Boolean;
 pub const Value = v8.Value;
 pub const Object = v8.Object;
 pub const Persistent = v8.Persistent;
@@ -37,6 +38,9 @@ pub const deinitV8Platform = v8.deinitV8Platform;
 pub const initV8 = v8.initV8;
 pub const deinitV8 = v8.deinitV8;
 pub const getVersion = v8.getVersion;
+pub const initUndefined = v8.initUndefined;
+pub const initTrue = v8.initTrue;
+pub const initFalse = v8.initFalse;
 
 pub const initCreateParams = v8.initCreateParams;
 pub const createDefaultArrayBufferAllocator = v8.createDefaultArrayBufferAllocator;

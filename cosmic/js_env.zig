@@ -28,6 +28,9 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     handle_class.setInternalFieldCount(1);
     ctx.handle_class = handle_class;
 
+    // GenericObject
+    ctx.default_obj_t = v8.ObjectTemplate.initDefault(isolate);
+
     // JsWindow
     const window_class = v8.FunctionTemplate.initDefault(isolate);
     {
@@ -169,18 +172,29 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     const files = v8.ObjectTemplate.init(isolate, files_constructor);
     ctx.setConstFuncT(files, "readFile", files_ReadFile);
     ctx.setConstFuncT(files, "writeFile", files_WriteFile);
-
-    // ctx.setConstFuncT(files, "ensurePathTo", files_ReadFile);
-    // ctx.setConstFuncT(files, "pathExists", files_ReadFile);
-    // ctx.setConstFuncT(files, "copyFile", files_ReadFile);
-    // ctx.setConstFuncT(files, "moveFile", files_ReadFile);
-    // ctx.setConstFuncT(files, "removeFile", files_ReadFile);
-    // ctx.setConstFuncT(files, "removeDir", files_ReadFile);
-    // ctx.setConstFuncT(files, "statPath", files_ReadFile);
-    // ctx.setConstFuncT(files, "cwd", files_ReadFile);
-    // ctx.setConstFuncT(files, "walkDir", files_ReadFile);
-    // ctx.setConstFuncT(files, "openFile", files_ReadFile);
+    ctx.setConstFuncT(files, "appendFile", files_AppendFile);
+    ctx.setConstFuncT(files, "removeFile", files_RemoveFile);
+    ctx.setConstFuncT(files, "ensurePath", files_EnsurePath);
+    ctx.setConstFuncT(files, "pathExists", files_PathExists);
+    ctx.setConstFuncT(files, "removeDir", files_RemoveDir);
+    ctx.setConstFuncT(files, "resolvePath", files_ResolvePath);
+    ctx.setConstFuncT(files, "copyFile", files_CopyFile);
+    ctx.setConstFuncT(files, "moveFile", files_MoveFile);
+    ctx.setConstFuncT(files, "cwd", files_Cwd);
+    ctx.setConstFuncT(files, "getPathInfo", files_GetPathInfo);
+    ctx.setConstFuncT(files, "walkDir", files_WalkDir);
+    // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
+
+    if (ctx.is_test_env) {
+        // cs.test
+        ctx.setConstFuncT(cs, "test", createTest);
+
+        // cs.asserts
+        const cs_asserts = v8.ObjectTemplate.initDefault(isolate);
+
+        ctx.setConstProp(cs, "asserts", cs_asserts);
+    }
 
     // cs.graphics
     const cs_graphics = v8.ObjectTemplate.initDefault(isolate);
@@ -342,14 +356,146 @@ fn resolveEnvPath(path: []const u8) []const u8 {
     return std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
 }
 
-/// Path can be absolute or relative to the cwd.
-fn files_ReadFile(path: []const u8) []const u8 {
-    return stdx.fs.readFile(rt.alloc, path, 1e12) catch unreachable;
+/// Resolves '..' in paths and returns an absolute path.
+/// Currently does not resolve home '~'.
+fn files_ResolvePath(path: []const u8) ?[]const u8 {
+    return std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_WriteFile(path: []const u8, str: []const u8) void {
-    stdx.fs.writeFile(rt.alloc, path, str) catch unreachable;
+/// Returns the contents on success or false.
+fn files_ReadFile(path: []const u8) ?[]const u8 {
+    return std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch(err) {
+        // Whitelist errors to silence.
+        error.FileNotFound => return null,
+        else => unreachable,
+    };
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_WriteFile(path: []const u8, str: []const u8) bool {
+    std.fs.cwd().writeFile(path, str) catch return false;
+    return true;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_CopyFile(from: []const u8, to: []const u8) bool {
+    std.fs.cwd().copyFile(from, std.fs.cwd(), to, .{}) catch return false;
+    return true;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_MoveFile(from: []const u8, to: []const u8) bool {
+    std.fs.cwd().rename(from, to) catch return false;
+    return true;
+}
+
+/// Returns the absolute path of the current working directory.
+fn files_Cwd() ?[]const u8 {
+    return std.fs.cwd().realpathAlloc(rt.alloc, ".") catch return null;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_GetPathInfo(path: []const u8) ?PathInfo {
+    const stat = std.fs.cwd().statFile(path) catch return null;
+    return PathInfo{
+        .kind = stat.kind,
+    };
+}
+
+const PathInfo = struct {
+    kind: std.fs.File.Kind,
+};
+
+/// Path can be absolute or relative to the cwd.
+fn files_WalkDir(path: []const u8, cb: v8.Function) bool {
+    const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
+    var walker = dir.walk(rt.alloc) catch {
+        unreachable;
+    };
+    defer walker.deinit();
+
+    const isolate = rt.cur_isolate;
+    const ctx = isolate.getCurrentContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    while (walker.next() catch unreachable) |entry| {
+        const epath = v8.String.initUtf8(isolate, entry.path).toValue();
+        const kind = v8.String.initUtf8(isolate, @tagName(entry.kind)).toValue();
+        _ = cb.call(ctx, rt.js_undefined, &.{ epath, kind });
+    }
+    return true;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_AppendFile(path: []const u8, str: []const u8) bool {
+    stdx.fs.appendFile(path, str) catch return false;
+    return true;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_EnsurePath(path: []const u8) bool {
+    std.fs.cwd().makePath(path) catch |err| switch (err) {
+        else => {
+            v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "{}", .{err});
+            return false;
+        }
+    };
+    return true;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_PathExists(path: []const u8) bool {
+    return stdx.fs.pathExists(path) catch |err| {
+        v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "{}", .{err});
+        return false;
+    };
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_RemoveFile(path: []const u8) bool {
+    std.fs.cwd().deleteFile(path) catch return false;
+    return true;
+}
+
+/// Path can be absolute or relative to the cwd.
+fn files_RemoveDir(path: []const u8, recursive: bool) bool {
+    if (recursive) {
+        std.fs.cwd().deleteTree(path) catch return false;
+    } else {
+        std.fs.cwd().deleteDir(path) catch return false;
+    }
+    return true;
+}
+
+// FUTURE: Save test cases and execute them in multiple threads.
+fn createTest(name: []const u8, cb: v8.Function) void {
+    const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
+    defer rt.alloc.free(name_dupe);
+
+    const isolate = rt.cur_isolate;
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    var try_catch: v8.TryCatch = undefined;
+    try_catch.init(isolate);
+    defer try_catch.deinit();
+
+    rt.num_tests += 1;
+
+    const ctx = isolate.getCurrentContext();
+    if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
+        rt.num_tests_passed += 1;
+    } else {
+        const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
+        defer rt.alloc.free(err_str);
+        printFmt("Test: {s}\n{s}", .{name_dupe, err_str});
+    }
 }
 
 /// Path can be absolute or relative to the cwd.
@@ -429,6 +575,7 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: a
                 return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
             }
         },
+        bool => return val.toBool(isolate),
         u8 => return @intCast(u8, val.toU32(ctx)),
         u32 => return val.toU32(ctx),
         f32 => return val.toF32(ctx),
@@ -534,6 +681,7 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
     switch (Type) {
         u32 => return v8.Integer.initU32(isolate, native_val).handle,
         f32 => return v8.Number.init(isolate, native_val).handle,
+        bool => return v8.Boolean.init(isolate, native_val).handle,
         graphics.Image => {
             const new = rt.image_class.getFunction(ctx).initInstance(ctx, &.{}).?;
             new.setInternalField(0, v8.Integer.initU32(isolate, native_val.id));
@@ -549,6 +697,11 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
             _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, native_val.channels.a));
             return new.handle;
         },
+        PathInfo => {
+            const new = rt.default_obj_t.initInstance(ctx);
+            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "kind"), v8.String.initUtf8(isolate, @tagName(native_val.kind)));
+            return new.handle;
+        },
         v8.Object => {
             return native_val.handle;
         },
@@ -560,7 +713,17 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
         *const c_void => {
             return native_val;
         },
-        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)})),
+        else => {
+            if (@typeInfo(Type) == .Optional) {
+                if (native_val) |child_val| {
+                    return getJsValue(isolate, ctx, child_val);
+                } else {
+                    return @ptrCast(*const c_void, rt.js_false.handle);
+                }
+            } else {
+                comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
+            }
+        }
     }
 }
 
