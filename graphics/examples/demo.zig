@@ -215,9 +215,9 @@ fn initAssets(alloc: std.mem.Allocator) !void {
     defer alloc.free(abs);
     game_char_image = try g.createImageFromPath(abs);
 
-    zig_logo_svg = try stdx.fs.readFileFromExeDirAlloc(alloc, "zig-logo-dark.svg", MaxFileSize);
+    zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
 
-    const tiger_head_svg = try stdx.fs.readFileFromExeDirAlloc(alloc, "tiger-head.svg", MaxFileSize);
+    const tiger_head_svg = try stdx.fs.readFileFromExeDir(alloc, "tiger-head.svg", MaxFileSize);
 
     var parser = svg.SvgParser.init(alloc);
     defer parser.deinit();
@@ -252,7 +252,7 @@ export fn wasmInit() *const u8 {
     g.init(alloc, win.getWidth(), win.getHeight());
 
     const MaxFileSize = 20e6;
-    const p1 = stdx.fs.readFileFromPathPromise(alloc, "./zig-logo-dark.svg", MaxFileSize).thenCopyTo(&zig_logo_svg).autoFree();
+    const p1 = stdx.fs.readFilePromise(alloc, "./zig-logo-dark.svg", MaxFileSize).thenCopyTo(&zig_logo_svg).autoFree();
     const p2 = g.createImageFromPathPromise("./game-char.png").thenCopyTo(&game_char_image).autoFree();
     const p3 = g.createImageFromPathPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
     load_assets_p = stdx.wasm.createAndPromise(&.{p1.id, p2.id, p3.id});

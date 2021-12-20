@@ -5,7 +5,17 @@ const builtin = @import("builtin");
 extern "stdx" fn jsFetchData(promise_id: u32, ptr: [*]const u8, len: usize) void;
 
 /// Path can be absolute or relative to the cwd.
-pub fn readFileFromPathAlloc(alloc: std.mem.Allocator, path: []const u8, max_size: usize) ![]const u8 {
+/// Since the path needs to be resolved, an allocator is always required.
+pub fn writeFile(alloc: std.mem.Allocator, path: []const u8, data: []const u8) !void {
+    const abs = try std.fs.path.resolve(alloc, &.{ path });
+    defer alloc.free(abs);
+    const file = try std.fs.createFileAbsolute(abs, .{ .truncate = true });
+    defer file.close();
+    return try file.writeAll(data);
+}
+
+/// Path can be absolute or relative to the cwd.
+pub fn readFile(alloc: std.mem.Allocator, path: []const u8, max_size: usize) ![]const u8 {
     const abs = try std.fs.path.resolve(alloc, &.{ path });
     defer alloc.free(abs);
     const file = try std.fs.openFileAbsolute(abs, .{ .read = true, .write = false });
@@ -14,7 +24,7 @@ pub fn readFileFromPathAlloc(alloc: std.mem.Allocator, path: []const u8, max_siz
 }
 
 /// Path can be absolute or relative to the cwd.
-pub fn readFileFromPathPromise(alloc: std.mem.Allocator, path: []const u8, max_size: usize) stdx.wasm.Promise([]const u8) {
+pub fn readFilePromise(alloc: std.mem.Allocator, path: []const u8, max_size: usize) stdx.wasm.Promise([]const u8) {
     _ = alloc;
     _ = max_size;
     // Currently only supported for web wasm.
@@ -35,7 +45,7 @@ pub fn pathFromExeDir(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
 }
 
 /// Path is relative to exe dir.
-pub fn readFileFromExeDirAlloc(alloc: std.mem.Allocator, path: []const u8, max_size: usize) ![]const u8 {
+pub fn readFileFromExeDir(alloc: std.mem.Allocator, path: []const u8, max_size: usize) ![]const u8 {
     const abs = try pathFromExeDir(alloc, path);
     defer alloc.free(abs);
     const file = try std.fs.openFileAbsolute(abs, .{ .read = true, .write = false });
