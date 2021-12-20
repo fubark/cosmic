@@ -43,6 +43,11 @@ pub fn main() !void {
             abortFmt("Expected path to main source file.", .{});
         };
         try runAndExit(src_path);
+    } else if (string.eq(cmd, "test")) {
+        const src_path = nextArg(args, &arg_idx) orelse {
+            abortFmt("Expected path to main source file.", .{});
+        };
+        try testAndExit(src_path);
     } else if (string.eq(cmd, "help")) {
         usage();
         process.exit(0);
@@ -53,6 +58,18 @@ pub fn main() !void {
         usage();
         abortFmt("unsupported command {s}", .{cmd});
     }
+}
+
+fn testAndExit(src_path: []const u8) !void {
+    const alloc = stdx.heap.getDefaultAllocator();
+    defer stdx.heap.deinitDefaultAllocator();
+
+    runtime.runTestMain(alloc, src_path) catch {
+        stdx.heap.deinitDefaultAllocator();
+        process.exit(1);
+    };
+    stdx.heap.deinitDefaultAllocator();
+    process.exit(0);
 }
 
 fn runAndExit(src_path: []const u8) !void {
@@ -156,8 +173,8 @@ const main_usage =
     \\Commands:
     \\
     \\  cli              Starts a REPL session.
-    \\  run              Runs a Javascript or Typescript source file.
-    \\  test             TODO: Runs tests in source files.
+    \\  run              Runs a Javascript/Typescript source file.
+    \\  test             Starts the test runner on Javascript/Typescript source files.
     \\  exe              TODO: Packages source files into a single binary executable.
     \\
     \\  help             Print this help and exit

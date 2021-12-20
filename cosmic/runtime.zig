@@ -22,6 +22,7 @@ pub const RuntimeContext = struct {
     image_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
     handle_class: v8.ObjectTemplate,
+    default_obj_t: v8.ObjectTemplate,
 
     // Collection of mappings from id to resource handles.
     resources: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle),
@@ -50,6 +51,14 @@ pub const RuntimeContext = struct {
     vec2_buf: std.ArrayList(Vec2),
 
     js_undefined: v8.Primitive,
+    js_false: v8.Boolean,
+
+    // Whether this was invoked from "cosmic test"
+    is_test_env: bool,
+
+    // Test runner.
+    num_tests: u32,
+    num_tests_passed: u32,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate, src_path: []const u8) void {
         self.* = .{
@@ -60,6 +69,7 @@ pub const RuntimeContext = struct {
             .graphics_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
+            .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
             .window_resource_list = undefined,
@@ -74,7 +84,12 @@ pub const RuntimeContext = struct {
             .vec2_buf = std.ArrayList(Vec2).init(alloc),
 
             // Store locally for quick access.
-            .js_undefined = v8.Primitive.initUndefined(isolate),
+            .js_undefined = v8.initUndefined(isolate),
+            .js_false = v8.initFalse(isolate),
+
+            .is_test_env = false,
+            .num_tests = 0,
+            .num_tests_passed = 0,
         };
 
         // Insert dummy head so we can set last.
@@ -381,7 +396,71 @@ fn getSrcPathDirAbs(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
     }
 }
 
-/// Returns false if main script run encountered an error.
+const test_init = @embedFile("snapshots/test_init.js");
+
+pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
+    const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
+    defer alloc.free(src);
+
+    const platform = v8.Platform.initDefault(0, true);
+    defer platform.deinit();
+
+    v8.initV8Platform(platform);
+    defer v8.deinitV8Platform();
+
+    v8.initV8();
+    defer _ = v8.deinitV8();
+
+    var params = v8.initCreateParams();
+    params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
+    defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
+    var isolate = v8.Isolate.init(&params);
+    defer isolate.deinit();
+
+    isolate.enter();
+    defer isolate.exit();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(isolate);
+    defer hscope.deinit();
+
+    global_rt.init(alloc, isolate, src_path);
+    global_rt.is_test_env = true;
+    defer global_rt.deinit();
+
+    var context = js_env.init(&global_rt, isolate);
+    context.enter();
+    defer context.exit();
+
+    {
+        // Run test_init.js
+        var res: v8.ExecuteResult = undefined;
+        defer res.deinit();
+        const origin = v8.String.initUtf8(isolate, "test_init.js");
+        v8.executeString(alloc, isolate, test_init, origin, &res);
+    }
+
+    const origin = v8.String.initUtf8(isolate, src_path);
+
+    var res: v8.ExecuteResult = undefined;
+    defer res.deinit();
+    v8.executeString(alloc, isolate, src, origin, &res);
+
+    while (platform.pumpMessageLoop(isolate, false)) {
+        log.debug("What does this do?", .{});
+        unreachable;
+    }
+
+    if (!res.success) {
+        printFmt("{s}", .{res.err.?});
+        return error.MainScriptError;
+    }
+
+    // Test results.
+    printFmt("Passed: {d}\n", .{global_rt.num_tests_passed});
+    printFmt("Tests: {d}\n", .{global_rt.num_tests});
+}
+
 pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
     defer alloc.free(src);

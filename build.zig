@@ -24,6 +24,8 @@ pub fn build(b: *Builder) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
 
+    const target = b.standardTargetOptions(.{});
+
     var ctx = BuilderContext{
         .builder = b,
         .enable_tracy = tracy,
@@ -33,7 +35,7 @@ pub fn build(b: *Builder) void {
         .path = path,
         .filter = filter,
         .mode = b.standardReleaseOptions(),
-        .target = b.standardTargetOptions(.{}),
+        .target = target,
         .build_options = build_options,
     };
 
@@ -62,6 +64,22 @@ pub fn build(b: *Builder) void {
     const build_wasm = ctx.createBuildWasmBundleStep();
     b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
 
+    var test_cosmic_js_ctx = BuilderContext{
+        .builder = b,
+        .enable_tracy = tracy,
+        .link_graphics = true,
+        .link_v8 = true,
+        .static_link = static_link,
+        .path = "cosmic/main.zig",
+        .filter = filter,
+        .mode = b.standardReleaseOptions(),
+        .target = target,
+        .build_options = build_options,
+    };
+    const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
+    test_cosmic_js.addArgs(&.{"test", "cosmic/test.js"});
+    b.step("test-cosmic", "Test cosmic js").dependOn(&test_cosmic_js.step);
+
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestStep();
     whitelist_test.setFilter("INCLUDE");
@@ -73,13 +91,13 @@ pub fn build(b: *Builder) void {
 const BuilderContext = struct {
     const Self = @This();
 
+    builder: *std.build.Builder,
     path: []const u8,
     filter: []const u8,
     enable_tracy: bool,
     link_graphics: bool,
     link_v8: bool,
     static_link: bool,
-    builder: *std.build.Builder,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
     build_options: *std.build.OptionsStep,
