@@ -13,7 +13,7 @@ const IncludeAllLibs = false;
 
 pub fn build(b: *Builder) void {
     // Options.
-    const path = b.option([]const u8, "path", "Path to file, for: test-file, run") orelse "";
+    const path = b.option([]const u8, "path", "Path to main file, for: build, run, test-file") orelse "";
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
@@ -123,7 +123,7 @@ const BuilderContext = struct {
             .os_tag = .freestanding,
         });
 
-        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
+        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &.{ "zig-out/", name }) catch unreachable;
         const output_dir = self.fromRoot(output_dir_rel);
         step.setOutputDir(output_dir);
 
@@ -138,7 +138,7 @@ const BuilderContext = struct {
 
         // Replace wasm file name in index.html
         const index_path = self.joinResolvePath(&[_][]const u8{ output_dir, "index.html" });
-        const new_str = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
+        const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
         step.step.dependOn(&replace.step);
 
@@ -338,7 +338,7 @@ const BuilderContext = struct {
 
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
         if (self.target.getOsTag() == .linux) {
-            step.addAssemblyFile("./lib/zig-v8/v8-out/ninja/obj/zig/libc_v8.a");
+            step.addAssemblyFile("./lib/zig-v8/v8-out/x86_64-linux/release/ninja/obj/zig/libc_v8.a");
             step.linkSystemLibrary("unwind");
         } else {
             @panic("Unsupported");
@@ -515,6 +515,8 @@ fn addGL(step: *LibExeObjStep) void {
 
 fn linkGL(step: *LibExeObjStep) void {
     if (builtin.os.tag == .macos) {
+        // TODO: See what this path returns $(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/OpenGL.framework/Headers
+        // https://github.com/ziglang/zig/issues/2208
         step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
         step.linkSystemLibrary("GL");
     } else if (builtin.os.tag == .windows) {
@@ -756,6 +758,8 @@ fn statPath(path_abs: []const u8) !PathStat {
     const file = std.fs.openFileAbsolute(path_abs, .{ .read = false, .write = false }) catch |err| {
         if (err == error.FileNotFound) {
             return .NotExist;
+        } else if (err == error.IsDir) {
+            return .Directory;
         } else {
             return err;
         }

@@ -168,6 +168,18 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     files_constructor.setClassName(v8.String.initUtf8(isolate, "files"));
     const files = v8.ObjectTemplate.init(isolate, files_constructor);
     ctx.setConstFuncT(files, "readFile", files_ReadFile);
+    ctx.setConstFuncT(files, "writeFile", files_WriteFile);
+
+    // ctx.setConstFuncT(files, "ensurePathTo", files_ReadFile);
+    // ctx.setConstFuncT(files, "pathExists", files_ReadFile);
+    // ctx.setConstFuncT(files, "copyFile", files_ReadFile);
+    // ctx.setConstFuncT(files, "moveFile", files_ReadFile);
+    // ctx.setConstFuncT(files, "removeFile", files_ReadFile);
+    // ctx.setConstFuncT(files, "removeDir", files_ReadFile);
+    // ctx.setConstFuncT(files, "statPath", files_ReadFile);
+    // ctx.setConstFuncT(files, "cwd", files_ReadFile);
+    // ctx.setConstFuncT(files, "walkDir", files_ReadFile);
+    // ctx.setConstFuncT(files, "openFile", files_ReadFile);
     ctx.setConstProp(cs, "files", files);
 
     // cs.graphics
@@ -330,21 +342,19 @@ fn resolveEnvPath(path: []const u8) []const u8 {
     return std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
 }
 
+/// Path can be absolute or relative to the cwd.
 fn files_ReadFile(path: []const u8) []const u8 {
-    const abs_path = resolveEnvPath(path);
-    defer rt.alloc.free(abs_path);
-
-    const file = std.fs.openFileAbsolute(abs_path, .{ .read = true, .write = false }) catch unreachable;
-    defer file.close();
-    const MaxSize = 1e9;
-    return file.readToEndAlloc(rt.alloc, MaxSize) catch unreachable;
+    return stdx.fs.readFile(rt.alloc, path, 1e12) catch unreachable;
 }
 
-/// Path can be absolute or relative to the current executing script.
+/// Path can be absolute or relative to the cwd.
+fn files_WriteFile(path: []const u8, str: []const u8) void {
+    stdx.fs.writeFile(rt.alloc, path, str) catch unreachable;
+}
+
+/// Path can be absolute or relative to the cwd.
 fn graphics_NewImage(g: *Graphics, path: []const u8) graphics.Image {
-    const abs_path = resolveEnvPath(path);
-    defer rt.alloc.free(abs_path);
-    return g.createImageFromPath(abs_path) catch |err| {
+    return g.createImageFromPath(path) catch |err| {
         if (err == error.FileNotFound) {
             v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
             return undefined;
@@ -354,11 +364,9 @@ fn graphics_NewImage(g: *Graphics, path: []const u8) graphics.Image {
     };
 }
 
-/// Path can be absolute or relative to the current executing script.
+/// Path can be absolute or relative to the cwd.
 fn graphics_AddTtfFont(g: *Graphics, path: []const u8) graphics.font.FontId {
-    const abs_path = resolveEnvPath(path);
-    defer rt.alloc.free(abs_path);
-    return g.addTTF_FontFromPath(abs_path) catch |err| {
+    return g.addTTF_FontFromPath(path) catch |err| {
         if (err == error.FileNotFound) {
             v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
             return 0;
@@ -387,7 +395,19 @@ fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
     printFmt("\n", .{});
 }
 
-fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v8.Value) ?T {
+const SizedJsString = struct {
+    str: v8.String,
+    len: u32,
+};
+
+pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate, val: SizedJsString) []const u8 {
+    const start = arr.items.len;
+    arr.items.len = start + val.len;
+    _ = val.str.writeUtf8(isolate, arr.items[start..arr.items.len]);
+    return arr.items[start..];
+}
+
+fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: anytype) ?T {
     switch (T) {
         []const f32 => {
             if (val.isArray()) {
@@ -403,7 +423,11 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v
             } else return null;
         },
         []const u8 => {
-            return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
+            if (@TypeOf(val) == SizedJsString) {
+                return appendSizedJsStringAssumeCap(&rt.cb_str_buf, isolate, val);
+            } else {
+                return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
+            }
         },
         u8 => return @intCast(u8, val.toU32(ctx)),
         u32 => return val.toU32(ctx),
@@ -443,7 +467,7 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: v
                 return val.castToObject();
             } else return null;
         },
-        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from v8.Value to {s}", .{@typeName(T)})),
+        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{@typeName(@TypeOf(val)), @typeName(T)})),
     }
 }
 
@@ -619,11 +643,27 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 }
                 break :b false;
             };
+            // This stores the JsValue to JsString conversion to be accessed later to go from JsString to []const u8
+            // It should be optimized out for functions without string params.
+            var js_strs: [final_arg_fields.len]SizedJsString = undefined;
             if (has_string_param) {
-                // Clear the converted string buffer if too large.
-                if (rt.cb_str_buf.items.len > 1000 * 1000) {
-                    rt.cb_str_buf.clearRetainingCapacity();
+                // Since we are converting js strings to native []const u8,
+                // we need to make sure the buffer capacity is enough before appending the args or a realloc could invalidate the slice.
+                // This also means we need to do the JsValue to JsString conversion here and store it in memory.
+                var total_size: u32 = 0;
+                inline for (final_arg_fields) |field, i| {
+                    if (field.field_type == []const u8) {
+                        const js_str = info.getArg(i).toString(ctx);
+                        const len = js_str.lenUtf8(isolate);
+                        total_size += len;
+                        js_strs[i] = .{
+                            .str = js_str,
+                            .len = len,
+                        };
+                    }
                 }
+                rt.cb_str_buf.clearRetainingCapacity();
+                rt.cb_str_buf.ensureUnusedCapacity(total_size) catch unreachable;
             }
             if (has_f32_slice_param) {
                 if (rt.cb_f32_buf.items.len > 1000 * 1000) {
@@ -646,12 +686,21 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
             }
             var has_args = true;
             inline for (final_arg_fields) |field, i| {
-                if (getNativeValue(isolate, ctx, field.field_type, info.getArg(i))) |native_val| {
-                    @field(native_args, field.name) = native_val;
+                if (field.field_type == []const u8) {
+                    if (getNativeValue(isolate, ctx, field.field_type, js_strs[i])) |native_val| {
+                        @field(native_args, field.name) = native_val;
+                    } else {
+                        v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {s}", .{@typeName(field.field_type)});
+                        has_args = false;
+                    }
                 } else {
-                    v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {s}", .{@typeName(field.field_type)});
-                    // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
-                    has_args = false;
+                    if (getNativeValue(isolate, ctx, field.field_type, info.getArg(i))) |native_val| {
+                        @field(native_args, field.name) = native_val;
+                    } else {
+                        v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {s}", .{@typeName(field.field_type)});
+                        // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
+                        has_args = false;
+                    }
                 }
             }
             if (!has_args) return;

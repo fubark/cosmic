@@ -27,7 +27,8 @@ pub fn main() !void {
     defer process.argsFree(alloc, args);
 
     if (args.len == 1) {
-        replAndExit();
+        repl();
+        process.exit(0);
     }
 
     // Skip exe path arg.
@@ -35,7 +36,8 @@ pub fn main() !void {
 
     const cmd = nextArg(args, &arg_idx).?;
     if (string.eq(cmd, "cli")) {
-        replAndExit();
+        repl();
+        process.exit(0);
     } else if (string.eq(cmd, "run")) {
         const src_path = nextArg(args, &arg_idx) orelse {
             abortFmt("Expected path to main source file.", .{});
@@ -65,7 +67,7 @@ fn runAndExit(src_path: []const u8) !void {
     process.exit(0);
 }
 
-fn replAndExit() void {
+fn repl() void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
@@ -76,11 +78,10 @@ fn replAndExit() void {
     defer platform.deinit();
 
     v8.initV8Platform(platform);
+    defer v8.deinitV8Platform();
+
     v8.initV8();
-    defer {
-        _ = v8.deinitV8();
-        v8.deinitV8Platform();
-    }
+    defer _ = v8.deinitV8();
 
     var params = v8.initCreateParams();
     params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
@@ -109,37 +110,39 @@ fn replAndExit() void {
 
     while (true) {
         printFmt("\n> ", .{});
-        const input = getInputOrExit(&input_buf);
-        if (string.eq(input, "exit()")) {
-            break;
-        }
+        if (getInput(&input_buf)) |input| {
+            if (string.eq(input, "exit()")) {
+                break;
+            }
 
-        var res: v8.ExecuteResult = undefined;
-        defer res.deinit();
-        v8.executeString(alloc, isolate, input, origin, &res);
-        if (res.success) {
-            printFmt("{s}", .{res.result.?});
+            var res: v8.ExecuteResult = undefined;
+            defer res.deinit();
+            v8.executeString(alloc, isolate, input, origin, &res);
+            if (res.success) {
+                printFmt("{s}", .{res.result.?});
+            } else {
+                printFmt("{s}", .{res.err.?});
+            }
+
+            while (platform.pumpMessageLoop(isolate, false)) {
+                log.info("What does this do?", .{});
+                unreachable;
+            }
+            // log.info("input: {s}", .{input});
         } else {
-            printFmt("{s}", .{res.err.?});
+            printFmt("\n", .{});
+            return;
         }
-
-        while (platform.pumpMessageLoop(isolate, false)) {
-            log.info("What does this do?", .{});
-            unreachable;
-        }
-        // log.info("input: {s}", .{input});
     }
-    process.exit(0);
 }
 
 // TODO: We'll need to support extended key bindings/ncurses (eg. up arrow for last command) per platform.
 // (Low priority since there will be a repl in the GUI)
-fn getInputOrExit(input_buf: *std.ArrayList(u8)) []const u8 {
+fn getInput(input_buf: *std.ArrayList(u8)) ?[]const u8 {
     input_buf.clearRetainingCapacity();
-    std.io.getStdIn().reader().readUntilDelimiterArrayList(input_buf, '\n', 1000 * 1000 * 1000) catch |err| {
+    std.io.getStdIn().reader().readUntilDelimiterArrayList(input_buf, '\n', 1e9) catch |err| {
         if (err == error.EndOfStream) {
-            printFmt("\n", .{});
-            process.exit(0);
+            return null;
         } else {
             unreachable;
         }

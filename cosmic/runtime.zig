@@ -390,11 +390,10 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     defer platform.deinit();
 
     v8.initV8Platform(platform);
+    defer v8.deinitV8Platform();
+
     v8.initV8();
-    defer {
-        _ = v8.deinitV8();
-        v8.deinitV8Platform();
-    }
+    defer _ = v8.deinitV8();
 
     var params = v8.initCreateParams();
     params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
