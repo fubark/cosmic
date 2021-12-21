@@ -44,7 +44,7 @@ pub const Grammar = struct {
     // Would require realloc on readonly decls list since tags are used to index into them.
     null_node_tag: NodeTag, // Represents a null node. Used when setting node child fields.
     node_list_tag: NodeTag,
-    string_value_tag: NodeTag,  
+    string_value_tag: NodeTag,
     token_value_tag: NodeTag,
     char_value_tag: NodeTag,
 
@@ -94,7 +94,7 @@ pub const Grammar = struct {
         self.str_buf_map.deinit();
         self.charset_range_buf.deinit();
     }
-    
+
     // Should only be used before Grammar.build.
     fn addString(self: *Self, str: []const u8) CharSlice {
         const item = self.str_buf_map.getOrPut(str) catch unreachable;
@@ -202,10 +202,10 @@ pub const Grammar = struct {
         // Special tags start after decls so that decls can be accessed by their tags directly.
         self.decl_tag_end = @intCast(NodeTag, self.decls.items.len);
         self.node_list_tag = self.decl_tag_end;
-        self.string_value_tag = self.decl_tag_end+1;
-        self.char_value_tag = self.decl_tag_end+2;
-        self.null_node_tag = self.decl_tag_end+3;
-        self.token_value_tag = self.decl_tag_end+4;
+        self.string_value_tag = self.decl_tag_end + 1;
+        self.char_value_tag = self.decl_tag_end + 2;
+        self.null_node_tag = self.decl_tag_end + 3;
+        self.token_value_tag = self.decl_tag_end + 4;
 
         // Generate the main token decls after they have computed values set.
         for (self.token_decls.items) |it| {
@@ -285,19 +285,12 @@ pub const Grammar = struct {
                         }
                         return .NotLeftRecursive;
                     },
-                    .MatchNegLookahead,
-                    .MatchPosLookahead,
-                    .MatchLiteral,
-                    .MatchToken,
-                    .MatchTokenText,
-                    .MatchOneOrMore,
-                    .MatchZeroOrMore => {
+                    .MatchNegLookahead, .MatchPosLookahead, .MatchLiteral, .MatchToken, .MatchTokenText, .MatchOneOrMore, .MatchZeroOrMore => {
                         return .NotLeftRecursive;
                     },
                     // else => stdx.panicFmt("unsupported {s}", .{@tagName(op)}),
                 }
             }
-
         };
         var ctx = S{ .config = self, .rule_id = rule_id, .visited_map = visited_map };
         const rule = self.getRule(rule_id);
@@ -422,7 +415,7 @@ pub const Grammar = struct {
 
     pub fn addTokenOp(self: *Self, op: TokenMatchOp) TokenMatchOpId {
         self.token_ops.append(op) catch unreachable;
-        return @intCast(TokenMatchOpId, self.token_ops.items.len-1);
+        return @intCast(TokenMatchOpId, self.token_ops.items.len - 1);
     }
 
     pub fn addTokenOps(self: *Self, ops: []const TokenMatchOp) TokenMatchOpSlice {
@@ -465,7 +458,7 @@ pub const Grammar = struct {
 
     pub fn addOp(self: *Self, op: MatchOp) MatchOpId {
         self.ops.append(op) catch unreachable;
-        return @intCast(MatchOpId, self.ops.items.len-1);
+        return @intCast(MatchOpId, self.ops.items.len - 1);
     }
 
     pub fn addOps(self: *Self, ops: []const MatchOp) MatchOpSlice {
@@ -474,7 +467,6 @@ pub const Grammar = struct {
             _ = self.addOp(it);
         }
         return .{ .start = first, .end = first + @intCast(u32, ops.len) };
-
     }
 
     pub fn matchTokCap(self: *Self, tag_name: []const u8) MatchOp {
@@ -534,11 +526,9 @@ pub const Grammar = struct {
 
     pub fn tokMatchText(self: *Self, str: []const u8) TokenMatchOp {
         const slice = self.addString(str);
-        return .{
-            .MatchText = .{
-                .str = slice,
-            }
-        };
+        return .{ .MatchText = .{
+            .str = slice,
+        } };
     }
 };
 
@@ -547,17 +537,7 @@ fn initTokenMatchOpWalker(op_ids: []TokenMatchOp) algo.Walker([]TokenMatchOp, *T
         fn _walk(ctx: *algo.WalkerContext(*TokenMatchOp), ops: []TokenMatchOp, op: *TokenMatchOp) void {
             _ = ctx;
             switch (op.*) {
-                .MatchText,
-                .MatchUntilChar,
-                .MatchExactChar,
-                .MatchNotChar,
-                .MatchRangeChar,
-                .MatchAsciiLetter,
-                .MatchDigit,
-                .MatchRegexChar,
-                .MatchCharSet,
-                .MatchNotCharSet,
-                .MatchRule => {
+                .MatchText, .MatchUntilChar, .MatchExactChar, .MatchNotChar, .MatchRangeChar, .MatchAsciiLetter, .MatchDigit, .MatchRegexChar, .MatchCharSet, .MatchNotCharSet, .MatchRule => {
                     // Nop.
                 },
                 .MatchOneOrMore => |inner| {
@@ -606,10 +586,7 @@ fn initMatchOpWalker(op_ids: []MatchOp) algo.Walker([]MatchOp, *MatchOp) {
     const S = struct {
         fn _walk(ctx: *algo.WalkerContext(*MatchOp), ops: []MatchOp, op: *MatchOp) void {
             switch (op.*) {
-                .MatchLiteral,
-                .MatchToken,
-                .MatchRule,
-                .MatchTokenText => {
+                .MatchLiteral, .MatchToken, .MatchRule, .MatchTokenText => {
                     // Nop.
                 },
                 .MatchNegLookahead => |m| {
@@ -691,7 +668,7 @@ fn prepareTokenMatchOps(config: *Grammar, name_to_token_tag: *const std.AutoHash
                 .MatchNegLookahead,
                 .MatchPosLookahead,
                 .MatchSeq,
-                    => {},
+                => {},
             }
         }
     };
@@ -762,10 +739,7 @@ fn prepareMatchOps(g: *Grammar, name_to_token_tag: *const std.AutoHashMap(CharSl
                         stdx.panicFmt("expected literal tag for '{s}'", .{self.g.getString(inner.str)});
                     }
                 },
-                .MatchNegLookahead,
-                .MatchPosLookahead,
-                .MatchOneOrMore,
-                .MatchZeroOrMore => {
+                .MatchNegLookahead, .MatchPosLookahead, .MatchOneOrMore, .MatchZeroOrMore => {
                     // Nop.
                 },
             }
@@ -825,7 +799,6 @@ pub const MatchOpId = u32;
 pub const MatchOpSlice = ds.RelSlice(MatchOpId);
 
 pub const MatchOp = union(enum) {
-
     MatchOneOrMore: struct {
         op_id: MatchOpId,
     },

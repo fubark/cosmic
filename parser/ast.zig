@@ -204,7 +204,6 @@ pub fn Tree(comptime Config: ParseConfig) type {
         }
 
         usingnamespace if (Config.is_incremental) struct {
-
             pub fn getTokenString(self: *const Self, doc: *document.Document, line_idx: u32, id: TokenId) []const u8 {
                 const loc = doc.findLineLoc(line_idx);
                 return self.getTokenStringByLoc(doc, loc, id);
@@ -219,9 +218,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
                 const line_id = doc.getLineId(line_idx);
                 return self.tokens.lines.items[line_id].?;
             }
-
         } else struct {
-
             pub fn getTokenString(self: *const Self, id: TokenId) []const u8 {
                 const token = self.getToken(id);
                 return self.src[token.loc.start..token.loc.end];
@@ -237,7 +234,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
                 fn visit(ctx: *algo.VisitContext(.{}), c: *@This(), node: NodePtr) void {
                     if (ctx.enter) {
                         const tag_name = c.tree.getNodeTagName(node);
-                        c.writer.writeByteNTimes(' ', c.indent*2) catch unreachable;
+                        c.writer.writeByteNTimes(' ', c.indent * 2) catch unreachable;
                         std.fmt.format(c.writer, "{s}", .{tag_name}) catch unreachable;
                         if (node.tag == c.tree.grammar.string_value_tag) {
                             // c.writer.print(" \"", .{}) catch unreachable;
@@ -275,7 +272,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
                     const tok = self.tokens.get(cur.?);
                     const str_slice = self.grammar.token_decls.items[tok.tag].name;
                     const str = self.grammar.getString(str_slice);
-                    std.fmt.format(writer, "[{}] {s} \"{s}\" ", .{cur.?, str, self.src[tok.loc.start..tok.loc.end]}) catch unreachable;
+                    std.fmt.format(writer, "[{}] {s} \"{s}\" ", .{ cur.?, str, self.src[tok.loc.start..tok.loc.end] }) catch unreachable;
                     // std.fmt.format(writer, "[{}-{}] {s} \"{s}\" ", .{tok.loc.start, tok.loc.end, self.tags.items[tok.tag], self.src[tok.loc.start..tok.loc.end]}) catch unreachable;
                     cur = self.tokens.getNext(cur.?);
                 }
@@ -311,7 +308,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
                 }
 
                 writer.print("----------------[{}]\n", .{before_num_lines}) catch unreachable;
-                writer.print("{s}>>>|{s}|<<<{s}", .{before_line, self.src[tok.loc.start..tok.loc.end], after_line}) catch unreachable;
+                writer.print("{s}>>>|{s}|<<<{s}", .{ before_line, self.src[tok.loc.start..tok.loc.end], after_line }) catch unreachable;
                 _ = writer.write("----------------\n") catch unreachable;
 
                 const after_num_lines = std.mem.count(u8, self.src[after..], "\n");
@@ -440,7 +437,6 @@ const Location = struct {
 };
 
 pub const Token = struct {
-
     tag: TokenTag,
 
     // Separate tag for exact string matching.
@@ -449,14 +445,10 @@ pub const Token = struct {
     loc: Location,
 
     pub fn init(tag: TokenTag, literal_tag: LiteralTokenTag, start: u32, end: u32) @This() {
-        return .{
-            .tag = tag,
-            .literal_tag = literal_tag,
-            .loc = .{
-                .start = start,
-                .end = end,
-            }
-        };
+        return .{ .tag = tag, .literal_tag = literal_tag, .loc = .{
+            .start = start,
+            .end = end,
+        } };
     }
 };
 

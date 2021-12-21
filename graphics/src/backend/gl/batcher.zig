@@ -54,7 +54,7 @@ pub const Batcher = struct {
     pub fn deinit(self: *Self) void {
         self.mesh.deinit();
 
-        const bufs = [_]gl.GLuint{self.vert_buf_id, self.index_buf_id};
+        const bufs = [_]gl.GLuint{ self.vert_buf_id, self.index_buf_id };
         gl.deleteBuffers(2, &bufs);
     }
 
@@ -127,13 +127,11 @@ pub const Batcher = struct {
 
         // Update vertex buffer.
         gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.vert_buf_id);
-        gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_vert_buf_size * 10 * 4),
-            self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
+        gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_vert_buf_size * 10 * 4), self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
         // Update index buffer.
         gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.index_buf_id);
-        gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_index_buf_size * 2),
-            self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
+        gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, self.mesh.cur_index_buf_size * 2), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
         gl.drawElements(gl.GL_TRIANGLES, self.mesh.cur_index_buf_size, self.mesh.index_buffer_type, 0);
 

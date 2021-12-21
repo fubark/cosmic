@@ -45,5 +45,5 @@ test "WalkIterator.initPre" {
         try res.append(it.val);
     }
 
-    try t.eqSlice(u32, res.items, &[_]u32{1, 2, 4, 3});
+    try t.eqSlice(u32, res.items, &[_]u32{ 1, 2, 4, 3 });
 }

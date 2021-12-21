@@ -82,8 +82,8 @@ pub const Mesh = struct {
     // Adds ccw triangle with vertex indices.
     pub fn addTriangle(self: *Self, v1: u16, v2: u16, v3: u16) void {
         self.index_buf[self.cur_index_buf_size] = v1;
-        self.index_buf[self.cur_index_buf_size+1] = v2;
-        self.index_buf[self.cur_index_buf_size+2] = v3;
+        self.index_buf[self.cur_index_buf_size + 1] = v2;
+        self.index_buf[self.cur_index_buf_size + 2] = v3;
         self.cur_index_buf_size += 3;
     }
 
@@ -91,13 +91,13 @@ pub const Mesh = struct {
     pub fn addQuad(self: *Self, idx1: u16, idx2: u16, idx3: u16, idx4: u16) void {
         // First triangle.
         self.index_buf[self.cur_index_buf_size] = idx1;
-        self.index_buf[self.cur_index_buf_size+1] = idx2;
-        self.index_buf[self.cur_index_buf_size+2] = idx3;
+        self.index_buf[self.cur_index_buf_size + 1] = idx2;
+        self.index_buf[self.cur_index_buf_size + 2] = idx3;
 
         // Second triangle.
-        self.index_buf[self.cur_index_buf_size+3] = idx3;
-        self.index_buf[self.cur_index_buf_size+4] = idx4;
-        self.index_buf[self.cur_index_buf_size+5] = idx1;
+        self.index_buf[self.cur_index_buf_size + 3] = idx3;
+        self.index_buf[self.cur_index_buf_size + 4] = idx4;
+        self.index_buf[self.cur_index_buf_size + 5] = idx1;
         self.cur_index_buf_size += 6;
     }
 
@@ -113,7 +113,7 @@ pub const Mesh = struct {
             var new_size = @floatToInt(u32, @intToFloat(f32, self.cur_vert_buf_size + vert_inc) * 1.5);
             if (new_size > MaxVertexBufferSize) {
                 if (vert_inc > MaxVertexBufferSize) {
-                    stdx.panicFmt("requesting buffer size {} that exceeds max {}", .{vert_inc, MaxVertexBufferSize});
+                    stdx.panicFmt("requesting buffer size {} that exceeds max {}", .{ vert_inc, MaxVertexBufferSize });
                 }
                 if (self.vert_buf.len < MaxVertexBufferSize) {
                     self.vert_buf = self.alloc.realloc(self.vert_buf, MaxVertexBufferSize) catch unreachable;
@@ -129,7 +129,7 @@ pub const Mesh = struct {
             var new_size = @floatToInt(u32, @intToFloat(f32, self.cur_index_buf_size + index_inc) * 1.5);
             if (new_size > MaxIndexBufferSize) {
                 if (index_inc > MaxIndexBufferSize) {
-                    stdx.panicFmt("requesting buffer size {} that exceeds max {}", .{index_inc, MaxIndexBufferSize});
+                    stdx.panicFmt("requesting buffer size {} that exceeds max {}", .{ index_inc, MaxIndexBufferSize });
                 }
                 if (self.index_buf.len < MaxIndexBufferSize) {
                     self.index_buf = self.alloc.realloc(self.index_buf, MaxIndexBufferSize) catch unreachable;
@@ -140,13 +140,12 @@ pub const Mesh = struct {
             } else {
                 self.index_buf = self.alloc.realloc(self.index_buf, new_size) catch unreachable;
             }
-        } 
+        }
         return true;
     }
-    
 };
 
-// Used to set a bunch of data in one go, reducing the number of batcher capacity checks. 
+// Used to set a bunch of data in one go, reducing the number of batcher capacity checks.
 pub fn VertexData(comptime num_verts: usize, comptime num_indices: usize) type {
     if (num_indices == 0 or num_indices % 3 != 0) {
         @panic("num_indices must be at least 3 and multiple of 3");
@@ -158,7 +157,7 @@ pub fn VertexData(comptime num_verts: usize, comptime num_indices: usize) type {
 
         pub fn setRect(self: *@This(), offset: u16, tl: u16, tr: u16, br: u16, bl: u16) void {
             // Assumes ccw front face order.
-            self.indices[offset..offset+6][0..6].* = .{
+            self.indices[offset .. offset + 6][0..6].* = .{
                 // First triangle.
                 tl, bl, br,
                 // Second triangle.

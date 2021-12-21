@@ -81,7 +81,7 @@ pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: []const u8
     // Since es modules are in strict mode it makes sense that everything else should also be in strict mode.
     // Append 'use strict'; There isn't an internal api to enable it.
     // Append void 0 so empty source still evaluates to undefined.
-    const final_src = stdx.string.concat(alloc, &[_][]const u8{"'use strict';void 0;\n", src}) catch unreachable;
+    const final_src = stdx.string.concat(alloc, &[_][]const u8{ "'use strict';void 0;\n", src }) catch unreachable;
     defer alloc.free(final_src);
 
     const js_src = v8.String.initUtf8(isolate, final_src);

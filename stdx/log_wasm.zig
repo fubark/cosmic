@@ -10,7 +10,6 @@ const js_buf = stdx.wasm.getJsBuffer();
 
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
-
         pub fn debug(
             comptime format: []const u8,
             args: anytype,

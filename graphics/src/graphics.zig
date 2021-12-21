@@ -40,8 +40,7 @@ pub const font = struct {
     const glyph = @import("backend/gl/glyph.zig");
 
     pub usingnamespace switch (Backend) {
-        .Test,
-        .OpenGL => struct {
+        .Test, .OpenGL => struct {
             pub const Font = _font.Font;
             pub const BitmapFont = _font.BitmapFont;
             pub const Glyph = glyph.Glyph;
@@ -674,14 +673,14 @@ pub const Graphics = struct {
         }
     }
 
-// TODO: Should we have a default font?
-//     pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
-//         switch (Backend) {
-//             .OpenGL => return self.g.default_font_gid,
-//             .Test => return self.g.default_font_gid,
-//             else => stdx.panic("unsupported"),
-//         }
-//     }
+    // TODO: Should we have a default font?
+    //     pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
+    //         switch (Backend) {
+    //             .OpenGL => return self.g.default_font_gid,
+    //             .Test => return self.g.default_font_gid,
+    //             else => stdx.panic("unsupported"),
+    //         }
+    //     }
 
     pub fn getFontByName(self: *Self, name: []const u8) ?FontId {
         switch (Backend) {
@@ -731,13 +730,13 @@ pub const Graphics = struct {
         }
     }
 
-//     pub fn flushDraw(self: *Self) void {
-//         switch (Backend) {
-//             .OpenGL => gl.Graphics.flushDraw(&self.g),
-//             .WasmCanvas => canvas.Graphics.flushDraw(&self.g),
-//             else => stdx.panic("unsupported"),
-//         }
-//     }
+    //     pub fn flushDraw(self: *Self) void {
+    //         switch (Backend) {
+    //             .OpenGL => gl.Graphics.flushDraw(&self.g),
+    //             .WasmCanvas => canvas.Graphics.flushDraw(&self.g),
+    //             else => stdx.panic("unsupported"),
+    //         }
+    //     }
 
 };
 
@@ -749,12 +748,12 @@ pub const BlendMode = enum {
     // Common
     StraightAlpha,
     PremultipliedAlpha,
-    Glow, 
+    Glow,
     Additive,
     Multiplied,
     Add,
     Subtract,
-    Opaque, 
+    Opaque,
 
     // TODO: Porter-Duff
     Src,

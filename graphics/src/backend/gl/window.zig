@@ -13,7 +13,7 @@ pub const Window = struct {
 
     id: u32,
     sdl_window: *sdl.SDL_Window,
-    gl_ctx: *c_void,
+    gl_ctx: *anyopaque,
     width: u32,
     height: u32,
 
@@ -47,7 +47,6 @@ pub const Window = struct {
         // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
         sdl.SDL_GL_SwapWindow(self.sdl_window);
     }
-
 };
 
 pub fn disableVSync() !void {
@@ -77,10 +76,9 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
     try glSetAttr(sdl.SDL_GL_STENCIL_SIZE, 8);
 
     var window_flags = flags | sdl.SDL_WINDOW_OPENGL;
-    win.sdl_window = sdl.createWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED,
-        @intCast(c_int, config.width), @intCast(c_int, config.height), @bitCast(u32, window_flags)) orelse {
-            log.err("Unable to create window: {s}", .{sdl.SDL_GetError()});
-            return error.Failed;
+    win.sdl_window = sdl.createWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED, @intCast(c_int, config.width), @intCast(c_int, config.height), @bitCast(u32, window_flags)) orelse {
+        log.err("Unable to create window: {s}", .{sdl.SDL_GetError()});
+        return error.Failed;
     };
 
     if (sdl.SDL_GL_CreateContext(win.sdl_window)) |ctx| {

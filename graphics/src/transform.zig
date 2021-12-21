@@ -76,10 +76,10 @@ fn getRotationX(rad: f32) Mat4 {
     const c = std.math.cos(rad);
     const s = std.math.sin(rad);
     return .{
-        1, 0, 0, 0,
-        0, c, s, 0,
+        1, 0,  0, 0,
+        0, c,  s, 0,
         0, -s, c, 0,
-        0, 0, 0, 1,
+        0, 0,  0, 1,
     };
 }
 
@@ -88,9 +88,9 @@ fn getRotationY(rad: f32) Mat4 {
     const s = std.math.sin(rad);
     return .{
         c, 0, -s, 0,
-        0, 1, 0, 0,
-        s, 0, c, 0,
-        0, 0, 0, 1,
+        0, 1, 0,  0,
+        s, 0, c,  0,
+        0, 0, 0,  1,
     };
 }
 
@@ -99,9 +99,9 @@ fn getRotationZ(rad: f32) Mat4 {
     const s = std.math.sin(rad);
     return .{
         c, -s, 0, 0,
-        s, c, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1,
+        s, c,  0, 0,
+        0, 0,  1, 0,
+        0, 0,  0, 1,
     };
 }
 
@@ -117,6 +117,6 @@ fn getScaling(x: f32, y: f32) Mat4 {
 test "Apply Translation" {
     var transform = Transform.initIdentity();
     transform.translate(10, 10);
-    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{10, 10, 0, 1});
-    try t.eq(transform.transformPoint(.{ 10, 10, 0, 1 }), .{20, 20, 0, 1});
+    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{ 10, 10, 0, 1 });
+    try t.eq(transform.transformPoint(.{ 10, 10, 0, 1 }), .{ 20, 20, 0, 1 });
 }

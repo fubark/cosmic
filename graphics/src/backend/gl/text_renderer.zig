@@ -224,7 +224,7 @@ pub const MeasureTextIterator = struct {
 };
 
 // Add kerning from previous codepoint.
-fn computeKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, bm_font: *BitmapFont, user_scale: f32, cp: u21) callconv(.Inline) f32 {
+inline fn computeKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, bm_font: *BitmapFont, user_scale: f32, cp: u21) f32 {
     _ = glyph_id;
     if (prev_font == fnt) {
         const kern = stbtt.stbtt_GetGlyphKernAdvance(&fnt.stbtt_font, prev_glyph_id, cp);

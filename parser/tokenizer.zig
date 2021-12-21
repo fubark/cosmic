@@ -69,9 +69,7 @@ pub const Tokenizer = struct {
     }
 
     // col_idx is the start of the change.
-    pub fn retokenizeChange(self: *Self,
-        doc: *Document, buf: *LineTokenBuffer, line_idx: u32, col_idx: u32, change_size: i32, debug: anytype) void {
-
+    pub fn retokenizeChange(self: *Self, doc: *Document, buf: *LineTokenBuffer, line_idx: u32, col_idx: u32, change_size: i32, debug: anytype) void {
         const t = trace(@src());
         defer t.end();
 
@@ -125,7 +123,7 @@ pub const Tokenizer = struct {
                         // Attempt to replace this rule match with a different rule.
                         if (it.replace_with != null and self.replace(Config, ctx, start, ctx.state.mark(), it.replace_with.?)) {
                             break :inner;
-                        } 
+                        }
 
                         const next = ctx.state.mark();
 
@@ -140,7 +138,8 @@ pub const Tokenizer = struct {
                                 ctx.state.appendToken(Config.debug, ctx.debug, tok);
                             },
                             LineSourceState(false),
-                            LineSourceState(true), => {
+                            LineSourceState(true),
+                            => {
                                 const end_idx = ctx.state.getTokenEndIdxFromStartLine(start, next);
                                 const tok = Token.init(@intCast(u32, it.tag), literal_tag, start.next_ch_idx, end_idx);
                                 ctx.state.appendToken(Config.debug, ctx.debug, tok);
@@ -157,7 +156,7 @@ pub const Tokenizer = struct {
             }
         }
     }
-    
+
     // Returns whether it was replaced.
     fn replace(self: *Self, comptime Config: TokenizeConfig, ctx: *Config.Context, start: Config.Context.State.Mark, end: Config.Context.State.Mark, replace_rule_tag: TokenTag) bool {
         const replace_rule = self.decls[replace_rule_tag];
@@ -175,8 +174,7 @@ pub const Tokenizer = struct {
                     const tok = Token.init(replace_rule_tag, literal_tag.?, start, end);
                     ctx.state.appendToken(Config.debug, ctx.debug, tok);
                 },
-                LineSourceState(false),
-                LineSourceState(true) => {
+                LineSourceState(false), LineSourceState(true) => {
                     const end_idx = ctx.state.getTokenEndIdxFromStartLine(start, end);
                     const tok = Token.init(replace_rule_tag, literal_tag.?, start.next_ch_idx, end_idx);
                     ctx.state.appendToken(Config.debug, ctx.debug, tok);
@@ -448,7 +446,7 @@ pub const Tokenizer = struct {
             },
             .MatchRegexChar,
             .MatchRangeChar,
-                => stdx.panicFmt("unsupported rule: {s}", .{@tagName(op.*)}),
+            => stdx.panicFmt("unsupported rule: {s}", .{@tagName(op.*)}),
         }
         unreachable;
     }
@@ -525,11 +523,9 @@ const StringBufferState = struct {
 fn LineSourceState(comptime Incremental: bool) type {
     return struct {
         const Self = @This();
-        const Type = StateType{
-            .LineSource = .{
-                .is_incremental = Incremental,
-            }
-        };
+        const Type = StateType{ .LineSource = .{
+            .is_incremental = Incremental,
+        } };
         const Mark = struct {
             next_ch_idx: u32,
             leaf_id: document.NodeId,
@@ -639,7 +635,6 @@ fn LineSourceState(comptime Incremental: bool) type {
         }
 
         usingnamespace if (Incremental) struct {
-
             pub fn reconcileCurrentTokenList(self: *Self, comptime Debug: bool, debug: anytype, reuse_token_id: ?TokenId) void {
                 // log.warn("reuse: {}", .{reuse_token_id});
                 // log.warn("detached: {}", .{self.cur_detached_token});
@@ -729,7 +724,7 @@ fn LineSourceState(comptime Incremental: bool) type {
                 }
             }
 
-            // Assumes line loc is already on the same line as col pos. 
+            // Assumes line loc is already on the same line as col pos.
             // Returns the token that precedes the token seeked to. Useful for caller to detach list.
             pub fn seekToFirstTokenBeforePos(self: *Self, col_idx: u32) ?TokenId {
                 const line_id = self.chunk[self.chunk_line_idx];
@@ -749,7 +744,7 @@ fn LineSourceState(comptime Incremental: bool) type {
                             }
                             prev = cur_token_id;
                             cur_token_id = cur_item.next.?;
-                            cur_item = next; 
+                            cur_item = next;
                         }
                         self.next_ch_idx = cur_item.data.loc.start;
                         self.line = self.doc.getLineById(line_id);
@@ -898,8 +893,12 @@ fn LineSourceState(comptime Incremental: bool) type {
 
         inline fn getString(self: *Self, start: Mark, end: Mark) []const u8 {
             return self.doc.getString(
-                start.leaf_id, start.chunk_line_idx, start.next_ch_idx,
-                end.leaf_id, end.chunk_line_idx, end.next_ch_idx,
+                start.leaf_id,
+                start.chunk_line_idx,
+                start.next_ch_idx,
+                end.leaf_id,
+                end.chunk_line_idx,
+                end.next_ch_idx,
             );
         }
 

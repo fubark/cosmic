@@ -143,8 +143,7 @@ pub fn initMetaGrammar(c: *Grammar, alloc: std.mem.Allocator) void {
         matchTokenOneOrMore(top(matchAsciiLetter())),
     })));
 
-    c.addTokenRule("Identifier",
-        matchTokenOneOrMore(top(matchAsciiLetter())));
+    c.addTokenRule("Identifier", matchTokenOneOrMore(top(matchAsciiLetter())));
 
     c.addTokenRule("CharSetLiteral", matchTokenSeq(tops(&.{
         matchExactChar('['),
@@ -185,7 +184,7 @@ test "initMetaGrammar" {
     initMetaGrammar(&c, t.alloc);
     defer c.deinit();
 
-    const grammar_src = 
+    const grammar_src =
         \\Program { Statement* }
         \\Statement @inline { ReturnStatement }
         \\ReturnStatement { 'return' Identifier }
@@ -193,7 +192,7 @@ test "initMetaGrammar" {
         \\  Identifier { [a-zA-Z] [a-zA-Z0-9_]* }
         \\  Keyword @literal @replace(Identifier) { 'return' }
         \\}
-        ;
+    ;
 
     var zig_grammar: Grammar = undefined;
     try initGrammar(&zig_grammar, t.alloc, grammar_src);
@@ -308,14 +307,14 @@ fn BuildConfigContext(comptime Config: ParseConfig) type {
                 const rule_name = self.ast.getChildStringValue(rule_ident, 0);
                 if (mb_eq_str) |eq_str| {
                     const str = self.ast.getChildStringValue(eq_str, 0);
-                    const without_quotes = str[1..str.len-1];
+                    const without_quotes = str[1 .. str.len - 1];
                     op = self.config.matchTokText(rule_name, without_quotes);
                 } else {
                     op = self.config.matchRule(rule_name);
                 }
             } else if (inner.tag == self.StringLiteral) {
                 const text = self.ast.getChildStringValue(inner, 0);
-                const without_quotes = text[1..text.len-1];
+                const without_quotes = text[1 .. text.len - 1];
                 op = self.config.matchLiteral(without_quotes);
             } else if (inner.tag == self.Seq) {
                 op = self.buildMatchOpFromExprNode(inner);
@@ -381,13 +380,13 @@ fn BuildConfigContext(comptime Config: ParseConfig) type {
         fn buildTokenMatchOpFromTermBase(self: *Self, term: NodePtr) TokenMatchOp {
             if (term.tag == self.StringLiteral) {
                 const text = self.ast.getChildStringValue(term, 0);
-                const without_quotes = text[1..text.len-1];
+                const without_quotes = text[1 .. text.len - 1];
                 const final_text = unescapeText(self.config, without_quotes);
-                return .{ .MatchText = .{ .str = final_text }};
+                return .{ .MatchText = .{ .str = final_text } };
             } else if (term.tag == self.CharSetLiteral) {
                 const text = self.ast.getChildStringValue(term, 0);
                 // Truncate the surrounding bracket chars.
-                const without_delim = text[1..text.len-1];
+                const without_delim = text[1 .. text.len - 1];
 
                 var chars: CharSlice = undefined;
                 var char_ranges: CharSetRangeSlice = undefined;
@@ -487,7 +486,6 @@ fn BuildConfigContext(comptime Config: ParseConfig) type {
                 stdx.panicFmt("unsupported {}", .{node.tag});
             }
         }
-
     };
 }
 
@@ -711,7 +709,7 @@ fn parseCharSet(c: *Grammar, res_chars: *CharSlice, res_char_ranges: *CharSetRan
             c.charset_range_buf.append(.{ .start = range_start_ch.?, .end_incl = uch }) catch unreachable;
             parse_range_end = false;
         } else {
-            if (i + 1 == input.len or input[i+1] != '-') {
+            if (i + 1 == input.len or input[i + 1] != '-') {
                 c.str_buf.append(uch) catch unreachable;
             }
         }
@@ -722,12 +720,10 @@ fn parseCharSet(c: *Grammar, res_chars: *CharSlice, res_char_ranges: *CharSetRan
 }
 
 fn matchChoice(ops: MatchOpSlice) MatchOp {
-    return .{
-        .MatchChoice = .{
-            .computed_capture = undefined,
-            .ops = ops,
-        }
-    };
+    return .{ .MatchChoice = .{
+        .computed_capture = undefined,
+        .ops = ops,
+    } };
 }
 
 fn matchSeq(ops: MatchOpSlice) MatchOp {
@@ -776,20 +772,16 @@ fn matchOptional(id: MatchOpId) MatchOp {
 }
 
 fn matchOneOrMore(id: MatchOpId) MatchOp {
-    return .{
-        .MatchOneOrMore = .{
-            .op_id = id,
-        }
-    };
+    return .{ .MatchOneOrMore = .{
+        .op_id = id,
+    } };
 }
 
 fn matchZeroOrMore(id: MatchOpId) MatchOp {
-    return .{
-        .MatchZeroOrMore = .{
-            .skip = false,
-            .op_id = id,
-        }
-    };
+    return .{ .MatchZeroOrMore = .{
+        .skip = false,
+        .op_id = id,
+    } };
 }
 
 fn matchTokenOptional(id: TokenMatchOpId) TokenMatchOp {
@@ -801,35 +793,27 @@ fn matchTokenOptional(id: TokenMatchOpId) TokenMatchOp {
 }
 
 fn matchTokenOneOrMore(id: TokenMatchOpId) TokenMatchOp {
-    return .{
-        .MatchOneOrMore = .{
-            .op_id = id,
-        }
-    };
+    return .{ .MatchOneOrMore = .{
+        .op_id = id,
+    } };
 }
 
 fn matchTokenZeroOrMore(id: TokenMatchOpId) TokenMatchOp {
-    return .{
-        .MatchZeroOrMore = .{
-            .op_id = id,
-        }
-    };
+    return .{ .MatchZeroOrMore = .{
+        .op_id = id,
+    } };
 }
 
 fn matchTokenNegLookahead(id: TokenMatchOpId) TokenMatchOp {
-    return .{
-        .MatchNegLookahead = .{
-            .op_id = id,
-        }
-    };
+    return .{ .MatchNegLookahead = .{
+        .op_id = id,
+    } };
 }
 
 fn matchTokenPosLookahead(id: TokenMatchOpId) TokenMatchOp {
-    return .{
-        .MatchPosLookahead = .{
-            .op_id = id,
-        }
-    };
+    return .{ .MatchPosLookahead = .{
+        .op_id = id,
+    } };
 }
 
 fn matchTokenRule(name: []const u8) TokenMatchOp {
@@ -858,11 +842,9 @@ fn matchNotChar(ch: u8) TokenMatchOp {
 }
 
 fn matchExactChar(ch: u8) TokenMatchOp {
-    return .{
-        .MatchExactChar = .{
-            .ch = ch,
-        }
-    };
+    return .{ .MatchExactChar = .{
+        .ch = ch,
+    } };
 }
 
 fn matchTokenSeq(ops: TokenMatchOpSlice) TokenMatchOp {
@@ -874,26 +856,24 @@ fn matchTokenSeq(ops: TokenMatchOpSlice) TokenMatchOp {
 }
 
 fn matchTokenNotCharSet(charset: CharSlice, ranges: CharSetRangeSlice) TokenMatchOp {
-    return .{
-        .MatchNotCharSet = .{
-            .resolved_charset = undefined,
-            .charset = charset,
-            .ranges = ranges,
-        }
-    };
+    return .{ .MatchNotCharSet = .{
+        .resolved_charset = undefined,
+        .charset = charset,
+        .ranges = ranges,
+    } };
 }
 
 fn matchTokenCharSet(charset: CharSlice, ranges: CharSetRangeSlice) TokenMatchOp {
-    return .{
-        .MatchCharSet = .{
-            .resolved_charset = undefined,
-            .charset = charset,
-            .ranges = ranges,
-        }
-    };
+    return .{ .MatchCharSet = .{
+        .resolved_charset = undefined,
+        .charset = charset,
+        .ranges = ranges,
+    } };
 }
 
-fn matchTokenChoice(ops: TokenMatchOpSlice,) TokenMatchOp {
+fn matchTokenChoice(
+    ops: TokenMatchOpSlice,
+) TokenMatchOp {
     return .{
         .MatchChoice = .{
             .ops = ops,

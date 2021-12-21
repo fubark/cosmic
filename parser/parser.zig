@@ -27,7 +27,7 @@ const TokenListId = _ast.TokenListId;
 const Token = _ast.Token;
 const LineTokenBuffer = _ast.LineTokenBuffer;
 
-// Creates a runtime parser from a PEG based config grammar. 
+// Creates a runtime parser from a PEG based config grammar.
 // Parses in linear time with respect to source size using a memoization cache. Two cache implementations depending on token list size.
 // Supports left recursion.
 // Supports look-ahead operators.
@@ -116,8 +116,7 @@ pub const Parser = struct {
         self.buf.node_tokens.deinit();
     }
 
-    fn parseMatchManyWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context,
-        comptime OneOrMore: bool, op_id: MatchOpId, left_id: RuleId, left_node: NodePtr) ParseNodeWithLeftResult {
+    fn parseMatchManyWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context, comptime OneOrMore: bool, op_id: MatchOpId, left_id: RuleId, left_node: NodePtr) ParseNodeWithLeftResult {
 
         // Save starting point and accumulate children on the stack.
         const list_start = self.node_list_stack.items.len;
@@ -169,7 +168,7 @@ pub const Parser = struct {
         }) catch unreachable;
 
         self.buf.node_ptrs.appendSlice(self.node_list_stack.items[list_start..]) catch unreachable;
-                
+
         return .{
             .matched = true,
             .consumed_left = consumed_left,
@@ -181,8 +180,7 @@ pub const Parser = struct {
     }
 
     // TODO: Since we only cache rules, we might need to create a separate stack so we don't keep creating new list nodes at the same pos.
-    fn parseMatchMany(self: *Self, comptime Context: type, ctx: *Context,
-        comptime OneOrMore: bool, op_id: MatchOpId) ParseNodeResult {
+    fn parseMatchMany(self: *Self, comptime Context: type, ctx: *Context, comptime OneOrMore: bool, op_id: MatchOpId) ParseNodeResult {
 
         // Save starting point and accumulate children on the stack.
         const list_start = self.node_list_stack.items.len;
@@ -214,7 +212,7 @@ pub const Parser = struct {
         }) catch unreachable;
 
         self.buf.node_ptrs.appendSlice(self.node_list_stack.items[list_start..]) catch unreachable;
-                
+
         return .{
             .matched = true,
             .node_ptr = .{
@@ -224,9 +222,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseMatchOpWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context,
-        id: MatchOpId, left_id: RuleId, left_node: NodePtr) ParseNodeWithLeftResult {
-
+    fn parseMatchOpWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context, id: MatchOpId, left_id: RuleId, left_node: NodePtr) ParseNodeWithLeftResult {
         const op = self.ops[id];
         switch (op) {
             .MatchOptional => |inner| {
@@ -336,8 +332,7 @@ pub const Parser = struct {
                     }
                 }
             },
-            .MatchToken,
-            .MatchLiteral => {
+            .MatchToken, .MatchLiteral => {
                 return NoLeftMatch;
             },
             else => stdx.panicFmt("unsupported: {s}", .{@tagName(op)}),
@@ -347,7 +342,6 @@ pub const Parser = struct {
 
     // Assume each op will leave the parser pos in the right place on match or no match.
     fn parseMatchOp(self: *Self, comptime Context: type, ctx: *Context, id: MatchOpId) ParseNodeResult {
-
         if (Context.debug) {
             ctx.debug.stats.parse_match_ops += 1;
         }
@@ -404,7 +398,7 @@ pub const Parser = struct {
                 if (DebugParseRule) {
                     if (ctx.state.next_tok_id != null) {
                         const str = ctx.ast.getTokenString(ctx.state.next_tok_id.?);
-                        log.warn("parseRule {s} {} '{s}'", .{self.grammar.getRuleName(inner.rule_id), ctx.state.next_tok_id, str});
+                        log.warn("parseRule {s} {} '{s}'", .{ self.grammar.getRuleName(inner.rule_id), ctx.state.next_tok_id, str });
                     }
                 }
                 const res = self.parseRule(Context, ctx, inner.rule_id);
@@ -412,7 +406,7 @@ pub const Parser = struct {
                     if (DebugParseRule) {
                         if (ctx.state.next_tok_id != null) {
                             const str = ctx.ast.getTokenString(ctx.state.next_tok_id.?);
-                            log.warn("MATCHED {s} {} '{s}'", .{self.grammar.getRuleName(inner.rule_id), ctx.state.next_tok_id, str});
+                            log.warn("MATCHED {s} {} '{s}'", .{ self.grammar.getRuleName(inner.rule_id), ctx.state.next_tok_id, str });
                         }
                     }
                     return res;
@@ -514,9 +508,8 @@ pub const Parser = struct {
         }
     }
 
-    fn parseRuleWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context,
-        id: RuleId, left_id: RuleId, left_node: NodePtr, check_recursion: bool) ParseNodeWithLeftResult {
-        
+    fn parseRuleWithLeftTerm(self: *Self, comptime Context: type, ctx: *Context, id: RuleId, left_id: RuleId, left_node: NodePtr, check_recursion: bool) ParseNodeWithLeftResult {
+
         // log.warn("parseRuleWithLeftTerm {s} {}", .{self.grammar.getRuleName(id), ctx.state.next_tok_id});
         if (Context.debug) {
             const frame = CallFrame{
@@ -548,7 +541,7 @@ pub const Parser = struct {
         }
 
         const decl = self.decls[id];
-        
+
         const mark = ctx.state.mark();
         inner: {
             if (decl.is_inline) {
@@ -628,23 +621,15 @@ pub const Parser = struct {
                         .end = start + num_fields,
                     }) catch unreachable;
                     self.buf.node_ptrs.appendSlice(self.node_list_stack.items[list_start..]) catch unreachable;
-                    return .{
-                        .matched = true,
-                        .consumed_left = true,
-                        .node_ptr = NodePtr{
-                            .id = list_id,
-                            .tag = id,
-                        }
-                    };
+                    return .{ .matched = true, .consumed_left = true, .node_ptr = NodePtr{
+                        .id = list_id,
+                        .tag = id,
+                    } };
                 } else {
-                    return .{
-                        .matched = true,
-                        .consumed_left = true,
-                        .node_ptr = NodePtr{
-                            .id = self.getNextScalarNodeId(),
-                            .tag = id,
-                        }
-                    };
+                    return .{ .matched = true, .consumed_left = true, .node_ptr = NodePtr{
+                        .id = self.getNextScalarNodeId(),
+                        .tag = id,
+                    } };
                 }
             }
         }
@@ -656,7 +641,7 @@ pub const Parser = struct {
     fn parseRuleDefault(self: *Self, comptime Context: type, ctx: *Context, id: RuleId) ParseNodeResult {
         // log.warn("parsing rule {s}", .{self.grammar.getRuleName(id)});
         const decl = self.decls[id];
-        
+
         const mark = ctx.state.mark();
         inner: {
             if (decl.is_inline) {
@@ -705,13 +690,10 @@ pub const Parser = struct {
                         .end = start + num_fields,
                     }) catch unreachable;
                     self.buf.node_ptrs.appendSlice(self.node_list_stack.items[list_start..]) catch unreachable;
-                    return .{
-                        .matched = true,
-                        .node_ptr = NodePtr{
-                            .id = list_id,
-                            .tag = id,
-                        }
-                    };
+                    return .{ .matched = true, .node_ptr = NodePtr{
+                        .id = list_id,
+                        .tag = id,
+                    } };
                 } else {
                     return .{
                         .matched = true,
@@ -950,24 +932,18 @@ pub const Parser = struct {
         return res;
     }
 
-    pub fn reparseChange(self: *Self, comptime Config: ParseConfig,
-        src: Source(Config), cur_ast: *Tree(Config), line_idx: u32, col_idx: u32, change_size: i32) void {
-
+    pub fn reparseChange(self: *Self, comptime Config: ParseConfig, src: Source(Config), cur_ast: *Tree(Config), line_idx: u32, col_idx: u32, change_size: i32) void {
         self.reparseChangeMain(Config, src, cur_ast, line_idx, col_idx, change_size, {});
     }
 
-    pub fn reparseChangeDebug(self: *Self, comptime Config: ParseConfig,
-        src: Source(Config), cur_ast: *Tree(Config), line_idx: u32, col_idx: u32, change_size: i32, debug: *DebugInfo) void {
-
+    pub fn reparseChangeDebug(self: *Self, comptime Config: ParseConfig, src: Source(Config), cur_ast: *Tree(Config), line_idx: u32, col_idx: u32, change_size: i32, debug: *DebugInfo) void {
         self.reparseChangeMain(Config, src, cur_ast, line_idx, col_idx, change_size, debug);
     }
 
     // col_idx is the the starting pos where the change took place.
     // positive change_size indicates it was an insert/replace.
     // negative change_size indicates it was a delete/replace.
-    fn reparseChangeMain(self: *Self, comptime Config: ParseConfig,
-        src: Source(Config), cur_ast: *Tree(Config), line_idx: u32, col_idx: u32, change_size: i32, debug: anytype) void {
-        
+    fn reparseChangeMain(self: *Self, comptime Config: ParseConfig, src: Source(Config), cur_ast: *Tree(Config), line_idx: u32, col_idx: u32, change_size: i32, debug: anytype) void {
         const Debug = @TypeOf(debug) == *DebugInfo;
         if (Debug) {
             debug.reset();
@@ -1062,7 +1038,8 @@ const TokenState = struct {
     parse_rule_cache_stack: *std.ArrayList(CacheItem),
     num_decls: u32,
 
-    fn init(self: *Self,
+    fn init(
+        self: *Self,
         parser: *Parser,
         src: []const u8,
         tokens: *std.ArrayList(Token),
@@ -1170,9 +1147,10 @@ const LineTokenState = struct {
 
     num_decls: u32,
 
-    fn init(self: *Self,
+    fn init(
+        self: *Self,
         parser: *Parser,
-        doc: *Document, 
+        doc: *Document,
         buf: *LineTokenBuffer,
     ) void {
         const last_leaf_id = doc.getLastLeaf();
@@ -1414,9 +1392,9 @@ pub const DebugInfo = struct {
 
     pub fn formatMaxCallStack(self: *Self, comptime Config: ParseConfig, ast: *const Tree(Config), writer: anytype) void {
         const first = self.max_call_stack.items[0];
-        writer.print("{s}({}'{s}')", .{ast.grammar.getRuleName(first.parse_rule_id), first.next_token_id, ast.getTokenString(first.next_token_id.?)}) catch unreachable;
+        writer.print("{s}({}'{s}')", .{ ast.grammar.getRuleName(first.parse_rule_id), first.next_token_id, ast.getTokenString(first.next_token_id.?) }) catch unreachable;
         for (self.max_call_stack.items[1..]) |frame| {
-            writer.print(" -> {s}({}'{s}')", .{ast.grammar.getRuleName(frame.parse_rule_id), frame.next_token_id, ast.getTokenString(frame.next_token_id.?)}) catch unreachable;
+            writer.print(" -> {s}({}'{s}')", .{ ast.grammar.getRuleName(frame.parse_rule_id), frame.next_token_id, ast.getTokenString(frame.next_token_id.?) }) catch unreachable;
         }
         writer.print("\n", .{}) catch unreachable;
     }
@@ -1464,7 +1442,6 @@ pub const NodeTokenPtr = struct {
     // Used only for incremental parser to locate a line relative token.
     // TODO: When incremental ast reparsing is implemented, this will probably go away.
     token_ctx: LineTokenContext,
-
 
     token_id: TokenId,
 };
@@ -1514,10 +1491,8 @@ const LineTokenIterator = struct {
     token_lists: []const ?TokenListId,
     tokens: *ds.CompactManySinglyLinkedList(TokenListId, TokenId, Token),
     doc: *Document,
-    
-    fn init(doc: *Document, token_lists: []const ?TokenListId, tokens: *ds.CompactManySinglyLinkedList(TokenListId, TokenId, Token),
-            loc: document.LineLocation, end_loc: document.LineLocation) Self {
 
+    fn init(doc: *Document, token_lists: []const ?TokenListId, tokens: *ds.CompactManySinglyLinkedList(TokenListId, TokenId, Token), loc: document.LineLocation, end_loc: document.LineLocation) Self {
         var res = Self{
             .doc = doc,
             .tokens = tokens,

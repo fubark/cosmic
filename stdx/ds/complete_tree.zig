@@ -169,11 +169,11 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
             const d = self.getDepth();
             const first_d = self.getFirstAtDepth(d);
             var i: u32 = 0;
-            while (i < self.nodes.items.len-first_d) : (i += 1) {
+            while (i < self.nodes.items.len - first_d) : (i += 1) {
                 buf[i] = first_d + i;
             }
             const num_parents = (@intCast(u32, self.nodes.items.len - 1) - first_d) / BF + 1;
-            const max_parents = self.getMaxLeavesAtDepth(d-1);
+            const max_parents = self.getMaxLeavesAtDepth(d - 1);
             if (num_parents != max_parents) {
                 const start = self.getFirstAtDepth(d - 1) + num_parents;
                 const buf_end = i + (max_parents - num_parents);
@@ -193,7 +193,7 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
             }
             const first_d = self.getFirstAtDepth(d);
             const num_parents = (@intCast(u32, self.nodes.items.len - 1) - first_d) / BF + 1;
-            const max_parents = self.getMaxLeavesAtDepth(d-1);
+            const max_parents = self.getMaxLeavesAtDepth(d - 1);
             if (num_parents == max_parents) {
                 return .{ .start = first_d, .end = first_d + self.getMaxLeavesAtDepth(d) };
             } else {
@@ -227,7 +227,7 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
             if (self.nodes.items.len == 0) {
                 unreachable;
             }
-            return self.getDepthAt(@intCast(u32, self.nodes.items.len-1));
+            return self.getDepthAt(@intCast(u32, self.nodes.items.len - 1));
         }
 
         // Root is depth=0
@@ -279,7 +279,6 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
 }
 
 test "CompleteTreeArray BF=2" {
-
     var tree = CompleteTreeArray(2, u32).init(t.alloc);
     defer tree.deinit();
 
@@ -314,10 +313,10 @@ test "CompleteTreeArray BF=2" {
     try t.eq(tree.getParent(3), 1);
 
     // Get siblings.
-    try t.eqSlice(u32, tree.getSiblings(0, &buf), &[_]u32{ 0 });
+    try t.eqSlice(u32, tree.getSiblings(0, &buf), &[_]u32{0});
     try t.eqSlice(u32, tree.getSiblings(1, &buf), &[_]u32{ 1, 2 });
     try t.eqSlice(u32, tree.getSiblings(2, &buf), &[_]u32{ 1, 2 });
-    try t.eqSlice(u32, tree.getSiblings(3, &buf), &[_]u32{ 3 });
+    try t.eqSlice(u32, tree.getSiblings(3, &buf), &[_]u32{3});
 
     try t.eq(tree.getDepth(), 2);
     try t.eq(tree.getDepthAt(0), 0);
@@ -342,7 +341,6 @@ test "CompleteTreeArray BF=2" {
 }
 
 test "CompleteTreeArray BF=3" {
-
     var tree = CompleteTreeArray(3, u32).init(t.alloc);
     defer tree.deinit();
 
@@ -380,11 +378,11 @@ test "CompleteTreeArray BF=3" {
     try t.eq(tree.getParent(4), 1);
 
     // Get siblings.
-    try t.eqSlice(u32, tree.getSiblings(0, &buf), &[_]u32{ 0 });
+    try t.eqSlice(u32, tree.getSiblings(0, &buf), &[_]u32{0});
     try t.eqSlice(u32, tree.getSiblings(1, &buf), &[_]u32{ 1, 2, 3 });
     try t.eqSlice(u32, tree.getSiblings(2, &buf), &[_]u32{ 1, 2, 3 });
     try t.eqSlice(u32, tree.getSiblings(3, &buf), &[_]u32{ 1, 2, 3 });
-    try t.eqSlice(u32, tree.getSiblings(4, &buf), &[_]u32{ 4 });
+    try t.eqSlice(u32, tree.getSiblings(4, &buf), &[_]u32{4});
 
     try t.eq(tree.getDepth(), 2);
     try t.eq(tree.getDepthAt(13), 3);

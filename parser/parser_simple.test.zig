@@ -14,14 +14,14 @@ const grammars = @import("grammars.zig");
 const _ast = @import("ast.zig");
 
 test "Parse zig simple" {
-    const src = 
+    const src =
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
         \\  const stdout = std.io.getStdOut().writer();
         \\  try stdout.print("Hello, {s}!\n", .{"world"});
         \\}
-        ;
+    ;
 
     var str_buf = std.ArrayList(u8).init(t.alloc);
     defer str_buf.deinit();
@@ -60,7 +60,7 @@ test "Parse zig simple" {
     // buf.clearRetainingCapacity();
     // ast.formatTree(buf.writer());
     // log.warn("{s}", .{buf.items});
-    
+
     const ast = res.ast;
     const stmts = ast.getChildNodeList(ast.mb_root.?, 0);
     try t.eq(stmts.len, 2);
@@ -70,15 +70,15 @@ test "Parse zig simple" {
 }
 
 // test "Parse Typescript" {
-    // const ts =
-    //     \\type Item = {
-    //     \\  title: string,
-    //     \\  data: any,
-    //     \\}
-    //     \\function do(arg: string): Item {
-    //     \\  if (arg == 'foo') {
-    //     \\      return 123;
-    //     \\  }
-    //     \\}
-    //     ;
+// const ts =
+//     \\type Item = {
+//     \\  title: string,
+//     \\  data: any,
+//     \\}
+//     \\function do(arg: string): Item {
+//     \\  if (arg == 'foo') {
+//     \\      return 123;
+//     \\  }
+//     \\}
+//     ;
 // }

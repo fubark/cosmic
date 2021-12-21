@@ -190,7 +190,7 @@ pub fn bindBuffer(target: c.GLenum, buffer: c.GLuint) void {
     }
 }
 
-pub fn bufferData(target: c.GLenum, size: c.GLsizeiptr, data: ?*const c_void, usage: c.GLenum) void {
+pub fn bufferData(target: c.GLenum, size: c.GLsizeiptr, data: ?*const anyopaque, usage: c.GLenum) void {
     if (builtin.os.tag == .windows) {
         winBufferData(target, size, data, usage);
     } else {
@@ -262,7 +262,7 @@ pub fn genBuffers(n: c.GLsizei, buffers: [*c]c.GLuint) void {
     }
 }
 
-pub fn vertexAttribPointer(index: c.GLuint, size: c.GLint, @"type": c.GLenum, normalized: c.GLboolean, stride: c.GLsizei, pointer: ?*const c_void) void {
+pub fn vertexAttribPointer(index: c.GLuint, size: c.GLint, @"type": c.GLenum, normalized: c.GLboolean, stride: c.GLsizei, pointer: ?*const anyopaque) void {
     if (builtin.os.tag == .windows) {
         winVertexAttribPointer(index, size, @"type", normalized, stride, pointer);
     } else {
@@ -325,7 +325,7 @@ var winShaderSource: fn (shader: c.GLuint, count: c.GLsizei, string: [*c]const [
 var winCompileShader: fn (shader: c.GLuint) void = undefined;
 var winGetShaderiv: fn (shader: c.GLuint, pname: c.GLenum, params: [*c]c.GLint) void = undefined;
 var winBindBuffer: fn (target: c.GLenum, buffer: c.GLuint) void = undefined;
-var winBufferData: fn (target: c.GLenum, size: c.GLsizeiptr, data: ?*const c_void, usage: c.GLenum) void = undefined;
+var winBufferData: fn (target: c.GLenum, size: c.GLsizeiptr, data: ?*const anyopaque, usage: c.GLenum) void = undefined;
 var winUniformMatrix4fv: fn (location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void = undefined;
 var winUniform1i: fn (location: c.GLint, v0: c.GLint) void = undefined;
 var winGenBuffers: fn (n: c.GLsizei, buffers: [*c]c.GLuint) void = undefined;
@@ -333,7 +333,7 @@ var winDeleteBuffers: fn (n: c.GLsizei, buffers: [*c]const c.GLuint) void = unde
 var winBlendEquation: fn (mode: c.GLenum) void = undefined;
 var winBlitFramebuffer: fn (srcX0: c.GLint, srcY0: c.GLint, srcX1: c.GLint, srcY1: c.GLint, dstX0: c.GLint, dstY0: c.GLint, dstX1: c.GLint, dstY1: c.GLint, mask: c.GLbitfield, filter: c.GLenum) void = undefined;
 var winDeleteVertexArrays: fn (n: c.GLsizei, arrays: [*c]const c.GLuint) void = undefined;
-var winVertexAttribPointer: fn (index: c.GLuint, size: c.GLint, @"type": c.GLenum, normalized: c.GLboolean, stride: c.GLsizei, pointer: ?*const c_void) void = undefined;
+var winVertexAttribPointer: fn (index: c.GLuint, size: c.GLint, @"type": c.GLenum, normalized: c.GLboolean, stride: c.GLsizei, pointer: ?*const anyopaque) void = undefined;
 var winBindVertexArray: fn (array: c.GLuint) void = undefined;
 var winDetachShader: fn (program: c.GLuint, shader: c.GLuint) void = undefined;
 var winFramebufferTexture2D: fn (target: c.GLenum, attachment: c.GLenum, textarget: c.GLenum, texture: c.GLuint, level: c.GLint) void = undefined;
@@ -376,7 +376,7 @@ pub fn initWinGL_Functions() void {
     ptrCastTo(&winDeleteBuffers, sdl.SDL_GL_GetProcAddress("glDeleteBuffers").?);
     ptrCastTo(&winBlitFramebuffer, sdl.SDL_GL_GetProcAddress("glBlitFramebuffer").?);
     ptrCastTo(&winBlendEquation, sdl.SDL_GL_GetProcAddress("glBlendEquation").?);
-    ptrCastTo(&winUniformMatrix4fv ,sdl.SDL_GL_GetProcAddress("glUniformMatrix4fv").?);
+    ptrCastTo(&winUniformMatrix4fv, sdl.SDL_GL_GetProcAddress("glUniformMatrix4fv").?);
     ptrCastTo(&winUniform1i, sdl.SDL_GL_GetProcAddress("glUniform1i").?);
     ptrCastTo(&winBufferData, sdl.SDL_GL_GetProcAddress("glBufferData").?);
 }

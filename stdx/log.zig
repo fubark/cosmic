@@ -6,7 +6,6 @@ const UseStd = builtin.target.cpu.arch != .wasm32;
 
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
-
         pub fn debug(comptime format: []const u8, args: anytype) void {
             if (UseStd) {
                 std.log.scoped(Scope).debug(format, args);

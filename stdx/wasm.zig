@@ -239,7 +239,7 @@ const PromiseInternal = struct {
     num_deps: u32,
     cur_resolved_deps: u32,
     child_deps_list_id: ?PromiseDepId,
-    then_copy_to: ?*c_void,
+    then_copy_to: ?*anyopaque,
     data_ptr: ds.SizedPtr,
     auto_free: bool,
     resolved: bool,

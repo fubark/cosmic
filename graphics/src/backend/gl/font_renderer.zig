@@ -68,7 +68,7 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapF
 
     // negative y indicates upwards dist from baseline.
     // positive y indicates downwards dist from baseline.
-    // x0, y0 represents top left. 
+    // x0, y0 represents top left.
     // x1, y1 represents bot right.
     var x0: c_int = 0;
     var y0: c_int = 0;
@@ -88,9 +88,7 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapF
 
     // Don't include our extra padding when blitting to bitmap with stbtt.
     const buf_offset = (glyph_x + Glyph.Padding) + (glyph_y + Glyph.Padding) * fc.main_atlas.width;
-    stbtt.stbtt_MakeGlyphBitmap(&font.stbtt_font, &fc.main_atlas.buf[buf_offset],
-        @intCast(c_int, glyph_width - Glyph.Padding), @intCast(c_int, glyph_height - Glyph.Padding),
-        @intCast(c_int, fc.main_atlas.width), scale, scale, glyph_id);
+    stbtt.stbtt_MakeGlyphBitmap(&font.stbtt_font, &fc.main_atlas.buf[buf_offset], @intCast(c_int, glyph_width - Glyph.Padding), @intCast(c_int, glyph_height - Glyph.Padding), @intCast(c_int, fc.main_atlas.width), scale, scale, glyph_id);
     fc.main_atlas.copyToCanonicalBuffer(glyph_x, glyph_y, glyph_width, glyph_height);
 
     const h_metrics = font.ttf_font.getGlyphHMetrics(glyph_id);
@@ -143,8 +141,11 @@ fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, bm_font: *const Bit
         // Copy into atlas bitmap.
         const bitmap_len = @intCast(usize, src_width * src_height * channels);
         fc.color_atlas.copySubImageFrom(
-            glyph_x + Glyph.Padding, glyph_y + Glyph.Padding,
-            @intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len],
+            glyph_x + Glyph.Padding,
+            glyph_y + Glyph.Padding,
+            @intCast(usize, src_width),
+            @intCast(usize, src_height),
+            bitmap[0..bitmap_len],
         );
 
         // const h_metrics = font.ttf_font.getGlyphHMetrics(glyph_id);

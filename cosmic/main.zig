@@ -191,7 +191,7 @@ fn usage() void {
 }
 
 fn version() void {
-    printFmt("cosmic {s}\nv8 {s}\n", .{VersionText, v8.getVersion()});
+    printFmt("cosmic {s}\nv8 {s}\n", .{ VersionText, v8.getVersion() });
 }
 
 pub fn abortFmt(comptime format: []const u8, args: anytype) noreturn {

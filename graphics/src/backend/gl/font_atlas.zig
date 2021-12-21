@@ -109,7 +109,7 @@ pub const FontAtlas = struct {
             // self.dumpBufferToDisk("font_cache.bmp");
 
             // Increase buffer height.
-            self.resizeLocalBuffer(self.width, self.height*2);
+            self.resizeLocalBuffer(self.width, self.height * 2);
             return self.nextPosForSize(glyph_width, glyph_height);
         }
         defer self.advancePos(glyph_width, glyph_height);
@@ -128,7 +128,7 @@ pub const FontAtlas = struct {
         var row: usize = y;
         while (row < y + height) : (row += 1) {
             const offset = x + row * self.width;
-            for (self.buf[offset..offset+width]) |it, i| {
+            for (self.buf[offset .. offset + width]) |it, i| {
                 const start_idx = (offset + i) * 4;
                 self.gl_buf[start_idx + 0] = 255;
                 self.gl_buf[start_idx + 1] = 255;
@@ -151,8 +151,8 @@ pub const FontAtlas = struct {
         var y: usize = 0;
         var buf_offset: usize = (bm_x + bm_y * self.width) * self.channels;
         var src_offset: usize = 0;
-        while (y < height) : (y += 1){
-            std.mem.copy(u8, self.buf[buf_offset..buf_offset + src_offset_inc], src[src_offset..src_offset+src_offset_inc]);
+        while (y < height) : (y += 1) {
+            std.mem.copy(u8, self.buf[buf_offset .. buf_offset + src_offset_inc], src[src_offset .. src_offset + src_offset_inc]);
             buf_offset += buf_offset_inc;
             src_offset += src_offset_inc;
         }

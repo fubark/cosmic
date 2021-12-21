@@ -45,8 +45,12 @@ pub fn walkPre(
     };
     var ctx: VisitContext(Config) = .{};
     var state = S{
-        .queuer = &queuer.iface, .buf = buf, .walker = walker,
-        .ctx = &ctx, .user_ctx = user_ctx, .user_visit = user_visit,
+        .queuer = &queuer.iface,
+        .buf = buf,
+        .walker = walker,
+        .ctx = &ctx,
+        .user_ctx = user_ctx,
+        .user_visit = user_visit,
     };
     buf.clearRetainingCapacity();
     state.walk(root);
@@ -78,7 +82,7 @@ test "walkPreAlloc" {
     defer res.deinit();
     walkPreAlloc(t.alloc, .{}, *std.ArrayList(u32), &res, TestNode, TestGraph, TestWalker.getIface(), S.visit);
 
-    try t.eqSlice(u32, res.items, &[_]u32{1, 2, 4, 3});
+    try t.eqSlice(u32, res.items, &[_]u32{ 1, 2, 4, 3 });
 }
 
 // Uses a bit_buf to track whether a node in the stack has pushed its children onto the stack.
@@ -110,12 +114,12 @@ pub fn walkPost(
             self.queuer.addNodes(&.{node});
             self.bit_buf.appendUnset() catch unreachable;
             while (self.buf.items.len > 0) {
-                if (self.bit_buf.isSet(self.buf.items.len-1)) {
+                if (self.bit_buf.isSet(self.buf.items.len - 1)) {
                     const last = self.buf.pop();
                     self.user_visit(self.ctx, self.user_ctx, last);
                 } else {
-                    const last = self.buf.items[self.buf.items.len-1];
-                    self.bit_buf.set(self.buf.items.len-1);
+                    const last = self.buf.items[self.buf.items.len - 1];
+                    self.bit_buf.set(self.buf.items.len - 1);
                     const last_len = self.buf.items.len;
                     self.walker.walk(last);
                     self.bit_buf.resize(self.buf.items.len) catch unreachable;
@@ -126,8 +130,13 @@ pub fn walkPost(
     };
     var ctx: VisitContext(Config) = .{};
     var state = S{
-        .queuer = &queuer.iface, .buf = buf, .bit_buf = bit_buf, .walker = walker,
-        .ctx = &ctx, .user_ctx = user_ctx, .user_visit = user_visit,
+        .queuer = &queuer.iface,
+        .buf = buf,
+        .bit_buf = bit_buf,
+        .walker = walker,
+        .ctx = &ctx,
+        .user_ctx = user_ctx,
+        .user_visit = user_visit,
     };
     buf.clearRetainingCapacity();
     bit_buf.clearRetainingCapacity();
@@ -162,7 +171,7 @@ test "walkPostAlloc" {
     defer res.deinit();
     walkPostAlloc(t.alloc, .{}, *std.ArrayList(u32), &res, TestNode, TestGraph, TestWalker.getIface(), S.visit);
 
-    try t.eqSlice(u32, res.items, &[_]u32{4, 2, 3, 1});
+    try t.eqSlice(u32, res.items, &[_]u32{ 4, 2, 3, 1 });
 }
 
 // Uses a bit_buf to track whether a node in the stack has pushed its children onto the stack.
@@ -196,15 +205,15 @@ pub fn walkPrePost(
             self.queuer.addNodes(&.{node});
             self.bit_buf.appendUnset() catch unreachable;
             while (self.buf.items.len > 0) {
-                if (self.bit_buf.isSet(self.buf.items.len-1)) {
+                if (self.bit_buf.isSet(self.buf.items.len - 1)) {
                     const last = self.buf.pop();
                     self.ctx.enter = false;
                     self.user_visit(self.ctx, self.user_ctx, last);
                 } else {
-                    const last = self.buf.items[self.buf.items.len-1];
+                    const last = self.buf.items[self.buf.items.len - 1];
                     self.ctx.enter = true;
                     self.user_visit(self.ctx, self.user_ctx, last);
-                    self.bit_buf.set(self.buf.items.len-1);
+                    self.bit_buf.set(self.buf.items.len - 1);
 
                     if (Config.enable_skip and self.ctx.skipped) {
                         _ = self.buf.pop();
@@ -222,8 +231,13 @@ pub fn walkPrePost(
     };
     var ctx: VisitContext(Config) = .{};
     var state = S{
-        .queuer = &queuer.iface, .buf = buf, .bit_buf = bit_buf, .walker = walker,
-        .ctx = &ctx, .user_ctx = user_ctx, .user_visit = user_visit,
+        .queuer = &queuer.iface,
+        .buf = buf,
+        .bit_buf = bit_buf,
+        .walker = walker,
+        .ctx = &ctx,
+        .user_ctx = user_ctx,
+        .user_visit = user_visit,
     };
     buf.clearRetainingCapacity();
     bit_buf.clearRetainingCapacity();
@@ -258,7 +272,7 @@ test "walkPrePostAlloc" {
     defer res.deinit();
     walkPrePostAlloc(t.alloc, .{}, *std.ArrayList(u32), &res, TestNode, TestGraph, TestWalker.getIface(), S.visit);
 
-    try t.eqSlice(u32, res.items, &[_]u32{1, 2, 4, 4, 2, 3, 3, 1});
+    try t.eqSlice(u32, res.items, &[_]u32{ 1, 2, 4, 4, 2, 3, 3, 1 });
 }
 
 test "walkPrePostAlloc with skip" {
@@ -278,7 +292,7 @@ test "walkPrePostAlloc with skip" {
     defer res.deinit();
     walkPrePostAlloc(t.alloc, Config, *std.ArrayList(u32), &res, TestNode, TestGraph, TestWalker.getIface(), S.visit);
 
-    try t.eqSlice(u32, res.items, &[_]u32{1, 2, 3, 3, 1});
+    try t.eqSlice(u32, res.items, &[_]u32{ 1, 2, 3, 3, 1 });
 }
 
 pub const WalkerConfig = struct {
@@ -356,9 +370,9 @@ pub fn ReverseAddToBuffer(comptime Node: type) type {
 
 fn QueueIface(comptime Node: type) type {
     return struct {
-        begin_add_node_fn: fn(*@This(), u32) void,
-        add_node_fn: fn(*@This(), Node) void,
-        add_nodes_fn: fn(*@This(), []const Node) void,
+        begin_add_node_fn: fn (*@This(), u32) void,
+        add_node_fn: fn (*@This(), Node) void,
+        add_nodes_fn: fn (*@This(), []const Node) void,
 
         // When using addNode, a size is required if you want the order natural order to be FIFO.
         // You are then expected to supply that many nodes with addNode.
@@ -377,7 +391,7 @@ fn QueueIface(comptime Node: type) type {
 }
 
 fn UserVisit(comptime Config: WalkerConfig, comptime Context: type, comptime Node: type) type {
-    return fn(*VisitContext(Config), Context, Node) void;
+    return fn (*VisitContext(Config), Context, Node) void;
 }
 
 pub fn VisitContext(comptime Config: WalkerConfig) type {
@@ -407,7 +421,7 @@ pub fn VisitContext(comptime Config: WalkerConfig) type {
 }
 
 fn UserWalker(comptime Context: type, comptime Node: type) type {
-    return fn(*WalkerContext(Node), Context, Node) void;
+    return fn (*WalkerContext(Node), Context, Node) void;
 }
 
 pub fn WalkerContext(comptime Node: type) type {
@@ -466,8 +480,8 @@ pub fn Walker(comptime Context: type, comptime Node: type) type {
 
 pub fn WalkerIface(comptime Node: type) type {
     return struct {
-        walk_fn: fn(*@This(), node: Node) void,
-        set_queuer_fn: fn(*@This(), queuer: *QueueIface(Node)) void,
+        walk_fn: fn (*@This(), node: Node) void,
+        set_queuer_fn: fn (*@This(), queuer: *QueueIface(Node)) void,
 
         pub fn walk(self: *@This(), node: Node) void {
             self.walk_fn(self, node);
@@ -489,12 +503,10 @@ pub const TestGraph = TestNode{
     .children = &[_]TestNode{
         .{
             .val = 2,
-            .children = &[_]TestNode{
-                .{
-                    .val = 4,
-                    .children = &.{},
-                }
-            },
+            .children = &[_]TestNode{.{
+                .val = 4,
+                .children = &.{},
+            }},
         },
         .{
             .val = 3,

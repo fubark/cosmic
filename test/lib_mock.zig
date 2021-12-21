@@ -38,8 +38,6 @@ export fn glBlendFunc(sfactor: GLenum, dfactor: GLenum) void {
     _ = dfactor;
 }
 
-export fn lyon_init() void {
-}
+export fn lyon_init() void {}
 
-export fn lyon_deinit() void {
-}
+export fn lyon_deinit() void {}

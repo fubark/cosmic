@@ -63,5 +63,5 @@ pub fn isSpace(cp: u21) bool {
 pub fn printCodepoint(cp: u21) void {
     const buf: []u8 = undefined;
     _ = std.unicode.utf8Encode(cp, buf) catch unreachable;
-    log.debug("codepoint: {} {s}", .{cp, buf[0..std.unicode.utf8CodepointSequenceLength(cp)]});
+    log.debug("codepoint: {} {s}", .{ cp, buf[0..std.unicode.utf8CodepointSequenceLength(cp)] });
 }

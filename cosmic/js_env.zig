@@ -117,32 +117,32 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     ctx.setProp(instance, "b", undef_u32);
     ctx.setProp(instance, "a", undef_u32);
     ctx.setFuncT(color_class, "new", color_New);
-    const colors = &[_]std.meta.Tuple(&.{[]const u8, Color}){
-        .{"LightGray", Color.LightGray},
-        .{"Gray", Color.Gray},
-        .{"DarkGray", Color.DarkGray},
-        .{"Yellow", Color.Yellow},
-        .{"Gold", Color.Gold},
-        .{"Orange", Color.Orange},
-        .{"Pink", Color.Pink},
-        .{"Red", Color.Red},
-        .{"Maroon", Color.Maroon},
-        .{"Green", Color.Green},
-        .{"Lime", Color.Lime},
-        .{"DarkGreen", Color.DarkGreen},
-        .{"SkyBlue", Color.SkyBlue},
-        .{"Blue", Color.Blue},
-        .{"DarkBlue", Color.DarkBlue},
-        .{"Purple", Color.Purple},
-        .{"Violet", Color.Violet},
-        .{"DarkPurple", Color.DarkPurple},
-        .{"Beige", Color.Beige},
-        .{"Brown", Color.Brown},
-        .{"DarkBrown", Color.DarkBrown},
-        .{"White", Color.White},
-        .{"Black", Color.Black},
-        .{"Transparent", Color.Transparent},
-        .{"Magenta", Color.Magenta},
+    const colors = &[_]std.meta.Tuple(&.{ []const u8, Color }){
+        .{ "LightGray", Color.LightGray },
+        .{ "Gray", Color.Gray },
+        .{ "DarkGray", Color.DarkGray },
+        .{ "Yellow", Color.Yellow },
+        .{ "Gold", Color.Gold },
+        .{ "Orange", Color.Orange },
+        .{ "Pink", Color.Pink },
+        .{ "Red", Color.Red },
+        .{ "Maroon", Color.Maroon },
+        .{ "Green", Color.Green },
+        .{ "Lime", Color.Lime },
+        .{ "DarkGreen", Color.DarkGreen },
+        .{ "SkyBlue", Color.SkyBlue },
+        .{ "Blue", Color.Blue },
+        .{ "DarkBlue", Color.DarkBlue },
+        .{ "Purple", Color.Purple },
+        .{ "Violet", Color.Violet },
+        .{ "DarkPurple", Color.DarkPurple },
+        .{ "Beige", Color.Beige },
+        .{ "Brown", Color.Brown },
+        .{ "DarkBrown", Color.DarkBrown },
+        .{ "White", Color.White },
+        .{ "Black", Color.Black },
+        .{ "Transparent", Color.Transparent },
+        .{ "Magenta", Color.Magenta },
     };
     inline for (colors) |it| {
         ctx.setFuncGetter(color_class, it.@"0", it.@"1");
@@ -230,7 +230,7 @@ fn window_New(title: []const u8, width: u32, height: u32) v8.Object {
     return res.ptr.js_window.castToObject();
 }
 
-fn window_GetGraphics(this: v8.Object) *const c_void {
+fn window_GetGraphics(this: v8.Object) *const anyopaque {
     const isolate = rt.cur_isolate;
     const ctx = isolate.getCurrentContext();
 
@@ -242,7 +242,7 @@ fn window_GetGraphics(this: v8.Object) *const c_void {
         return window.js_graphics.handle;
     } else {
         v8.throwErrorExceptionFmt(rt.alloc, isolate, "Window no longer exists for id {}", .{window_id});
-        return @ptrCast(*const c_void, rt.js_undefined.handle);
+        return @ptrCast(*const anyopaque, rt.js_undefined.handle);
     }
 }
 
@@ -254,7 +254,7 @@ fn window_OnDrawFrame(this: v8.Object, arg: v8.Function) void {
     const res = rt.resources.get(window_id);
     if (res.tag == .CsWindow) {
         const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-        
+
         // Persist callback func.
         const p = v8.Persistent.init(isolate, arg);
         window.onDrawFrameCbs.append(p.castToFunction()) catch unreachable;
@@ -276,7 +276,7 @@ fn color_WithAlpha(this: v8.Object, a: u8) Color {
     return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.withAlpha(a);
 }
 
-fn color_New(r: u8, g: u8, b: u8, a: u8) *const c_void {
+fn color_New(r: u8, g: u8, b: u8, a: u8) *const anyopaque {
     return getJsValue(rt.cur_isolate, rt.cur_isolate.getCurrentContext(), Color.init(r, g, b, a));
 }
 
@@ -284,8 +284,11 @@ fn graphics_FillPolygon(g: *Graphics, pts: []const f32) void {
     rt.vec2_buf.resize(pts.len / 2) catch unreachable;
     var i: u32 = 0;
     var vec_idx: u32 = 0;
-    while (i < pts.len-1) : ({i += 2; vec_idx += 1;}) {
-        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i+1]);
+    while (i < pts.len - 1) : ({
+        i += 2;
+        vec_idx += 1;
+    }) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
     }
     g.fillPolygon(rt.vec2_buf.items);
 }
@@ -305,7 +308,7 @@ fn graphics_ExecuteDrawList(g: *Graphics, handle: v8.Object) void {
     g.executeDrawList(list.*);
 }
 
-fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) *const c_void {
+fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) *const anyopaque {
     const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
 
     const native_ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
@@ -335,8 +338,11 @@ fn graphics_DrawPolygon(g: *Graphics, pts: []const f32) void {
     rt.vec2_buf.resize(pts.len / 2) catch unreachable;
     var i: u32 = 0;
     var vec_idx: u32 = 0;
-    while (i < pts.len-1) : ({i += 2; vec_idx += 1;}) {
-        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i+1]);
+    while (i < pts.len - 1) : ({
+        i += 2;
+        vec_idx += 1;
+    }) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
     }
     g.drawPolygon(rt.vec2_buf.items);
 }
@@ -345,15 +351,18 @@ fn graphics_FillConvexPolygon(g: *Graphics, pts: []const f32) void {
     rt.vec2_buf.resize(pts.len / 2) catch unreachable;
     var i: u32 = 0;
     var vec_idx: u32 = 0;
-    while (i < pts.len-1) : ({i += 2; vec_idx += 1;}) {
-        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i+1]);
+    while (i < pts.len - 1) : ({
+        i += 2;
+        vec_idx += 1;
+    }) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
     }
     g.fillConvexPolygon(rt.vec2_buf.items);
 }
 
 /// Path can be absolute or relative to the current executing script.
 fn resolveEnvPath(path: []const u8) []const u8 {
-    return std.fs.path.resolve(rt.alloc, &.{rt.cur_script_dir_abs, path}) catch unreachable;
+    return std.fs.path.resolve(rt.alloc, &.{ rt.cur_script_dir_abs, path }) catch unreachable;
 }
 
 /// Resolves '..' in paths and returns an absolute path.
@@ -365,7 +374,7 @@ fn files_ResolvePath(path: []const u8) ?[]const u8 {
 /// Path can be absolute or relative to the cwd.
 /// Returns the contents on success or false.
 fn files_ReadFile(path: []const u8) ?[]const u8 {
-    return std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch(err) {
+    return std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
         // Whitelist errors to silence.
         error.FileNotFound => return null,
         else => unreachable,
@@ -442,7 +451,7 @@ fn files_EnsurePath(path: []const u8) bool {
         else => {
             v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "{}", .{err});
             return false;
-        }
+        },
     };
     return true;
 }
@@ -494,7 +503,7 @@ fn createTest(name: []const u8, cb: v8.Function) void {
     } else {
         const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
         defer rt.alloc.free(err_str);
-        printFmt("Test: {s}\n{s}", .{name_dupe, err_str});
+        printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
     }
 }
 
@@ -614,7 +623,7 @@ fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: a
                 return val.castToObject();
             } else return null;
         },
-        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{@typeName(@TypeOf(val)), @typeName(T)})),
+        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) })),
     }
 }
 
@@ -624,7 +633,7 @@ pub fn genJsSetter(comptime native_cb: anytype) v8.AccessorNameSetterCallback {
     const HasPtr = Args.len > 0 and comptime std.meta.trait.isSingleItemPtr(Args[0].arg_type.?);
     const Param = if (HasPtr) Args[1].arg_type.? else Args[0].arg_type.?;
     const gen = struct {
-        fn set(_: ?*const v8.Name, value: ?*const c_void, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
+        fn set(_: ?*const v8.Name, value: ?*const anyopaque, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
             const isolate = info.getIsolate();
             const ctx = isolate.getCurrentContext();
@@ -676,7 +685,7 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
 }
 
 /// Returns raw value pointer so we don't need to convert back to a v8.Value.
-pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *const c_void {
+pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *const anyopaque {
     const Type = @TypeOf(native_val);
     switch (Type) {
         u32 => return v8.Integer.initU32(isolate, native_val).handle,
@@ -710,7 +719,7 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
             defer rt.alloc.free(native_val);
             return v8.String.initUtf8(isolate, native_val).handle;
         },
-        *const c_void => {
+        *const anyopaque => {
             return native_val;
         },
         else => {
@@ -718,12 +727,12 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
                 if (native_val) |child_val| {
                     return getJsValue(isolate, ctx, child_val);
                 } else {
-                    return @ptrCast(*const c_void, rt.js_false.handle);
+                    return @ptrCast(*const anyopaque, rt.js_false.handle);
                 }
             } else {
                 comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
             }
-        }
+        },
     }
 }
 
@@ -836,7 +845,7 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
 
             var native_args: arg_types_t = undefined;
             if (has_this_arg) {
-                @field(native_args, arg_fields[0].name) = info.getThis(); 
+                @field(native_args, arg_fields[0].name) = info.getThis();
             } else if (has_ptr) {
                 const Ptr = arg_fields[0].field_type;
                 const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);

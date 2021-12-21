@@ -25,11 +25,11 @@ pub const DrawCommandList = struct {
     }
 
     pub fn getCommand(self: Self, comptime Tag: DrawCommand, ptr: DrawCommandPtr) DrawCommandData(Tag) {
-        return @ptrCast(*const DrawCommandData(Tag), self.cmd_data[ptr.id..][0..@sizeOf(DrawCommandData(Tag))/4]).*;
+        return @ptrCast(*const DrawCommandData(Tag), self.cmd_data[ptr.id..][0 .. @sizeOf(DrawCommandData(Tag)) / 4]).*;
     }
 
     pub fn getExtraData(self: Self, start_id: u32, len: u32) []const f32 {
-        return self.extra_data[start_id..start_id+len];
+        return self.extra_data[start_id .. start_id + len];
     }
 };
 

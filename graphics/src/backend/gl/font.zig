@@ -94,7 +94,7 @@ pub const Font = struct {
     name: stdx.string.BoxString,
     data: []const u8,
     alloc: std.mem.Allocator,
-    
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const u8) void {
         // Dupe font data since we will be continually querying data from it.
         const own_data = alloc.dupe(u8, data) catch unreachable;

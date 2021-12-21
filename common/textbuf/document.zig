@@ -190,7 +190,7 @@ pub const Document = struct {
         };
     }
 
-    // Assumes already balanced line tree except new leaf node. 
+    // Assumes already balanced line tree except new leaf node.
     // Assumes new leaf was created to come after target leaf.
     // If new leaf is after target, then we need to shift every node AFTER target downwards to the new node.
     // Then new node is moved to the node AFTER target.
@@ -209,16 +209,16 @@ pub const Document = struct {
 
             // First node that moves to the new node is special since all it's num lines is reported to parent.
             var node = self.line_tree.getNodePtr(leaves[i]);
-            node.* = self.line_tree.getNode(leaves[i+1]);
+            node.* = self.line_tree.getNode(leaves[i + 1]);
             self.updateParentNumLines(leaves[i], @intCast(i32, node.Leaf.chunk.size));
             i += 1;
-            
+
             // Shift the rest upwards.
             while (leaves[i] != after_target) : (i += 1) {
                 // log.warn("i={} cur_node={} target={}", .{i, leaves[i], after_target});
                 node = self.line_tree.getNodePtr(leaves[i]);
                 const last_num_lines = node.Leaf.chunk.size;
-                node.* = self.line_tree.getNode(leaves[i+1]);
+                node.* = self.line_tree.getNode(leaves[i + 1]);
                 self.updateParentNumLines(leaves[i], @intCast(i32, node.Leaf.chunk.size) - @intCast(i32, last_num_lines));
             }
 
@@ -234,7 +234,7 @@ pub const Document = struct {
             // First node that moves to the new node is special since all it's num lines is reported to parent.
             if (leaves[i] != after_target + 1) {
                 var node = self.line_tree.getNodePtr(leaves[i]);
-                node.* = self.line_tree.getNode(leaves[i-1]);
+                node.* = self.line_tree.getNode(leaves[i - 1]);
                 self.updateParentNumLines(leaves[i], @intCast(i32, node.Leaf.chunk.size));
                 i -= 1;
 
@@ -243,7 +243,7 @@ pub const Document = struct {
                 while (leaves[i] != after_target + 1) : (i -= 1) {
                     node = self.line_tree.getNodePtr(leaves[i]);
                     const last_num_lines = node.Leaf.chunk.size;
-                    node.* = self.line_tree.getNode(leaves[i-1]);
+                    node.* = self.line_tree.getNode(leaves[i - 1]);
                     self.updateParentNumLines(leaves[i], @intCast(i32, node.Leaf.chunk.size) - @intCast(i32, last_num_lines));
                 }
 
@@ -513,14 +513,13 @@ pub const Document = struct {
             return self.str_buf.items;
         }
     }
-
 };
 
 test "Document" {
     const src =
         \\This is a document.
         \\This is the second line.
-        ;
+    ;
 
     var doc: Document = undefined;
     doc.init(t.alloc);

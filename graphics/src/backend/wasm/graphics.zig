@@ -352,35 +352,23 @@ pub const Graphics = struct {
             offset += 4;
         }
 
-        const last = self.text_measures_buffer.items[self.text_measures_buffer.items.len-1];
+        const last = self.text_measures_buffer.items[self.text_measures_buffer.items.len - 1];
         self.cur_font_gid = last.font_gid;
         self.cur_font_size = last.font_size;
     }
 
     fn setClearColor(self: *Self, color: Color) void {
         _ = self;
-        jsSetClearColor(
-            @intToFloat(f32, color.channels.r),
-            @intToFloat(f32, color.channels.g),
-            @intToFloat(f32, color.channels.b),
-            @intToFloat(f32, color.channels.a) / 255);
+        jsSetClearColor(@intToFloat(f32, color.channels.r), @intToFloat(f32, color.channels.g), @intToFloat(f32, color.channels.b), @intToFloat(f32, color.channels.a) / 255);
     }
 
     fn forceSetStrokeColor(self: *Self, color: Color) void {
-        jsStrokeStyle(
-            @intToFloat(f32, color.channels.r),
-            @intToFloat(f32, color.channels.g),
-            @intToFloat(f32, color.channels.b),
-            @intToFloat(f32, color.channels.a) / 255);
+        jsStrokeStyle(@intToFloat(f32, color.channels.r), @intToFloat(f32, color.channels.g), @intToFloat(f32, color.channels.b), @intToFloat(f32, color.channels.a) / 255);
         self.cur_stroke_color = color;
     }
 
     fn forceSetFillColor(self: *Self, color: Color) void {
-        jsFillStyle(
-            @intToFloat(f32, color.channels.r),
-            @intToFloat(f32, color.channels.g),
-            @intToFloat(f32, color.channels.b),
-            @intToFloat(f32, color.channels.a) / 255);
+        jsFillStyle(@intToFloat(f32, color.channels.r), @intToFloat(f32, color.channels.g), @intToFloat(f32, color.channels.b), @intToFloat(f32, color.channels.a) / 255);
         self.cur_fill_color = color;
     }
 

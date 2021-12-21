@@ -15,14 +15,14 @@ const document = @import("common").document;
 const Document = document.Document;
 
 test "Parser is_incremental=true" {
-    const src = 
+    const src =
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
         \\  const stdout = std.io.getStdOut().writer();
         \\  try stdout.print("Hello, {s}!\n", .{"world"});
         \\}
-        ;
+    ;
 
     var str_buf = std.ArrayList(u8).init(t.alloc);
     defer str_buf.deinit();
@@ -117,14 +117,14 @@ test "Parser is_incremental=true" {
 }
 
 test "Insert text" {
-    const src = 
+    const src =
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
         \\  const stdout = std.io.getStdOut().writer();
         \\  try stdout.print("Hello, {s}!\n", .{"world"});
         \\}
-        ;
+    ;
 
     var str_buf = std.ArrayList(u8).init(t.alloc);
     defer str_buf.deinit();
@@ -202,14 +202,14 @@ test "Insert text" {
 }
 
 test "Delete text" {
-    const src = 
+    const src =
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
         \\  const stdout = std.io.getStdOut().writer();
         \\  try stdout.print("Hello, {s}!\n", .{"world"});
         \\}
-        ;
+    ;
 
     var str_buf = std.ArrayList(u8).init(t.alloc);
     defer str_buf.deinit();

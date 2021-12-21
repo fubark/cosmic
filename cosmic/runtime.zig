@@ -9,7 +9,7 @@ const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
 const log = stdx.log.scoped(.runtime);
 
-// Manages runtime resources. 
+// Manages runtime resources.
 // Used by V8 callback functions.
 pub const RuntimeContext = struct {
     const Self = @This();
@@ -128,7 +128,7 @@ pub const RuntimeContext = struct {
         }
     }
 
-    pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const c_void) void {
+    pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
         var id: u32 = 0;
         while (id < self.weak_handles.data.items.len) : (id += 1) {
             if (self.weak_handles.hasItem(id)) {
@@ -232,7 +232,7 @@ pub const RuntimeContext = struct {
             },
             else => {
                 tmpl.set(js_key, value, v8.PropertyAttribute.ReadOnly);
-            }
+            },
         }
     }
 
@@ -250,14 +250,13 @@ pub const RuntimeContext = struct {
             },
             else => {
                 tmpl.set(js_key, value, v8.PropertyAttribute.None);
-            }
+            },
         }
     }
 };
 
 // Main loop for running user apps.
 pub fn runUserLoop(ctx: *RuntimeContext) void {
-
     var fps_limiter = graphics.DefaultFpsLimiter.init(60);
     var fps: u64 = 0;
 
@@ -295,7 +294,7 @@ pub fn runUserLoop(ctx: *RuntimeContext) void {
         ctx.active_graphics.beginFrame();
 
         for (ctx.active_window.onDrawFrameCbs.items) |onDrawFrame| {
-            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ctx.active_window.js_graphics.toValue(), v8.Number.init(isolate, @intToFloat(f64, fps)).toValue()}) orelse {
+            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ ctx.active_window.js_graphics.toValue(), v8.Number.init(isolate, @intToFloat(f64, fps)).toValue() }) orelse {
                 const trace = v8.getTryCatchErrorString(ctx.alloc, isolate, try_catch);
                 defer ctx.alloc.free(trace);
                 printFmt("{s}", .{trace});
@@ -321,7 +320,7 @@ const ResourceTag = enum {
 };
 
 const ResourceHandle = struct {
-    ptr: *c_void,
+    ptr: *anyopaque,
     tag: ResourceTag,
 };
 
@@ -388,11 +387,11 @@ pub fn printFmt(comptime format: []const u8, args: anytype) void {
 
 fn getSrcPathDirAbs(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
     if (std.fs.path.dirname(path)) |dir| {
-        return try std.fs.path.resolve(alloc, &.{ dir });
+        return try std.fs.path.resolve(alloc, &.{dir});
     } else {
         const cwd = try std.process.getCwdAlloc(alloc);
         defer alloc.free(cwd);
-        return try std.fs.path.resolve(alloc, &.{ cwd });
+        return try std.fs.path.resolve(alloc, &.{cwd});
     }
 }
 
@@ -522,7 +521,7 @@ var global_rt: RuntimeContext = undefined;
 const WeakHandle = struct {
     const Self = @This();
 
-    ptr: *const c_void,
+    ptr: *const anyopaque,
     tag: WeakHandleTag,
 
     fn deinit(self: *Self, rt: *RuntimeContext) void {

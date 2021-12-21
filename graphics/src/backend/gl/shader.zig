@@ -16,7 +16,7 @@ pub const Shader = struct {
     pub fn init(vert_src: []const u8, frag_src: []const u8) !Self {
         const vert_id = gl.createShader(gl.GL_VERTEX_SHADER);
         var src_len = @intCast(c_int, vert_src.len);
-        var srcs = [_][]const u8{ vert_src };
+        var srcs = [_][]const u8{vert_src};
         gl.shaderSource(vert_id, 1, @ptrCast(*[*c]const u8, &srcs), &src_len);
         gl.compileShader(vert_id);
 
@@ -34,7 +34,7 @@ pub const Shader = struct {
 
         const frag_id = gl.createShader(gl.GL_FRAGMENT_SHADER);
         src_len = @intCast(c_int, frag_src.len);
-        srcs = [_][]const u8{ frag_src };
+        srcs = [_][]const u8{frag_src};
         gl.shaderSource(frag_id, 1, @ptrCast(*[*c]const u8, &srcs), &src_len);
         gl.compileShader(frag_id);
         gl.getShaderiv(frag_id, gl.GL_COMPILE_STATUS, &res);

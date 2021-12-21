@@ -54,7 +54,7 @@ const TimerTrace = struct {
     pub fn endPrint(self: @This(), msg: []const u8) void {
         if (EnableTimerTrace) {
             const now = self.timer.read();
-            log.warn("{s}: {d:.3}ms", .{msg, @intToFloat(f32, now) / 1e6});
+            log.warn("{s}: {d:.3}ms", .{ msg, @intToFloat(f32, now) / 1e6 });
         }
     }
 };

@@ -1,5 +1,5 @@
 // https://github.com/ziglang/zig-spec/blob/master/grammar/grammar.y
-pub const ZigGrammar = 
+pub const ZigGrammar =
     \\Program { TopLevelStmt* }
     \\TopLevelStmt @inline { StructMember | Statement }
     \\VModifier { 'pub' }
@@ -159,7 +159,7 @@ pub const ZigGrammar =
     \\    '?'
     \\  }
     \\}
-    ;
+;
 
 // https://github.com/tree-sitter/tree-sitter-javascript/blob/master/grammar.js
 // https://github.com/tree-sitter/tree-sitter-typescript/blob/master/common/define-grammar.js
@@ -168,4 +168,4 @@ pub const ZigGrammar =
 // TODO: Typescript/js grammar
 pub const TypescriptGrammar =
     \\
-    ;
+;

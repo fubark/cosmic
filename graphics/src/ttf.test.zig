@@ -115,16 +115,16 @@ test "stbtt glyph sizing" {
     var cp = std.unicode.utf8Decode("h") catch unreachable;
     var glyph_id = (try font.getGlyphId(cp)).?;
     stbtt.stbtt_GetGlyphBitmapBox(&stbtt_font, glyph_id, 1, 1, &x0, &y0, &x1, &y1);
-    log.warn("h {},{} {},{}", .{x0, y0, x1, y1});
+    log.warn("h {},{} {},{}", .{ x0, y0, x1, y1 });
 
     cp = std.unicode.utf8Decode("Č") catch unreachable;
     glyph_id = (try font.getGlyphId(cp)).?;
     stbtt.stbtt_GetGlyphBitmapBox(&stbtt_font, glyph_id, 1, 1, &x0, &y0, &x1, &y1);
-    log.warn("Č {},{} {},{}", .{x0, y0, x1, y1});
+    log.warn("Č {},{} {},{}", .{ x0, y0, x1, y1 });
 
     const scale = font.getScaleToUserFontSize(32);
     cp = std.unicode.utf8Decode("|") catch unreachable;
     glyph_id = (try font.getGlyphId(cp)).?;
     stbtt.stbtt_GetGlyphBitmapBox(&stbtt_font, glyph_id, scale, scale, &x0, &y0, &x1, &y1);
-    log.warn("{},{} {},{}", .{x0, y0, x1, y1});
+    log.warn("{},{} {},{}", .{ x0, y0, x1, y1 });
 }

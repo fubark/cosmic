@@ -37,7 +37,7 @@ const BITMAP_FLAG_HORIZONTAL_METRICS: i8 = 1;
 
 pub const NAME_ID_FONT_FAMILY: u16 = 1;
 
-const FontError = error {
+const FontError = error{
     InvalidFont,
     Unsupported,
 };
@@ -61,7 +61,7 @@ const GlyphHMetrics = struct {
 const GlyphColorBitmap = struct {
     // In px units.
     width: u8,
-    height: u8, 
+    height: u8,
     left_side_bearing: i8,
     bearing_y: i8,
     advance_width: u8,
@@ -75,13 +75,13 @@ const GlyphColorBitmap = struct {
 const GlyphMapperIface = struct {
     const Self = @This();
 
-    ptr: *c_void,
-    get_glyph_id_fn: fn(*c_void, cp: u21) FontError!?u16,
+    ptr: *anyopaque,
+    get_glyph_id_fn: fn (*anyopaque, cp: u21) FontError!?u16,
 
     fn init(ptr: anytype) Self {
         const ImplPtr = @TypeOf(ptr);
         const gen = struct {
-            fn getGlyphId(_ptr: *c_void, cp: u21) FontError!?u16 {
+            fn getGlyphId(_ptr: *anyopaque, cp: u21) FontError!?u16 {
                 const self = stdx.mem.ptrCastAlign(ImplPtr, _ptr);
                 return self.getGlyphId(cp);
             }
@@ -165,10 +165,10 @@ pub const TTF_Font = struct {
 
         try new.loadTables(alloc);
 
-        new.ascender = fromBigI16(&data[new.hhea_offset+4]);
-        new.descender = fromBigI16(&data[new.hhea_offset+6]);
-        new.line_gap = fromBigI16(&data[new.hhea_offset+8]);
-        new.units_per_em = fromBigU16(&data[new.head_offset+18]);
+        new.ascender = fromBigI16(&data[new.hhea_offset + 4]);
+        new.descender = fromBigI16(&data[new.hhea_offset + 6]);
+        new.line_gap = fromBigI16(&data[new.hhea_offset + 8]);
+        new.units_per_em = fromBigU16(&data[new.head_offset + 18]);
         return new;
     }
 
@@ -196,16 +196,16 @@ pub const TTF_Font = struct {
         // If glyph_id >= num_hmetrics, then the advance is in the last hmetric record,
         // and left side bearing is in array following the hmetric records.
         // See https://docs.microsoft.com/en-us/typography/opentype/spec/hmtx
-        const num_hmetrics = fromBigU16(&self.data[self.hhea_offset+34]);
+        const num_hmetrics = fromBigU16(&self.data[self.hhea_offset + 34]);
         if (glyph_id < num_hmetrics) {
             return .{
-                .advance_width = fromBigU16(&self.data[self.hmtx_offset+4*glyph_id]),
-                .left_side_bearing = fromBigI16(&self.data[self.hmtx_offset+4*glyph_id+2]),
+                .advance_width = fromBigU16(&self.data[self.hmtx_offset + 4 * glyph_id]),
+                .left_side_bearing = fromBigI16(&self.data[self.hmtx_offset + 4 * glyph_id + 2]),
             };
         } else {
             return .{
-                .advance_width = fromBigU16(&self.data[self.hmtx_offset + 4*(num_hmetrics-1)]),
-                .left_side_bearing = fromBigI16(&self.data[self.hmtx_offset + 4*num_hmetrics + 2*(glyph_id - num_hmetrics)]),
+                .advance_width = fromBigU16(&self.data[self.hmtx_offset + 4 * (num_hmetrics - 1)]),
+                .left_side_bearing = fromBigI16(&self.data[self.hmtx_offset + 4 * num_hmetrics + 2 * (glyph_id - num_hmetrics)]),
             };
         }
     }
@@ -225,18 +225,18 @@ pub const TTF_Font = struct {
             return null;
         }
         // Retrieve bitmap location from cblc: https://docs.microsoft.com/en-us/typography/opentype/spec/cblc
-        const num_bitmap_records = fromBigU32(&self.data[self.cblc_offset.?+4]);
+        const num_bitmap_records = fromBigU32(&self.data[self.cblc_offset.? + 4]);
 
         // log.debug("bitmap records: {}", .{num_bitmap_records});
         var i: usize = 0;
         while (i < num_bitmap_records) : (i += 1) {
-            const b_offset = self.cblc_offset.? + 8 + i*48;
-            const start_glyph_id = fromBigU16(&self.data[b_offset+40]);
-            const end_glyph_id = fromBigU16(&self.data[b_offset+42]);
+            const b_offset = self.cblc_offset.? + 8 + i * 48;
+            const start_glyph_id = fromBigU16(&self.data[b_offset + 40]);
+            const end_glyph_id = fromBigU16(&self.data[b_offset + 42]);
 
-            const x_px_per_em = self.data[b_offset+44];
-            const y_px_per_em = self.data[b_offset+45];
-            const flags = @bitCast(i8, self.data[b_offset+47]);
+            const x_px_per_em = self.data[b_offset + 44];
+            const y_px_per_em = self.data[b_offset + 45];
+            const flags = @bitCast(i8, self.data[b_offset + 47]);
             if (flags != BITMAP_FLAG_HORIZONTAL_METRICS) {
                 // This record is not for horizontally text.
                 continue;
@@ -245,32 +245,32 @@ pub const TTF_Font = struct {
 
             if (glyph_id >= start_glyph_id and glyph_id <= end_glyph_id) {
                 // Scan more granular range in index subtables.
-                const ist_start_offset = self.cblc_offset.? + fromBigU32(&self.data[b_offset+0]);
-                const num_index_subtables = fromBigU32(&self.data[b_offset+8]);
+                const ist_start_offset = self.cblc_offset.? + fromBigU32(&self.data[b_offset + 0]);
+                const num_index_subtables = fromBigU32(&self.data[b_offset + 8]);
                 // log.debug("num subtables: {}", .{num_index_subtables});
                 var ist_i: usize = 0;
                 while (ist_i < num_index_subtables) : (ist_i += 1) {
                     // Start by looking at the IndexSubTableArray
-                    const arr_offset = ist_start_offset + ist_i*8;
-                    const arr_start_glyph_id = fromBigU16(&self.data[arr_offset+0]);
-                    const arr_end_glyph_id = fromBigU16(&self.data[arr_offset+2]);
+                    const arr_offset = ist_start_offset + ist_i * 8;
+                    const arr_start_glyph_id = fromBigU16(&self.data[arr_offset + 0]);
+                    const arr_end_glyph_id = fromBigU16(&self.data[arr_offset + 2]);
                     // log.debug("glyph id: {}", .{glyph_id});
                     if (glyph_id >= arr_start_glyph_id and glyph_id <= arr_end_glyph_id) {
                         // log.debug("index subtable array {} {}", .{arr_start_glyph_id, arr_end_glyph_id});
-                        const ist_body_offset = ist_start_offset + fromBigU32(&self.data[arr_offset+4]);
-                        const index_format = fromBigU16(&self.data[ist_body_offset+0]);
-                        const image_format = fromBigU16(&self.data[ist_body_offset+2]);
-                        const image_data_start_offset = self.cbdt_offset.? + fromBigU32(&self.data[ist_body_offset+4]);
+                        const ist_body_offset = ist_start_offset + fromBigU32(&self.data[arr_offset + 4]);
+                        const index_format = fromBigU16(&self.data[ist_body_offset + 0]);
+                        const image_format = fromBigU16(&self.data[ist_body_offset + 2]);
+                        const image_data_start_offset = self.cbdt_offset.? + fromBigU32(&self.data[ist_body_offset + 4]);
                         // log.debug("format {} {}", .{index_format, image_format});
 
                         var glyph_data: []const u8 = undefined;
                         if (index_format == 1) {
                             const glyph_id_delta = glyph_id - arr_start_glyph_id;
-                            const glyph_data_offset = fromBigU32(&self.data[ist_body_offset+8+glyph_id_delta*4]);
+                            const glyph_data_offset = fromBigU32(&self.data[ist_body_offset + 8 + glyph_id_delta * 4]);
                             // There is always a data offset after the glyph, even the last glyph. Used to calculate glyph data size.
-                            const next_glyph_data_offset = fromBigU32(&self.data[ist_body_offset+8+(glyph_id_delta+1)*4]);
+                            const next_glyph_data_offset = fromBigU32(&self.data[ist_body_offset + 8 + (glyph_id_delta + 1) * 4]);
                             // log.debug("glyph data {} {}", .{glyph_data_offset, next_glyph_data_offset});
-                            glyph_data = self.data[image_data_start_offset+glyph_data_offset..image_data_start_offset+next_glyph_data_offset];
+                            glyph_data = self.data[image_data_start_offset + glyph_data_offset .. image_data_start_offset + next_glyph_data_offset];
                         } else {
                             return FontError.Unsupported;
                         }
@@ -312,24 +312,24 @@ pub const TTF_Font = struct {
     pub fn getNameString(self: *const Self, alloc: std.mem.Allocator, name_id: u16) ?string.BoxString {
         const pos = self.findTable("name".*) orelse return null;
         const data = self.data;
-        const count = fromBigU16(&data[pos+2]);
-        const string_data_pos = pos + fromBigU16(&data[pos+4]);
+        const count = fromBigU16(&data[pos + 2]);
+        const string_data_pos = pos + fromBigU16(&data[pos + 4]);
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            const loc = pos + 6 + 12*i;
+            const loc = pos + 6 + 12 * i;
             const platform_id = fromBigU16(&data[loc]);
-            const encoding_id = fromBigU16(&data[loc+2]);
+            const encoding_id = fromBigU16(&data[loc + 2]);
             // Currently only looks for unicode encoding.
             // https://github.com/RazrFalcon/fontdb/blob/master/src/lib.rs looks at mac roman as well.
             if (!isUnicodeEncoding(platform_id, encoding_id)) {
                 continue;
             }
             // const lang_id = fromBigU16(&data[loc+4]);
-            const it_name_id = fromBigU16(&data[loc+6]);
+            const it_name_id = fromBigU16(&data[loc + 6]);
             if (it_name_id == name_id) {
-                const len = fromBigU16(&data[loc+8]);
-                const str_pos = string_data_pos + fromBigU16(&data[loc+10]);
-                return fromBigUTF16(alloc, data[str_pos..str_pos+len]);
+                const len = fromBigU16(&data[loc + 8]);
+                const str_pos = string_data_pos + fromBigU16(&data[loc + 10]);
+                return fromBigUTF16(alloc, data[str_pos .. str_pos + len]);
             }
         }
         return null;
@@ -340,9 +340,7 @@ pub const TTF_Font = struct {
         return switch (platform_id) {
             PLATFORM_ID_UNICODE => true,
             PLATFORM_ID_WINDOWS => switch (encoding_id) {
-                WINDOWS_EID_SYMBOL,
-                WINDOWS_EID_UNICODE_BMP,
-                WINDOWS_EID_UNICODE_FULL_REPERTOIRE => true,
+                WINDOWS_EID_SYMBOL, WINDOWS_EID_UNICODE_BMP, WINDOWS_EID_UNICODE_FULL_REPERTOIRE => true,
                 else => false,
             },
             else => false,
@@ -350,7 +348,7 @@ pub const TTF_Font = struct {
     }
 
     // Only retrieves offset info.
-    // Returns error if minimum data isn't 
+    // Returns error if minimum data isn't
     fn loadTables(self: *Self, alloc: std.mem.Allocator) !void {
         var loaded_glyph_map = false;
         var found_hhea = false;
@@ -363,47 +361,47 @@ pub const TTF_Font = struct {
         }
         const data = self.data;
         const start = self.start;
-        const num_tables = fromBigU16(&data[start+4]);
+        const num_tables = fromBigU16(&data[start + 4]);
         const tabledir = start + 12;
         var i: usize = 0;
-        while (i < num_tables): (i += 1) {
-            const loc = tabledir + 16*i;
-            const val: [4]u8 = data[loc..loc+4][0..4].*;
+        while (i < num_tables) : (i += 1) {
+            const loc = tabledir + 16 * i;
+            const val: [4]u8 = data[loc .. loc + 4][0..4].*;
             if (std.meta.eql(val, "CBDT".*)) {
-                self.cbdt_offset = fromBigU32(&data[loc+8]);
+                self.cbdt_offset = fromBigU32(&data[loc + 8]);
             } else if (std.meta.eql(val, "CBLC".*)) {
-                self.cblc_offset = fromBigU32(&data[loc+8]);
+                self.cblc_offset = fromBigU32(&data[loc + 8]);
             } else if (std.meta.eql(val, "head".*)) {
-                self.head_offset = fromBigU32(&data[loc+8]);
+                self.head_offset = fromBigU32(&data[loc + 8]);
                 found_head = true;
             } else if (std.meta.eql(val, "hhea".*)) {
-                self.hhea_offset = fromBigU32(&data[loc+8]);
+                self.hhea_offset = fromBigU32(&data[loc + 8]);
                 found_hhea = true;
             } else if (std.meta.eql(val, "hmtx".*)) {
-                self.hmtx_offset = fromBigU32(&data[loc+8]);
+                self.hmtx_offset = fromBigU32(&data[loc + 8]);
                 found_hmtx = true;
             } else if (std.meta.eql(val, "glyf".*)) {
-                self.glyf_offset = fromBigU32(&data[loc+8]);
+                self.glyf_offset = fromBigU32(&data[loc + 8]);
             } else if (std.meta.eql(val, "CFF ".*)) {
-                self.cff_offset = fromBigU32(&data[loc+8]);
+                self.cff_offset = fromBigU32(&data[loc + 8]);
             } else if (std.meta.eql(val, "maxp".*)) {
-                const offset = fromBigU32(&data[loc+8]);
+                const offset = fromBigU32(&data[loc + 8]);
                 // https://docs.microsoft.com/en-us/typography/opentype/spec/maxp
-                self.num_glyphs = fromBigU16(&data[offset+4]);
+                self.num_glyphs = fromBigU16(&data[offset + 4]);
             } else if (std.meta.eql(val, "cmap".*)) {
-                const t_offset = fromBigU32(&data[loc+8]);
+                const t_offset = fromBigU32(&data[loc + 8]);
                 // https://docs.microsoft.com/en-us/typography/opentype/spec/cmap
                 const cmap_num_tables = fromBigU16(&data[t_offset + 2]);
 
                 var cmap_i: usize = 0;
                 // log.debug("cmap num tables: {}", .{cmap_num_tables});
-                while (cmap_i < cmap_num_tables): (cmap_i += 1) {
+                while (cmap_i < cmap_num_tables) : (cmap_i += 1) {
                     const r_offset = t_offset + 4 + cmap_i * 8;
                     const platform_id = fromBigU16(&data[r_offset]);
-                    const encoding_id = fromBigU16(&data[r_offset+2]);
+                    const encoding_id = fromBigU16(&data[r_offset + 2]);
                     // log.debug("platform: {} {}", .{platform_id, encoding_id});
                     if (isUnicodeEncoding(platform_id, encoding_id)) {
-                        const st_offset = t_offset + fromBigU32(&data[r_offset+4]);
+                        const st_offset = t_offset + fromBigU32(&data[r_offset + 4]);
                         const format = fromBigU16(&data[st_offset]);
                         // log.debug("format: {}", .{format});
                         if (format == 14) {
@@ -454,11 +452,11 @@ pub const TTF_Font = struct {
 
     pub fn printTables(self: *const Self) void {
         const start = self.start;
-        const num_tables = fromBigU16(&self.data[start+4]);
+        const num_tables = fromBigU16(&self.data[start + 4]);
         const tabledir = start + 12;
         var i: usize = 0;
-        while (i < num_tables): (i += 1) {
-            const loc = tabledir + 16*i;
+        while (i < num_tables) : (i += 1) {
+            const loc = tabledir + 16 * i;
             const val: [4]u8 = stdx.mem.to_array_ptr(u8, &self.data[loc], 4).*;
             log.debug("table {s}", .{val});
         }
@@ -467,14 +465,14 @@ pub const TTF_Font = struct {
     // Copied from stbtt__find_table
     fn findTable(self: *const Self, tag: [4]u8) ?usize {
         const start = self.start;
-        const num_tables = fromBigU16(&self.data[start+4]);
+        const num_tables = fromBigU16(&self.data[start + 4]);
         const tabledir = start + 12;
         var i: usize = 0;
-        while (i < num_tables): (i += 1) {
-            const loc = tabledir + 16*i;
-            const val: [4]u8 = self.data[loc..loc+4][0..4].*;
+        while (i < num_tables) : (i += 1) {
+            const loc = tabledir + 16 * i;
+            const val: [4]u8 = self.data[loc .. loc + 4][0..4].*;
             if (std.meta.eql(val, tag)) {
-                return fromBigU32(&self.data[loc+8]);
+                return fromBigU32(&self.data[loc + 8]);
             }
         }
         return null;
@@ -494,13 +492,13 @@ const SegmentGlyphMapper = struct {
     fn init(self: *Self, data: []const u8, offset: usize) void {
         self.* = .{
             .data = data,
-            .num_segments = fromBigU16(&data[offset+6]) >> 1,
+            .num_segments = fromBigU16(&data[offset + 6]) >> 1,
             .offset = offset,
         };
         // log.debug("num segments: {}", .{new.num_segments});
     }
 
-    // Does not cache records. 
+    // Does not cache records.
     fn getGlyphId(self: *Self, cp: u21) FontError!?u16 {
         // This mapping only supports utf basic codepoints.
         if (cp > std.math.maxInt(u16)) {
@@ -508,8 +506,8 @@ const SegmentGlyphMapper = struct {
         }
         const S = struct {
             fn compare(ctx: *const SegmentGlyphMapper, target_cp: u16, idx: usize) std.math.Order {
-                const end_code = fromBigU16(&ctx.data[ctx.offset + 14 + idx*2]);
-                const start_code = fromBigU16(&ctx.data[ctx.offset + 16 + (ctx.num_segments+idx)*2]);
+                const end_code = fromBigU16(&ctx.data[ctx.offset + 14 + idx * 2]);
+                const start_code = fromBigU16(&ctx.data[ctx.offset + 16 + (ctx.num_segments + idx) * 2]);
                 if (target_cp > end_code) {
                     return .gt;
                 } else if (target_cp < start_code) {
@@ -522,21 +520,21 @@ const SegmentGlyphMapper = struct {
         const cp16 = @intCast(u16, cp);
         if (algo.binarySearchByIndex(self.num_segments, cp16, self, S.compare)) |i| {
             // log.debug("i {}", .{i});
-            const start_code = fromBigU16(&self.data[self.offset + 16 + (self.num_segments+i)*2]);
-            const id_range_offsets_loc = self.offset + 16 + (self.num_segments*3)*2;
-            const id_range_offset_loc = id_range_offsets_loc + i*2;
+            const start_code = fromBigU16(&self.data[self.offset + 16 + (self.num_segments + i) * 2]);
+            const id_range_offsets_loc = self.offset + 16 + (self.num_segments * 3) * 2;
+            const id_range_offset_loc = id_range_offsets_loc + i * 2;
             const id_range_offset = fromBigU16(&self.data[id_range_offset_loc]);
             if (id_range_offset == 0) {
                 // Use id_delta
-                const id_deltas_loc = self.offset + 16 + (self.num_segments*2)*2;
+                const id_deltas_loc = self.offset + 16 + (self.num_segments * 2) * 2;
                 // although id_delta a i16, since it's modulo 2^8, we can interpret it as u16 and just add with overflow.
-                const id_delta = fromBigU16(&self.data[id_deltas_loc + i*2]);
+                const id_delta = fromBigU16(&self.data[id_deltas_loc + i * 2]);
                 var res: u16 = undefined;
                 _ = @addWithOverflow(u16, id_delta, cp16, &res);
                 return res;
             } else {
                 // Use id_range_offset
-                const glyph_offset = id_range_offset_loc + (cp16 - start_code)*2 + id_range_offset;
+                const glyph_offset = id_range_offset_loc + (cp16 - start_code) * 2 + id_range_offset;
                 return fromBigU16(&self.data[glyph_offset]);
             }
         } else {
@@ -557,7 +555,7 @@ const SegmentedCoverageGlyphMapper = struct {
     fn init(self: *Self, data: []const u8, offset: usize) void {
         self.* = .{
             .data = data,
-            .num_group_records = fromBigU32(&data[offset+12]),
+            .num_group_records = fromBigU32(&data[offset + 12]),
             .offset = offset,
         };
         // log.debug("num group records: {}", .{new.num_group_records});
@@ -568,12 +566,12 @@ const SegmentedCoverageGlyphMapper = struct {
         // TODO: groups are sorted by start char code so we can do binary search.
         var i: usize = 0;
         while (i < self.num_group_records) : (i += 1) {
-            const g_offset = self.offset + 16 + i*12;
+            const g_offset = self.offset + 16 + i * 12;
             const start_cp = fromBigU32(&self.data[g_offset]);
-            const end_cp = fromBigU32(&self.data[g_offset+4]);
+            const end_cp = fromBigU32(&self.data[g_offset + 4]);
             // log.debug("range {} {}", .{start_cp, end_cp});
             if (cp >= start_cp and cp <= end_cp) {
-                const start_glyph_id = fromBigU32(&self.data[g_offset+8]);
+                const start_glyph_id = fromBigU32(&self.data[g_offset + 8]);
                 const res = @intCast(u16, start_glyph_id + (cp - start_cp));
                 // log.debug("{} - {} {} - {} {}", .{cp, start_cp, end_cp, start_glyph_id, res});
                 return res;
@@ -598,7 +596,7 @@ const UvsGlyphMapper = struct {
     fn init(self: *Self, data: []const u8, offset: usize) *Self {
         self.* = .{
             .data = data,
-            .num_records = fromBigU32(&data.value[offset+6]),
+            .num_records = fromBigU32(&data.value[offset + 6]),
             .offset = offset,
         };
         log.debug("num uvs records: {}", .{self.num_records});
@@ -610,25 +608,25 @@ const UvsGlyphMapper = struct {
     fn getGlyphId(self: *Self, cp: u21, var_selector: u21) FontError!u16 {
         var i: usize = 0;
         while (i < self.num_records) : (i += 1) {
-            const vs_offset = self.offset + 10 + i*11;
+            const vs_offset = self.offset + 10 + i * 11;
 
             const record_var_selector = fromBigU24(&self.data.value[vs_offset]);
             if (var_selector != record_var_selector) {
                 continue;
             }
 
-            const def_offset = fromBigU32(&self.data.value[vs_offset+3]);
-            const non_def_offset = fromBigU32(&self.data.value[vs_offset+7]);
-            log.debug("def/nondef {} {}", .{def_offset, non_def_offset});
+            const def_offset = fromBigU32(&self.data.value[vs_offset + 3]);
+            const non_def_offset = fromBigU32(&self.data.value[vs_offset + 7]);
+            log.debug("def/nondef {} {}", .{ def_offset, non_def_offset });
             if (def_offset > 0) {
                 const num_range_records = fromBigU32(&self.data.value[self.offset + def_offset]);
 
                 var range_i: usize = 0;
                 while (range_i < num_range_records) : (range_i += 1) {
                     // TODO: since range records are ordered by starting cp, we can do binary search.
-                    const r_offset = self.offset + def_offset + 4 + range_i*4;
+                    const r_offset = self.offset + def_offset + 4 + range_i * 4;
                     const start_cp = fromBigU24(&self.data.value[r_offset]);
-                    const additional_count = self.data.value[r_offset+3];
+                    const additional_count = self.data.value[r_offset + 3];
                     if (cp >= start_cp and cp <= start_cp + additional_count) {
                         // TODO
                     }

@@ -174,7 +174,7 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
             next: ?Id,
             data: T,
         };
-        
+
         first: ?Id,
         items: CompactUnorderedList(Id, Item),
 

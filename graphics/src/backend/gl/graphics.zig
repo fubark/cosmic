@@ -82,7 +82,6 @@ pub const Graphics = struct {
 
     // We can initialize without gl calls for use in tests.
     pub fn init(self: *Self, alloc: std.mem.Allocator, buf_width: usize, buf_height: usize) void {
-
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
@@ -110,7 +109,7 @@ pub const Graphics = struct {
 
         const max_total_textures = gl.getMaxTotalTextures();
         const max_fragment_textures = gl.getMaxFragmentTextures();
-        log.debug("max frag textures: {}, max total textures: {}", .{max_fragment_textures, max_total_textures});
+        log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
 
         // Initialize shaders.
         self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
@@ -266,12 +265,12 @@ pub const Graphics = struct {
 
     pub fn setLineWidth(self: *Self, width: f32) void {
         self.cur_line_width = width;
-        self.cur_line_width_half = width * 0.5; 
+        self.cur_line_width_half = width * 0.5;
     }
 
     pub fn setFont(self: *Self, font_id: FontId) void {
         // Lookup font group single font.
-        const font_gid = self.font_cache.getOrLoadFontGroup(&.{ font_id });
+        const font_gid = self.font_cache.getOrLoadFontGroup(&.{font_id});
         self.setFontGroup(font_gid);
     }
 
@@ -374,7 +373,7 @@ pub const Graphics = struct {
             .tex_id = image.tex_id,
         };
     }
-    
+
     pub fn removeImage(self: *Self, id: ImageId) void {
         const image = self.images.get(id);
         self.deinitImage(image);
@@ -503,15 +502,15 @@ pub const Graphics = struct {
         // Top left corner.
         self.fillCircleSectorN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
-        self.fillRect(x, y + radius, radius, height - radius*2);
+        self.fillRect(x, y + radius, radius, height - radius * 2);
         // Bottom left corner.
         self.fillCircleSectorN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
         // Middle.
-        self.fillRect(x + radius, y, width - radius*2, height);
+        self.fillRect(x + radius, y, width - radius * 2, height);
         // Top right corner.
         self.fillCircleSectorN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
-        self.fillRect(x + width - radius, y + radius, radius, height - radius*2);
+        self.fillRect(x + width - radius, y + radius, radius, height - radius * 2);
         // Bottom right corner.
         self.fillCircleSectorN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
     }
@@ -520,17 +519,17 @@ pub const Graphics = struct {
         // Top left corner.
         self.drawCircleArcN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
-        self.fillRectColor(x - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius*2, self.cur_stroke_color);
+        self.fillRectColor(x - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
         // Bottom left corner.
         self.drawCircleArcN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
         // Top.
-        self.fillRectColor(x + radius, y - self.cur_line_width_half, width - radius*2, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectColor(x + radius, y - self.cur_line_width_half, width - radius * 2, self.cur_line_width, self.cur_stroke_color);
         // Bottom.
-        self.fillRectColor(x + radius, y + height - self.cur_line_width_half, width - radius*2, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectColor(x + radius, y + height - self.cur_line_width_half, width - radius * 2, self.cur_line_width, self.cur_stroke_color);
         // Top right corner.
         self.drawCircleArcN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
-        self.fillRectColor(x + width - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius*2, self.cur_stroke_color);
+        self.fillRectColor(x + width - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
         // Bottom right corner.
         self.drawCircleArcN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
     }
@@ -803,10 +802,14 @@ pub const Graphics = struct {
         } else {
             const normal = vec2(y2 - y1, x2 - x1).toLength(self.cur_line_width_half);
             self.fillQuad(
-                x1 + normal.x, y1 - normal.y,
-                x1 - normal.x, y1 + normal.y,
-                x2 - normal.x, y2 + normal.y,
-                x2 + normal.x, y2 - normal.y,
+                x1 + normal.x,
+                y1 - normal.y,
+                x1 - normal.x,
+                y1 + normal.y,
+                x2 - normal.x,
+                y2 + normal.y,
+                x2 + normal.x,
+                y2 - normal.y,
                 self.cur_stroke_color,
             );
         }
@@ -946,8 +949,7 @@ pub const Graphics = struct {
                     last_control_pos.x = prev_x + data.cb_x;
                     last_control_pos.y = prev_y + data.cb_y;
                     cmd_is_curveto = true;
-                    lyon.cubicBezierTo(b, &pt(prev_x + data.ca_x, prev_y + data.ca_y),
-                        &last_control_pos, &cur_pos);
+                    lyon.cubicBezierTo(b, &pt(prev_x + data.ca_x, prev_y + data.ca_y), &last_control_pos, &cur_pos);
                 },
                 .SmoothCurveTo => {
                     const data = path.getData(.SmoothCurveTo, cur_data_idx);
@@ -1264,8 +1266,7 @@ pub const Graphics = struct {
             self.flushDraw();
             switch (mode) {
                 .StraightAlpha => gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
-                .Add,
-                .Glow => {
+                .Add, .Glow => {
                     gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
@@ -1280,7 +1281,7 @@ pub const Graphics = struct {
                 .Opaque => {
                     gl.glBlendFunc(gl.GL_ONE, gl.GL_ZERO);
                     gl.blendEquation(gl.GL_FUNC_ADD);
-                }, 
+                },
                 .Additive => {
                     gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_ADD);
@@ -1335,7 +1336,7 @@ pub const Graphics = struct {
             gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
             gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, self.cur_buffer_width, self.cur_buffer_height, gl.GL_TRUE);
             gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
-            gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);  
+            gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
 
             self.setCurrentFrameBuffer(ms_fbo);
             log.debug("msaa framebuffer created with {} samples", .{num_samples});
@@ -1377,8 +1378,8 @@ pub const Image = struct {
     // Whether this texture needs to be updated in the gpu the next time we draw with it.
     needs_update: bool,
 
-    ctx: *c_void,
-    update_fn: fn(*Self) void,
+    ctx: *anyopaque,
+    update_fn: fn (*Self) void,
 
     pub fn deinit(self: Self) void {
         gl.glDeleteTextures(1, &self.tex_id);
@@ -1399,7 +1400,7 @@ const DrawState = struct {
 pub fn initDisplayProjection(width: f32, height: f32) Transform {
     var res = Transform.initIdentity();
     // first reduce to [0,1] values
-    res.scale(1.0/width, 1.0/height);
+    res.scale(1.0 / width, 1.0 / height);
     // to [0,2] values
     res.scale(2.0, 2.0);
     // to clip space [-1,1]
@@ -1411,8 +1412,8 @@ pub fn initDisplayProjection(width: f32, height: f32) Transform {
 
 test "initDisplayProjection" {
     var transform = initDisplayProjection(800, 600);
-    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{-1, 1, 0, 1});
-    try t.eq(transform.transformPoint(.{ 800, 0, 0, 1 }), .{1, 1, 0, 1});
-    try t.eq(transform.transformPoint(.{ 800, 600, 0, 1 }), .{1, -1, 0, 1});
-    try t.eq(transform.transformPoint(.{ 0, 600, 0, 1 }), .{-1, -1, 0, 1});
+    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{ -1, 1, 0, 1 });
+    try t.eq(transform.transformPoint(.{ 800, 0, 0, 1 }), .{ 1, 1, 0, 1 });
+    try t.eq(transform.transformPoint(.{ 800, 600, 0, 1 }), .{ 1, -1, 0, 1 });
+    try t.eq(transform.transformPoint(.{ 0, 600, 0, 1 }), .{ -1, -1, 0, 1 });
 }

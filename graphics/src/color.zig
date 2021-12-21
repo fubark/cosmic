@@ -48,7 +48,7 @@ pub const Color = struct {
     }
 
     pub fn initFloat(r: f32, g: f32, b: f32, a: f32) Self {
-        return init(@floatToInt(u8, r*255), @floatToInt(u8, g*255), @floatToInt(u8, b*255), @floatToInt(u8, a*255));
+        return init(@floatToInt(u8, r * 255), @floatToInt(u8, g * 255), @floatToInt(u8, b * 255), @floatToInt(u8, a * 255));
     }
 
     pub fn withAlpha(self: Self, a: u8) Self {
@@ -66,22 +66,12 @@ pub const Color = struct {
     // Increase darkness, amt range: [0,1]
     pub fn shade(self: Self, amt: f32) Self {
         const factor = 1 - amt;
-        return init(
-            @floatToInt(u8, @intToFloat(f32, self.channels.r) * factor),
-            @floatToInt(u8, @intToFloat(f32, self.channels.g) * factor),
-            @floatToInt(u8, @intToFloat(f32, self.channels.b) * factor),
-            self.channels.a
-        );
+        return init(@floatToInt(u8, @intToFloat(f32, self.channels.r) * factor), @floatToInt(u8, @intToFloat(f32, self.channels.g) * factor), @floatToInt(u8, @intToFloat(f32, self.channels.b) * factor), self.channels.a);
     }
 
     // Increase lightness, amt range: [0,1]
     pub fn tint(self: Self, amt: f32) Self {
-        return init(
-            @floatToInt(u8, @intToFloat(f32, 255 - self.channels.r) * amt) + self.channels.r,
-            @floatToInt(u8, @intToFloat(f32, 255 - self.channels.g) * amt) + self.channels.g,
-            @floatToInt(u8, @intToFloat(f32, 255 - self.channels.b) * amt) + self.channels.b,
-            self.channels.a
-        );
+        return init(@floatToInt(u8, @intToFloat(f32, 255 - self.channels.r) * amt) + self.channels.r, @floatToInt(u8, @intToFloat(f32, 255 - self.channels.g) * amt) + self.channels.g, @floatToInt(u8, @intToFloat(f32, 255 - self.channels.b) * amt) + self.channels.b, self.channels.a);
     }
 
     pub fn parse(str: []const u8) !@This() {
