@@ -16,6 +16,22 @@
         const canvas = document.getElementById('canvas');
         const wasm = {
             imports: {
+                env: {
+                    memset: function(ptr, val, size) {
+                        const wasm_view = new Uint8Array(wasm.exports.memory.buffer);
+                        for (let i = 0; i < size; i++) {
+                            wasm_view[ptr + i] = val;
+                        }
+                        return ptr;
+                    },
+                    memcpy: function(dst, src, size) {
+                        const wasm_view = new Uint8Array(wasm.exports.memory.buffer);
+                        for (let i = 0; i < size; i++) {
+                            wasm_view[dst + i] = wasm_view[src + i];
+                        }
+                        return dst;
+                    }
+                },
                 graphics: {},
                 stdx: {},
             },

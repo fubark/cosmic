@@ -6,7 +6,7 @@ extern "stdx" fn jsWarn(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsLog(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsErr(ptr: [*]const u8, len: usize) void;
 
-const js_buf = stdx.wasm.getJsBuffer();
+pub var js_buf: *stdx.wasm.WasmJsBuffer = undefined;
 
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {

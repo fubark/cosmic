@@ -2,12 +2,14 @@ const std = @import("std");
 const stdx = @import("stdx.zig");
 const ds = stdx.ds;
 
+const log_wasm = @import("log_wasm.zig");
 const log = stdx.log.scoped(.wasm);
 
 var js_buffer: WasmJsBuffer = undefined;
 
 pub fn init(alloc: std.mem.Allocator) void {
     js_buffer.init(alloc);
+    log_wasm.js_buf = &js_buffer;
     promises = ds.CompactUnorderedList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
 }
