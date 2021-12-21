@@ -77,7 +77,7 @@ pub fn build(b: *Builder) void {
         .build_options = build_options,
     };
     const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
-    test_cosmic_js.addArgs(&.{"test", "cosmic/test.js"});
+    test_cosmic_js.addArgs(&.{ "test", "cosmic/test.js" });
     b.step("test-cosmic", "Test cosmic js").dependOn(&test_cosmic_js.step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
@@ -330,7 +330,7 @@ const BuilderContext = struct {
         if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
             lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
         } else {
-            lib = self.builder.addSharedLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"), .unversioned);
+            lib = self.builder.addSharedLibrary("stbtt", null, .unversioned);
         }
         lib.addIncludeDir(self.fromRoot("./vendor/stb"));
         lib.linkLibC();
@@ -344,7 +344,7 @@ const BuilderContext = struct {
         if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
             lib = self.builder.addStaticLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"));
         } else {
-            lib = self.builder.addSharedLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"), .unversioned);
+            lib = self.builder.addSharedLibrary("stbi", null, .unversioned);
         }
         lib.addIncludeDir(self.fromRoot("./vendor/stb"));
         lib.linkLibC();

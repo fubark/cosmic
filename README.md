@@ -24,7 +24,7 @@ We will be building the app primarily in Zig.
 
 Zig's toolchain is ideal for this project. Even though it has yet to reach 1.0, it's LLVM backend is stable and stage2 is just around the corner.
 
-Currently, it's recommended to get a [master build](https://ziglang.org/download/) of zig or build from [source](https://github.com/ziglang/zig).
+Get the Zig compiler (0.9.0) at [zig](https://ziglang.org/download/). 
 
 Once you have zig, checkout and run tests.
 ```sh
