@@ -355,8 +355,15 @@ const BuilderContext = struct {
     }
 
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
+        const mode_str: []const u8 = if (self.mode == .Debug) "debug" else "release";
+        const path = std.fmt.allocPrint(self.builder.allocator, "lib/zig-v8/v8-out/{s}-{s}/{s}/ninja/obj/zig/libc_v8.a", .{
+            @tagName(self.target.getCpuArch()),
+            @tagName(self.target.getOsTag()),
+            mode_str,
+        }) catch unreachable;
         if (self.target.getOsTag() == .linux) {
-            step.addAssemblyFile("./lib/zig-v8/v8-out/x86_64-linux/release/ninja/obj/zig/libc_v8.a");
+            step.addAssemblyFile(path);
+            step.linkLibCpp();
             step.linkSystemLibrary("unwind");
         } else {
             @panic("Unsupported");

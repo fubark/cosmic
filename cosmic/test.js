@@ -19,6 +19,18 @@ cs.test('cs.files.readFile', () => {
     }
 })
 
+cs.test('cs.files.readFileAsync', async () => {
+    fs.writeFile('foo.txt', 'foo')
+    try {
+        let content = await fs.readFileAsync('foo.txt')
+        eq(content, 'foo');
+        content = await fs.readFileAsync('bar.txt')
+        eq(content, false);
+    } finally {
+        fs.removeFile('foo.txt')
+    }
+})
+
 cs.test('cs.files.writeFile', () => {
     eq(fs.writeFile('foo.txt', 'foo'), true)
     try {

@@ -9,9 +9,11 @@ const Color = graphics.Color;
 const v8 = @import("v8.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
+const PromiseId = runtime.PromiseId;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const log = stdx.log.scoped(.js_env);
+const tasks = @import("tasks.zig");
 
 var rt: *RuntimeContext = undefined;
 
@@ -186,6 +188,8 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
 
+    ctx.setConstFuncT(files, "readFileAsync", files_ReadFileAsync);
+
     if (ctx.is_test_env) {
         // cs.test
         ctx.setConstFuncT(cs, "test", createTest);
@@ -239,7 +243,7 @@ fn window_GetGraphics(this: v8.Object) *const anyopaque {
     const res = rt.resources.get(window_id);
     if (res.tag == .CsWindow) {
         const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-        return window.js_graphics.handle;
+        return @ptrCast(*const anyopaque, window.js_graphics.inner.handle);
     } else {
         v8.throwErrorExceptionFmt(rt.alloc, isolate, "Window no longer exists for id {}", .{window_id});
         return @ptrCast(*const anyopaque, rt.js_undefined.handle);
@@ -256,8 +260,8 @@ fn window_OnDrawFrame(this: v8.Object, arg: v8.Function) void {
         const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
 
         // Persist callback func.
-        const p = v8.Persistent.init(isolate, arg);
-        window.onDrawFrameCbs.append(p.castToFunction()) catch unreachable;
+        const p = v8.Persistent(v8.Function).init(isolate, arg);
+        window.onDrawFrameCbs.append(p) catch unreachable;
     }
 }
 
@@ -308,7 +312,7 @@ fn graphics_ExecuteDrawList(g: *Graphics, handle: v8.Object) void {
     g.executeDrawList(list.*);
 }
 
-fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) *const anyopaque {
+fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
     const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
 
     const native_ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
@@ -322,10 +326,9 @@ fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) *const anyopaqu
     const new = rt.handle_class.initInstance(ctx);
     new.setInternalField(0, v8.Number.initBitCastedU64(rt.cur_isolate, @ptrToInt(native_ptr)));
 
-    var new_p = v8.Persistent.init(rt.cur_isolate, new);
+    var new_p = v8.Persistent(v8.Object).init(rt.cur_isolate, new);
     new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
-
-    return new_p.handle;
+    return new_p;
 }
 
 fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
@@ -380,6 +383,62 @@ fn files_ReadFile(path: []const u8) ?[]const u8 {
         else => unreachable,
     };
 }
+
+const Promise = struct {
+    task_id: u32,
+};
+
+fn rejectPromise(promise_id: PromiseId, val: v8.Value) void {
+    const resolver = rt.promises.get(promise_id);
+    const ctx = rt.cur_isolate.getCurrentContext();
+    _ = resolver.inner.reject(ctx, val);
+}
+
+fn resolvePromise(promise_id: PromiseId, val: v8.Value) void {
+    const resolver = rt.promises.get(promise_id);
+    const ctx = rt.cur_isolate.getCurrentContext();
+    _ = resolver.inner.resolve(ctx, val);
+}
+
+fn files_ReadFileAsync(path: []const u8) v8.Promise {
+    const task = tasks.ReadFileTask{
+        .alloc = rt.alloc,
+        .path = rt.alloc.dupe(u8, path) catch unreachable,
+    };
+
+    const isolate = rt.cur_isolate;
+
+    const ctx = isolate.getCurrentContext();
+    const resolver = v8.Persistent(v8.PromiseResolver).init(isolate, v8.PromiseResolver.init(ctx));
+
+    const promise = resolver.inner.getPromise();
+    const promise_id = rt.promises.add(resolver) catch unreachable;
+
+    const S = struct {
+        fn onSuccess(_promise_id: PromiseId, _task: *tasks.ReadFileTask) void {
+            const _isolate = rt.cur_isolate;
+            const _ctx = _isolate.getCurrentContext();
+            resolvePromise(_promise_id, .{
+                .handle = getJsValue(_isolate, _ctx, _task.res),
+            });
+        }
+
+        fn onFailure(_promise_id: PromiseId, _task: *tasks.ReadFileTask, err: anyerror) void {
+            _ = _task;
+            const _isolate = rt.cur_isolate;
+            const _ctx = _isolate.getCurrentContext();
+            rejectPromise(_promise_id, .{
+                .handle = getJsValue(_isolate, _ctx, err),
+            });
+        }
+    };
+
+    _ = rt.work_queue.addTaskWithCb(task, promise_id, S.onSuccess, S.onFailure);
+
+    return promise;
+}
+
+
 
 /// Path can be absolute or relative to the cwd.
 fn files_WriteFile(path: []const u8, str: []const u8) bool {
@@ -480,7 +539,19 @@ fn files_RemoveDir(path: []const u8, recursive: bool) bool {
     return true;
 }
 
-// FUTURE: Save test cases and execute them in multiple threads.
+fn passAsyncTest() void {
+    rt.num_async_tests_passed += 1;
+    rt.num_tests_passed += 1;
+}
+
+fn reportAsyncTestFailure() void {
+    // const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
+    // defer rt.alloc.free(err_str);
+    // printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+    printFmt("Test: Failed!\n", .{});
+}
+
+// FUTURE: Save test cases and execute them in parallel.
 fn createTest(name: []const u8, cb: v8.Function) void {
     const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
     defer rt.alloc.free(name_dupe);
@@ -496,14 +567,32 @@ fn createTest(name: []const u8, cb: v8.Function) void {
     defer try_catch.deinit();
 
     rt.num_tests += 1;
+    if (cb.toValue().isAsyncFunction()) {
+        // Async test.
+        rt.num_async_tests += 1;
+        const ctx = isolate.getCurrentContext();
+        if (cb.call(ctx, rt.js_undefined, &.{})) |val| {
+            const promise = val.castToPromise();
 
-    const ctx = isolate.getCurrentContext();
-    if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
-        rt.num_tests_passed += 1;
+            const on_fulfilled = v8.Function.initDefault(ctx, genJsFunc(passAsyncTest));
+            const on_rejected = v8.Function.initDefault(ctx, genJsFunc(reportAsyncTestFailure));
+
+            _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+        } else {
+            const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
+            defer rt.alloc.free(err_str);
+            printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+        }
     } else {
-        const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
-        defer rt.alloc.free(err_str);
-        printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+        // Sync test.
+        const ctx = isolate.getCurrentContext();
+        if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
+            rt.num_tests_passed += 1;
+        } else {
+            const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
+            defer rt.alloc.free(err_str);
+            printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+        }
     }
 }
 
@@ -684,6 +773,17 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
     return gen.cb;
 }
 
+fn freeNativeValue(native_val: anytype) void {
+    const Type = @TypeOf(native_val);
+    if (Type == []const u8) {
+        rt.alloc.free(native_val);
+    } else if (@typeInfo(Type) == .Optional) {
+        if (native_val) |child_val| {
+            freeNativeValue(child_val);
+        }
+    }
+}
+
 /// Returns raw value pointer so we don't need to convert back to a v8.Value.
 pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *const anyopaque {
     const Type = @TypeOf(native_val);
@@ -714,13 +814,23 @@ pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *co
         v8.Object => {
             return native_val.handle;
         },
+        v8.Promise => {
+            return native_val.handle;
+        },
         []const u8 => {
-            // Free after turning into JsString.
-            defer rt.alloc.free(native_val);
             return v8.String.initUtf8(isolate, native_val).handle;
+        },
+        anyerror => {
+            // TODO: Should this be an Error/Exception object instead?
+            const str = std.fmt.allocPrint(rt.alloc, "{}", .{native_val}) catch unreachable;
+            defer rt.alloc.free(str);
+            return v8.String.initUtf8(isolate, str).handle;
         },
         *const anyopaque => {
             return native_val;
+        },
+        v8.Persistent(v8.Object) => {
+            return @ptrCast(*const anyopaque, native_val.inner.handle);
         },
         else => {
             if (@typeInfo(Type) == .Optional) {
@@ -757,16 +867,22 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
                 const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
                 if (ptr > 0) {
                     if (HasSelfPtr) {
-                        return_value.setValueHandle(getJsValue(isolate, ctx, native_cb(@intToPtr(Self, ptr))));
+                        const native_val = native_cb(@intToPtr(Self, ptr));
+                        return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
+                        freeNativeValue(native_val);
                     } else {
-                        return_value.setValueHandle(getJsValue(isolate, ctx, native_cb(@intToPtr(*Self, ptr).*)));
+                        const native_val = native_cb(@intToPtr(*Self, ptr).*);
+                        return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
+                        freeNativeValue(native_val);
                     }
                 } else {
                     v8.throwErrorException(isolate, "Handle has expired.");
                     return;
                 }
             } else {
-                return_value.setValueHandle(getJsValue(isolate, ctx, native_cb()));
+                const native_val = native_cb();
+                return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
+                freeNativeValue(native_val);
             }
         }
     };
@@ -879,9 +995,11 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
             if (stdx.meta.FunctionReturnType(@TypeOf(native_fn)) == void) {
                 @call(.{}, native_fn, native_args);
             } else {
-                const new = getJsValue(isolate, ctx, @call(.{}, native_fn, native_args));
+                const native_val = @call(.{}, native_fn, native_args);
+                const js_val = getJsValue(isolate, ctx, native_val);
                 const return_value = info.getReturnValue();
-                return_value.setValueHandle(new);
+                return_value.setValueHandle(js_val);
+                freeNativeValue(native_val);
             }
         }
     };

@@ -9,6 +9,11 @@ const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
 const log = stdx.log.scoped(.runtime);
 
+const work_queue = @import("work_queue.zig");
+const WorkQueue = work_queue.WorkQueue;
+
+pub const PromiseId = u32;
+
 // Manages runtime resources.
 // Used by V8 callback functions.
 pub const RuntimeContext = struct {
@@ -57,8 +62,15 @@ pub const RuntimeContext = struct {
     is_test_env: bool,
 
     // Test runner.
-    num_tests: u32,
+    num_tests: u32, // Includes sync and async tests.
     num_tests_passed: u32,
+
+    num_async_tests: u32,
+    num_async_tests_passed: u32,
+
+    work_queue: WorkQueue,
+
+    promises: ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate, src_path: []const u8) void {
         self.* = .{
@@ -90,7 +102,13 @@ pub const RuntimeContext = struct {
             .is_test_env = false,
             .num_tests = 0,
             .num_tests_passed = 0,
+            .num_async_tests = 0,
+            .num_async_tests_passed = 0,
+
+            .work_queue = WorkQueue.init(alloc),
+            .promises = ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)).init(alloc),
         };
+        self.work_queue.createAndRunWorker();
 
         // Insert dummy head so we can set last.
         const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
@@ -126,6 +144,16 @@ pub const RuntimeContext = struct {
             }
             self.resources.deinit();
         }
+
+        self.work_queue.deinit();
+
+        {
+            var iter = self.promises.iterator();
+            while (iter.nextPtr()) |p| {
+                p.deinit();
+            }
+        }
+        self.promises.deinit();
     }
 
     pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
@@ -291,10 +319,13 @@ pub fn runUserLoop(ctx: *RuntimeContext) void {
             return;
         }
 
+        // FUTURE: This could benefit being in a separate thread.
+        ctx.work_queue.processDone();
+
         ctx.active_graphics.beginFrame();
 
         for (ctx.active_window.onDrawFrameCbs.items) |onDrawFrame| {
-            _ = onDrawFrame.call(isolate_ctx, ctx.active_window.js_window, &.{ ctx.active_window.js_graphics.toValue(), v8.Number.init(isolate, @intToFloat(f64, fps)).toValue() }) orelse {
+            _ = onDrawFrame.inner.call(isolate_ctx, ctx.active_window.js_window, &.{ ctx.active_window.js_graphics.toValue(), v8.Number.init(isolate, @intToFloat(f64, fps)).toValue() }) orelse {
                 const trace = v8.getTryCatchErrorString(ctx.alloc, isolate, try_catch);
                 defer ctx.alloc.free(trace);
                 printFmt("{s}", .{trace});
@@ -335,12 +366,12 @@ pub const CsWindow = struct {
     const Self = @This();
 
     window: graphics.Window,
-    onDrawFrameCbs: std.ArrayList(v8.Function),
-    js_window: v8.Persistent,
+    onDrawFrameCbs: std.ArrayList(v8.Persistent(v8.Function)),
+    js_window: v8.Persistent(v8.Object),
 
     // Currently, each window has its own graphics handle.
     graphics: *graphics.Graphics,
-    js_graphics: v8.Persistent,
+    js_graphics: v8.Persistent(v8.Object),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
         const isolate = rt.cur_isolate;
@@ -357,9 +388,9 @@ pub const CsWindow = struct {
 
         self.* = .{
             .window = window,
-            .onDrawFrameCbs = std.ArrayList(v8.Function).init(alloc),
-            .js_window = v8.Persistent.init(isolate, js_window),
-            .js_graphics = v8.Persistent.init(isolate, js_graphics),
+            .onDrawFrameCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
+            .js_window = v8.Persistent(v8.Object).init(isolate, js_window),
+            .js_graphics = v8.Persistent(v8.Object).init(isolate, js_graphics),
             .graphics = g,
         };
         self.graphics.init(alloc, window.getWidth(), window.getHeight());
@@ -369,8 +400,8 @@ pub const CsWindow = struct {
         self.graphics.deinit();
         rt.alloc.destroy(self.graphics);
         self.window.deinit();
-        for (self.onDrawFrameCbs.items) |onDrawFrame| {
-            onDrawFrame.castToPersistent().deinit();
+        for (self.onDrawFrameCbs.items) |*onDrawFrame| {
+            onDrawFrame.deinit();
         }
         self.onDrawFrameCbs.deinit();
         self.js_window.deinit();
@@ -453,6 +484,17 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     if (!res.success) {
         printFmt("{s}", .{res.err.?});
         return error.MainScriptError;
+    }
+
+    while (global_rt.num_async_tests_passed < global_rt.num_async_tests) {
+        global_rt.work_queue.processDone();
+        // Wait on the next done.
+        const Timeout = 4 * 1e9;
+        const wait_res = global_rt.work_queue.done_wakeup.timedWait(Timeout);
+        global_rt.work_queue.done_wakeup.reset();
+        if (wait_res == .timed_out) {
+            break;
+        }
     }
 
     // Test results.
