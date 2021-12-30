@@ -103,21 +103,21 @@ fn repl() void {
     var params = v8.initCreateParams();
     params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
     defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
-    var isolate = v8.Isolate.init(&params);
-    defer isolate.deinit();
+    var iso = v8.Isolate.init(&params);
+    defer iso.deinit();
 
-    isolate.enter();
-    defer isolate.exit();
+    iso.enter();
+    defer iso.exit();
 
     var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
-    var context = v8.Context.init(isolate, null, null);
-    context.enter();
-    defer context.exit();
+    var ctx = iso.initContext(null, null);
+    ctx.enter();
+    defer ctx.exit();
 
-    const origin = v8.String.initUtf8(isolate, "(shell)");
+    const origin = iso.initStringUtf8("(shell)");
 
     printFmt(
         \\Cosmic ({s})
@@ -134,14 +134,14 @@ fn repl() void {
 
             var res: v8.ExecuteResult = undefined;
             defer res.deinit();
-            v8.executeString(alloc, isolate, input, origin, &res);
+            v8.executeString(alloc, iso, ctx, input, origin, &res);
             if (res.success) {
                 printFmt("{s}", .{res.result.?});
             } else {
                 printFmt("{s}", .{res.err.?});
             }
 
-            while (platform.pumpMessageLoop(isolate, false)) {
+            while (platform.pumpMessageLoop(iso, false)) {
                 log.info("What does this do?", .{});
                 unreachable;
             }

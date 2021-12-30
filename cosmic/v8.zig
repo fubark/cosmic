@@ -68,18 +68,18 @@ pub const ExecuteResult = struct {
 };
 
 /// Executes a string within the current v8 context.
-pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: []const u8, src_origin: String, result: *ExecuteResult) void {
+pub fn executeString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, src: []const u8, src_origin: String, result: *ExecuteResult) void {
     var hscope: HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
     var try_catch: TryCatch = undefined;
-    try_catch.init(isolate);
+    try_catch.init(iso);
     defer try_catch.deinit();
 
-    var origin = ScriptOrigin.initDefault(isolate, src_origin.handle);
+    var origin = ScriptOrigin.initDefault(iso, src_origin.handle);
 
-    var context = isolate.getCurrentContext();
+    var context = iso.getCurrentContext();
 
     // Since es modules are in strict mode it makes sense that everything else should also be in strict mode.
     // Append 'use strict'; There isn't an internal api to enable it.
@@ -87,30 +87,28 @@ pub fn executeString(alloc: std.mem.Allocator, isolate: Isolate, src: []const u8
     const final_src = stdx.string.concat(alloc, &[_][]const u8{ "'use strict';void 0;\n", src }) catch unreachable;
     defer alloc.free(final_src);
 
-    const js_src = v8.String.initUtf8(isolate, final_src);
+    const js_src = v8.String.initUtf8(iso, final_src);
 
     if (v8.Script.compile(context, js_src, origin)) |script| {
         if (script.run(context)) |script_res| {
             result.* = .{
                 .alloc = alloc,
-                .result = valueToUtf8Alloc(alloc, isolate, context, script_res),
+                .result = valueToUtf8Alloc(alloc, iso, context, script_res),
                 .err = null,
                 .success = true,
             };
         } else {
-            setResultError(alloc, isolate, try_catch, result);
+            setResultError(alloc, iso, ctx, try_catch, result);
         }
     } else {
-        setResultError(alloc, isolate, try_catch, result);
+        setResultError(alloc, iso, ctx, try_catch, result);
     }
 }
 
-pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatch) []const u8 {
+pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catch: TryCatch) []const u8 {
     var hscope: HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
-
-    const ctx = isolate.getCurrentContext();
 
     if (try_catch.getMessage()) |message| {
         var buf = std.ArrayList(u8).init(alloc);
@@ -129,7 +127,7 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_ca
 
         // Append source line.
         const source_line = message.getSourceLine(ctx).?;
-        _ = appendValueAsUtf8(&buf, isolate, ctx, source_line);
+        _ = appendValueAsUtf8(&buf, iso, ctx, source_line);
         writer.writeAll("\n") catch unreachable;
 
         // Print wavy underline.
@@ -146,7 +144,7 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_ca
         writer.writeByte('\n') catch unreachable;
 
         if (try_catch.getStackTrace(ctx)) |trace| {
-            _ = appendValueAsUtf8(&buf, isolate, ctx, trace);
+            _ = appendValueAsUtf8(&buf, iso, ctx, trace);
             writer.writeByte('\n') catch unreachable;
         }
 
@@ -154,15 +152,15 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, isolate: Isolate, try_ca
     } else {
         // V8 didn't provide any extra information about this error, just get exception str.
         const exception = try_catch.getException();
-        return valueToUtf8Alloc(alloc, isolate, ctx, exception);
+        return valueToUtf8Alloc(alloc, iso, ctx, exception);
     }
 }
 
-fn setResultError(alloc: std.mem.Allocator, isolate: Isolate, try_catch: TryCatch, result: *ExecuteResult) void {
+fn setResultError(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catch: TryCatch, result: *ExecuteResult) void {
     result.* = .{
         .alloc = alloc,
         .result = null,
-        .err = getTryCatchErrorString(alloc, isolate, try_catch),
+        .err = getTryCatchErrorString(alloc, iso, ctx, try_catch),
         .success = false,
     };
 }
@@ -187,8 +185,8 @@ pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context
 }
 
 /// Throws an exception with a stack trace.
-pub fn throwErrorException(isolate: Isolate, msg: []const u8) void {
-    _ = isolate.throwException(v8.Exception.initError(v8.String.initUtf8(isolate, msg)));
+pub fn throwErrorException(iso: Isolate, msg: []const u8) void {
+    _ = iso.throwException(v8.Exception.initError(iso.initStringUtf8(msg)));
 }
 
 pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: Isolate, comptime format: []const u8, args: anytype) void {

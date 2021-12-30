@@ -8,33 +8,38 @@ const Color = graphics.Color;
 
 const v8 = @import("v8.zig");
 const runtime = @import("runtime.zig");
+const SizedJsString = runtime.SizedJsString;
 const RuntimeContext = runtime.RuntimeContext;
+const V8Context = runtime.V8Context;
+const ContextBuilder = runtime.ContextBuilder;
 const PromiseId = runtime.PromiseId;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const log = stdx.log.scoped(.js_env);
 const tasks = @import("tasks.zig");
 
-var rt: *RuntimeContext = undefined;
-
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
 // A parent HandleScope should persist the values we create in here until the end of the script execution.
-pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
-    rt = ctx;
+// At this point rt.v8_ctx should be assumed to be undefined since we haven't created a v8.Context yet.
+pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
+    const ctx = ContextBuilder{
+        .rt = rt,
+        .isolate = iso,
+    };
 
     // We set with the same undef values for each type, it might help the optimizing compiler if it knows the field types ahead of time.
-    const undef_u32 = v8.Integer.initU32(isolate, 0);
+    const undef_u32 = v8.Integer.initU32(iso, 0);
 
     // GenericHandle
-    const handle_class = v8.ObjectTemplate.initDefault(isolate);
+    const handle_class = v8.ObjectTemplate.initDefault(iso);
     handle_class.setInternalFieldCount(1);
-    ctx.handle_class = handle_class;
+    rt.handle_class = handle_class;
 
     // GenericObject
-    ctx.default_obj_t = v8.ObjectTemplate.initDefault(isolate);
+    rt.default_obj_t = v8.ObjectTemplate.initDefault(iso);
 
     // JsWindow
-    const window_class = v8.FunctionTemplate.initDefault(isolate);
+    const window_class = v8.FunctionTemplate.initDefault(iso);
     {
         const inst = window_class.getInstanceTemplate();
         inst.setInternalFieldCount(1);
@@ -43,11 +48,11 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         ctx.setFuncT(proto, "onDrawFrame", window_OnDrawFrame);
         ctx.setFuncT(proto, "getGraphics", window_GetGraphics);
     }
-    ctx.window_class = window_class;
+    rt.window_class = window_class;
 
     // JsGraphics
-    const graphics_class = v8.FunctionTemplate.initDefault(isolate);
-    graphics_class.setClassName(v8.String.initUtf8(isolate, "Graphics"));
+    const graphics_class = v8.FunctionTemplate.initDefault(iso);
+    graphics_class.setClassName(v8.String.initUtf8(iso, "Graphics"));
     {
         const inst = graphics_class.getInstanceTemplate();
         // Currently we set a native pointer with bitCastedU64, seems to work fine.
@@ -92,7 +97,7 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "drawCubicBezierCurve", Graphics.drawCubicBezierCurve);
         ctx.setConstFuncT(proto, "drawImageSized", graphics_DrawImageSized);
     }
-    ctx.graphics_class = graphics_class;
+    rt.graphics_class = graphics_class;
 
     // JsImage
     const image_class = ctx.initFuncT("Image");
@@ -103,10 +108,10 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
         // For image id.
         inst.setInternalFieldCount(1);
     }
-    ctx.image_class = image_class;
+    rt.image_class = image_class;
 
     // JsColor
-    const color_class = v8.FunctionTemplate.initDefault(isolate);
+    const color_class = v8.FunctionTemplate.initDefault(iso);
     {
         const proto = color_class.getPrototypeTemplate();
         ctx.setFuncT(proto, "darker", color_Darker);
@@ -149,29 +154,29 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
     inline for (colors) |it| {
         ctx.setFuncGetter(color_class, it.@"0", it.@"1");
     }
-    ctx.color_class = color_class;
+    rt.color_class = color_class;
 
-    const global_constructor = v8.FunctionTemplate.initDefault(isolate);
-    global_constructor.setClassName(v8.String.initUtf8(isolate, "Global"));
+    const global_constructor = iso.initFunctionTemplateDefault();
+    global_constructor.setClassName(iso.initStringUtf8("Global"));
     // Since Context.init only accepts ObjectTemplate, we can still name the global by using a FunctionTemplate as the constructor.
-    const global = v8.ObjectTemplate.init(isolate, global_constructor);
+    const global = v8.ObjectTemplate.init(iso, global_constructor);
 
     // cs
-    const cs_constructor = v8.FunctionTemplate.initDefault(isolate);
-    cs_constructor.setClassName(v8.String.initUtf8(isolate, "cosmic"));
-    const cs = v8.ObjectTemplate.init(isolate, cs_constructor);
+    const cs_constructor = iso.initFunctionTemplateDefault();
+    cs_constructor.setClassName(iso.initStringUtf8("cosmic"));
+    const cs = v8.ObjectTemplate.init(iso, cs_constructor);
 
     // cs.window
-    const window_constructor = v8.FunctionTemplate.initDefault(isolate);
-    window_constructor.setClassName(v8.String.initUtf8(isolate, "window"));
-    const window = v8.ObjectTemplate.init(isolate, window_constructor);
+    const window_constructor = iso.initFunctionTemplateDefault();
+    window_constructor.setClassName(iso.initStringUtf8("window"));
+    const window = iso.initObjectTemplate(window_constructor);
     ctx.setConstFuncT(window, "new", window_New);
     ctx.setConstProp(cs, "window", window);
 
     // cs.files
-    const files_constructor = v8.FunctionTemplate.initDefault(isolate);
-    files_constructor.setClassName(v8.String.initUtf8(isolate, "files"));
-    const files = v8.ObjectTemplate.init(isolate, files_constructor);
+    const files_constructor = iso.initFunctionTemplateDefault();
+    files_constructor.setClassName(iso.initStringUtf8("files"));
+    const files = iso.initObjectTemplate(files_constructor);
     ctx.setConstFuncT(files, "readFile", files_ReadFile);
     ctx.setConstFuncT(files, "writeFile", files_WriteFile);
     ctx.setConstFuncT(files, "appendFile", files_AppendFile);
@@ -190,35 +195,35 @@ pub fn init(ctx: *RuntimeContext, isolate: v8.Isolate) v8.Context {
 
     ctx.setConstFuncT(files, "readFileAsync", files_ReadFileAsync);
 
-    if (ctx.is_test_env) {
+    if (rt.is_test_env) {
         // cs.test
         ctx.setConstFuncT(cs, "test", createTest);
 
         // cs.asserts
-        const cs_asserts = v8.ObjectTemplate.initDefault(isolate);
+        const cs_asserts = iso.initObjectTemplateDefault();
 
         ctx.setConstProp(cs, "asserts", cs_asserts);
     }
 
     // cs.graphics
-    const cs_graphics = v8.ObjectTemplate.initDefault(isolate);
+    const cs_graphics = v8.ObjectTemplate.initDefault(iso);
 
     // cs.graphics.Color
     ctx.setConstProp(cs_graphics, "Color", color_class);
     ctx.setConstProp(cs, "graphics", cs_graphics);
 
     ctx.setConstProp(global, "cs", cs);
-    ctx.setConstProp(global, "print", v8.FunctionTemplate.initCallback(isolate, print));
+    ctx.setConstProp(global, "print", iso.initFunctionTemplateCallback(print));
 
-    const res = v8.Context.init(isolate, global, null);
+    const res = iso.initContext(global, null);
 
     // const rt_global = res.getGlobal();
-    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(isolate, "cs")).castToObject();
+    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(iso, "cs")).castToObject();
 
     return res;
 }
 
-fn window_New(title: []const u8, width: u32, height: u32) v8.Object {
+fn window_New(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
     const res = rt.createCsWindowResource();
 
     const window = graphics.Window.init(rt.alloc, .{
@@ -234,10 +239,8 @@ fn window_New(title: []const u8, width: u32, height: u32) v8.Object {
     return res.ptr.js_window.castToObject();
 }
 
-fn window_GetGraphics(this: v8.Object) *const anyopaque {
-    const isolate = rt.cur_isolate;
-    const ctx = isolate.getCurrentContext();
-
+fn window_GetGraphics(rt: *RuntimeContext, this: v8.Object) *const anyopaque {
+    const ctx = rt.context;
     const window_id = this.getInternalField(0).toU32(ctx);
 
     const res = rt.resources.get(window_id);
@@ -245,14 +248,14 @@ fn window_GetGraphics(this: v8.Object) *const anyopaque {
         const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
         return @ptrCast(*const anyopaque, window.js_graphics.inner.handle);
     } else {
-        v8.throwErrorExceptionFmt(rt.alloc, isolate, "Window no longer exists for id {}", .{window_id});
+        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Window no longer exists for id {}", .{window_id});
         return @ptrCast(*const anyopaque, rt.js_undefined.handle);
     }
 }
 
-fn window_OnDrawFrame(this: v8.Object, arg: v8.Function) void {
-    const isolate = rt.cur_isolate;
-    const ctx = rt.cur_isolate.getCurrentContext();
+fn window_OnDrawFrame(rt: *RuntimeContext, this: v8.Object, arg: v8.Function) void {
+    const iso = rt.isolate;
+    const ctx = rt.context;
     const window_id = this.getInternalField(0).toU32(ctx);
 
     const res = rt.resources.get(window_id);
@@ -260,31 +263,28 @@ fn window_OnDrawFrame(this: v8.Object, arg: v8.Function) void {
         const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
 
         // Persist callback func.
-        const p = v8.Persistent(v8.Function).init(isolate, arg);
+        const p = v8.Persistent(v8.Function).init(iso, arg);
         window.onDrawFrameCbs.append(p) catch unreachable;
     }
 }
 
-fn color_Lighter(this: v8.Object) Color {
-    const ctx = rt.cur_isolate.getCurrentContext();
-    return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.lighter();
+fn color_Lighter(rt: *RuntimeContext, this: v8.Object) Color {
+    return rt.getNativeValue(Color, this.toValue()).?.lighter();
 }
 
-fn color_Darker(this: v8.Object) Color {
-    const ctx = rt.cur_isolate.getCurrentContext();
-    return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.darker();
+fn color_Darker(rt: *RuntimeContext, this: v8.Object) Color {
+    return rt.getNativeValue(Color, this.toValue()).?.darker();
 }
 
-fn color_WithAlpha(this: v8.Object, a: u8) Color {
-    const ctx = rt.cur_isolate.getCurrentContext();
-    return getNativeValue(rt.cur_isolate, ctx, Color, this.toValue()).?.withAlpha(a);
+fn color_WithAlpha(rt: *RuntimeContext, this: v8.Object, a: u8) Color {
+    return rt.getNativeValue(Color, this.toValue()).?.withAlpha(a);
 }
 
-fn color_New(r: u8, g: u8, b: u8, a: u8) *const anyopaque {
-    return getJsValue(rt.cur_isolate, rt.cur_isolate.getCurrentContext(), Color.init(r, g, b, a));
+fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaque {
+    return rt.getJsValue(Color.init(r, g, b, a));
 }
 
-fn graphics_FillPolygon(g: *Graphics, pts: []const f32) void {
+fn graphics_FillPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
     rt.vec2_buf.resize(pts.len / 2) catch unreachable;
     var i: u32 = 0;
     var vec_idx: u32 = 0;
@@ -305,28 +305,39 @@ fn graphics_DrawImageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32
     g.drawImageSized(x, y, width, height, image.id);
 }
 
-fn graphics_ExecuteDrawList(g: *Graphics, handle: v8.Object) void {
-    const ctx = rt.cur_isolate.getCurrentContext();
+fn graphics_ExecuteDrawList(rt: *RuntimeContext, g: *Graphics, handle: v8.Object) void {
+    const ctx = rt.context;
     const ptr = handle.getInternalField(0).bitCastToU64(ctx);
     const list = @intToPtr(*graphics.DrawCommandList, ptr);
     g.executeDrawList(list.*);
 }
 
-fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
+fn RuntimeValue(comptime T: type) type {
+    return struct {
+        rt: *RuntimeContext,
+        inner: T,
+    };
+}
+
+fn graphics_CompileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
     const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
 
-    const native_ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
-    native_ptr.* = draw_list;
+    const native_ptr = rt.alloc.create(RuntimeValue(graphics.DrawCommandList)) catch unreachable;
+    native_ptr.* = .{
+        .rt = rt,
+        .inner = draw_list,
+    };
     _ = rt.weak_handles.add(.{
         .ptr = native_ptr,
         .tag = .DrawCommandList,
     }) catch unreachable;
 
-    const ctx = rt.cur_isolate.getCurrentContext();
+    const ctx = rt.context;
+    const iso = rt.isolate;
     const new = rt.handle_class.initInstance(ctx);
-    new.setInternalField(0, v8.Number.initBitCastedU64(rt.cur_isolate, @ptrToInt(native_ptr)));
+    new.setInternalField(0, iso.initNumberBitCastedU64(@ptrToInt(native_ptr)));
 
-    var new_p = v8.Persistent(v8.Object).init(rt.cur_isolate, new);
+    var new_p = iso.initPersistent(v8.Object, new);
     new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
     return new_p;
 }
@@ -334,10 +345,11 @@ fn graphics_CompileSvgContent(g: *Graphics, content: []const u8) v8.Persistent(v
 fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
     const info = v8.WeakCallbackInfo.initFromC(c_info);
     const ptr = info.getParameter();
+    const rt = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr).rt;
     rt.destroyWeakHandleByPtr(ptr);
 }
 
-fn graphics_DrawPolygon(g: *Graphics, pts: []const f32) void {
+fn graphics_DrawPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
     rt.vec2_buf.resize(pts.len / 2) catch unreachable;
     var i: u32 = 0;
     var vec_idx: u32 = 0;
@@ -350,7 +362,7 @@ fn graphics_DrawPolygon(g: *Graphics, pts: []const f32) void {
     g.drawPolygon(rt.vec2_buf.items);
 }
 
-fn graphics_FillConvexPolygon(g: *Graphics, pts: []const f32) void {
+fn graphics_FillConvexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
     rt.vec2_buf.resize(pts.len / 2) catch unreachable;
     var i: u32 = 0;
     var vec_idx: u32 = 0;
@@ -364,19 +376,19 @@ fn graphics_FillConvexPolygon(g: *Graphics, pts: []const f32) void {
 }
 
 /// Path can be absolute or relative to the current executing script.
-fn resolveEnvPath(path: []const u8) []const u8 {
+fn resolveEnvPath(rt: *RuntimeContext, path: []const u8) []const u8 {
     return std.fs.path.resolve(rt.alloc, &.{ rt.cur_script_dir_abs, path }) catch unreachable;
 }
 
 /// Resolves '..' in paths and returns an absolute path.
 /// Currently does not resolve home '~'.
-fn files_ResolvePath(path: []const u8) ?[]const u8 {
+fn files_ResolvePath(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
     return std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
 }
 
 /// Path can be absolute or relative to the cwd.
 /// Returns the contents on success or false.
-fn files_ReadFile(path: []const u8) ?[]const u8 {
+fn files_ReadFile(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
     return std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
         // Whitelist errors to silence.
         error.FileNotFound => return null,
@@ -388,57 +400,54 @@ const Promise = struct {
     task_id: u32,
 };
 
-fn rejectPromise(promise_id: PromiseId, val: v8.Value) void {
+fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
     const resolver = rt.promises.get(promise_id);
-    const ctx = rt.cur_isolate.getCurrentContext();
-    _ = resolver.inner.reject(ctx, val);
+    _ = resolver.inner.reject(rt.context, val);
 }
 
-fn resolvePromise(promise_id: PromiseId, val: v8.Value) void {
+fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
     const resolver = rt.promises.get(promise_id);
-    const ctx = rt.cur_isolate.getCurrentContext();
-    _ = resolver.inner.resolve(ctx, val);
+    _ = resolver.inner.resolve(rt.context, val);
 }
 
-fn files_ReadFileAsync(path: []const u8) v8.Promise {
+fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+    const iso = rt.isolate;
+
     const task = tasks.ReadFileTask{
         .alloc = rt.alloc,
         .path = rt.alloc.dupe(u8, path) catch unreachable,
     };
 
-    const isolate = rt.cur_isolate;
-
-    const ctx = isolate.getCurrentContext();
-    const resolver = v8.Persistent(v8.PromiseResolver).init(isolate, v8.PromiseResolver.init(ctx));
+    const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
 
     const promise = resolver.inner.getPromise();
     const promise_id = rt.promises.add(resolver) catch unreachable;
 
     const S = struct {
-        fn onSuccess(_promise_id: PromiseId, _task: *tasks.ReadFileTask) void {
-            const _isolate = rt.cur_isolate;
-            const _ctx = _isolate.getCurrentContext();
-            resolvePromise(_promise_id, .{
-                .handle = getJsValue(_isolate, _ctx, _task.res),
+        fn onSuccess(ctx: RuntimeValue(PromiseId), _task: *tasks.ReadFileTask) void {
+            const _promise_id = ctx.inner;
+            resolvePromise(ctx.rt, _promise_id, .{
+                .handle = ctx.rt.getJsValue(_task.res),
             });
         }
 
-        fn onFailure(_promise_id: PromiseId, _task: *tasks.ReadFileTask, err: anyerror) void {
+        fn onFailure(ctx: RuntimeValue(PromiseId), _task: *tasks.ReadFileTask, err: anyerror) void {
             _ = _task;
-            const _isolate = rt.cur_isolate;
-            const _ctx = _isolate.getCurrentContext();
-            rejectPromise(_promise_id, .{
-                .handle = getJsValue(_isolate, _ctx, err),
+            const _promise_id = ctx.inner;
+            rejectPromise(ctx.rt, _promise_id, .{
+                .handle = ctx.rt.getJsValue(err),
             });
         }
     };
 
-    _ = rt.work_queue.addTaskWithCb(task, promise_id, S.onSuccess, S.onFailure);
+    const task_ctx = RuntimeValue(PromiseId){
+        .rt = rt,
+        .inner = promise_id,
+    };
+    _ = rt.work_queue.addTaskWithCb(task, task_ctx, S.onSuccess, S.onFailure);
 
     return promise;
 }
-
-
 
 /// Path can be absolute or relative to the cwd.
 fn files_WriteFile(path: []const u8, str: []const u8) bool {
@@ -459,7 +468,7 @@ fn files_MoveFile(from: []const u8, to: []const u8) bool {
 }
 
 /// Returns the absolute path of the current working directory.
-fn files_Cwd() ?[]const u8 {
+fn files_Cwd(rt: *RuntimeContext) ?[]const u8 {
     return std.fs.cwd().realpathAlloc(rt.alloc, ".") catch return null;
 }
 
@@ -471,29 +480,27 @@ fn files_GetPathInfo(path: []const u8) ?PathInfo {
     };
 }
 
-const PathInfo = struct {
+pub const PathInfo = struct {
     kind: std.fs.File.Kind,
 };
 
 /// Path can be absolute or relative to the cwd.
-fn files_WalkDir(path: []const u8, cb: v8.Function) bool {
+fn files_WalkDir(rt: *RuntimeContext, path: []const u8, cb: v8.Function) bool {
+    const iso = rt.isolate;
     const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
     var walker = dir.walk(rt.alloc) catch {
         unreachable;
     };
     defer walker.deinit();
 
-    const isolate = rt.cur_isolate;
-    const ctx = isolate.getCurrentContext();
-
     var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
     while (walker.next() catch unreachable) |entry| {
-        const epath = v8.String.initUtf8(isolate, entry.path).toValue();
-        const kind = v8.String.initUtf8(isolate, @tagName(entry.kind)).toValue();
-        _ = cb.call(ctx, rt.js_undefined, &.{ epath, kind });
+        const epath = iso.initStringUtf8(entry.path).toValue();
+        const kind = iso.initStringUtf8(@tagName(entry.kind)).toValue();
+        _ = cb.call(rt.context, rt.js_undefined, &.{ epath, kind });
     }
     return true;
 }
@@ -505,10 +512,10 @@ fn files_AppendFile(path: []const u8, str: []const u8) bool {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_EnsurePath(path: []const u8) bool {
+fn files_EnsurePath(rt: *RuntimeContext, path: []const u8) bool {
     std.fs.cwd().makePath(path) catch |err| switch (err) {
         else => {
-            v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "{}", .{err});
+            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
             return false;
         },
     };
@@ -516,9 +523,9 @@ fn files_EnsurePath(path: []const u8) bool {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_PathExists(path: []const u8) bool {
+fn files_PathExists(rt: *RuntimeContext, path: []const u8) bool {
     return stdx.fs.pathExists(path) catch |err| {
-        v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "{}", .{err});
+        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
         return false;
     };
 }
@@ -539,7 +546,7 @@ fn files_RemoveDir(path: []const u8, recursive: bool) bool {
     return true;
 }
 
-fn passAsyncTest() void {
+fn passAsyncTest(rt: *RuntimeContext) void {
     rt.num_async_tests_passed += 1;
     rt.num_tests_passed += 1;
 }
@@ -552,44 +559,43 @@ fn reportAsyncTestFailure() void {
 }
 
 // FUTURE: Save test cases and execute them in parallel.
-fn createTest(name: []const u8, cb: v8.Function) void {
+fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
+    const iso = rt.isolate;
+    const ctx = rt.context;
     const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
     defer rt.alloc.free(name_dupe);
 
-    const isolate = rt.cur_isolate;
-
     var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
     var try_catch: v8.TryCatch = undefined;
-    try_catch.init(isolate);
+    try_catch.init(iso);
     defer try_catch.deinit();
 
     rt.num_tests += 1;
     if (cb.toValue().isAsyncFunction()) {
         // Async test.
         rt.num_async_tests += 1;
-        const ctx = isolate.getCurrentContext();
         if (cb.call(ctx, rt.js_undefined, &.{})) |val| {
             const promise = val.castToPromise();
 
-            const on_fulfilled = v8.Function.initDefault(ctx, genJsFunc(passAsyncTest));
-            const on_rejected = v8.Function.initDefault(ctx, genJsFunc(reportAsyncTestFailure));
+            const data = iso.initExternal(rt);
+            const on_fulfilled = v8.Function.initWithData(ctx, genJsFunc(passAsyncTest), data);
+            const on_rejected = v8.Function.initWithData(ctx, genJsFunc(reportAsyncTestFailure), data);
 
             _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
         } else {
-            const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
+            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
     } else {
         // Sync test.
-        const ctx = isolate.getCurrentContext();
         if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
             rt.num_tests_passed += 1;
         } else {
-            const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
+            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -597,10 +603,10 @@ fn createTest(name: []const u8, cb: v8.Function) void {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn graphics_NewImage(g: *Graphics, path: []const u8) graphics.Image {
+fn graphics_NewImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.Image {
     return g.createImageFromPath(path) catch |err| {
         if (err == error.FileNotFound) {
-            v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
+            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
             return undefined;
         } else {
             unreachable;
@@ -609,10 +615,10 @@ fn graphics_NewImage(g: *Graphics, path: []const u8) graphics.Image {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn graphics_AddTtfFont(g: *Graphics, path: []const u8) graphics.font.FontId {
+fn graphics_AddTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
     return g.addTTF_FontFromPath(path) catch |err| {
         if (err == error.FileNotFound) {
-            v8.throwErrorExceptionFmt(rt.alloc, rt.cur_isolate, "Could not find file: {s}", .{path});
+            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
             return 0;
         } else {
             unreachable;
@@ -623,97 +629,21 @@ fn graphics_AddTtfFont(g: *Graphics, path: []const u8) graphics.font.FontId {
 fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
     const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
     const len = info.length();
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+    const iso = rt.isolate;
+    const ctx = rt.context;
 
-    const isolate = info.getIsolate();
-    const ctx = isolate.getCurrentContext();
     var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        const str = v8.valueToUtf8Alloc(rt.alloc, isolate, ctx, info.getArg(i));
+        const str = v8.valueToUtf8Alloc(rt.alloc, iso, ctx, info.getArg(i));
         defer rt.alloc.free(str);
         printFmt("{s} ", .{str});
     }
     printFmt("\n", .{});
-}
-
-const SizedJsString = struct {
-    str: v8.String,
-    len: u32,
-};
-
-pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate, val: SizedJsString) []const u8 {
-    const start = arr.items.len;
-    arr.items.len = start + val.len;
-    _ = val.str.writeUtf8(isolate, arr.items[start..arr.items.len]);
-    return arr.items[start..];
-}
-
-fn getNativeValue(isolate: v8.Isolate, ctx: v8.Context, comptime T: type, val: anytype) ?T {
-    switch (T) {
-        []const f32 => {
-            if (val.isArray()) {
-                const len = val.castToArray().length();
-                var i: u32 = 0;
-                const obj = val.castToObject();
-                const start = rt.cb_f32_buf.items.len;
-                rt.cb_f32_buf.resize(start + len) catch unreachable;
-                while (i < len) : (i += 1) {
-                    rt.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx);
-                }
-                return rt.cb_f32_buf.items[start..];
-            } else return null;
-        },
-        []const u8 => {
-            if (@TypeOf(val) == SizedJsString) {
-                return appendSizedJsStringAssumeCap(&rt.cb_str_buf, isolate, val);
-            } else {
-                return v8.appendValueAsUtf8(&rt.cb_str_buf, isolate, ctx, val);
-            }
-        },
-        bool => return val.toBool(isolate),
-        u8 => return @intCast(u8, val.toU32(ctx)),
-        u32 => return val.toU32(ctx),
-        f32 => return val.toF32(ctx),
-        graphics.Image => {
-            if (val.isObject()) {
-                const obj = val.castToObject();
-                if (obj.toValue().instanceOf(ctx, rt.image_class.getFunction(ctx).toObject())) {
-                    const image_id = obj.getInternalField(0).toU32(ctx);
-                    return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
-                }
-            }
-            return null;
-        },
-        Color => {
-            if (val.isObject()) {
-                const obj = val.castToObject();
-                const r = obj.getValue(ctx, v8.String.initUtf8(isolate, "r")).toU32(ctx);
-                const g = obj.getValue(ctx, v8.String.initUtf8(isolate, "g")).toU32(ctx);
-                const b = obj.getValue(ctx, v8.String.initUtf8(isolate, "b")).toU32(ctx);
-                const a = obj.getValue(ctx, v8.String.initUtf8(isolate, "a")).toU32(ctx);
-                return Color.init(
-                    @intCast(u8, r),
-                    @intCast(u8, g),
-                    @intCast(u8, b),
-                    @intCast(u8, a),
-                );
-            } else return null;
-        },
-        v8.Function => {
-            if (val.isFunction()) {
-                return val.castToFunction();
-            } else return null;
-        },
-        v8.Object => {
-            if (val.isObject()) {
-                return val.castToObject();
-            } else return null;
-        },
-        else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) })),
-    }
 }
 
 // native_cb: fn (Param) void | fn (Ptr, Param) void
@@ -724,30 +654,31 @@ pub fn genJsSetter(comptime native_cb: anytype) v8.AccessorNameSetterCallback {
     const gen = struct {
         fn set(_: ?*const v8.Name, value: ?*const anyopaque, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
-            const isolate = info.getIsolate();
-            const ctx = isolate.getCurrentContext();
+            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const iso = rt.isolate;
+            const ctx = rt.context;
 
             var hscope: v8.HandleScope = undefined;
-            hscope.init(isolate);
+            hscope.init(iso);
             defer hscope.deinit();
 
             const val = v8.Value{ .handle = value.? };
 
-            if (getNativeValue(isolate, ctx, Param, val)) |native_val| {
+            if (rt.getNativeValue(Param, val)) |native_val| {
                 if (HasPtr) {
                     const Ptr = Args[0].arg_type.?;
                     const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
                     if (ptr > 0) {
                         native_cb(@intToPtr(Ptr, ptr), native_val);
                     } else {
-                        v8.throwErrorException(isolate, "Handle has expired.");
+                        v8.throwErrorException(iso, "Handle has expired.");
                         return;
                     }
                 } else {
                     native_cb(native_val);
                 }
             } else {
-                v8.throwErrorExceptionFmt(rt.alloc, isolate, "Could not convert to {s}", .{@typeName(Param)});
+                v8.throwErrorExceptionFmt(rt.alloc, iso, "Could not convert to {s}", .{@typeName(Param)});
                 return;
             }
         }
@@ -759,90 +690,28 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
     const gen = struct {
         fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-            const isolate = info.getIsolate();
-            const ctx = isolate.getCurrentContext();
+            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const iso = rt.isolate;
 
             var hscope: v8.HandleScope = undefined;
-            hscope.init(isolate);
+            hscope.init(iso);
             defer hscope.deinit();
 
             const return_value = info.getReturnValue();
-            return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
+            return_value.setValueHandle(rt.getJsValue(native_val));
         }
     };
     return gen.cb;
 }
 
-fn freeNativeValue(native_val: anytype) void {
+fn freeNativeValue(alloc: std.mem.Allocator, native_val: anytype) void {
     const Type = @TypeOf(native_val);
     if (Type == []const u8) {
-        rt.alloc.free(native_val);
+        alloc.free(native_val);
     } else if (@typeInfo(Type) == .Optional) {
         if (native_val) |child_val| {
-            freeNativeValue(child_val);
+            freeNativeValue(alloc, child_val);
         }
-    }
-}
-
-/// Returns raw value pointer so we don't need to convert back to a v8.Value.
-pub fn getJsValue(isolate: v8.Isolate, ctx: v8.Context, native_val: anytype) *const anyopaque {
-    const Type = @TypeOf(native_val);
-    switch (Type) {
-        u32 => return v8.Integer.initU32(isolate, native_val).handle,
-        f32 => return v8.Number.init(isolate, native_val).handle,
-        bool => return v8.Boolean.init(isolate, native_val).handle,
-        graphics.Image => {
-            const new = rt.image_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-            new.setInternalField(0, v8.Integer.initU32(isolate, native_val.id));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "width"), v8.Integer.initU32(isolate, @intCast(u32, native_val.width)));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "height"), v8.Integer.initU32(isolate, @intCast(u32, native_val.height)));
-            return new.handle;
-        },
-        Color => {
-            const new = rt.color_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "r"), v8.Integer.initU32(isolate, native_val.channels.r));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "g"), v8.Integer.initU32(isolate, native_val.channels.g));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "b"), v8.Integer.initU32(isolate, native_val.channels.b));
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "a"), v8.Integer.initU32(isolate, native_val.channels.a));
-            return new.handle;
-        },
-        PathInfo => {
-            const new = rt.default_obj_t.initInstance(ctx);
-            _ = new.setValue(ctx, v8.String.initUtf8(isolate, "kind"), v8.String.initUtf8(isolate, @tagName(native_val.kind)));
-            return new.handle;
-        },
-        v8.Object => {
-            return native_val.handle;
-        },
-        v8.Promise => {
-            return native_val.handle;
-        },
-        []const u8 => {
-            return v8.String.initUtf8(isolate, native_val).handle;
-        },
-        anyerror => {
-            // TODO: Should this be an Error/Exception object instead?
-            const str = std.fmt.allocPrint(rt.alloc, "{}", .{native_val}) catch unreachable;
-            defer rt.alloc.free(str);
-            return v8.String.initUtf8(isolate, str).handle;
-        },
-        *const anyopaque => {
-            return native_val;
-        },
-        v8.Persistent(v8.Object) => {
-            return @ptrCast(*const anyopaque, native_val.inner.handle);
-        },
-        else => {
-            if (@typeInfo(Type) == .Optional) {
-                if (native_val) |child_val| {
-                    return getJsValue(isolate, ctx, child_val);
-                } else {
-                    return @ptrCast(*const anyopaque, rt.js_false.handle);
-                }
-            } else {
-                comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
-            }
-        },
     }
 }
 
@@ -854,11 +723,12 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
     const gen = struct {
         fn get(_: ?*const v8.Name, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
-            const isolate = info.getIsolate();
-            const ctx = isolate.getCurrentContext();
+            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const iso = rt.isolate;
+            const ctx = rt.context;
 
             var hscope: v8.HandleScope = undefined;
-            hscope.init(isolate);
+            hscope.init(iso);
             defer hscope.deinit();
 
             const return_value = info.getReturnValue();
@@ -868,55 +738,123 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
                 if (ptr > 0) {
                     if (HasSelfPtr) {
                         const native_val = native_cb(@intToPtr(Self, ptr));
-                        return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
+                        return_value.setValueHandle(rt.getJsValue(native_val));
                         freeNativeValue(native_val);
                     } else {
                         const native_val = native_cb(@intToPtr(*Self, ptr).*);
-                        return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
-                        freeNativeValue(native_val);
+                        return_value.setValueHandle(rt.getJsValue(native_val));
+                        freeNativeValue(rt.alloc, native_val);
                     }
                 } else {
-                    v8.throwErrorException(isolate, "Handle has expired.");
+                    v8.throwErrorException(iso, "Handle has expired.");
                     return;
                 }
             } else {
                 const native_val = native_cb();
-                return_value.setValueHandle(getJsValue(isolate, ctx, native_val));
-                freeNativeValue(native_val);
+                return_value.setValueHandle(rt.getJsValue(native_val));
+                freeNativeValue(rt.alloc, native_val);
             }
         }
     };
     return gen.get;
 }
 
+const JsFuncInfo = struct {
+    this_field: ?std.builtin.TypeInfo.StructField,
+    native_ptr_field: ?std.builtin.TypeInfo.StructField,
+    rt_ptr_field: ?std.builtin.TypeInfo.StructField,
+    func_arg_fields: []const std.builtin.TypeInfo.StructField,
+};
+
+fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) JsFuncInfo {
+    var res: JsFuncInfo = undefined;
+
+    // First v8.Object param will receive "this".
+    res.this_field = b: {
+        inline for (arg_fields) |field| {
+            if (field.field_type == v8.Object) {
+                break :b field;
+            }
+        }
+        break :b null;
+    };
+
+    // First pointer param that is not *RuntimeContext will receive this->getInternalField(0)
+    res.native_ptr_field = b: {
+        inline for (arg_fields) |field| {
+            if (comptime std.meta.trait.isSingleItemPtr(field.field_type) and field.field_type != *RuntimeContext) {
+                break :b field;
+            }
+        }
+        break :b null;
+    };
+
+    // First *RuntimeContext param will receive the current rt pointer.
+    res.rt_ptr_field = b: {
+        inline for (arg_fields) |field| {
+            if (field.field_type == *RuntimeContext) {
+                break :b field;
+            }
+        }
+        break :b null;
+    };
+
+    // Get required js func args.
+    res.func_arg_fields = b: {
+        var args: []const std.builtin.TypeInfo.StructField = &.{};
+        inline for (arg_fields) |field| {
+            var is_func_arg = true;
+            if (res.this_field) |this_field| {
+                if (std.mem.eql(u8, field.name, this_field.name)) {
+                    is_func_arg = false;
+                }
+            }
+            if (res.native_ptr_field) |native_ptr_field| {
+                if (std.mem.eql(u8, field.name, native_ptr_field.name)) {
+                    is_func_arg = false;
+                }
+            }
+            if (res.rt_ptr_field) |rt_ptr_field| {
+                if (std.mem.eql(u8, field.name, rt_ptr_field.name)) {
+                    is_func_arg = false;
+                }
+            }
+            if (is_func_arg) {
+                args = args ++ &[_]std.builtin.TypeInfo.StructField{field};
+            }
+        }
+        break :b args;
+    };
+
+    return res;
+}
+
+
 /// Calling v8.throwErrorException inside a native callback function will trigger in v8 when the callback returns.
 pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
     const gen = struct {
         fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-            const isolate = info.getIsolate();
-            const ctx = isolate.getCurrentContext();
+            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const iso = rt.isolate;
+            const ctx = rt.context;
 
             var hscope: v8.HandleScope = undefined;
-            hscope.init(isolate);
+            hscope.init(iso);
             defer hscope.deinit();
 
             const arg_types_t = std.meta.ArgsTuple(@TypeOf(native_fn));
             const arg_fields = std.meta.fields(arg_types_t);
 
-            // If first param is v8.Object then it refers to "this".
-            const has_this_arg = arg_fields.len > 0 and arg_fields[0].field_type == v8.Object;
-            // If first param is a Pointer then it extracted from This->getInternalField(0)
-            const has_ptr = arg_fields.len > 0 and comptime std.meta.trait.isSingleItemPtr(arg_fields[0].field_type);
-            const final_arg_fields = if (has_this_arg or has_ptr) arg_fields[1..] else arg_fields;
+            const ct_info = comptime getJsFuncInfo(arg_fields);
 
-            if (info.length() < final_arg_fields.len) {
-                v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {} args.", .{final_arg_fields.len});
+            if (info.length() < ct_info.func_arg_fields.len) {
+                v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {} args.", .{ct_info.func_arg_fields.len});
                 return;
             }
 
             const has_string_param: bool = b: {
-                inline for (final_arg_fields) |field| {
+                inline for (ct_info.func_arg_fields) |field| {
                     if (field.field_type == []const u8) {
                         break :b true;
                     }
@@ -924,7 +862,7 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 break :b false;
             };
             const has_f32_slice_param: bool = b: {
-                inline for (final_arg_fields) |field| {
+                inline for (ct_info.func_arg_fields) |field| {
                     if (field.field_type == []const f32) {
                         break :b true;
                     }
@@ -933,16 +871,16 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
             };
             // This stores the JsValue to JsString conversion to be accessed later to go from JsString to []const u8
             // It should be optimized out for functions without string params.
-            var js_strs: [final_arg_fields.len]SizedJsString = undefined;
+            var js_strs: [ct_info.func_arg_fields.len]SizedJsString = undefined;
             if (has_string_param) {
                 // Since we are converting js strings to native []const u8,
                 // we need to make sure the buffer capacity is enough before appending the args or a realloc could invalidate the slice.
                 // This also means we need to do the JsValue to JsString conversion here and store it in memory.
                 var total_size: u32 = 0;
-                inline for (final_arg_fields) |field, i| {
+                inline for (ct_info.func_arg_fields) |field, i| {
                     if (field.field_type == []const u8) {
                         const js_str = info.getArg(i).toString(ctx);
-                        const len = js_str.lenUtf8(isolate);
+                        const len = js_str.lenUtf8(iso);
                         total_size += len;
                         js_strs[i] = .{
                             .str = js_str,
@@ -954,38 +892,42 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 rt.cb_str_buf.ensureUnusedCapacity(total_size) catch unreachable;
             }
             if (has_f32_slice_param) {
-                if (rt.cb_f32_buf.items.len > 1000 * 1000) {
+                if (rt.cb_f32_buf.items.len > 1e6) {
                     rt.cb_f32_buf.clearRetainingCapacity();
                 }
             }
 
             var native_args: arg_types_t = undefined;
-            if (has_this_arg) {
-                @field(native_args, arg_fields[0].name) = info.getThis();
-            } else if (has_ptr) {
-                const Ptr = arg_fields[0].field_type;
+            if (ct_info.this_field) |field| {
+                @field(native_args, field.name) = info.getThis();
+            }
+            if (ct_info.native_ptr_field) |field| {
+                const Ptr = field.field_type;
                 const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
                 if (ptr > 0) {
-                    @field(native_args, arg_fields[0].name) = @intToPtr(Ptr, ptr);
+                    @field(native_args, field.name) = @intToPtr(Ptr, ptr);
                 } else {
-                    v8.throwErrorException(isolate, "Native handle expired");
+                    v8.throwErrorException(iso, "Native handle expired");
                     return;
                 }
             }
+            if (ct_info.rt_ptr_field) |field| {
+                @field(native_args, field.name) = rt;
+            }
             var has_args = true;
-            inline for (final_arg_fields) |field, i| {
+            inline for (ct_info.func_arg_fields) |field, i| {
                 if (field.field_type == []const u8) {
-                    if (getNativeValue(isolate, ctx, field.field_type, js_strs[i])) |native_val| {
+                    if (rt.getNativeValue(field.field_type, js_strs[i])) |native_val| {
                         @field(native_args, field.name) = native_val;
                     } else {
-                        v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {s}", .{@typeName(field.field_type)});
+                        v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
                         has_args = false;
                     }
                 } else {
-                    if (getNativeValue(isolate, ctx, field.field_type, info.getArg(i))) |native_val| {
+                    if (rt.getNativeValue(field.field_type, info.getArg(i))) |native_val| {
                         @field(native_args, field.name) = native_val;
                     } else {
-                        v8.throwErrorExceptionFmt(rt.alloc, isolate, "Expected {s}", .{@typeName(field.field_type)});
+                        v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
                         // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
                         has_args = false;
                     }
@@ -996,10 +938,10 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 @call(.{}, native_fn, native_args);
             } else {
                 const native_val = @call(.{}, native_fn, native_args);
-                const js_val = getJsValue(isolate, ctx, native_val);
+                const js_val = rt.getJsValue(native_val);
                 const return_value = info.getReturnValue();
                 return_value.setValueHandle(js_val);
-                freeNativeValue(native_val);
+                freeNativeValue(rt.alloc, native_val);
             }
         }
     };

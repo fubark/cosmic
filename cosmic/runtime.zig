@@ -44,7 +44,8 @@ pub const RuntimeContext = struct {
     // Active graphics handle for receiving js draw calls.
     active_graphics: *graphics.Graphics,
 
-    cur_isolate: v8.Isolate,
+    isolate: v8.Isolate,
+    context: v8.Context,
     cur_script_dir_abs: []const u8,
 
     // This is used to store native string slices copied from v8.String for use in the immediate native callback functions.
@@ -89,7 +90,8 @@ pub const RuntimeContext = struct {
             .num_windows = 0,
             .active_window = undefined,
             .active_graphics = undefined,
-            .cur_isolate = isolate,
+            .isolate = isolate,
+            .context = undefined,
             .cur_script_dir_abs = getSrcPathDirAbs(alloc, src_path) catch unreachable,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
             .cb_f32_buf = std.ArrayList(f32).init(alloc),
@@ -225,74 +227,148 @@ pub const RuntimeContext = struct {
         }
     }
 
-    pub fn setFuncGetter(self: Self, tmpl: v8.FunctionTemplate, key: []const u8, comptime native_val_or_cb: anytype) void {
-        const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        if (@typeInfo(@TypeOf(native_val_or_cb)) == .Fn) {
-            @compileError("TODO");
-        } else {
-            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFuncGetValue(native_val_or_cb)));
+    /// Returns raw value pointer so we don't need to convert back to a v8.Value.
+    pub fn getJsValue(self: Self, native_val: anytype) *const anyopaque {
+        const Type = @TypeOf(native_val);
+        const iso = self.isolate;
+        const ctx = self.context;
+        switch (Type) {
+            u32 => return iso.initIntegerU32(native_val).handle,
+            f32 => return iso.initNumber(native_val).handle,
+            bool => return iso.initBoolean(native_val).handle,
+            graphics.Image => {
+                const new = self.image_class.getFunction(ctx).initInstance(ctx, &.{}).?;
+                new.setInternalField(0, iso.initIntegerU32(native_val.id));
+                _ = new.setValue(ctx, iso.initStringUtf8("width"), iso.initIntegerU32(@intCast(u32, native_val.width)));
+                _ = new.setValue(ctx, iso.initStringUtf8("height"), iso.initIntegerU32(@intCast(u32, native_val.height)));
+                return new.handle;
+            },
+            graphics.Color => {
+                const new = self.color_class.getFunction(ctx).initInstance(ctx, &.{}).?;
+                _ = new.setValue(ctx, iso.initStringUtf8("r"), iso.initIntegerU32(native_val.channels.r));
+                _ = new.setValue(ctx, iso.initStringUtf8("g"), iso.initIntegerU32(native_val.channels.g));
+                _ = new.setValue(ctx, iso.initStringUtf8("b"), iso.initIntegerU32(native_val.channels.b));
+                _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.channels.a));
+                return new.handle;
+            },
+            js_env.PathInfo => {
+                const new = self.default_obj_t.initInstance(ctx);
+                _ = new.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(@tagName(native_val.kind)));
+                return new.handle;
+            },
+            v8.Object => {
+                return native_val.handle;
+            },
+            v8.Promise => {
+                return native_val.handle;
+            },
+            []const u8 => {
+                return iso.initStringUtf8(native_val).handle;
+            },
+            anyerror => {
+                // TODO: Should this be an Error/Exception object instead?
+                const str = std.fmt.allocPrint(self.alloc, "{}", .{native_val}) catch unreachable;
+                defer self.alloc.free(str);
+                return iso.initStringUtf8(str).handle;
+            },
+            *const anyopaque => {
+                return native_val;
+            },
+            v8.Persistent(v8.Object) => {
+                return @ptrCast(*const anyopaque, native_val.inner.handle);
+            },
+            else => {
+                if (@typeInfo(Type) == .Optional) {
+                    if (native_val) |child_val| {
+                        return self.getJsValue(child_val);
+                    } else {
+                        return @ptrCast(*const anyopaque, self.js_false.handle);
+                    }
+                } else {
+                    comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
+                }
+            },
         }
     }
 
-    pub fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_cb: anytype) void {
-        const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        tmpl.setGetter(js_key, js_env.genJsGetter(native_cb));
-    }
-
-    pub fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_getter_cb: anytype, comptime native_setter_cb: anytype) void {
-        const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        tmpl.setGetterAndSetter(js_key, js_env.genJsGetter(native_getter_cb), js_env.genJsSetter(native_setter_cb));
-    }
-
-    pub fn setFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
-        self.setProp(tmpl, key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFunc(native_cb)));
-    }
-
-    pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
-        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallback(self.cur_isolate, js_env.genJsFunc(native_cb)));
-    }
-
-    pub fn setConstProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
-        const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        switch (@TypeOf(value)) {
-            u32 => {
-                tmpl.set(js_key, v8.Integer.initU32(self.cur_isolate, value), v8.PropertyAttribute.ReadOnly);
+    pub fn getNativeValue(self: *Self, comptime T: type, val: anytype) ?T {
+        const ctx = self.context;
+        switch (T) {
+            []const f32 => {
+                if (val.isArray()) {
+                    const len = val.castToArray().length();
+                    var i: u32 = 0;
+                    const obj = val.castToObject();
+                    const start = self.cb_f32_buf.items.len;
+                    self.cb_f32_buf.resize(start + len) catch unreachable;
+                    while (i < len) : (i += 1) {
+                        self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx);
+                    }
+                    return self.cb_f32_buf.items[start..];
+                } else return null;
             },
-            else => {
-                tmpl.set(js_key, value, v8.PropertyAttribute.ReadOnly);
+            []const u8 => {
+                if (@TypeOf(val) == SizedJsString) {
+                    return appendSizedJsStringAssumeCap(&self.cb_str_buf, self.isolate, val);
+                } else {
+                    return ctx.appendValueAsUtf8(&self.cb_str_buf, val);
+                }
             },
-        }
-    }
-
-    pub fn initFuncT(self: Self, name: []const u8) v8.FunctionTemplate {
-        const new = v8.FunctionTemplate.initDefault(self.cur_isolate);
-        new.setClassName(v8.String.initUtf8(self.cur_isolate, name));
-        return new;
-    }
-
-    pub fn setProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
-        const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        switch (@TypeOf(value)) {
-            u32 => {
-                tmpl.set(js_key, v8.Integer.initU32(self.cur_isolate, value), v8.PropertyAttribute.None);
+            bool => return val.toBool(self.isolate),
+            u8 => return @intCast(u8, val.toU32(ctx)),
+            u32 => return val.toU32(ctx),
+            f32 => return val.toF32(ctx),
+            graphics.Image => {
+                if (val.isObject()) {
+                    const obj = val.castToObject();
+                    if (obj.toValue().instanceOf(ctx, self.image_class.getFunction(ctx).toObject())) {
+                        const image_id = obj.getInternalField(0).toU32(ctx);
+                        return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
+                    }
+                }
+                return null;
             },
-            else => {
-                tmpl.set(js_key, value, v8.PropertyAttribute.None);
+            graphics.Color => {
+                if (val.isObject()) {
+                    const iso = self.isolate;
+                    const obj = val.castToObject();
+                    const r = obj.getValue(ctx, iso.initStringUtf8("r")).toU32(ctx);
+                    const g = obj.getValue(ctx, iso.initStringUtf8("g")).toU32(ctx);
+                    const b = obj.getValue(ctx, iso.initStringUtf8("b")).toU32(ctx);
+                    const a = obj.getValue(ctx, iso.initStringUtf8("a")).toU32(ctx);
+                    return graphics.Color.init(
+                        @intCast(u8, r),
+                        @intCast(u8, g),
+                        @intCast(u8, b),
+                        @intCast(u8, a),
+                    );
+                } else return null;
             },
+            v8.Function => {
+                if (val.isFunction()) {
+                    return val.castToFunction();
+                } else return null;
+            },
+            v8.Object => {
+                if (val.isObject()) {
+                    return val.castToObject();
+                } else return null;
+            },
+            else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) })),
         }
     }
 };
 
 // Main loop for running user apps.
-pub fn runUserLoop(ctx: *RuntimeContext) void {
+pub fn runUserLoop(rt: *RuntimeContext) void {
     var fps_limiter = graphics.DefaultFpsLimiter.init(60);
     var fps: u64 = 0;
 
-    const isolate = ctx.cur_isolate;
-    const isolate_ctx = ctx.cur_isolate.getCurrentContext();
+    const iso = rt.isolate;
+    const ctx = rt.context;
 
     var try_catch: v8.TryCatch = undefined;
-    try_catch.init(isolate);
+    try_catch.init(iso);
     defer try_catch.deinit();
 
     while (true) {
@@ -302,7 +378,7 @@ pub fn runUserLoop(ctx: *RuntimeContext) void {
                 sdl.SDL_WINDOWEVENT => {
                     switch (event.window.event) {
                         sdl.SDL_WINDOWEVENT_CLOSE => {
-                            ctx.deleteCsWindowBySdlId(event.window.windowID);
+                            rt.deleteCsWindowBySdlId(event.window.windowID);
                         },
                         else => {},
                     }
@@ -314,29 +390,31 @@ pub fn runUserLoop(ctx: *RuntimeContext) void {
             }
         }
 
-        const should_update = ctx.num_windows > 0;
+        const should_update = rt.num_windows > 0;
         if (!should_update) {
             return;
         }
 
         // FUTURE: This could benefit being in a separate thread.
-        ctx.work_queue.processDone();
+        rt.work_queue.processDone();
 
-        ctx.active_graphics.beginFrame();
+        rt.active_graphics.beginFrame();
 
-        for (ctx.active_window.onDrawFrameCbs.items) |onDrawFrame| {
-            _ = onDrawFrame.inner.call(isolate_ctx, ctx.active_window.js_window, &.{ ctx.active_window.js_graphics.toValue(), v8.Number.init(isolate, @intToFloat(f64, fps)).toValue() }) orelse {
-                const trace = v8.getTryCatchErrorString(ctx.alloc, isolate, try_catch);
-                defer ctx.alloc.free(trace);
+        for (rt.active_window.onDrawFrameCbs.items) |onDrawFrame| {
+            _ = onDrawFrame.inner.call(ctx, rt.active_window.js_window, &.{
+                rt.active_window.js_graphics.toValue(), iso.initNumber(@intToFloat(f64, fps)).toValue(),
+            }) orelse {
+                const trace = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
+                defer rt.alloc.free(trace);
                 printFmt("{s}", .{trace});
                 return;
             };
         }
-        ctx.active_graphics.endFrame();
+        rt.active_graphics.endFrame();
 
         // TODO: Run any queued micro tasks.
 
-        ctx.active_window.window.swapBuffers();
+        rt.active_window.window.swapBuffers();
 
         fps_limiter.endFrameAndDelay();
         fps = fps_limiter.getFps();
@@ -374,23 +452,22 @@ pub const CsWindow = struct {
     js_graphics: v8.Persistent(v8.Object),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
-        const isolate = rt.cur_isolate;
-        const ctx = isolate.getCurrentContext();
-
+        const iso = rt.isolate;
+        const ctx = rt.context;
         const js_window = rt.window_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-        const js_window_id = v8.Integer.initU32(isolate, window_id);
+        const js_window_id = iso.initIntegerU32(window_id);
         js_window.setInternalField(0, js_window_id);
 
         const g = alloc.create(graphics.Graphics) catch unreachable;
         const js_graphics = rt.graphics_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-        const js_graphics_ptr = v8.Number.initBitCastedU64(isolate, @ptrToInt(g));
+        const js_graphics_ptr = iso.initNumberBitCastedU64(@ptrToInt(g));
         js_graphics.setInternalField(0, js_graphics_ptr);
 
         self.* = .{
             .window = window,
             .onDrawFrameCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
-            .js_window = v8.Persistent(v8.Object).init(isolate, js_window),
-            .js_graphics = v8.Persistent(v8.Object).init(isolate, js_graphics),
+            .js_window = iso.initPersistent(v8.Object, js_window),
+            .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
         };
         self.graphics.init(alloc, window.getWidth(), window.getHeight());
@@ -406,7 +483,9 @@ pub const CsWindow = struct {
         self.onDrawFrameCbs.deinit();
         self.js_window.deinit();
         // Invalidate graphics ptr.
-        self.js_graphics.castToObject().setInternalField(0, v8.Number.initBitCastedU64(rt.cur_isolate, 0));
+        const iso = rt.isolate;
+        const zero = iso.initNumberBitCastedU64(0);
+        self.js_graphics.castToObject().setInternalField(0, zero);
         self.js_graphics.deinit();
     }
 };
@@ -444,39 +523,43 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     var params = v8.initCreateParams();
     params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
     defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
-    var isolate = v8.Isolate.init(&params);
-    defer isolate.deinit();
+    var iso = v8.Isolate.init(&params);
+    defer iso.deinit();
 
-    isolate.enter();
-    defer isolate.exit();
+    iso.enter();
+    defer iso.exit();
 
     var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
-    global_rt.init(alloc, isolate, src_path);
-    global_rt.is_test_env = true;
-    defer global_rt.deinit();
+    var rt: RuntimeContext = undefined;
+    rt.init(alloc, iso, src_path);
+    defer rt.deinit();
 
-    var context = js_env.init(&global_rt, isolate);
-    context.enter();
-    defer context.exit();
+    rt.is_test_env = true;
+
+    var ctx = js_env.initContext(&rt, iso);
+    rt.context = ctx;
+
+    ctx.enter();
+    defer ctx.exit();
 
     {
         // Run test_init.js
         var res: v8.ExecuteResult = undefined;
         defer res.deinit();
-        const origin = v8.String.initUtf8(isolate, "test_init.js");
-        v8.executeString(alloc, isolate, test_init, origin, &res);
+        const origin = v8.String.initUtf8(iso, "test_init.js");
+        v8.executeString(alloc, iso, ctx, test_init, origin, &res);
     }
 
-    const origin = v8.String.initUtf8(isolate, src_path);
+    const origin = v8.String.initUtf8(iso, src_path);
 
     var res: v8.ExecuteResult = undefined;
     defer res.deinit();
-    v8.executeString(alloc, isolate, src, origin, &res);
+    v8.executeString(alloc, iso, ctx, src, origin, &res);
 
-    while (platform.pumpMessageLoop(isolate, false)) {
+    while (platform.pumpMessageLoop(iso, false)) {
         log.debug("What does this do?", .{});
         unreachable;
     }
@@ -486,20 +569,20 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
         return error.MainScriptError;
     }
 
-    while (global_rt.num_async_tests_passed < global_rt.num_async_tests) {
-        global_rt.work_queue.processDone();
+    while (rt.num_async_tests_passed < rt.num_async_tests) {
+        rt.work_queue.processDone();
         // Wait on the next done.
         const Timeout = 4 * 1e9;
-        const wait_res = global_rt.work_queue.done_wakeup.timedWait(Timeout);
-        global_rt.work_queue.done_wakeup.reset();
+        const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
+        rt.work_queue.done_wakeup.reset();
         if (wait_res == .timed_out) {
             break;
         }
     }
 
     // Test results.
-    printFmt("Passed: {d}\n", .{global_rt.num_tests_passed});
-    printFmt("Tests: {d}\n", .{global_rt.num_tests});
+    printFmt("Passed: {d}\n", .{rt.num_tests_passed});
+    printFmt("Tests: {d}\n", .{rt.num_tests});
 }
 
 pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
@@ -518,30 +601,33 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     var params = v8.initCreateParams();
     params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
     defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
-    var isolate = v8.Isolate.init(&params);
-    defer isolate.deinit();
+    var iso = v8.Isolate.init(&params);
+    defer iso.deinit();
 
-    isolate.enter();
-    defer isolate.exit();
+    iso.enter();
+    defer iso.exit();
 
     var hscope: v8.HandleScope = undefined;
-    hscope.init(isolate);
+    hscope.init(iso);
     defer hscope.deinit();
 
-    global_rt.init(alloc, isolate, src_path);
-    defer global_rt.deinit();
+    var rt: RuntimeContext = undefined;
+    rt.init(alloc, iso, src_path);
+    defer rt.deinit();
 
-    var context = js_env.init(&global_rt, isolate);
-    context.enter();
-    defer context.exit();
+    var ctx = js_env.initContext(&rt, iso);
+    rt.context = ctx;
 
-    const origin = v8.String.initUtf8(isolate, src_path);
+    ctx.enter();
+    defer ctx.exit();
+
+    const origin = v8.String.initUtf8(iso, src_path);
 
     var res: v8.ExecuteResult = undefined;
     defer res.deinit();
-    v8.executeString(alloc, isolate, src, origin, &res);
+    v8.executeString(alloc, iso, ctx, src, origin, &res);
 
-    while (platform.pumpMessageLoop(isolate, false)) {
+    while (platform.pumpMessageLoop(iso, false)) {
         log.debug("What does this do?", .{});
         unreachable;
     }
@@ -552,13 +638,10 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     }
 
     // Check if we need to enter an app loop.
-    if (global_rt.num_windows > 0) {
-        runUserLoop(&global_rt);
+    if (rt.num_windows > 0) {
+        runUserLoop(&rt);
     }
 }
-
-// TODO: Move out of global scope.
-var global_rt: RuntimeContext = undefined;
 
 const WeakHandle = struct {
     const Self = @This();
@@ -580,3 +663,84 @@ const WeakHandle = struct {
 const WeakHandleTag = enum {
     DrawCommandList,
 };
+
+/// Convenience wrapper around v8 when constructing the v8.Context.
+pub const ContextBuilder = struct {
+    const Self = @This();
+
+    rt: *RuntimeContext,
+    isolate: v8.Isolate,
+
+    pub fn setFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
+        const data = self.isolate.initExternal(self.rt);
+        self.setProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFunc(native_cb), data));
+    }
+
+    pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
+        const data = self.isolate.initExternal(self.rt);
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFunc(native_cb), data));
+    }
+
+    pub fn setProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
+        const js_key = v8.String.initUtf8(self.isolate, key);
+        switch (@TypeOf(value)) {
+            u32 => {
+                tmpl.set(js_key, v8.Integer.initU32(self.isolate, value), v8.PropertyAttribute.None);
+            },
+            else => {
+                tmpl.set(js_key, value, v8.PropertyAttribute.None);
+            },
+        }
+    }
+
+    pub fn setFuncGetter(self: Self, tmpl: v8.FunctionTemplate, key: []const u8, comptime native_val_or_cb: anytype) void {
+        const js_key = v8.String.initUtf8(self.isolate, key);
+        if (@typeInfo(@TypeOf(native_val_or_cb)) == .Fn) {
+            @compileError("TODO");
+        } else {
+            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.isolate, js_env.genJsFuncGetValue(native_val_or_cb)));
+        }
+    }
+
+    pub fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_cb: anytype) void {
+        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        tmpl.setGetter(js_key, js_env.genJsGetter(native_cb));
+    }
+
+    pub fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_getter_cb: anytype, comptime native_setter_cb: anytype) void {
+        const js_key = self.isolate.initStringUtf8(key);
+        tmpl.setGetterAndSetter(js_key, js_env.genJsGetter(native_getter_cb), js_env.genJsSetter(native_setter_cb));
+    }
+
+    pub fn setConstProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
+        const iso = self.isolate;
+        const js_key = iso.initStringUtf8(key);
+        switch (@TypeOf(value)) {
+            u32 => {
+                tmpl.set(js_key, iso.initIntegerU32(value), v8.PropertyAttribute.ReadOnly);
+            },
+            else => {
+                tmpl.set(js_key, value, v8.PropertyAttribute.ReadOnly);
+            },
+        }
+    }
+
+    pub fn initFuncT(self: Self, name: []const u8) v8.FunctionTemplate {
+        const iso = self.isolate;
+        const new = iso.initFunctionTemplateDefault();
+        new.setClassName(iso.initStringUtf8(name));
+        return new;
+    }
+};
+
+pub const SizedJsString = struct {
+    str: v8.String,
+    len: u32,
+};
+
+pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate, val: SizedJsString) []const u8 {
+    const start = arr.items.len;
+    arr.items.len = start + val.len;
+    _ = val.str.writeUtf8(isolate, arr.items[start..arr.items.len]);
+    return arr.items[start..];
+}

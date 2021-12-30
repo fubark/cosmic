@@ -79,15 +79,20 @@ pub const WorkQueue = struct {
         worker.thread = thread;
     }
 
-    pub fn addTaskWithCb(self: *Self, task: anytype, ctx: u32,
-        comptime success_cb: fn (u32, *@TypeOf(task)) void,
-        comptime failure_cb: fn (u32, *@TypeOf(task), anyerror) void,
+    pub fn addTaskWithCb(self: *Self,
+        task: anytype,
+        ctx: anytype,
+        comptime success_cb: fn (@TypeOf(ctx), *@TypeOf(task)) void,
+        comptime failure_cb: fn (@TypeOf(ctx), *@TypeOf(task), anyerror) void,
     ) void {
         const Task = @TypeOf(task);
-        const m_task = self.alloc.create(Task) catch unreachable;
-        m_task.* = task;
+        const task_dupe = self.alloc.create(Task) catch unreachable;
+        task_dupe.* = task;
 
-        const task_info = TaskInfo.initWithCb(Task, m_task, ctx, success_cb, failure_cb);
+        const ctx_dupe = self.alloc.create(@TypeOf(ctx)) catch unreachable;
+        ctx_dupe.* = ctx;
+
+        const task_info = TaskInfo.initWithCb(Task, task_dupe, ctx_dupe, success_cb, failure_cb);
         const task_id = self.tasks.add(task_info) catch unreachable;
 
         const task_node = self.alloc.create(std.atomic.Queue(TaskId).Node) catch unreachable;
@@ -193,40 +198,43 @@ const TaskInfo = struct {
 
     task: TaskIface,
 
-    // For now the most common use case is invoking a callback with a context id.
-    // If this needs to be dynamic, we'll need to store it in a closure.
-    cb_ctx: u32,
-    success_cb: fn(ctx: u32, ptr: *anyopaque) void,
-    failure_cb: fn(ctx: u32, ptr: *anyopaque, err: anyerror) void,
+    cb_ctx_ptr: *anyopaque,
+    success_cb: fn(ctx_ptr: *anyopaque, ptr: *anyopaque) void,
+    failure_cb: fn(ctx_ptr: *anyopaque, ptr: *anyopaque, err: anyerror) void,
 
     deinit_fn: fn(self: Self, alloc: std.mem.Allocator) void,
 
     has_cb: bool,
 
-    fn initWithCb(comptime TaskImpl: type, task_ptr: *TaskImpl, cb_ctx: u32,
-        comptime success_cb: fn (u32, *TaskImpl) void,
-        comptime failure_cb: fn (u32, *TaskImpl, anyerror) void,
+    fn initWithCb(comptime TaskImpl: type, task_ptr: *TaskImpl, ctx_ptr: anytype,
+        comptime success_cb: fn (std.meta.Child(@TypeOf(ctx_ptr)), *TaskImpl) void,
+        comptime failure_cb: fn (std.meta.Child(@TypeOf(ctx_ptr)), *TaskImpl, anyerror) void,
     ) Self {
+        const Context = std.meta.Child(@TypeOf(ctx_ptr));
         const gen = struct {
-            fn success_cb(ctx: u32, ptr: *anyopaque) void {
+            fn success_cb(_ctx_ptr: *anyopaque, ptr: *anyopaque) void {
+                const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
                 const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, ptr);
-                return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx, orig_ptr });
+                return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr });
             }
 
-            fn failure_cb(ctx: u32, ptr: *anyopaque, err: anyerror) void {
+            fn failure_cb(_ctx_ptr: *anyopaque, ptr: *anyopaque, err: anyerror) void {
+                const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
                 const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, ptr);
-                return @call(.{ .modifier = .always_inline }, failure_cb, .{ ctx, orig_ptr, err });
+                return @call(.{ .modifier = .always_inline }, failure_cb, .{ ctx.*, orig_ptr, err });
             }
 
             fn deinit(self: Self, alloc: std.mem.Allocator) void {
                 self.task.deinit();
                 const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, self.task.ptr);
                 alloc.destroy(orig_ptr);
+                const orig_ctx_ptr = stdx.mem.ptrCastAlign(*Context, self.cb_ctx_ptr);
+                alloc.destroy(orig_ctx_ptr);
             }
         };
         return .{
             .task = TaskIface.init(task_ptr),
-            .cb_ctx = cb_ctx,
+            .cb_ctx_ptr = ctx_ptr,
             .success_cb = gen.success_cb,
             .failure_cb = gen.failure_cb,
             .deinit_fn = gen.deinit,
@@ -239,11 +247,11 @@ const TaskInfo = struct {
     }
 
     fn invokeSuccessCallback(self: Self) void {
-        self.success_cb(self.cb_ctx, self.task.ptr);
+        self.success_cb(self.cb_ctx_ptr, self.task.ptr);
     }
 
     fn invokeFailureCallback(self: Self, err: anyerror) void {
-        self.failure_cb(self.cb_ctx, self.task.ptr, err);
+        self.failure_cb(self.cb_ctx_ptr, self.task.ptr, err);
     }
 };
 
