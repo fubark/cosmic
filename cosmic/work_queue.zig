@@ -82,8 +82,8 @@ pub const WorkQueue = struct {
     pub fn addTaskWithCb(self: *Self,
         task: anytype,
         ctx: anytype,
-        comptime success_cb: fn (@TypeOf(ctx), *@TypeOf(task)) void,
-        comptime failure_cb: fn (@TypeOf(ctx), *@TypeOf(task), anyerror) void,
+        comptime success_cb: fn (@TypeOf(ctx), TaskOutput(@TypeOf(task))) void,
+        comptime failure_cb: fn (@TypeOf(ctx), anyerror) void,
     ) void {
         const Task = @TypeOf(task);
         const task_dupe = self.alloc.create(Task) catch unreachable;
@@ -136,6 +136,10 @@ pub const WorkQueue = struct {
         }
     }
 };
+
+pub fn TaskOutput(comptime Task: type) type {
+    return stdx.meta.FieldType(Task, .res);
+}
 
 // A thread is tied to a worker which simply requests the next task to work on.
 const Worker = struct {
@@ -200,28 +204,27 @@ const TaskInfo = struct {
 
     cb_ctx_ptr: *anyopaque,
     success_cb: fn(ctx_ptr: *anyopaque, ptr: *anyopaque) void,
-    failure_cb: fn(ctx_ptr: *anyopaque, ptr: *anyopaque, err: anyerror) void,
+    failure_cb: fn(ctx_ptr: *anyopaque, err: anyerror) void,
 
     deinit_fn: fn(self: Self, alloc: std.mem.Allocator) void,
 
     has_cb: bool,
 
     fn initWithCb(comptime TaskImpl: type, task_ptr: *TaskImpl, ctx_ptr: anytype,
-        comptime success_cb: fn (std.meta.Child(@TypeOf(ctx_ptr)), *TaskImpl) void,
-        comptime failure_cb: fn (std.meta.Child(@TypeOf(ctx_ptr)), *TaskImpl, anyerror) void,
+        comptime success_cb: fn (std.meta.Child(@TypeOf(ctx_ptr)), TaskOutput(TaskImpl)) void,
+        comptime failure_cb: fn (std.meta.Child(@TypeOf(ctx_ptr)), anyerror) void,
     ) Self {
         const Context = std.meta.Child(@TypeOf(ctx_ptr));
         const gen = struct {
             fn success_cb(_ctx_ptr: *anyopaque, ptr: *anyopaque) void {
                 const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
                 const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, ptr);
-                return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr });
+                return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr.res });
             }
 
-            fn failure_cb(_ctx_ptr: *anyopaque, ptr: *anyopaque, err: anyerror) void {
+            fn failure_cb(_ctx_ptr: *anyopaque, err: anyerror) void {
                 const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
-                const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, ptr);
-                return @call(.{ .modifier = .always_inline }, failure_cb, .{ ctx.*, orig_ptr, err });
+                return @call(.{ .modifier = .always_inline }, failure_cb, .{ ctx.*, err });
             }
 
             fn deinit(self: Self, alloc: std.mem.Allocator) void {
@@ -251,7 +254,7 @@ const TaskInfo = struct {
     }
 
     fn invokeFailureCallback(self: Self, err: anyerror) void {
-        self.failure_cb(self.cb_ctx_ptr, self.task.ptr, err);
+        self.failure_cb(self.cb_ctx_ptr, err);
     }
 };
 

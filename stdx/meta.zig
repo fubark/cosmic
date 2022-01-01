@@ -10,6 +10,10 @@ pub fn FunctionReturnType(comptime Fn: type) type {
     return @typeInfo(Fn).Fn.return_type.?;
 }
 
+pub fn FieldType(comptime T: type, comptime Field: std.meta.FieldEnum(T)) type {
+    return std.meta.fieldInfo(T, Field).field_type;
+}
+ 
 /// Generate a unique type id.
 pub fn TypeId(comptime T: type) usize {
     _ = T;

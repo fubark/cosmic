@@ -5,6 +5,7 @@ const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
 const Color = graphics.Color;
+const ds = stdx.ds;
 
 const v8 = @import("v8.zig");
 const runtime = @import("runtime.zig");
@@ -17,6 +18,8 @@ const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const log = stdx.log.scoped(.js_env);
 const tasks = @import("tasks.zig");
+const work_queue = @import("work_queue.zig");
+const TaskOutput = work_queue.TaskOutput;
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
 // A parent HandleScope should persist the values we create in here until the end of the script execution.
@@ -193,7 +196,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
 
-    ctx.setConstFuncT(files, "readFileAsync", files_ReadFileAsync);
+    ctx.setConstAsyncFuncT(files, "readFileAsync", files_ReadFile);
 
     if (rt.is_test_env) {
         // cs.test
@@ -281,7 +284,7 @@ fn color_WithAlpha(rt: *RuntimeContext, this: v8.Object, a: u8) Color {
 }
 
 fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaque {
-    return rt.getJsValue(Color.init(r, g, b, a));
+    return rt.getJsValuePtr(Color.init(r, g, b, a));
 }
 
 fn graphics_FillPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
@@ -388,12 +391,13 @@ fn files_ResolvePath(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
 
 /// Path can be absolute or relative to the cwd.
 /// Returns the contents on success or false.
-fn files_ReadFile(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
-    return std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
+fn files_ReadFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
+    const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
         // Whitelist errors to silence.
         error.FileNotFound => return null,
         else => unreachable,
     };
+    return ds.Box([]const u8).init(rt.alloc, res);
 }
 
 const Promise = struct {
@@ -410,6 +414,8 @@ fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) voi
     _ = resolver.inner.resolve(rt.context, val);
 }
 
+/// This function sets up a async endpoint manually for future reference.
+/// Most of the time we'll want to reuse the sync endpoint and call ctx.setConstAsyncFuncT.
 fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
     const iso = rt.isolate;
 
@@ -424,18 +430,17 @@ fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
     const promise_id = rt.promises.add(resolver) catch unreachable;
 
     const S = struct {
-        fn onSuccess(ctx: RuntimeValue(PromiseId), _task: *tasks.ReadFileTask) void {
+        fn onSuccess(ctx: RuntimeValue(PromiseId), _res: TaskOutput(tasks.ReadFileTask)) void {
             const _promise_id = ctx.inner;
             resolvePromise(ctx.rt, _promise_id, .{
-                .handle = ctx.rt.getJsValue(_task.res),
+                .handle = ctx.rt.getJsValuePtr(_res),
             });
         }
 
-        fn onFailure(ctx: RuntimeValue(PromiseId), _task: *tasks.ReadFileTask, err: anyerror) void {
-            _ = _task;
+        fn onFailure(ctx: RuntimeValue(PromiseId), _err: anyerror) void {
             const _promise_id = ctx.inner;
             rejectPromise(ctx.rt, _promise_id, .{
-                .handle = ctx.rt.getJsValue(err),
+                .handle = ctx.rt.getJsValuePtr(_err),
             });
         }
     };
@@ -581,8 +586,8 @@ fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
             const promise = val.castToPromise();
 
             const data = iso.initExternal(rt);
-            const on_fulfilled = v8.Function.initWithData(ctx, genJsFunc(passAsyncTest), data);
-            const on_rejected = v8.Function.initWithData(ctx, genJsFunc(reportAsyncTestFailure), data);
+            const on_fulfilled = v8.Function.initWithData(ctx, genJsFuncSync(passAsyncTest), data);
+            const on_rejected = v8.Function.initWithData(ctx, genJsFuncSync(reportAsyncTestFailure), data);
 
             _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
         } else {
@@ -698,7 +703,7 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
             defer hscope.deinit();
 
             const return_value = info.getReturnValue();
-            return_value.setValueHandle(rt.getJsValue(native_val));
+            return_value.setValueHandle(rt.getJsValuePtr(native_val));
         }
     };
     return gen.cb;
@@ -706,11 +711,16 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
 
 fn freeNativeValue(alloc: std.mem.Allocator, native_val: anytype) void {
     const Type = @TypeOf(native_val);
-    if (Type == []const u8) {
-        alloc.free(native_val);
-    } else if (@typeInfo(Type) == .Optional) {
-        if (native_val) |child_val| {
-            freeNativeValue(alloc, child_val);
+    switch (Type) {
+        // TODO: slice should be wrapped by a struct that indicates that it should be freed by the current allocator.
+        []const u8 => alloc.free(native_val),
+        ds.Box([]const u8) => native_val.deinit(),
+        else => {
+            if (@typeInfo(Type) == .Optional) {
+                if (native_val) |child_val| {
+                    freeNativeValue(alloc, child_val);
+                }
+            }
         }
     }
 }
@@ -738,11 +748,11 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
                 if (ptr > 0) {
                     if (HasSelfPtr) {
                         const native_val = native_cb(@intToPtr(Self, ptr));
-                        return_value.setValueHandle(rt.getJsValue(native_val));
+                        return_value.setValueHandle(rt.getJsValuePtr(native_val));
                         freeNativeValue(native_val);
                     } else {
                         const native_val = native_cb(@intToPtr(*Self, ptr).*);
-                        return_value.setValueHandle(rt.getJsValue(native_val));
+                        return_value.setValueHandle(rt.getJsValuePtr(native_val));
                         freeNativeValue(rt.alloc, native_val);
                     }
                 } else {
@@ -751,7 +761,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
                 }
             } else {
                 const native_val = native_cb();
-                return_value.setValueHandle(rt.getJsValue(native_val));
+                return_value.setValueHandle(rt.getJsValuePtr(native_val));
                 freeNativeValue(rt.alloc, native_val);
             }
         }
@@ -829,9 +839,17 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
     return res;
 }
 
+pub fn genJsFuncSync(comptime native_fn: anytype) v8.FunctionCallback {
+    return genJsFunc(native_fn, false);
+}
+
+pub fn genJsFuncAsync(comptime native_fn: anytype) v8.FunctionCallback {
+    return genJsFunc(native_fn, true);
+}
 
 /// Calling v8.throwErrorException inside a native callback function will trigger in v8 when the callback returns.
-pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
+pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool) v8.FunctionCallback {
+    const NativeFn = @TypeOf(native_fn);
     const gen = struct {
         fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
@@ -843,7 +861,7 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
             hscope.init(iso);
             defer hscope.deinit();
 
-            const arg_types_t = std.meta.ArgsTuple(@TypeOf(native_fn));
+            const arg_types_t = std.meta.ArgsTuple(NativeFn);
             const arg_fields = std.meta.fields(arg_types_t);
 
             const ct_info = comptime getJsFuncInfo(arg_fields);
@@ -918,7 +936,16 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
             inline for (ct_info.func_arg_fields) |field, i| {
                 if (field.field_type == []const u8) {
                     if (rt.getNativeValue(field.field_type, js_strs[i])) |native_val| {
-                        @field(native_args, field.name) = native_val;
+                        if (is_async) {
+                            // getNativeValue only returns temporary allocations. Dupe so it can be persisted.
+                            if (@TypeOf(native_val) == []const u8) {
+                                @field(native_args, field.name) = rt.alloc.dupe(u8, native_val) catch unreachable;
+                            } else {
+                                @field(native_args, field.name) = native_val;
+                            }
+                        } else {
+                            @field(native_args, field.name) = native_val;
+                        }
                     } else {
                         v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
                         has_args = false;
@@ -934,14 +961,47 @@ pub fn genJsFunc(comptime native_fn: anytype) v8.FunctionCallback {
                 }
             }
             if (!has_args) return;
-            if (stdx.meta.FunctionReturnType(@TypeOf(native_fn)) == void) {
-                @call(.{}, native_fn, native_args);
-            } else {
-                const native_val = @call(.{}, native_fn, native_args);
-                const js_val = rt.getJsValue(native_val);
+
+            if (is_async) {
+                const ClosureTask = tasks.ClosureTask(native_fn);
+                const task = ClosureTask{
+                    .alloc = rt.alloc,
+                    .args = native_args,
+                };
+                const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(ctx));
+                const promise = resolver.inner.getPromise();
+                const promise_id = rt.promises.add(resolver) catch unreachable;
+                const S = struct {
+                    fn onSuccess(_ctx: RuntimeValue(PromiseId), _res: TaskOutput(ClosureTask)) void {
+                        const _promise_id = _ctx.inner;
+                        resolvePromise(_ctx.rt, _promise_id, .{
+                            .handle = _ctx.rt.getJsValuePtr(_res),
+                        });
+                    }
+                    fn onFailure(_ctx: RuntimeValue(PromiseId), _err: anyerror) void {
+                        const _promise_id = _ctx.inner;
+                        rejectPromise(_ctx.rt, _promise_id, .{
+                            .handle = _ctx.rt.getJsValuePtr(_err),
+                        });
+                    }
+                };
+                const task_ctx = RuntimeValue(PromiseId){
+                    .rt = rt,
+                    .inner = promise_id,
+                };
+                _ = rt.work_queue.addTaskWithCb(task, task_ctx, S.onSuccess, S.onFailure);
                 const return_value = info.getReturnValue();
-                return_value.setValueHandle(js_val);
-                freeNativeValue(rt.alloc, native_val);
+                return_value.setValueHandle(rt.getJsValuePtr(promise));
+            } else {
+                if (stdx.meta.FunctionReturnType(@TypeOf(native_fn)) == void) {
+                    @call(.{}, native_fn, native_args);
+                } else {
+                    const native_val = @call(.{}, native_fn, native_args);
+                    const js_val = rt.getJsValuePtr(native_val);
+                    const return_value = info.getReturnValue();
+                    return_value.setValueHandle(js_val);
+                    freeNativeValue(rt.alloc, native_val);
+                }
             }
         }
     };

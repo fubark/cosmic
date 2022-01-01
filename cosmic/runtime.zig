@@ -228,7 +228,7 @@ pub const RuntimeContext = struct {
     }
 
     /// Returns raw value pointer so we don't need to convert back to a v8.Value.
-    pub fn getJsValue(self: Self, native_val: anytype) *const anyopaque {
+    pub fn getJsValuePtr(self: Self, native_val: anytype) *const anyopaque {
         const Type = @TypeOf(native_val);
         const iso = self.isolate;
         const ctx = self.context;
@@ -265,6 +265,9 @@ pub const RuntimeContext = struct {
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
             },
+            ds.Box([]const u8) => {
+                return iso.initStringUtf8(native_val.slice).handle;
+            },
             anyerror => {
                 // TODO: Should this be an Error/Exception object instead?
                 const str = std.fmt.allocPrint(self.alloc, "{}", .{native_val}) catch unreachable;
@@ -280,7 +283,7 @@ pub const RuntimeContext = struct {
             else => {
                 if (@typeInfo(Type) == .Optional) {
                     if (native_val) |child_val| {
-                        return self.getJsValue(child_val);
+                        return self.getJsValuePtr(child_val);
                     } else {
                         return @ptrCast(*const anyopaque, self.js_false.handle);
                     }
@@ -673,12 +676,17 @@ pub const ContextBuilder = struct {
 
     pub fn setFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
         const data = self.isolate.initExternal(self.rt);
-        self.setProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFunc(native_cb), data));
+        self.setProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFuncSync(native_cb), data));
     }
 
     pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
         const data = self.isolate.initExternal(self.rt);
-        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFunc(native_cb), data));
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFuncSync(native_cb), data));
+    }
+
+    pub fn setConstAsyncFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
+        const data = self.isolate.initExternal(self.rt);
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFuncAsync(native_cb), data));
     }
 
     pub fn setProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
