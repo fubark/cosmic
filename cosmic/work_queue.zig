@@ -23,6 +23,9 @@ pub const WorkQueue = struct {
     // For an external thread that wants to wait until a task is done.
     done_wakeup: std.Thread.ResetEvent,
 
+    num_processing: u32,
+    num_processing_mutex: std.Thread.Mutex,
+
     pub fn init(alloc: std.mem.Allocator) Self {
         var new = Self{
             .alloc = alloc,
@@ -32,6 +35,8 @@ pub const WorkQueue = struct {
             .done = std.atomic.Queue(TaskResult).init(),
             .workers = std.ArrayList(*Worker).init(alloc),
             .done_wakeup = undefined,
+            .num_processing = 0,
+            .num_processing_mutex = std.Thread.Mutex{},
         };
         new.done_wakeup.init() catch unreachable;
         return new;
@@ -63,6 +68,18 @@ pub const WorkQueue = struct {
         self.workers.deinit();
 
         self.done_wakeup.deinit();
+    }
+
+    /// An unfinished task can be in the following states:
+    /// - currently in ready (not picked up by a worker)
+    /// - currently being processed by a worker
+    /// - currently in done queue but still hasn't done post processing (we check this for the last in-progress task that is marked done)
+    /// This is useful to determine whether waiting for unfinished tasks will actually have a wakeup call.
+    pub fn hasUnfinishedTasks(self: *Self) bool {
+        self.num_processing_mutex.lock();
+        defer self.num_processing_mutex.unlock();
+
+        return !self.ready.isEmpty() or self.num_processing > 0 or !self.done.isEmpty();
     }
 
     fn getTaskInfo(self: *Self, id: TaskId) TaskInfo {
@@ -111,6 +128,12 @@ pub const WorkQueue = struct {
         const res_node = self.alloc.create(std.atomic.Queue(TaskResult).Node) catch unreachable;
         res_node.data = res;
         self.done.put(res_node);
+
+        {
+            self.num_processing_mutex.lock();
+            defer self.num_processing_mutex.unlock();
+            self.num_processing -= 1;
+        }
 
         self.done_wakeup.set();
     }
@@ -168,6 +191,11 @@ const Worker = struct {
     fn loop(self: *Self) void {
         while (true) {
             while (self.queue.ready.get()) |n| {
+                {
+                    self.queue.num_processing_mutex.lock();
+                    defer self.queue.num_processing_mutex.unlock();
+                    self.queue.num_processing += 1;
+                }
                 // log.debug("Worker on thread: {} received work", .{std.Thread.getCurrentId()});
                 const task_id = n.data;
                 self.queue.alloc.destroy(n);

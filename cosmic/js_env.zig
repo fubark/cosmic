@@ -198,6 +198,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
     ctx.setConstAsyncFuncT(files, "readFileAsync", files_ReadFile);
     ctx.setConstAsyncFuncT(files, "writeFileAsync", files_WriteFile);
+    ctx.setConstAsyncFuncT(files, "appendFileAsync", files_AppendFile);
 
     if (rt.is_test_env) {
         // cs.test
@@ -220,7 +221,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs, "graphics", cs_graphics);
 
     ctx.setConstProp(global, "cs", cs);
-    ctx.setConstProp(global, "print", iso.initFunctionTemplateCallback(print));
+    const rt_data = iso.initExternal(rt);
+    ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(print, rt_data));
 
     const res = iso.initContext(global, null);
 

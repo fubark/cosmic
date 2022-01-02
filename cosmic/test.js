@@ -66,6 +66,17 @@ cs.test('cs.files.appendFile', () => {
     }
 })
 
+cs.testIsolated('cs.files.appendFileAsync', async () => {
+    eq(await fs.appendFileAsync('foo.txt', 'foo'), true)
+    try {
+        eq(fs.readFile('foo.txt'), 'foo')
+        eq(await fs.appendFileAsync('foo.txt', 'bar'), true)
+        eq(fs.readFile('foo.txt'), 'foobar')
+    } finally {
+        fs.removeFile('foo.txt')
+    }
+})
+
 cs.test('cs.files.removeFile', () => {
     eq(fs.removeFile('foo.txt'), false)
     fs.writeFile('foo.txt', 'foo');

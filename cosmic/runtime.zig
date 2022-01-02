@@ -44,6 +44,7 @@ pub const RuntimeContext = struct {
     // Active graphics handle for receiving js draw calls.
     active_graphics: *graphics.Graphics,
 
+    platform: v8.Platform,
     isolate: v8.Isolate,
     context: v8.Context,
     cur_script_dir_abs: []const u8,
@@ -77,7 +78,7 @@ pub const RuntimeContext = struct {
 
     promises: ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, isolate: v8.Isolate, src_path: []const u8) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
         self.* = .{
             .alloc = alloc,
             .str_buf = std.ArrayList(u8).init(alloc),
@@ -94,7 +95,8 @@ pub const RuntimeContext = struct {
             .num_windows = 0,
             .active_window = undefined,
             .active_graphics = undefined,
-            .isolate = isolate,
+            .platform = platform,
+            .isolate = iso,
             .context = undefined,
             .cur_script_dir_abs = getSrcPathDirAbs(alloc, src_path) catch unreachable,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
@@ -102,8 +104,8 @@ pub const RuntimeContext = struct {
             .vec2_buf = std.ArrayList(Vec2).init(alloc),
 
             // Store locally for quick access.
-            .js_undefined = v8.initUndefined(isolate),
-            .js_false = v8.initFalse(isolate),
+            .js_undefined = v8.initUndefined(iso),
+            .js_false = v8.initFalse(iso),
 
             .is_test_env = false,
             .num_tests = 0,
@@ -123,6 +125,13 @@ pub const RuntimeContext = struct {
         const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
         self.window_resource_list = self.resources.addListWithHead(dummy) catch unreachable;
         self.window_resource_list_last = self.resources.getListHead(self.window_resource_list).?;
+
+        // Set up uncaught promise rejection handler.
+        iso.setPromiseRejectCallback(promiseRejectCallback);
+
+        // By default, scripts will automatically run microtasks when call depth returns to zero.
+        // It also allows us to use performMicrotasksCheckpoint in cases where we need to sooner.
+        iso.setMicrotasksPolicy(v8.MicrotasksPolicy.kAuto);
     }
 
     fn deinit(self: *Self) void {
@@ -375,6 +384,56 @@ pub const RuntimeContext = struct {
     }
 };
 
+var galloc: std.mem.Allocator = undefined;
+var uncaught_promise_errors: std.AutoHashMap(c_int, []const u8) = undefined;
+
+fn initGlobal(alloc: std.mem.Allocator) void {
+    galloc = alloc;
+    uncaught_promise_errors = std.AutoHashMap(c_int, []const u8).init(alloc);
+}
+
+fn deinitGlobal() void {
+    var iter = uncaught_promise_errors.valueIterator();
+    while (iter.next()) |err_str| {
+        galloc.free(err_str.*);
+    }
+    uncaught_promise_errors.deinit();
+} 
+
+fn promiseRejectCallback(c_msg: v8.C_PromiseRejectMessage) callconv(.C) void {
+    const msg = v8.PromiseRejectMessage.initFromC(c_msg);
+
+    // TODO: Use V8_PROMISE_INTERNAL_FIELD_COUNT and PromiseHook to set rt handle on every promise so we have proper context.
+    const promise = msg.getPromise();
+    const iso = promise.toObject().getIsolate();
+    const ctx = promise.toObject().getCreationContext();
+
+    switch (msg.getEvent()) {
+        v8.PromiseRejectEvent.kPromiseRejectWithNoHandler => {
+            // Record this uncaught incident since a follow up kPromiseHandlerAddedAfterReject can remove the record.
+            // At a later point reportUncaughtPromiseRejections will list all of them.
+            const str = v8.valueToUtf8Alloc(galloc, iso, ctx, msg.getValue());
+            const key = promise.toObject().getIdentityHash();
+            uncaught_promise_errors.put(key, str) catch unreachable;
+        },
+        v8.PromiseRejectEvent.kPromiseHandlerAddedAfterReject => {
+            // Remove the record.
+            const key = promise.toObject().getIdentityHash();
+            const value = uncaught_promise_errors.get(key).?;
+            galloc.free(value);
+            _ = uncaught_promise_errors.remove(key);
+        },
+        else => {},
+    }
+}
+
+fn reportUncaughtPromiseRejections() void {
+    var iter = uncaught_promise_errors.valueIterator();
+    while (iter.next()) |err_str| {
+        errorFmt("Uncaught promise rejection: {s}\n", .{err_str.*});
+    }
+}
+
 // Main loop for running user apps.
 pub fn runUserLoop(rt: *RuntimeContext) void {
     var fps_limiter = graphics.DefaultFpsLimiter.init(60);
@@ -506,6 +565,11 @@ pub const CsWindow = struct {
     }
 };
 
+pub fn errorFmt(comptime format: []const u8, args: anytype) void {
+    const stderr = std.io.getStdErr().writer();
+    stderr.print(format, args) catch unreachable;
+}
+
 pub fn printFmt(comptime format: []const u8, args: anytype) void {
     const stdout = std.io.getStdOut().writer();
     stdout.print(format, args) catch unreachable;
@@ -549,8 +613,11 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     hscope.init(iso);
     defer hscope.deinit();
 
+    initGlobal(alloc);
+    defer deinitGlobal();
+
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, iso, src_path);
+    rt.init(alloc, platform, iso, src_path);
     defer rt.deinit();
 
     rt.is_test_env = true;
@@ -599,6 +666,8 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     if (rt.num_isolated_tests_finished < rt.isolated_tests.items.len) {
         runIsolatedTests(&rt);
     }
+
+    reportUncaughtPromiseRejections();
 
     // Test results.
     printFmt("Passed: {d}\n", .{rt.num_tests_passed});
@@ -651,6 +720,12 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                 const on_rejected = v8.Function.initWithData(ctx, js_env.genJsFunc(js_env.reportIsolatedTestFailure, false, false), extra_data);
 
                 _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+
+                if (promise.getState() == v8.PromiseState.kRejected) {
+                    // If the initial async call already received a rejection,
+                    // we'll need to run microtasks manually to run our catch handler.
+                    iso.performMicrotasksCheckpoint();
+                }
             } else {
                 const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
                 defer rt.alloc.free(err_str);
@@ -663,18 +738,24 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
         // Continue running tasks.
         rt.work_queue.processDone();
 
-        // Since processDone can resume promises, check if we finished the tests to avoid waiting.
-        // TODO: It's probably better to check that there are no more tasks or in progress tasks.
-        if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
-            break;
-        }
+        if (!rt.work_queue.hasUnfinishedTasks()) {
+            if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
+                break;
+            } else {
+                // log.debug("continue", .{});
+                // std.time.sleep(1e8);
+                continue;
+            }
+        } else {
+            // log.debug("wait", .{});
 
-        // Wait on the next completed task.
-        const Timeout = 4 * 1e9;
-        const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
-        rt.work_queue.done_wakeup.reset();
-        if (wait_res == .timed_out) {
-            break;
+            // Wait on the next done task.
+            const Timeout = 4 * 1e9;
+            const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
+            rt.work_queue.done_wakeup.reset();
+            if (wait_res == .timed_out) {
+                break;
+            }
         }
     }
 }
@@ -705,8 +786,11 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     hscope.init(iso);
     defer hscope.deinit();
 
+    initGlobal(alloc);
+    defer deinitGlobal();
+
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, iso, src_path);
+    rt.init(alloc, platform, iso, src_path);
     defer rt.deinit();
 
     var ctx = js_env.initContext(&rt, iso);
