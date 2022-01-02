@@ -67,7 +67,11 @@ pub const RuntimeContext = struct {
     num_tests_passed: u32,
 
     num_async_tests: u32,
+    num_async_tests_finished: u32,
     num_async_tests_passed: u32,
+
+    num_isolated_tests_finished: u32,
+    isolated_tests: std.ArrayList(IsolatedTest),
 
     work_queue: WorkQueue,
 
@@ -105,7 +109,10 @@ pub const RuntimeContext = struct {
             .num_tests = 0,
             .num_tests_passed = 0,
             .num_async_tests = 0,
+            .num_async_tests_finished = 0,
             .num_async_tests_passed = 0,
+            .num_isolated_tests_finished = 0,
+            .isolated_tests = std.ArrayList(IsolatedTest).init(alloc),
 
             .work_queue = WorkQueue.init(alloc),
             .promises = ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)).init(alloc),
@@ -156,6 +163,11 @@ pub const RuntimeContext = struct {
             }
         }
         self.promises.deinit();
+
+        for (self.isolated_tests.items) |*case| {
+            case.deinit(self.alloc);
+        }
+        self.isolated_tests.deinit();
     }
 
     pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
@@ -357,6 +369,7 @@ pub const RuntimeContext = struct {
                     return val.castToObject();
                 } else return null;
             },
+            v8.Value => return val,
             else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) })),
         }
     }
@@ -572,7 +585,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
         return error.MainScriptError;
     }
 
-    while (rt.num_async_tests_passed < rt.num_async_tests) {
+    while (rt.num_async_tests_finished < rt.num_async_tests) {
         rt.work_queue.processDone();
         // Wait on the next done.
         const Timeout = 4 * 1e9;
@@ -583,9 +596,87 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
         }
     }
 
+    if (rt.num_isolated_tests_finished < rt.isolated_tests.items.len) {
+        runIsolatedTests(&rt);
+    }
+
     // Test results.
     printFmt("Passed: {d}\n", .{rt.num_tests_passed});
     printFmt("Tests: {d}\n", .{rt.num_tests});
+}
+
+/// Isolated tests are stored to be run later.
+const IsolatedTest = struct {
+    const Self = @This();
+
+    name: []const u8,
+    js_fn: v8.Persistent(v8.Function),
+
+    fn deinit(self: *Self, alloc: std.mem.Allocator) void {
+        alloc.free(self.name);
+        self.js_fn.deinit();
+    }
+};
+
+fn runIsolatedTests(rt: *RuntimeContext) void {
+    const iso = rt.isolate;
+    const ctx = rt.context;
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(iso);
+    defer hscope.deinit();
+
+    var try_catch: v8.TryCatch = undefined;
+    try_catch.init(iso);
+    defer try_catch.deinit();
+
+    var next_test: u32 = 0;
+
+    while (rt.num_isolated_tests_finished < rt.isolated_tests.items.len) {
+        if (rt.num_isolated_tests_finished == next_test) {
+            // Start the next test.
+            // Assume async test, should have already validated.
+            const case = rt.isolated_tests.items[next_test];
+            if (case.js_fn.inner.call(ctx, rt.js_undefined, &.{})) |val| {
+                const promise = val.castToPromise();
+
+                const data = iso.initExternal(rt);
+                const on_fulfilled = v8.Function.initWithData(ctx, js_env.genJsFuncSync(js_env.passIsolatedTest), data);
+
+                const tmpl = iso.initObjectTemplateDefault();
+                tmpl.setInternalFieldCount(2);
+                const extra_data = tmpl.initInstance(ctx);
+                extra_data.setInternalField(0, data);
+                extra_data.setInternalField(1, iso.initStringUtf8(case.name));
+                const on_rejected = v8.Function.initWithData(ctx, js_env.genJsFunc(js_env.reportIsolatedTestFailure, false, false), extra_data);
+
+                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+            } else {
+                const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
+                defer rt.alloc.free(err_str);
+                printFmt("Test: {s}\n{s}", .{ case.name, err_str });
+                break;
+            }
+            next_test += 1;
+        }
+
+        // Continue running tasks.
+        rt.work_queue.processDone();
+
+        // Since processDone can resume promises, check if we finished the tests to avoid waiting.
+        // TODO: It's probably better to check that there are no more tasks or in progress tasks.
+        if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
+            break;
+        }
+
+        // Wait on the next completed task.
+        const Timeout = 4 * 1e9;
+        const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
+        rt.work_queue.done_wakeup.reset();
+        if (wait_res == .timed_out) {
+            break;
+        }
+    }
 }
 
 pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {

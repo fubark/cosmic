@@ -19,7 +19,7 @@ cs.test('cs.files.readFile', () => {
     }
 })
 
-cs.test('cs.files.readFileAsync', async () => {
+cs.testIsolated('cs.files.readFileAsync', async () => {
     fs.writeFile('foo.txt', 'foo')
     try {
         let content = await fs.readFileAsync('foo.txt')
@@ -36,6 +36,18 @@ cs.test('cs.files.writeFile', () => {
     try {
         eq(fs.readFile('foo.txt'), 'foo')
         eq(fs.writeFile('foo.txt', 'bar'), true)
+        // File is overwritten.
+        eq(fs.readFile('foo.txt'), 'bar')
+    } finally {
+        fs.removeFile('foo.txt')
+    }
+})
+
+cs.testIsolated('cs.files.writeFileAsync', async () => {
+    eq(await fs.writeFileAsync('foo.txt', 'foo'), true);
+    try {
+        eq(fs.readFile('foo.txt'), 'foo')
+        eq(await fs.writeFileAsync('foo.txt', 'bar'), true)
         // File is overwritten.
         eq(fs.readFile('foo.txt'), 'bar')
     } finally {

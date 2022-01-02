@@ -197,10 +197,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs, "files", files);
 
     ctx.setConstAsyncFuncT(files, "readFileAsync", files_ReadFile);
+    ctx.setConstAsyncFuncT(files, "writeFileAsync", files_WriteFile);
 
     if (rt.is_test_env) {
         // cs.test
         ctx.setConstFuncT(cs, "test", createTest);
+
+        // cs.testIsolated
+        ctx.setConstFuncT(cs, "testIsolated", createIsolatedTest);
 
         // cs.asserts
         const cs_asserts = iso.initObjectTemplateDefault();
@@ -551,22 +555,74 @@ fn files_RemoveDir(path: []const u8, recursive: bool) bool {
     return true;
 }
 
-fn passAsyncTest(rt: *RuntimeContext) void {
-    rt.num_async_tests_passed += 1;
+pub fn passIsolatedTest(rt: *RuntimeContext) void {
+    rt.num_isolated_tests_finished += 1;
     rt.num_tests_passed += 1;
 }
 
-fn reportAsyncTestFailure() void {
-    // const err_str = v8.getTryCatchErrorString(rt.alloc, isolate, try_catch);
-    // defer rt.alloc.free(err_str);
-    // printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
-    printFmt("Test: Failed!\n", .{});
+pub fn passAsyncTest(rt: *RuntimeContext) void {
+    rt.num_async_tests_passed += 1;
+    rt.num_async_tests_finished += 1;
+    rt.num_tests_passed += 1;
+}
+
+const This = struct {
+    obj: v8.Object,
+};
+
+const Data = struct {
+    val: v8.Value,
+};
+
+pub fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
+    const obj = data.val.castToObject();
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castToExternal().get());
+
+    const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    defer rt.alloc.free(test_name);
+
+    // TODO: report stack trace.
+    rt.num_async_tests_finished += 1;
+    const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    defer rt.alloc.free(str);
+
+    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+}
+
+pub fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
+    const obj = data.val.castToObject();
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castToExternal().get());
+
+    const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    defer rt.alloc.free(test_name);
+
+    rt.num_isolated_tests_finished += 1;
+    const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    defer rt.alloc.free(str);
+
+    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+}
+
+/// Currently meant for async tests that need to be run sequentially after all sync tests have ran.
+fn createIsolatedTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
+    if (!cb.toValue().isAsyncFunction()) {
+        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Test \"{s}\": Only async tests can use testIsolated.", .{name});
+        return;
+    }
+    rt.num_tests += 1;
+    // Store the function to be run later.
+    rt.isolated_tests.append(.{
+        .name = rt.alloc.dupe(u8, name) catch unreachable,
+        .js_fn = rt.isolate.initPersistent(v8.Function, cb),
+    }) catch unreachable;
 }
 
 // FUTURE: Save test cases and execute them in parallel.
 fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
     const iso = rt.isolate;
     const ctx = rt.context;
+
+    // Dupe name since we will be invoking functions that could clear the transient string buffer.
     const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
     defer rt.alloc.free(name_dupe);
 
@@ -587,7 +643,13 @@ fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
 
             const data = iso.initExternal(rt);
             const on_fulfilled = v8.Function.initWithData(ctx, genJsFuncSync(passAsyncTest), data);
-            const on_rejected = v8.Function.initWithData(ctx, genJsFuncSync(reportAsyncTestFailure), data);
+
+            const tmpl = iso.initObjectTemplateDefault();
+            tmpl.setInternalFieldCount(2);
+            const extra_data = tmpl.initInstance(ctx);
+            extra_data.setInternalField(0, data);
+            extra_data.setInternalField(1, iso.initStringUtf8(name_dupe));
+            const on_rejected = v8.Function.initWithData(ctx, genJsFunc(reportAsyncTestFailure, false, false), extra_data);
 
             _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
         } else {
@@ -772,6 +834,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
 const JsFuncInfo = struct {
     this_field: ?std.builtin.TypeInfo.StructField,
     native_ptr_field: ?std.builtin.TypeInfo.StructField,
+    data_field: ?std.builtin.TypeInfo.StructField,
     rt_ptr_field: ?std.builtin.TypeInfo.StructField,
     func_arg_fields: []const std.builtin.TypeInfo.StructField,
 };
@@ -779,10 +842,10 @@ const JsFuncInfo = struct {
 fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) JsFuncInfo {
     var res: JsFuncInfo = undefined;
 
-    // First v8.Object param will receive "this".
+    // First This param will receive "this".
     res.this_field = b: {
         inline for (arg_fields) |field| {
-            if (field.field_type == v8.Object) {
+            if (field.field_type == This) {
                 break :b field;
             }
         }
@@ -793,6 +856,16 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
     res.native_ptr_field = b: {
         inline for (arg_fields) |field| {
             if (comptime std.meta.trait.isSingleItemPtr(field.field_type) and field.field_type != *RuntimeContext) {
+                break :b field;
+            }
+        }
+        break :b null;
+    };
+
+    // First Data param will receive the attached function data.
+    res.data_field = b: {
+        inline for (arg_fields) |field| {
+            if (field.field_type == Data) {
                 break :b field;
             }
         }
@@ -819,6 +892,11 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
                     is_func_arg = false;
                 }
             }
+            if (res.data_field) |data_field| {
+                if (std.mem.eql(u8, field.name, data_field.name)) {
+                    is_func_arg = false;
+                }
+            }
             if (res.native_ptr_field) |native_ptr_field| {
                 if (std.mem.eql(u8, field.name, native_ptr_field.name)) {
                     is_func_arg = false;
@@ -840,20 +918,24 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
 }
 
 pub fn genJsFuncSync(comptime native_fn: anytype) v8.FunctionCallback {
-    return genJsFunc(native_fn, false);
+    return genJsFunc(native_fn, false, true);
 }
 
 pub fn genJsFuncAsync(comptime native_fn: anytype) v8.FunctionCallback {
-    return genJsFunc(native_fn, true);
+    return genJsFunc(native_fn, true, true);
 }
 
 /// Calling v8.throwErrorException inside a native callback function will trigger in v8 when the callback returns.
-pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool) v8.FunctionCallback {
+pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool, comptime is_data_rt: bool) v8.FunctionCallback {
     const NativeFn = @TypeOf(native_fn);
     const gen = struct {
         fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+
+            // RT handle is either data or the first field of data.
+            const rt = if (is_data_rt) stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue())
+                else stdx.mem.ptrCastAlign(*RuntimeContext, info.getData().castToObject().getInternalField(0).castToExternal().get());
+
             const iso = rt.isolate;
             const ctx = rt.context;
 
@@ -917,7 +999,10 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool) v8.Functi
 
             var native_args: arg_types_t = undefined;
             if (ct_info.this_field) |field| {
-                @field(native_args, field.name) = info.getThis();
+                @field(native_args, field.name) = This{ .obj = info.getThis() };
+            }
+            if (ct_info.data_field) |field| {
+                @field(native_args, field.name) = .{ .val = info.getData() };
             }
             if (ct_info.native_ptr_field) |field| {
                 const Ptr = field.field_type;
