@@ -272,3 +272,8 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
         fs.removeDir('foo', true)
     }
 })
+
+cs.test('cs.http.get', () => {
+    const resp = cs.http.get('http://ziglang.org');
+    print(resp);
+})

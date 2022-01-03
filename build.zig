@@ -31,6 +31,7 @@ pub fn build(b: *Builder) void {
         .enable_tracy = tracy,
         .link_graphics = graphics,
         .link_v8 = v8,
+        .link_net = false,
         .static_link = static_link,
         .path = path,
         .filter = filter,
@@ -67,6 +68,7 @@ pub fn build(b: *Builder) void {
     var test_cosmic_js_ctx = BuilderContext{
         .builder = b,
         .enable_tracy = tracy,
+        .link_net = true,
         .link_graphics = true,
         .link_v8 = true,
         .static_link = static_link,
@@ -78,7 +80,7 @@ pub fn build(b: *Builder) void {
     };
     const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
     test_cosmic_js.addArgs(&.{ "test", "cosmic/test.js" });
-    b.step("test-cosmic", "Test cosmic js").dependOn(&test_cosmic_js.step);
+    b.step("test-cosmic-js", "Test cosmic js").dependOn(&test_cosmic_js.step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestStep();
@@ -97,6 +99,7 @@ const BuilderContext = struct {
     enable_tracy: bool,
     link_graphics: bool,
     link_v8: bool,
+    link_net: bool,
     static_link: bool,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
@@ -249,6 +252,12 @@ const BuilderContext = struct {
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) void {
+        if (self.link_net or IncludeAllLibs) {
+            addCurl(step);
+        }
+        if (self.link_net) {
+            self.buildLinkCurl(step);
+        }
         if (self.link_graphics or IncludeAllLibs) {
             addSDL(step);
             addStbtt(step);
@@ -321,6 +330,225 @@ const BuilderContext = struct {
         //     step.linkSystemLibrary("dbghelp");
         //     step.linkSystemLibrary("ws2_32");
         // }
+    }
+
+    fn buildLinkCurl(self: *Self, step: *LibExeObjStep) void {
+        // TODO: Currently seeing BADF panics when doing fs syscalls when building/linking libcurl dynamically.
+        // Similar to this issue: https://github.com/ziglang/zig/issues/10375
+        // For now, just build a static lib.
+        // const lib = self.builder.addSharedLibrary("curl", null, .unversioned);
+
+        const lib = self.builder.addStaticLibrary("curl", null);
+
+        // cpu-machine-OS
+        // eg. x86_64-pc-linux-gnu
+        const os_flag = std.fmt.allocPrint(self.builder.allocator, "-DOS=\"{s}-pc-{s}-{s}\"", .{
+            @tagName(self.target.getCpuArch()),
+            @tagName(self.target.getOsTag()),
+            @tagName(self.target.getAbi()),
+        }) catch unreachable;
+
+        // See config.status or lib/curl_config.h for generated defines from configure.
+        const c_flags = [_][]const u8{
+            // Will make sources include curl_config.h in ./lib/curl
+            "-DHAVE_CONFIG_H",
+
+            // Indicates that we're building the lib not the tools.
+            "-DBUILDING_LIBCURL",
+
+            // Hides libcurl internal symbols (hide all symbols that aren't officially external).
+            "-DCURL_HIDDEN_SYMBOLS",
+
+            os_flag,
+
+            // Optimize.
+            "-O2",
+
+            "-DCURL_STATICLIB",
+
+            "-pthread",
+            "-Wno-system-headers",
+            "-Werror-implicit-function-declaration",
+            "-fvisibility=hidden",
+        };
+
+        // Copied from curl/lib/Makefile.inc (LIB_CFILES)
+        const c_files = &[_][]const u8{
+            "altsvc.c",
+            "amigaos.c",
+            "asyn-ares.c",
+            "asyn-thread.c",
+            "base64.c",
+            "bufref.c",
+            "c-hyper.c",
+            "conncache.c",
+            "connect.c",
+            "content_encoding.c",
+            "cookie.c",
+            "curl_addrinfo.c",
+            "curl_ctype.c",
+            "curl_des.c",
+            "curl_endian.c",
+            "curl_fnmatch.c",
+            "curl_get_line.c",
+            "curl_gethostname.c",
+            "curl_gssapi.c",
+            "curl_memrchr.c",
+            "curl_multibyte.c",
+            "curl_ntlm_core.c",
+            "curl_ntlm_wb.c",
+            "curl_path.c",
+            "curl_range.c",
+            "curl_rtmp.c",
+            "curl_sasl.c",
+            "curl_sspi.c",
+            "curl_threads.c",
+            "dict.c",
+            "doh.c",
+            "dotdot.c",
+            "dynbuf.c",
+            "easy.c",
+            "easygetopt.c",
+            "easyoptions.c",
+            "escape.c",
+            "file.c",
+            "fileinfo.c",
+            "formdata.c",
+            "ftp.c",
+            "ftplistparser.c",
+            "getenv.c",
+            "getinfo.c",
+            "gopher.c",
+            "hash.c",
+            "hmac.c",
+            "hostasyn.c",
+            "hostcheck.c",
+            "hostip.c",
+            "hostip4.c",
+            "hostip6.c",
+            "hostsyn.c",
+            "hsts.c",
+            "http.c",
+            "http2.c",
+            "http_chunks.c",
+            "http_digest.c",
+            "http_negotiate.c",
+            "http_ntlm.c",
+            "http_proxy.c",
+            "http_aws_sigv4.c",
+            "idn_win32.c",
+            "if2ip.c",
+            "imap.c",
+            "inet_ntop.c",
+            "inet_pton.c",
+            "krb5.c",
+            "ldap.c",
+            "llist.c",
+            "md4.c",
+            "md5.c",
+            "memdebug.c",
+            "mime.c",
+            "mprintf.c",
+            "mqtt.c",
+            "multi.c",
+            "netrc.c",
+            "non-ascii.c",
+            "nonblock.c",
+            "openldap.c",
+            "parsedate.c",
+            "pingpong.c",
+            "pop3.c",
+            "progress.c",
+            "psl.c",
+            "rand.c",
+            "rename.c",
+            "rtsp.c",
+            "select.c",
+            "sendf.c",
+            "setopt.c",
+            "sha256.c",
+            "share.c",
+            "slist.c",
+            "smb.c",
+            "smtp.c",
+            "socketpair.c",
+            "socks.c",
+            "socks_gssapi.c",
+            "socks_sspi.c",
+            "speedcheck.c",
+            "splay.c",
+            "strcase.c",
+            "strdup.c",
+            "strerror.c",
+            "strtok.c",
+            "strtoofft.c",
+            "system_win32.c",
+            "telnet.c",
+            "tftp.c",
+            "timeval.c",
+            "transfer.c",
+            "url.c",
+            "urlapi.c",
+            "version.c",
+            "version_win32.c",
+            "warnless.c",
+            "wildcard.c",
+            "x509asn1.c",
+        };
+        for (c_files) |file| {
+            const path = std.fmt.allocPrint(self.builder.allocator, "./vendor/curl/lib/{s}", .{file}) catch unreachable;
+            lib.addCSourceFile(self.fromRoot(path), &c_flags);
+        }
+
+        // Copied from curl/lib/Makefile.inc (LIB_VAUTH_CFILES)
+        const vauth_cfiles = &[_][]const u8{
+            "vauth/cleartext.c",
+            "vauth/cram.c",
+            "vauth/digest.c",
+            "vauth/digest_sspi.c",
+            "vauth/gsasl.c",
+            "vauth/krb5_gssapi.c",
+            "vauth/krb5_sspi.c",
+            "vauth/ntlm.c",
+            "vauth/ntlm_sspi.c",
+            "vauth/oauth2.c",
+            "vauth/spnego_gssapi.c",
+            "vauth/spnego_sspi.c",
+            "vauth/vauth.c",
+        };
+        for (vauth_cfiles) |file| {
+            const path = std.fmt.allocPrint(self.builder.allocator, "./vendor/curl/lib/{s}", .{file}) catch unreachable;
+            lib.addCSourceFile(self.fromRoot(path), &c_flags);
+        }
+
+        // Copied from curl/lib/Makefile.inc (LIB_VTLS_CFILES)
+        const vtls_cfiles = &[_][]const u8{
+            "vtls/bearssl.c",
+            "vtls/gskit.c",
+            "vtls/gtls.c",
+            "vtls/keylog.c",
+            "vtls/mbedtls.c",
+            "vtls/mbedtls_threadlock.c",
+            "vtls/mesalink.c",
+            "vtls/nss.c",
+            "vtls/openssl.c",
+            "vtls/rustls.c",
+            "vtls/schannel.c",
+            "vtls/schannel_verify.c",
+            "vtls/sectransp.c",
+            "vtls/vtls.c",
+            "vtls/wolfssl.c",
+        };
+        for (vtls_cfiles) |file| {
+            const path = std.fmt.allocPrint(self.builder.allocator, "./vendor/curl/lib/{s}", .{file}) catch unreachable;
+            lib.addCSourceFile(self.fromRoot(path), &c_flags);
+        }
+
+        lib.linkLibC();
+        lib.addIncludeDir("./vendor/curl/include");
+        lib.addIncludeDir("./vendor/curl/lib");
+        lib.addIncludeDir("./lib/curl");
+        step.linkLibrary(lib);
     }
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
@@ -517,6 +745,16 @@ fn addSDL(step: *LibExeObjStep) void {
     step.addIncludeDir("./vendor");
 }
 
+const curl_pkg = Pkg{
+    .name = "curl",
+    .path = FileSource.relative("./lib/curl/curl.zig"),
+};
+
+fn addCurl(step: *LibExeObjStep) void {
+    step.addPackage(curl_pkg);
+    step.addIncludeDir("./vendor/curl/include/curl");
+}
+
 const lyon_pkg = Pkg{
     .name = "lyon",
     .path = FileSource.relative("./lib/clyon/lyon.zig"),
@@ -579,7 +817,7 @@ const stdx_pkg = Pkg{
 
 fn addStdx(step: *std.build.LibExeObjStep, build_options: Pkg) void {
     var pkg = stdx_pkg;
-    pkg.dependencies = &.{build_options};
+    pkg.dependencies = &.{build_options, curl_pkg};
     step.addPackage(pkg);
 }
 

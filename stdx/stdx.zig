@@ -12,6 +12,7 @@ pub const math = @import("math/math.zig");
 pub const time = @import("time.zig");
 pub const unicode = @import("unicode.zig");
 pub const fs = @import("fs.zig");
+pub const http = @import("http.zig");
 
 // Common utils.
 pub const panic = debug.panic;

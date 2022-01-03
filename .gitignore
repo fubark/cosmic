@@ -5,3 +5,5 @@
 /lib/clyon/Cargo.lock
 /lib/zig-v8
 /vendor
+/notes.md
+/todo.md

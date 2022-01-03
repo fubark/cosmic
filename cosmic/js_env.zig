@@ -209,6 +209,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstAsyncFuncT(files, "getPathInfoAsync", files_getPathInfo);
     ctx.setConstAsyncFuncT(files, "listDirAsync", files_listDir);
 
+    // cs.http
+    const http_constructor = iso.initFunctionTemplateDefault();
+    http_constructor.setClassName(iso.initStringUtf8("http"));
+    const http = iso.initObjectTemplate(http_constructor);
+    ctx.setConstFuncT(http, "get", http_get);
+    ctx.setConstProp(cs, "http", http);
+
     if (rt.is_test_env) {
         // cs.test
         ctx.setConstFuncT(cs, "test", createTest);
@@ -413,6 +420,11 @@ fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
         else => unreachable,
     };
     return ds.Box([]const u8).init(rt.alloc, res);
+}
+
+fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
+    const resp = stdx.http.get(rt.alloc, url) catch return null;
+    return ds.Box([]const u8).init(rt.alloc, resp);
 }
 
 const Promise = struct {

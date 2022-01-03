@@ -4,6 +4,7 @@ const Vec2 = stdx.math.Vec2;
 const ds = stdx.ds;
 const graphics = @import("graphics");
 const sdl = @import("sdl");
+const curl = @import("curl");
 
 const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
@@ -621,6 +622,12 @@ const test_init = @embedFile("snapshots/test_init.js");
 pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
     defer alloc.free(src);
+
+    _ = curl.initDefault();
+    defer curl.deinit();
+
+    stdx.http.init();
+    defer stdx.http.deinit();
 
     const platform = v8.Platform.initDefault(0, true);
     defer platform.deinit();
