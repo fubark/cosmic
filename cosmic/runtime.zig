@@ -286,6 +286,17 @@ pub const RuntimeContext = struct {
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
             },
+            []const js_env.FileEntry => {
+                const buf = self.alloc.alloc(v8.Value, native_val.len) catch unreachable;
+                defer self.alloc.free(buf);
+                for (native_val) |it, i| {
+                    const obj = self.default_obj_t.initInstance(ctx);
+                    _ = obj.setValue(ctx, iso.initStringUtf8("name"), iso.initStringUtf8(it.name));
+                    _ = obj.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(it.kind));
+                    buf[i] = obj.toValue();
+                }
+                return iso.initArrayElements(buf).handle;
+            },
             ds.Box([]const u8) => {
                 return iso.initStringUtf8(native_val.slice).handle;
             },
@@ -308,6 +319,8 @@ pub const RuntimeContext = struct {
                     } else {
                         return @ptrCast(*const anyopaque, self.js_false.handle);
                     }
+                } else if (@hasDecl(Type, "ManagedSlice")) {
+                    return self.getJsValuePtr(native_val.slice);
                 } else {
                     comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
                 }
@@ -383,6 +396,23 @@ pub const RuntimeContext = struct {
         }
     }
 };
+
+/// A slice that knows how to deinit itself and it's items.
+pub fn ManagedSlice(comptime T: type) type {
+    return struct {
+        pub const ManagedSlice = true;
+
+        alloc: std.mem.Allocator,
+        slice: []const T,
+
+        pub fn deinit(self: @This()) void {
+            for (self.slice) |it| {
+                it.deinit(self.alloc);
+            }
+            self.alloc.free(self.slice);
+        }
+    };
+}
 
 var galloc: std.mem.Allocator = undefined;
 var uncaught_promise_errors: std.AutoHashMap(c_int, []const u8) = undefined;
@@ -585,6 +615,7 @@ fn getSrcPathDirAbs(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
     }
 }
 
+const api_init = @embedFile("snapshots/api_init.js");
 const test_init = @embedFile("snapshots/test_init.js");
 
 pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
@@ -627,6 +658,14 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
 
     ctx.enter();
     defer ctx.exit();
+
+    {
+        // Run api_init.js
+        var res: v8.ExecuteResult = undefined;
+        defer res.deinit();
+        const origin = v8.String.initUtf8(iso, "api_init.js");
+        v8.executeString(alloc, iso, ctx, api_init, origin, &res);
+    }
 
     {
         // Run test_init.js
@@ -721,9 +760,9 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
 
                 _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
 
-                if (promise.getState() == v8.PromiseState.kRejected) {
-                    // If the initial async call already received a rejection,
-                    // we'll need to run microtasks manually to run our catch handler.
+                if (promise.getState() == v8.PromiseState.kRejected or promise.getState() == v8.PromiseState.kFulfilled) {
+                    // If the initial async call is already fullfilled or rejected,
+                    // we'll need to run microtasks manually to run our handlers.
                     iso.performMicrotasksCheckpoint();
                 }
             } else {
@@ -741,21 +780,17 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
         if (!rt.work_queue.hasUnfinishedTasks()) {
             if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
                 break;
-            } else {
-                // log.debug("continue", .{});
-                // std.time.sleep(1e8);
+            } else if (rt.num_isolated_tests_finished == next_test) {
                 continue;
             }
-        } else {
-            // log.debug("wait", .{});
+        }
 
-            // Wait on the next done task.
-            const Timeout = 4 * 1e9;
-            const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
-            rt.work_queue.done_wakeup.reset();
-            if (wait_res == .timed_out) {
-                break;
-            }
+        // Wait on the next done task.
+        const Timeout = 4 * 1e9;
+        const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
+        rt.work_queue.done_wakeup.reset();
+        if (wait_res == .timed_out) {
+            break;
         }
     }
 }

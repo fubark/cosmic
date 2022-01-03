@@ -16,6 +16,7 @@ const ContextBuilder = runtime.ContextBuilder;
 const PromiseId = runtime.PromiseId;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
+const ManagedSlice = runtime.ManagedSlice;
 const log = stdx.log.scoped(.js_env);
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
@@ -180,25 +181,33 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const files_constructor = iso.initFunctionTemplateDefault();
     files_constructor.setClassName(iso.initStringUtf8("files"));
     const files = iso.initObjectTemplate(files_constructor);
-    ctx.setConstFuncT(files, "readFile", files_ReadFile);
-    ctx.setConstFuncT(files, "writeFile", files_WriteFile);
-    ctx.setConstFuncT(files, "appendFile", files_AppendFile);
-    ctx.setConstFuncT(files, "removeFile", files_RemoveFile);
-    ctx.setConstFuncT(files, "ensurePath", files_EnsurePath);
-    ctx.setConstFuncT(files, "pathExists", files_PathExists);
-    ctx.setConstFuncT(files, "removeDir", files_RemoveDir);
-    ctx.setConstFuncT(files, "resolvePath", files_ResolvePath);
-    ctx.setConstFuncT(files, "copyFile", files_CopyFile);
-    ctx.setConstFuncT(files, "moveFile", files_MoveFile);
-    ctx.setConstFuncT(files, "cwd", files_Cwd);
-    ctx.setConstFuncT(files, "getPathInfo", files_GetPathInfo);
-    ctx.setConstFuncT(files, "walkDir", files_WalkDir);
+    ctx.setConstFuncT(files, "readFile", files_readFile);
+    ctx.setConstFuncT(files, "writeFile", files_writeFile);
+    ctx.setConstFuncT(files, "appendFile", files_appendFile);
+    ctx.setConstFuncT(files, "removeFile", files_removeFile);
+    ctx.setConstFuncT(files, "ensurePath", files_ensurePath);
+    ctx.setConstFuncT(files, "pathExists", files_pathExists);
+    ctx.setConstFuncT(files, "removeDir", files_removeDir);
+    ctx.setConstFuncT(files, "resolvePath", files_resolvePath);
+    ctx.setConstFuncT(files, "copyFile", files_copyFile);
+    ctx.setConstFuncT(files, "moveFile", files_moveFile);
+    ctx.setConstFuncT(files, "cwd", files_cwd);
+    ctx.setConstFuncT(files, "getPathInfo", files_getPathInfo);
+    ctx.setConstFuncT(files, "listDir", files_listDir);
     // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
 
-    ctx.setConstAsyncFuncT(files, "readFileAsync", files_ReadFile);
-    ctx.setConstAsyncFuncT(files, "writeFileAsync", files_WriteFile);
-    ctx.setConstAsyncFuncT(files, "appendFileAsync", files_AppendFile);
+    ctx.setConstAsyncFuncT(files, "readFileAsync", files_readFile);
+    ctx.setConstAsyncFuncT(files, "writeFileAsync", files_writeFile);
+    ctx.setConstAsyncFuncT(files, "appendFileAsync", files_appendFile);
+    ctx.setConstAsyncFuncT(files, "removeFileAsync", files_removeFile);
+    ctx.setConstAsyncFuncT(files, "removeDirAsync", files_removeDir);
+    ctx.setConstAsyncFuncT(files, "ensurePathAsync", files_ensurePath);
+    ctx.setConstAsyncFuncT(files, "pathExistsAsync", files_pathExists);
+    ctx.setConstAsyncFuncT(files, "copyFileAsync", files_copyFile);
+    ctx.setConstAsyncFuncT(files, "moveFileAsync", files_moveFile);
+    ctx.setConstAsyncFuncT(files, "getPathInfoAsync", files_getPathInfo);
+    ctx.setConstAsyncFuncT(files, "listDirAsync", files_listDir);
 
     if (rt.is_test_env) {
         // cs.test
@@ -391,13 +400,13 @@ fn resolveEnvPath(rt: *RuntimeContext, path: []const u8) []const u8 {
 
 /// Resolves '..' in paths and returns an absolute path.
 /// Currently does not resolve home '~'.
-fn files_ResolvePath(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
+fn files_resolvePath(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
     return std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
 }
 
 /// Path can be absolute or relative to the cwd.
 /// Returns the contents on success or false.
-fn files_ReadFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
+fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
     const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
         // Whitelist errors to silence.
         error.FileNotFound => return null,
@@ -461,30 +470,30 @@ fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_WriteFile(path: []const u8, str: []const u8) bool {
+fn files_writeFile(path: []const u8, str: []const u8) bool {
     std.fs.cwd().writeFile(path, str) catch return false;
     return true;
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_CopyFile(from: []const u8, to: []const u8) bool {
+fn files_copyFile(from: []const u8, to: []const u8) bool {
     std.fs.cwd().copyFile(from, std.fs.cwd(), to, .{}) catch return false;
     return true;
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_MoveFile(from: []const u8, to: []const u8) bool {
+fn files_moveFile(from: []const u8, to: []const u8) bool {
     std.fs.cwd().rename(from, to) catch return false;
     return true;
 }
 
 /// Returns the absolute path of the current working directory.
-fn files_Cwd(rt: *RuntimeContext) ?[]const u8 {
+fn files_cwd(rt: *RuntimeContext) ?[]const u8 {
     return std.fs.cwd().realpathAlloc(rt.alloc, ".") catch return null;
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_GetPathInfo(path: []const u8) ?PathInfo {
+fn files_getPathInfo(path: []const u8) ?PathInfo {
     const stat = std.fs.cwd().statFile(path) catch return null;
     return PathInfo{
         .kind = stat.kind,
@@ -495,35 +504,43 @@ pub const PathInfo = struct {
     kind: std.fs.File.Kind,
 };
 
-/// Path can be absolute or relative to the cwd.
-fn files_WalkDir(rt: *RuntimeContext, path: []const u8, cb: v8.Function) bool {
-    const iso = rt.isolate;
-    const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return false;
-    var walker = dir.walk(rt.alloc) catch {
-        unreachable;
-    };
-    defer walker.deinit();
+pub const FileEntry = struct {
+    name: []const u8,
 
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(iso);
-    defer hscope.deinit();
+    // This will be static memory.
+    kind: []const u8,
 
-    while (walker.next() catch unreachable) |entry| {
-        const epath = iso.initStringUtf8(entry.path).toValue();
-        const kind = iso.initStringUtf8(@tagName(entry.kind)).toValue();
-        _ = cb.call(rt.context, rt.js_undefined, &.{ epath, kind });
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.name);
     }
-    return true;
+};
+
+/// Path can be absolute or relative to the cwd.
+fn files_listDir(rt: *RuntimeContext, path: []const u8) ?ManagedSlice(FileEntry) {
+    const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+
+    var iter = dir.iterate();
+    var buf = std.ArrayList(FileEntry).init(rt.alloc);
+    while (iter.next() catch unreachable) |entry| {
+        buf.append(.{
+            .name = rt.alloc.dupe(u8, entry.name) catch unreachable,
+            .kind = @tagName(entry.kind),
+        }) catch unreachable;
+    }
+    return ManagedSlice(FileEntry){
+        .alloc = rt.alloc,
+        .slice = buf.toOwnedSlice(),
+    };
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_AppendFile(path: []const u8, str: []const u8) bool {
+fn files_appendFile(path: []const u8, str: []const u8) bool {
     stdx.fs.appendFile(path, str) catch return false;
     return true;
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_EnsurePath(rt: *RuntimeContext, path: []const u8) bool {
+fn files_ensurePath(rt: *RuntimeContext, path: []const u8) bool {
     std.fs.cwd().makePath(path) catch |err| switch (err) {
         else => {
             v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
@@ -534,7 +551,7 @@ fn files_EnsurePath(rt: *RuntimeContext, path: []const u8) bool {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_PathExists(rt: *RuntimeContext, path: []const u8) bool {
+fn files_pathExists(rt: *RuntimeContext, path: []const u8) bool {
     return stdx.fs.pathExists(path) catch |err| {
         v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
         return false;
@@ -542,13 +559,13 @@ fn files_PathExists(rt: *RuntimeContext, path: []const u8) bool {
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_RemoveFile(path: []const u8) bool {
+fn files_removeFile(path: []const u8) bool {
     std.fs.cwd().deleteFile(path) catch return false;
     return true;
 }
 
 /// Path can be absolute or relative to the cwd.
-fn files_RemoveDir(path: []const u8, recursive: bool) bool {
+fn files_removeDir(path: []const u8, recursive: bool) bool {
     if (recursive) {
         std.fs.cwd().deleteTree(path) catch return false;
     } else {
@@ -784,6 +801,8 @@ fn freeNativeValue(alloc: std.mem.Allocator, native_val: anytype) void {
                 if (native_val) |child_val| {
                     freeNativeValue(alloc, child_val);
                 }
+            } else if (comptime std.meta.trait.isContainer(Type) and @hasDecl(Type, "ManagedSlice")) {
+                native_val.deinit();
             }
         }
     }

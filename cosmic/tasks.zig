@@ -43,6 +43,8 @@ fn deinitResult(res: anytype) void {
                 if (res) |_res| {
                     deinitResult(_res);
                 }
+            } else if (comptime std.meta.trait.isContainer(Result) and @hasDecl(Result, "ManagedSlice")) {
+                res.deinit();
             }
         },
     }

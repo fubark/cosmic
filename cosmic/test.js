@@ -83,6 +83,12 @@ cs.test('cs.files.removeFile', () => {
     eq(fs.removeFile('foo.txt'), true);
 })
 
+cs.testIsolated('cs.files.removeFileAsync', async () => {
+    eq(await fs.removeFileAsync('foo.txt'), false)
+    fs.writeFile('foo.txt', 'foo');
+    eq(await fs.removeFileAsync('foo.txt'), true);
+})
+
 cs.test('cs.files.removeDir', () => {
     eq(fs.pathExists('foo'), false)
     eq(fs.ensurePath('foo/bar', true), true)
@@ -92,11 +98,30 @@ cs.test('cs.files.removeDir', () => {
     eq(fs.removeDir('foo', true), true)
 })
 
+cs.testIsolated('cs.files.removeDirAsync', async () => {
+    eq(fs.pathExists('foo'), false)
+    eq(fs.ensurePath('foo/bar', true), true)
+    eq(await fs.removeDirAsync('foo', false), false)
+    eq(await fs.removeDirAsync('foo/bar', false), true)
+    eq(fs.ensurePath('foo/bar', true), true)
+    eq(await fs.removeDirAsync('foo', true), true)
+})
+
 cs.test('cs.files.ensurePath, cs.files.pathExists', () => {
     eq(fs.pathExists('foo/bar'), false)
     eq(fs.ensurePath('foo/bar'), true)
     try {
         eq(fs.pathExists('foo/bar'), true)
+    } finally {
+        eq(fs.removeDir('foo', true), true)
+    }
+})
+
+cs.testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () => {
+    eq(await fs.pathExistsAsync('foo/bar'), false)
+    eq(await fs.ensurePathAsync('foo/bar'), true)
+    try {
+        eq(await fs.pathExistsAsync('foo/bar'), true)
     } finally {
         eq(fs.removeDir('foo', true), true)
     }
@@ -119,11 +144,37 @@ cs.test('cs.files.copyFile', () => {
     }
 })
 
+cs.testIsolated('cs.files.copyFileAsync', async () => {
+    eq(fs.writeFile('foo.txt', 'foo'), true)
+    try {
+        eq(fs.readFile('bar.txt'), false)
+        eq(await fs.copyFileAsync('foo.txt', 'bar.txt'), true)
+        eq(fs.readFile('bar.txt'), 'foo')
+        eq(fs.readFile('foo.txt'), 'foo')
+    } finally {
+        fs.removeFile('foo.txt')
+        fs.removeFile('bar.txt')
+    }
+})
+
 cs.test('cs.files.moveFile', () => {
     eq(fs.writeFile('foo.txt', 'foo'), true)
     try {
         eq(fs.readFile('bar.txt'), false)
         eq(fs.moveFile('foo.txt', 'bar.txt'), true)
+        eq(fs.readFile('bar.txt'), 'foo')
+        eq(fs.readFile('foo.txt'), false)
+    } finally {
+        fs.removeFile('foo.txt')
+        fs.removeFile('bar.txt')
+    }
+})
+
+cs.testIsolated('cs.files.moveFile', async () => {
+    eq(fs.writeFile('foo.txt', 'foo'), true)
+    try {
+        eq(fs.readFile('bar.txt'), false)
+        eq(await fs.moveFileAsync('foo.txt', 'bar.txt'), true)
         eq(fs.readFile('bar.txt'), 'foo')
         eq(fs.readFile('foo.txt'), false)
     } finally {
@@ -146,22 +197,76 @@ cs.test('cs.files.getPathInfo', () => {
     }
 })
 
+cs.testIsolated('cs.files.getPathInfo', async () => {
+    eq(await fs.getPathInfo('foo.txt'), false)
+    eq(fs.writeFile('foo.txt', 'foo'), true)
+    try {
+        eq(await fs.getPathInfo('foo.txt'), { kind: 'File' });
+    } finally {
+        fs.removeFile('foo.txt')
+    }
+})
+
+cs.test('cs.files.listDir', () => {
+    eq(fs.pathExists('foo/bar'), false)
+    eq(fs.listDir('foo'), false)
+    eq(fs.ensurePath('foo/bar'), true)
+    try {
+        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
+        eq(fs.listDir('foo'), [{ name: 'bar', kind: 'Directory' }, { name: 'foo.txt', kind: 'File' }]);
+    } finally {
+        fs.removeDir('foo', true)
+    }
+})
+
+cs.testIsolated('cs.files.listDirAsync', async () => {
+    eq(fs.pathExists('foo/bar'), false)
+    eq(await fs.listDir('foo'), false)
+    eq(fs.ensurePath('foo/bar'), true)
+    try {
+        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
+        eq(await fs.listDir('foo'), [{ name: 'bar', kind: 'Directory' }, { name: 'foo.txt', kind: 'File' }]);
+    } finally {
+        fs.removeDir('foo', true)
+    }
+})
+
 cs.test('cs.files.walkDir', () => {
     eq(fs.pathExists('foo/bar'), false)
-    eq(fs.walkDir('foo', () => {}), false)
+    eq(fs.walkDir('foo').next().done, true)
     eq(fs.ensurePath('foo/bar'), true)
     try {
         eq(fs.writeFile('foo/foo.txt', 'foo'), true)
         eq(fs.writeFile('foo/bar/bar.txt', 'bar'), true)
         const paths = []
-        const res = fs.walkDir('foo', (path, kind) => {
-            paths.push(path)
-        });
-        eq(res, true)
+        for (const e of fs.walkDir('foo')) {
+            paths.push(e.path)
+        }
         eq(paths, [
-            'bar',
-            'bar/bar.txt',
-            'foo.txt',
+            'foo/bar',
+            'foo/bar/bar.txt',
+            'foo/foo.txt',
+        ])
+    } finally {
+        fs.removeDir('foo', true)
+    }
+})
+
+cs.testIsolated('cs.files.walkDirAsync', async () => {
+    eq(fs.pathExists('foo/bar'), false)
+    eq((await fs.walkDirAsync('foo').next()).done, true)
+    eq(fs.ensurePath('foo/bar'), true)
+    try {
+        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
+        eq(fs.writeFile('foo/bar/bar.txt', 'bar'), true)
+        const paths = []
+        for await (const e of fs.walkDirAsync('foo')) {
+            paths.push(e.path)
+        }
+        eq(paths, [
+            'foo/bar',
+            'foo/bar/bar.txt',
+            'foo/foo.txt',
         ])
     } finally {
         fs.removeDir('foo', true)
