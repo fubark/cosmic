@@ -62,6 +62,12 @@
 /* Define to 1 if you have the memory.h header file. */
 #define HAVE_MEMORY_H 1
 
+/* if zlib is available */
+#define HAVE_LIBZ 1
+
+/* if you have the zlib.h header file */
+#define HAVE_ZLIB_H 1
+
 /* Define to 1 if you have a working fcntl O_NONBLOCK function. */
 #define HAVE_FCNTL_O_NONBLOCK 1
 
@@ -143,8 +149,26 @@
 /* Define to the function return type for select. */
 #define SELECT_TYPE_RETV int
 
+/* if OpenSSL is in use */
+#define USE_OPENSSL 1
+
+/* Location of default ca bundle */
+#define CURL_CA_BUNDLE "/etc/ssl/certs/ca-certificates.crt"
+
+/* Engine is deprecated in openssl 3.0, this implicitly disables openssl ui console usage  */
+#define OPENSSL_NO_ENGINE
+
+/* Don't use deprecated openssl code. */
+#define OPENSSL_NO_DEPRECATED
+
 /* to disable LDAP */
 #define CURL_DISABLE_LDAP 1
 
 /* to disable LDAPS */
 #define CURL_DISABLE_LDAPS 1
+
+/* to diable NTLM support */
+#define CURL_DISABLE_NTLM 1
+
+/* enable debug build options */
+//#define DEBUGBUILD

@@ -4,6 +4,7 @@ const FileSource = std.build.FileSource;
 const LibExeObjStep = std.build.LibExeObjStep;
 const print = std.debug.print;
 const builtin = @import("builtin");
+const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
 
 // During development you might want zls to see all the lib packages, remember to reset to false.
@@ -256,7 +257,10 @@ const BuilderContext = struct {
             addCurl(step);
         }
         if (self.link_net) {
+            openssl.buildLinkCrypto(self.builder, step) catch unreachable;
+            openssl.buildLinkSsl(self.builder, step);
             self.buildLinkCurl(step);
+            self.buildLinkZlib(step);
         }
         if (self.link_graphics or IncludeAllLibs) {
             addSDL(step);
@@ -332,6 +336,37 @@ const BuilderContext = struct {
         // }
     }
 
+    fn buildLinkZlib(self: *Self, step: *LibExeObjStep) void {
+        const lib = self.builder.addStaticLibrary("zlib", null);
+        const c_flags = &[_][]const u8{
+        };
+
+        const c_files = &[_][]const u8{
+            "inftrees.c",
+            "inflate.c",
+            "adler32.c",
+            "zutil.c",
+            "trees.c",
+            "gzclose.c",
+            "gzwrite.c",
+            "gzread.c",
+            "deflate.c",
+            "compress.c",
+            "crc32.c",
+            "infback.c",
+            "gzlib.c",
+            "uncompr.c",
+            "inffast.c",
+        };
+
+        for (c_files) |file| {
+            self.addCSourceFileFmt(lib, "./vendor/zlib/{s}", .{file}, c_flags);
+        }
+
+        lib.linkLibC();
+        step.linkLibrary(lib);
+    }
+
     fn buildLinkCurl(self: *Self, step: *LibExeObjStep) void {
         // TODO: Currently seeing BADF panics when doing fs syscalls when building/linking libcurl dynamically.
         // Similar to this issue: https://github.com/ziglang/zig/issues/10375
@@ -349,7 +384,7 @@ const BuilderContext = struct {
         }) catch unreachable;
 
         // See config.status or lib/curl_config.h for generated defines from configure.
-        const c_flags = [_][]const u8{
+        const c_flags = &[_][]const u8{
             // Will make sources include curl_config.h in ./lib/curl
             "-DHAVE_CONFIG_H",
 
@@ -372,8 +407,8 @@ const BuilderContext = struct {
             "-fvisibility=hidden",
         };
 
-        // Copied from curl/lib/Makefile.inc (LIB_CFILES)
         const c_files = &[_][]const u8{
+            // Copied from curl/lib/Makefile.inc (LIB_CFILES)
             "altsvc.c",
             "amigaos.c",
             "asyn-ares.c",
@@ -494,14 +529,8 @@ const BuilderContext = struct {
             "warnless.c",
             "wildcard.c",
             "x509asn1.c",
-        };
-        for (c_files) |file| {
-            const path = std.fmt.allocPrint(self.builder.allocator, "./vendor/curl/lib/{s}", .{file}) catch unreachable;
-            lib.addCSourceFile(self.fromRoot(path), &c_flags);
-        }
 
-        // Copied from curl/lib/Makefile.inc (LIB_VAUTH_CFILES)
-        const vauth_cfiles = &[_][]const u8{
+            // Copied from curl/lib/Makefile.inc (LIB_VAUTH_CFILES)
             "vauth/cleartext.c",
             "vauth/cram.c",
             "vauth/digest.c",
@@ -515,14 +544,8 @@ const BuilderContext = struct {
             "vauth/spnego_gssapi.c",
             "vauth/spnego_sspi.c",
             "vauth/vauth.c",
-        };
-        for (vauth_cfiles) |file| {
-            const path = std.fmt.allocPrint(self.builder.allocator, "./vendor/curl/lib/{s}", .{file}) catch unreachable;
-            lib.addCSourceFile(self.fromRoot(path), &c_flags);
-        }
 
-        // Copied from curl/lib/Makefile.inc (LIB_VTLS_CFILES)
-        const vtls_cfiles = &[_][]const u8{
+            // Copied from curl/lib/Makefile.inc (LIB_VTLS_CFILES)
             "vtls/bearssl.c",
             "vtls/gskit.c",
             "vtls/gtls.c",
@@ -539,16 +562,22 @@ const BuilderContext = struct {
             "vtls/vtls.c",
             "vtls/wolfssl.c",
         };
-        for (vtls_cfiles) |file| {
-            const path = std.fmt.allocPrint(self.builder.allocator, "./vendor/curl/lib/{s}", .{file}) catch unreachable;
-            lib.addCSourceFile(self.fromRoot(path), &c_flags);
+        for (c_files) |file| {
+            self.addCSourceFileFmt(lib, "./vendor/curl/lib/{s}", .{file}, c_flags);
         }
 
         lib.linkLibC();
         lib.addIncludeDir("./vendor/curl/include");
         lib.addIncludeDir("./vendor/curl/lib");
         lib.addIncludeDir("./lib/curl");
+        lib.addIncludeDir("./vendor/openssl/include");
+        lib.addIncludeDir("./vendor/zlib");
         step.linkLibrary(lib);
+    }
+
+    fn addCSourceFileFmt(self: *Self, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
+        const path = std.fmt.allocPrint(self.builder.allocator, format, args) catch unreachable;
+        lib.addCSourceFile(self.fromRoot(path), c_flags);
     }
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {

@@ -274,6 +274,6 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
 })
 
 cs.test('cs.http.get', () => {
-    const resp = cs.http.get('http://ziglang.org');
+    const resp = cs.http.get('https://ziglang.org');
     print(resp);
 })

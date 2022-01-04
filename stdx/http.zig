@@ -31,19 +31,20 @@ pub fn get(alloc: std.mem.Allocator, url: []const u8) ![]const u8 {
     };
     
     var buf = std.ArrayList(u8).initCapacity(alloc, 4e3) catch unreachable;
+    defer buf.deinit();
 
     var c_url = std.cstr.addNullByte(alloc, url) catch unreachable;
     defer alloc.free(c_url);
     
-    // _ = curl_h.curl_easy_setopt(curl_h, .CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 0));
-    // _ = curl.curl_easy_setopt(curl_h, .CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 0));
+    _ = curl_h.setOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
+    _ = curl_h.setOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
 
     _ = curl_h.setOption(curl.CURLOPT_URL, c_url.ptr);
     _ = curl_h.setOption(curl.CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");
     _ = curl_h.setOption(curl.CURLOPT_WRITEFUNCTION, S.write);
     _ = curl_h.setOption(curl.CURLOPT_WRITEDATA, &buf);
 
-    // _ = curl.curl_easy_setopt(curl_h, .CURLOPT_VERBOSE, @intCast(c_int, 1));
+    // _ = curl_h.setOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
     
     const res = curl_h.perform();
     if (res != curl.CURLE_OK) {
