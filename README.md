@@ -1,10 +1,10 @@
 # Cosmic
 
-Cosmic will be a single binary tool that lets you build apps (UI, Games, CLI) with just Javascript/TS. It will provide a text editor, graphics/animation/ui api, a script runtime and bundler to distribute your app. You won't need any additional tools. There's also plans to create an alternative scripting language called XScript.
+Cosmic will be a simple and productive JavaScript/WASM runtime. It aims to have broad applications with a rich standard library. It also aims to streamline development tooling to provide everything you'll need to ship and maintain software.
 
 ## Progress
 The Cosmic API is subject to change during the Alpha version. After version 1.0, the API will remain backwards compatible until the next major version.
-- Cosmic Alpha version (*In progress.*)
+- Cosmic Alpha version (*In progress.*, [Website](https://cosmic-js.com))
   - Javascript API (*In progress.*)
   - Wasm/Wasi API (*Not started.*)
 
@@ -13,7 +13,6 @@ Along the way we'll build some cool libs for zig!
 - UI and animation framework at the native level. (*In progress*)
 - Javascript/WASM runtime.
   - V8 bindings ([Source](https://github.com/fubark/zig-v8))
-- XScript, a new scripting language for the future. (*In progress*)
 - General purpose text editor. (*In progress*)
 - Incremental AST parser and tokenizer. ([Source](https://github.com/fubark/cosmic/tree/master/parser))
 - Bundling/distribution. (*Not started.*)
@@ -38,6 +37,7 @@ Please star the repo and let's do this!
 ## Future
 
 After Cosmic, we'll use what we built to start exploring a different way to browse/interact with the web. 
+We might also design a new scripting language called XScript.
 
 ## License
 
