@@ -255,12 +255,14 @@ const BuilderContext = struct {
     fn addDeps(self: *Self, step: *LibExeObjStep) void {
         if (self.link_net or IncludeAllLibs) {
             addCurl(step);
+            addUv(step);
         }
         if (self.link_net) {
             openssl.buildLinkCrypto(self.builder, step) catch unreachable;
             openssl.buildLinkSsl(self.builder, step);
             self.buildLinkCurl(step);
             self.buildLinkZlib(step);
+            self.buildLinkUv(step) catch unreachable;
         }
         if (self.link_graphics or IncludeAllLibs) {
             addSDL(step);
@@ -334,6 +336,78 @@ const BuilderContext = struct {
         //     step.linkSystemLibrary("dbghelp");
         //     step.linkSystemLibrary("ws2_32");
         // }
+    }
+
+    fn buildLinkUv(self: *Self, step: *LibExeObjStep) !void {
+        const lib = self.builder.addStaticLibrary("zlib", null);
+
+        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
+        if (step.target.getOsTag() == .linux) {
+            try c_flags.appendSlice(&.{
+                "-D_GNU_SOURCE",
+                "-D_POSIX_C_SOURCE=200112",
+            });
+        }
+
+        // From CMakeLists.txt
+        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
+        try c_files.appendSlice(&.{
+            // common
+            "src/fs-poll.c",
+            "src/idna.c",
+            "src/inet.c",
+            "src/random.c",
+            "src/strscpy.c",
+            "src/threadpool.c",
+            "src/timer.c",
+            "src/uv-common.c",
+            "src/uv-data-getter-setters.c",
+            "src/version.c",
+        });
+        if (step.target.getOsTag() == .linux) {
+            try c_files.appendSlice(&.{
+                "src/unix/async.c",
+                "src/unix/core.c",
+                "src/unix/dl.c",
+                "src/unix/fs.c",
+                "src/unix/getaddrinfo.c",
+                "src/unix/getnameinfo.c",
+                "src/unix/loop-watcher.c",
+                "src/unix/loop.c",
+                "src/unix/pipe.c",
+                "src/unix/poll.c",
+                "src/unix/process.c",
+                "src/unix/random-devurandom.c",
+                "src/unix/signal.c",
+                "src/unix/stream.c",
+                "src/unix/tcp.c",
+                "src/unix/thread.c",
+                "src/unix/tty.c",
+                "src/unix/udp.c",
+
+                // sys
+                "src/unix/linux-core.c",
+                "src/unix/linux-inotify.c",
+                "src/unix/linux-syscalls.c",
+                "src/unix/procfs-exepath.c",
+                "src/unix/random-getrandom.c",
+                "src/unix/random-sysctl-linux.c",
+                "src/unix/epoll.c",
+                "src/unix/proctitle.c",
+            });
+        }
+
+        for (c_files.items) |file| {
+            self.addCSourceFileFmt(lib, "./vendor/libuv/{s}", .{file}, c_flags.items);
+        }
+
+        // libuv has UB in uv__write_req_update when the last buf->base has a null ptr.
+        lib.disable_sanitize_c = true;
+
+        lib.linkLibC();
+        lib.addIncludeDir("./vendor/libuv/include");
+        lib.addIncludeDir("./vendor/libuv/src");
+        step.linkLibrary(lib);
     }
 
     fn buildLinkZlib(self: *Self, step: *LibExeObjStep) void {
@@ -772,6 +846,16 @@ fn addSDL(step: *LibExeObjStep) void {
     step.addPackage(sdl_pkg);
     step.linkLibC();
     step.addIncludeDir("./vendor");
+}
+
+const uv_pkg = Pkg{
+    .name = "uv",
+    .path = FileSource.relative("./lib/uv/uv.zig"),
+};
+
+fn addUv(step: *LibExeObjStep) void {
+    step.addPackage(uv_pkg);
+    step.addIncludeDir("./vendor/libuv/include");
 }
 
 const curl_pkg = Pkg{
