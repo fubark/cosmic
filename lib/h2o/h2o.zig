@@ -1,4 +1,7 @@
+const uv = @import("uv");
+
 const c = @cImport({
+    @cDefine("H2O_USE_LIBUV", "1");
     @cInclude("h2o.h");
     @cInclude("h2o/http1.h");
     @cInclude("h2o/http2.h");
@@ -114,7 +117,7 @@ const h2o_filter = extern struct {
 };
 
 pub const h2o_context = extern struct {
-    loop: [*c]c.h2o_loop_t,
+    loop: *h2o_loop,
     globalconf: [*c]h2o_globalconf,
     queue: ?*c.h2o_multithread_queue_t,
     receivers: struct_unnamed_194,
@@ -792,15 +795,18 @@ const h2o_status_handler = extern struct {
     per_thread: ?fn (?*anyopaque, [*c]h2o_context) callconv(.C) void,
 };
 
+const h2o_loop = uv.uv_loop_t;
+
 pub extern fn h2o_config_init(config: [*c]h2o_globalconf) void;
 pub extern fn h2o_config_register_host(config: [*c]h2o_globalconf, host: c.h2o_iovec_t, port: u16) [*c]h2o_hostconf;
 pub extern fn h2o_config_register_path(hostconf: [*c]h2o_hostconf, path: [*c]const u8, flags: c_int) [*c]h2o_pathconf;
 pub extern fn h2o_create_handler(conf: [*c]h2o_pathconf, sz: usize) ?*h2o_handler;
-pub extern fn h2o_context_init(context: [*c]h2o_context, loop: [*c]c.h2o_loop_t, config: [*c]h2o_globalconf) void;
+pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
 pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: ?*h2o_socket_t) void; 
 pub extern fn h2o_add_header(pool: [*c]c.h2o_mem_pool_t, headers: [*c]h2o_headers, token: [*c]const h2o_token, orig_name: [*c]const u8, value: [*c]const u8, value_len: usize) isize;
 pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_t) void;
 pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
+pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket_t;
 
 pub const h2o_accept_ctx = extern struct {
     ctx: [*c]h2o_context,
@@ -821,7 +827,6 @@ pub fn init() void {
 pub const h2o_generator_t = c.h2o_generator_t;
 pub const h2o_iovec_init = c.h2o_iovec_init;
 pub const h2o_req_t = c.h2o_req_t;
-pub const h2o_uv_socket_create = c.h2o_uv_socket_create;
 pub const uv_loop_t = c.uv_loop_t;
 pub const uv_loop_init = c.uv_loop_init;
 pub const uv_tcp_t = c.uv_tcp_t;

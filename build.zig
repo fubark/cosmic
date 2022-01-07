@@ -357,6 +357,7 @@ const BuilderContext = struct {
             "-O3",
             "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
             "-g3",
+            "-DH2O_USE_LIBUV",
         };
 
         const c_files = &[_][]const u8{
@@ -1047,7 +1048,9 @@ const h2o_pkg = Pkg{
 };
 
 fn addH2o(step: *LibExeObjStep) void {
-    step.addPackage(h2o_pkg);
+    var pkg = h2o_pkg;
+    pkg.dependencies = &.{uv_pkg};
+    step.addPackage(pkg);
     step.addIncludeDir("./vendor/h2o/include");
     step.addIncludeDir("./vendor/h2o/deps/picotls/include");
     step.addIncludeDir("./vendor/h2o/deps/quicly/include");

@@ -452,26 +452,24 @@ fn register_handler(hostconf: *h2o.h2o_hostconf, path: [:0]const u8, on_req: fn 
 }
 
 var accept_ctx: h2o.h2o_accept_ctx = undefined;
-fn on_accept(_listener: [*c]h2o.uv_stream_t, status: c_int) callconv(.C) void {
-    const listener: *h2o.uv_stream_t = _listener;
-
+fn on_accept(listener: *uv.uv_stream_t, status: c_int) callconv(.C) void {
     log.debug("accept!", .{});
-    var conn: *h2o.uv_tcp_t = undefined;
+    var conn: *uv.uv_tcp_t = undefined;
     var sock: *h2o.h2o_socket_t = undefined;
 
     if (status != 0) {
         return;
     }
 
-    conn = stdx.mem.ptrCastAlign(*h2o.uv_tcp_t, h2o.h2o_mem_alloc(@sizeOf(h2o.uv_tcp_t)).?);
-    _ = h2o.uv_tcp_init(listener.loop, conn);
+    conn = stdx.mem.ptrCastAlign(*uv.uv_tcp_t, h2o.h2o_mem_alloc(@sizeOf(uv.uv_tcp_t)).?);
+    _ = uv.uv_tcp_init(listener.loop, conn);
 
-    if (h2o.uv_accept(listener, @ptrCast(*h2o.uv_stream_t, conn)) != 0) {
-        h2o.uv_close(@ptrCast(*h2o.uv_handle_t, conn), @ptrCast(h2o.uv_close_cb, h2o.free));
+    if (uv.uv_accept(listener, @ptrCast(*uv.uv_stream_t, conn)) != 0) {
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, conn), @ptrCast(uv.uv_close_cb, h2o.free));
         return;
     }
 
-    sock = h2o.h2o_uv_socket_create(@ptrCast(*h2o.uv_handle_t, conn), @ptrCast(h2o.uv_close_cb, h2o.free)).?;
+    sock = h2o.h2o_uv_socket_create(@ptrCast(*uv.uv_handle_t, conn), @ptrCast(uv.uv_close_cb, h2o.free)).?;
     h2o.h2o_accept(&accept_ctx, sock);
 }
 
@@ -480,7 +478,6 @@ fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
 
     rt.has_background_task = true;
 
-    // TODO: Use libuv structs from uv package.
     // TODO: (Method 1) Merge libuv event loop into ours by using a separate thread to wait on uv_backend_fd/uv_backend_timeout,
     //       then wake up our main thread which runs the queued tasks with uv_run(UV_RUN_NOWAIT)
     // TODO: (Method 2) Merge libuv event loop by doing uv_run(UV_RUN_DEFAULT) in separate thread and push callbacks to
@@ -498,8 +495,8 @@ fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
 
     _ = register_handler(hostconf, "/hello", hello);
 
-    var loop: h2o.uv_loop_t = undefined;
-    _ = h2o.uv_loop_init(&loop);
+    var loop: uv.uv_loop_t = undefined;
+    _ = uv.uv_loop_init(&loop);
 
     var ctx: h2o.h2o_context = undefined;
     h2o.h2o_context_init(&ctx, &loop, &config);
@@ -507,27 +504,27 @@ fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
     accept_ctx.ctx = &ctx;
     accept_ctx.hosts = config.hosts;
 
-    var listener: h2o.uv_tcp_t = undefined;
-    var addr: h2o.sockaddr_in = undefined;
+    var listener: uv.uv_tcp_t = undefined;
+    var addr: uv.sockaddr_in = undefined;
     var r: c_int = undefined;
 
-    _ = h2o.uv_tcp_init(ctx.loop, &listener);
+    _ = uv.uv_tcp_init(ctx.loop, &listener);
     const c_host = std.cstr.addNullByte(rt.alloc, host) catch unreachable;
     defer rt.alloc.free(c_host);
-    _ = h2o.uv_ip4_addr(c_host, port, &addr);
-    r = h2o.uv_tcp_bind(&listener, @ptrCast(*h2o.sockaddr, &addr), 0);
+    _ = uv.uv_ip4_addr(c_host, port, &addr);
+    r = uv.uv_tcp_bind(&listener, @ptrCast(*uv.sockaddr, &addr), 0);
     if (r != 0) {
-        log.debug("uv_tcp_bind: {s}", .{h2o.uv_strerror(r)});
-        h2o.uv_close(@ptrCast(*h2o.uv_handle_t, &listener), null);
+        log.debug("uv_tcp_bind: {s}", .{uv.uv_strerror(r)});
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &listener), null);
     }
-    r = h2o.uv_listen(@ptrCast(*h2o.uv_stream_t, &listener), 128, on_accept);
+    r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &listener), 128, on_accept);
     if (r != 0) {
-        log.debug("uv_listen: {s}", .{h2o.uv_strerror(r)});
-        h2o.uv_close(@ptrCast(*h2o.uv_handle_t, &listener), null);
+        log.debug("uv_listen: {s}", .{uv.uv_strerror(r)});
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &listener), null);
     }
-    r = h2o.uv_run(ctx.loop, h2o.UV_RUN_DEFAULT);
+    r = uv.uv_run(ctx.loop, uv.UV_RUN_DEFAULT);
     if (r != 0) {
-        log.debug("uv_run: {s}", .{h2o.uv_strerror(r)});
+        log.debug("uv_run: {s}", .{uv.uv_strerror(r)});
     }
 }
 
