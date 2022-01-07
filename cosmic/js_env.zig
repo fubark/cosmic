@@ -22,6 +22,9 @@ const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
 
+const uv = @import("uv");
+const h2o = @import("h2o");
+
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
 // A parent HandleScope should persist the values we create in here until the end of the script execution.
 // At this point rt.v8_ctx should be assumed to be undefined since we haven't created a v8.Context yet.
@@ -214,6 +217,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", http_get);
+    ctx.setConstFuncT(http, "serve", http_serve);
     ctx.setConstProp(cs, "http", http);
 
     if (rt.is_test_env) {
@@ -420,6 +424,111 @@ fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
         else => unreachable,
     };
     return ds.Box([]const u8).init(rt.alloc, res);
+}
+
+var generator: h2o.h2o_generator_t = .{ .proceed = null, .stop = null };
+
+fn hello(self: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int {
+    _ = self;
+    log.debug("received hello!", .{});
+    // if (h2o_memis(req->method.base, req->method.len, H2O_STRLIT("POST")) &&
+    //     h2o_memis(req->path_normalized.base, req->path_normalized.len, H2O_STRLIT("/post-test/"))) {
+        req.res.status = 200;
+        req.res.reason = "OK";
+        const str = "text/plain; charset=utf-8";
+        _ = h2o.h2o_add_header(&req.pool, &req.res.headers, h2o.H2O_TOKEN_CONTENT_TYPE, null, str, str.len);
+        h2o.h2o_start_response(req, &generator);
+        h2o.h2o_send(req, &req.entity, 1, 1);
+        return 0;
+    // }
+    // return -1;
+}
+
+fn register_handler(hostconf: *h2o.h2o_hostconf, path: [:0]const u8, on_req: fn (handler: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int) *h2o.h2o_pathconf {
+    const pathconf = h2o.h2o_config_register_path(hostconf, path, 0);
+    var handler = h2o.h2o_create_handler(pathconf, @sizeOf(h2o.h2o_handler)).?;
+    handler.on_req = on_req;
+    return pathconf;
+}
+
+var accept_ctx: h2o.h2o_accept_ctx = undefined;
+fn on_accept(_listener: [*c]h2o.uv_stream_t, status: c_int) callconv(.C) void {
+    const listener: *h2o.uv_stream_t = _listener;
+
+    log.debug("accept!", .{});
+    var conn: *h2o.uv_tcp_t = undefined;
+    var sock: *h2o.h2o_socket_t = undefined;
+
+    if (status != 0) {
+        return;
+    }
+
+    conn = stdx.mem.ptrCastAlign(*h2o.uv_tcp_t, h2o.h2o_mem_alloc(@sizeOf(h2o.uv_tcp_t)).?);
+    _ = h2o.uv_tcp_init(listener.loop, conn);
+
+    if (h2o.uv_accept(listener, @ptrCast(*h2o.uv_stream_t, conn)) != 0) {
+        h2o.uv_close(@ptrCast(*h2o.uv_handle_t, conn), @ptrCast(h2o.uv_close_cb, h2o.free));
+        return;
+    }
+
+    sock = h2o.h2o_uv_socket_create(@ptrCast(*h2o.uv_handle_t, conn), @ptrCast(h2o.uv_close_cb, h2o.free)).?;
+    h2o.h2o_accept(&accept_ctx, sock);
+}
+
+fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
+    log.debug("serving http at {s}:{}", .{host, port});
+
+    rt.has_background_task = true;
+
+    // TODO: Use libuv structs from uv package.
+    // TODO: (Method 1) Merge libuv event loop into ours by using a separate thread to wait on uv_backend_fd/uv_backend_timeout,
+    //       then wake up our main thread which runs the queued tasks with uv_run(UV_RUN_NOWAIT)
+    // TODO: (Method 2) Merge libuv event loop by doing uv_run(UV_RUN_DEFAULT) in separate thread and push callbacks to
+    //       allocated closures for main loop.
+    // TODO: Improve serve api.
+    // TODO: Get serve https to work.
+    // TODO: Implement "cosmic serve-http" and "cosmic serve-https" cli utilities.
+
+    h2o.init();
+
+    var config: h2o.h2o_globalconf = undefined;
+    h2o.h2o_config_init(&config);
+
+    var hostconf = h2o.h2o_config_register_host(&config, h2o.h2o_iovec_init("default", "default".len), 65535);
+
+    _ = register_handler(hostconf, "/hello", hello);
+
+    var loop: h2o.uv_loop_t = undefined;
+    _ = h2o.uv_loop_init(&loop);
+
+    var ctx: h2o.h2o_context = undefined;
+    h2o.h2o_context_init(&ctx, &loop, &config);
+
+    accept_ctx.ctx = &ctx;
+    accept_ctx.hosts = config.hosts;
+
+    var listener: h2o.uv_tcp_t = undefined;
+    var addr: h2o.sockaddr_in = undefined;
+    var r: c_int = undefined;
+
+    _ = h2o.uv_tcp_init(ctx.loop, &listener);
+    const c_host = std.cstr.addNullByte(rt.alloc, host) catch unreachable;
+    defer rt.alloc.free(c_host);
+    _ = h2o.uv_ip4_addr(c_host, port, &addr);
+    r = h2o.uv_tcp_bind(&listener, @ptrCast(*h2o.sockaddr, &addr), 0);
+    if (r != 0) {
+        log.debug("uv_tcp_bind: {s}", .{h2o.uv_strerror(r)});
+        h2o.uv_close(@ptrCast(*h2o.uv_handle_t, &listener), null);
+    }
+    r = h2o.uv_listen(@ptrCast(*h2o.uv_stream_t, &listener), 128, on_accept);
+    if (r != 0) {
+        log.debug("uv_listen: {s}", .{h2o.uv_strerror(r)});
+        h2o.uv_close(@ptrCast(*h2o.uv_handle_t, &listener), null);
+    }
+    r = h2o.uv_run(ctx.loop, h2o.UV_RUN_DEFAULT);
+    if (r != 0) {
+        log.debug("uv_run: {s}", .{h2o.uv_strerror(r)});
+    }
 }
 
 fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {

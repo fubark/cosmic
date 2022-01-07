@@ -7,4 +7,5 @@ const log = stdx.log.scoped(.scratch);
 // Run with "zig build test-file -Dpath=test/scratch.test.zig"
 
 test {
+    t.setLogLevel(.debug);
 }

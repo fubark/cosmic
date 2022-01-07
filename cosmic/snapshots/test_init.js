@@ -14,6 +14,16 @@
         throw new Error(`\nExpected not equal.\nActual: ${act}\nExpected: ${exp}`)
     }
 
+    cs.asserts.contains = function(act, needle) {
+        if (typeof act === 'string') {
+            if (act.includes(needle)) {
+                return
+            }
+        } else {
+            throw new Error(`unsupported type: ${typeof act}`)
+        }
+    }
+
     function equal(act, exp) {
         if (Object.is(act, exp)) {
             return true

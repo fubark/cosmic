@@ -1,5 +1,6 @@
-const eq = cs.asserts.eq;
-const neq = cs.asserts.neq;
+const eq = cs.asserts.eq
+const neq = cs.asserts.neq
+const contains = cs.asserts.contains
 const fs = cs.files;
 
 cs.test('cs.asserts', () => {
@@ -274,6 +275,10 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
 })
 
 cs.test('cs.http.get', () => {
-    const resp = cs.http.get('https://ziglang.org');
-    print(resp);
+    const resp = cs.http.get('https://ziglang.org')
+    contains(resp, 'Zig is a general-purpose programming language')
+})
+
+cs.test('cs.http.serveHttp', () => {
+    cs.http.serve('127.0.0.1', 3000);
 })

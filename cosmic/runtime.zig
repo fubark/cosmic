@@ -79,6 +79,8 @@ pub const RuntimeContext = struct {
 
     promises: ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)),
 
+    has_background_task: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
         self.* = .{
             .alloc = alloc,
@@ -119,6 +121,7 @@ pub const RuntimeContext = struct {
 
             .work_queue = WorkQueue.init(alloc),
             .promises = ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)).init(alloc),
+            .has_background_task = false,
         };
         self.work_queue.createAndRunWorker();
 
@@ -354,6 +357,7 @@ pub const RuntimeContext = struct {
             },
             bool => return val.toBool(self.isolate),
             u8 => return @intCast(u8, val.toU32(ctx)),
+            u16 => return @intCast(u16, val.toU32(ctx)),
             u32 => return val.toU32(ctx),
             f32 => return val.toF32(ctx),
             graphics.Image => {
