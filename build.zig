@@ -505,6 +505,8 @@ const BuilderContext = struct {
             self.addCSourceFileFmt(lib, "./vendor/h2o/{s}", .{file}, c_flags);
         }
 
+        lib.addCSourceFile("./lib/h2o/utils.c", c_flags);
+
         // picohttpparser has intentional UB code in
         // findchar_fast when SSE4_2 is enabled: _mm_loadu_si128 can be given ranges pointer with less than 16 bytes.
         // Can't seem to turn off sanitize for just the one source file. Tried to separate picohttpparser into it's own lib too.

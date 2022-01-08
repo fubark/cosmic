@@ -1,3 +1,4 @@
+const std = @import("std");
 const uv = @import("uv");
 
 const c = @cImport({
@@ -8,6 +9,64 @@ const c = @cImport({
 });
 
 // pub usingnamespace c;
+
+const h2o_loop = uv.uv_loop_t;
+
+pub extern fn h2o_config_init(config: [*c]h2o_globalconf) void;
+pub extern fn h2o_config_register_host(config: *h2o_globalconf, host: c.h2o_iovec_t, port: u16) *h2o_hostconf;
+pub extern fn h2o_config_register_path(hostconf: [*c]h2o_hostconf, path: [*c]const u8, flags: c_int) [*c]h2o_pathconf;
+pub extern fn h2o_create_handler(conf: [*c]h2o_pathconf, sz: usize) ?*h2o_handler;
+pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
+pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: ?*h2o_socket_t) void; 
+pub extern fn h2o_add_header(pool: [*c]c.h2o_mem_pool_t, headers: [*c]h2o_headers, token: [*c]const h2o_token, orig_name: [*c]const u8, value: [*c]const u8, value_len: usize) isize;
+pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_t) void;
+pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
+pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket_t;
+pub extern fn h2o_globalconf_size() usize;
+pub extern fn h2o_hostconf_size() usize;
+pub extern fn h2o_context_size() usize;
+pub extern fn h2o_accept_ctx_size() usize;
+pub extern fn h2o_httpclient_ctx_size() usize;
+
+pub extern const h2o__tokens: [100]h2o_token;
+pub var H2O_TOKEN_CONTENT_TYPE: *const h2o_token = undefined;
+
+pub fn init() void {
+    // Initialize constants.
+    H2O_TOKEN_CONTENT_TYPE = &h2o__tokens[31];
+
+    // Verify struct sizes.
+    // std.debug.print("sizes {} {}\n", .{ h2o_httpclient_ctx_size(), @sizeOf(h2o_httpclient_ctx) });
+    std.debug.assert(h2o_globalconf_size() == @sizeOf(h2o_globalconf));
+    std.debug.assert(h2o_hostconf_size() == @sizeOf(h2o_hostconf));
+    std.debug.assert(h2o_httpclient_ctx_size() == @sizeOf(h2o_httpclient_ctx));
+    std.debug.assert(h2o_context_size() == @sizeOf(h2o_context));
+    std.debug.assert(h2o_accept_ctx_size() == @sizeOf(h2o_accept_ctx));
+}
+
+pub const h2o_generator_t = c.h2o_generator_t;
+pub const h2o_iovec_init = c.h2o_iovec_init;
+pub const h2o_req_t = c.h2o_req_t;
+pub const uv_loop_t = c.uv_loop_t;
+pub const uv_loop_init = c.uv_loop_init;
+pub const uv_tcp_t = c.uv_tcp_t;
+pub const uv_accept = c.uv_accept;
+pub const uv_close_cb = c.uv_close_cb;
+pub const free = c.free;
+pub const uv_tcp_init = c.uv_tcp_init;
+pub const sockaddr_in = c.sockaddr_in;
+pub const sockaddr = c.sockaddr;
+pub const uv_ip4_addr = c.uv_ip4_addr;
+pub const uv_tcp_bind = c.uv_tcp_bind;
+pub const uv_strerror = c.uv_strerror;
+pub const uv_close = c.uv_close;
+pub const uv_handle_t = c.uv_handle_t;
+pub const uv_listen = c.uv_listen;
+pub const uv_stream_t = c.uv_stream_t;
+pub const uv_run = c.uv_run;
+pub const UV_RUN_DEFAULT = c.UV_RUN_DEFAULT;
+pub const h2o_socket_t = c.h2o_socket_t;
+pub const h2o_mem_alloc = c.h2o_mem_alloc;
 
 // https://github.com/ziglang/zig/issues/1499
 // Declare structs as needed if they contain bit fields.
@@ -230,7 +289,7 @@ const h2o_httpclient_ctx = extern struct {
     },
 
     /// HTTP/3-specific settings; 1-to(0|1) relationship, NULL when h3 is not used
-    http3: h2o_http3client_ctx,
+    http3: *h2o_http3client_ctx,
 };
 
 const h2o_http3client_ctx = extern struct {
@@ -720,18 +779,6 @@ const struct_unnamed_189 = extern struct {
 };
 
 const struct_unnamed_190 = extern struct {
-    idle_timeout: u64,
-    graceful_shutdown_timeout: u64,
-    max_concurrent_requests_per_connection: usize,
-    max_concurrent_streaming_requests_per_connection: usize,
-    max_streams_for_priority: usize,
-    active_stream_window_size: u32,
-    latency_optimization: c.h2o_socket_latency_optimization_conditions_t,
-    callbacks: h2o_protocol_callbacks,
-    origin_frame: c.h2o_iovec_t,
-};
-
-const struct_unnamed_191 = extern struct {
     /// idle timeout (in milliseconds)
     idle_timeout: u64,
     /// graceful shutdown timeout (in milliseconds)
@@ -742,7 +789,7 @@ const struct_unnamed_191 = extern struct {
     max_concurrent_requests_per_connection: usize,
     /// maximum number of HTTP2 streaming requests (per connection) to be handled simultaneously internally.
     max_concurrent_streaming_requests_per_connection: usize,
-    /// maximum nuber of streams (per connection) to be allowed in IDLE / CLOSED state (used for tracking dependencies).
+    /// maximum number of streams (per connection) to be allowed in IDLE / CLOSED state (used for tracking dependencies).
     max_streams_for_priority: usize,
     /// size of the stream-level flow control window (once it becomes active)
     active_stream_window_size: u32,
@@ -753,7 +800,7 @@ const struct_unnamed_191 = extern struct {
     origin_frame: c.h2o_iovec_t,
 };
 
-const struct_unnamed_192 = extern struct {
+const struct_unnamed_191 = extern struct {
     /// idle timeout (in milliseconds)
     idle_timeout: u64,
     /// graceful shutdown timeout (in milliseconds)
@@ -768,9 +815,56 @@ const struct_unnamed_192 = extern struct {
         allow_delayed_ack: bool,
         /// a boolean indicating if UDP GSO should be used when possible
         use_gso: bool,
-        /// the callbacks
-        callbacks: h2o_protocol_callbacks,
+
+        padding: u6,
     },
+
+    /// the callbacks
+    callbacks: h2o_protocol_callbacks,
+};
+
+const struct_unnamed_192 = extern struct {
+    /// io timeout (in milliseconds)
+    io_timeout: u64,
+    /// io timeout (in milliseconds)
+    connect_timeout: u64,
+    /// io timeout (in milliseconds)
+    first_byte_timeout: u64,
+    /// keepalive timeout (in milliseconds)
+    keepalive_timeout: u64,
+
+    fields: packed struct {
+        /// a boolean flag if set to true, instructs the proxy to close the frontend h1 connection on behalf of the upstream
+        forward_close_connection: bool,
+        /// a boolean flag if set to true, instructs the proxy to preserve the x-forwarded-proto header passed by the client
+        preserve_x_forwarded_proto: bool,
+        /// a boolean flag if set to true, instructs the proxy to preserve the server header passed by the origin
+        preserve_server_header: bool,
+        /// a boolean flag if set to true, instructs the proxy to emit x-forwarded-proto and x-forwarded-for headers
+        emit_x_forwarded_headers: bool,
+        /// a boolean flag if set to true, instructs the proxy to emit a via header
+        emit_via_header: bool,
+        /// a boolean flag if set to true, instructs the proxy to emit a date header, if it's missing from the upstream response
+        emit_missing_date_header: bool,
+
+        padding: u26,
+    },
+
+    /// maximum size to buffer for the response
+    max_buffer_size: usize,
+
+    http2: extern struct {
+        max_concurrent_streams: u32,
+    },
+
+    /// See the documentation of `h2o_httpclient_t::protocol_selector.ratio`.
+    protocol_ratio: extern struct {
+        http2: i8,
+        http3: i8,
+    },
+
+    /// global socketpool
+    global_socket_pool: c.h2o_socketpool_t,
 };
 
 const h2o_protocol_callbacks = extern struct {
@@ -795,19 +889,6 @@ const h2o_status_handler = extern struct {
     per_thread: ?fn (?*anyopaque, [*c]h2o_context) callconv(.C) void,
 };
 
-const h2o_loop = uv.uv_loop_t;
-
-pub extern fn h2o_config_init(config: [*c]h2o_globalconf) void;
-pub extern fn h2o_config_register_host(config: [*c]h2o_globalconf, host: c.h2o_iovec_t, port: u16) [*c]h2o_hostconf;
-pub extern fn h2o_config_register_path(hostconf: [*c]h2o_hostconf, path: [*c]const u8, flags: c_int) [*c]h2o_pathconf;
-pub extern fn h2o_create_handler(conf: [*c]h2o_pathconf, sz: usize) ?*h2o_handler;
-pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
-pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: ?*h2o_socket_t) void; 
-pub extern fn h2o_add_header(pool: [*c]c.h2o_mem_pool_t, headers: [*c]h2o_headers, token: [*c]const h2o_token, orig_name: [*c]const u8, value: [*c]const u8, value_len: usize) isize;
-pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_t) void;
-pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
-pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket_t;
-
 pub const h2o_accept_ctx = extern struct {
     ctx: [*c]h2o_context,
     hosts: [*c][*c]h2o_hostconf,
@@ -816,37 +897,6 @@ pub const h2o_accept_ctx = extern struct {
     expect_proxy_line: c_int,
     libmemcached_receiver: [*c]c.h2o_multithread_receiver_t,
 };
-
-pub extern const h2o__tokens: [100]h2o_token;
-pub var H2O_TOKEN_CONTENT_TYPE: *const h2o_token = undefined;
-
-pub fn init() void {
-    H2O_TOKEN_CONTENT_TYPE = &h2o__tokens[31];
-}
-
-pub const h2o_generator_t = c.h2o_generator_t;
-pub const h2o_iovec_init = c.h2o_iovec_init;
-pub const h2o_req_t = c.h2o_req_t;
-pub const uv_loop_t = c.uv_loop_t;
-pub const uv_loop_init = c.uv_loop_init;
-pub const uv_tcp_t = c.uv_tcp_t;
-pub const uv_accept = c.uv_accept;
-pub const uv_close_cb = c.uv_close_cb;
-pub const free = c.free;
-pub const uv_tcp_init = c.uv_tcp_init;
-pub const sockaddr_in = c.sockaddr_in;
-pub const sockaddr = c.sockaddr;
-pub const uv_ip4_addr = c.uv_ip4_addr;
-pub const uv_tcp_bind = c.uv_tcp_bind;
-pub const uv_strerror = c.uv_strerror;
-pub const uv_close = c.uv_close;
-pub const uv_handle_t = c.uv_handle_t;
-pub const uv_listen = c.uv_listen;
-pub const uv_stream_t = c.uv_stream_t;
-pub const uv_run = c.uv_run;
-pub const UV_RUN_DEFAULT = c.UV_RUN_DEFAULT;
-pub const h2o_socket_t = c.h2o_socket_t;
-pub const h2o_mem_alloc = c.h2o_mem_alloc;
 
 /// basic structure of a handler (an object that MAY generate a response)
 /// The handlers should register themselves to h2o_context_t::handlers.
