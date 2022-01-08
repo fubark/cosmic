@@ -5,6 +5,8 @@ const ds = stdx.ds;
 const graphics = @import("graphics");
 const sdl = @import("sdl");
 const curl = @import("curl");
+const uv = @import("uv");
+const h2o = @import("h2o");
 
 const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
@@ -12,6 +14,7 @@ const log = stdx.log.scoped(.runtime);
 
 const work_queue = @import("work_queue.zig");
 const WorkQueue = work_queue.WorkQueue;
+const UvPoller = work_queue.UvPoller;
 
 pub const PromiseId = u32;
 
@@ -75,11 +78,20 @@ pub const RuntimeContext = struct {
     num_isolated_tests_finished: u32,
     isolated_tests: std.ArrayList(IsolatedTest),
 
+    // Main thread waits for a wakeup call before running event loop.
+    main_wakeup: std.Thread.ResetEvent,
+
     work_queue: WorkQueue,
 
     promises: ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)),
 
-    has_background_task: bool,
+    // uv_loop_t is quite large, so allocate on heap.
+    uv_loop: *uv.uv_loop_t,
+    uv_dummy_async: *uv.uv_async_t,
+    uv_poller: UvPoller,
+
+    // Number of long lived uv handles.
+    num_uv_handles: u32,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
         self.* = .{
@@ -119,11 +131,46 @@ pub const RuntimeContext = struct {
             .num_isolated_tests_finished = 0,
             .isolated_tests = std.ArrayList(IsolatedTest).init(alloc),
 
-            .work_queue = WorkQueue.init(alloc),
+            .main_wakeup = undefined,
+            .work_queue = undefined,
             .promises = ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)).init(alloc),
-            .has_background_task = false,
+            .uv_loop = undefined,
+            .uv_dummy_async = undefined,
+            .uv_poller = undefined,
+            .num_uv_handles = 0,
         };
+
+        self.main_wakeup.init() catch unreachable;
+
+        self.work_queue = WorkQueue.init(alloc, &self.main_wakeup);
         self.work_queue.createAndRunWorker();
+
+        // Create libuv evloop instance.
+        self.uv_loop = alloc.create(uv.uv_loop_t) catch unreachable;
+        var res = uv.uv_loop_init(self.uv_loop);
+        if (res != 0) {
+            stdx.panicFmt("uv_loop_init: {s}", .{ uv.uv_strerror(res) });
+        }
+        const S = struct {
+            fn onWatcherQueueChanged(_loop: [*c]uv.uv_loop_t) callconv(.C) void {
+                // log.debug("on queue changed", .{});
+                const loop = @ptrCast(*uv.uv_loop_t, _loop);
+                const rt = stdx.mem.ptrCastAlign(*RuntimeContext, loop.data.?);
+                _ = uv.uv_async_send(rt.uv_dummy_async);
+            }
+        };
+        // Once this is merged: https://github.com/libuv/libuv/pull/3308,
+        // we can remove patches/libuv_on_watcher_queue_updated.patch and use the better method.
+        self.uv_loop.data = self;
+        self.uv_loop.on_watcher_queue_updated = S.onWatcherQueueChanged;
+
+        // Add dummy handle or UvPoller/uv_backend_timeout will think there is nothing to wait for.
+        self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
+        _ = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
+
+        // Start uv poller thread.
+        self.uv_poller = UvPoller.init(self.uv_loop, &self.main_wakeup);
+        _ = std.Thread.spawn(.{}, UvPoller.loop, .{&self.uv_poller}) catch unreachable;
 
         // Insert dummy head so we can set last.
         const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
@@ -181,6 +228,11 @@ pub const RuntimeContext = struct {
             case.deinit(self.alloc);
         }
         self.isolated_tests.deinit();
+
+        self.main_wakeup.deinit();
+
+        self.alloc.destroy(self.uv_dummy_async);
+        self.alloc.destroy(self.uv_loop);
     }
 
     pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
@@ -633,6 +685,8 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     stdx.http.init();
     defer stdx.http.deinit();
 
+    h2o.init();
+
     const platform = v8.Platform.initDefault(0, true);
     defer platform.deinit();
 
@@ -693,8 +747,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     v8.executeString(alloc, iso, ctx, src, origin, &res);
 
     while (platform.pumpMessageLoop(iso, false)) {
-        log.debug("What does this do?", .{});
-        unreachable;
+        @panic("Did not expect v8 event loop task");
     }
 
     if (!res.success) {
@@ -706,8 +759,8 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
         rt.work_queue.processDone();
         // Wait on the next done.
         const Timeout = 4 * 1e9;
-        const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
-        rt.work_queue.done_wakeup.reset();
+        const wait_res = rt.main_wakeup.timedWait(Timeout);
+        rt.main_wakeup.reset();
         if (wait_res == .timed_out) {
             break;
         }
@@ -737,6 +790,21 @@ const IsolatedTest = struct {
     }
 };
 
+fn processMainEventLoop(rt: *RuntimeContext) void {
+    // Resolve done tasks.
+    rt.work_queue.processDone();
+
+    // Run uv loop tasks.
+    // [uv] Poll for i/o once but don’t block if there are no pending callbacks.
+    //      Returns zero if done (no active handles or requests left),
+    //      or non-zero if more callbacks are expected (meaning you should run the event loop again sometime in the future).
+    const res = uv.uv_run(rt.uv_loop, uv.UV_RUN_NOWAIT);
+    log.debug("uv run {}", .{res});
+
+    // Notify poller to continue.
+    rt.uv_poller.wakeup.set();
+}
+
 fn runIsolatedTests(rt: *RuntimeContext) void {
     const iso = rt.isolate;
     const ctx = rt.context;
@@ -753,6 +821,8 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
 
     while (rt.num_isolated_tests_finished < rt.isolated_tests.items.len) {
         if (rt.num_isolated_tests_finished == next_test) {
+            // log.debug("run isolated: {} {}", .{next_test, rt.isolated_tests.items.len});
+
             // Start the next test.
             // Assume async test, should have already validated.
             const case = rt.isolated_tests.items[next_test];
@@ -785,24 +855,28 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
             next_test += 1;
         }
 
-        // Continue running tasks.
-        rt.work_queue.processDone();
+        // Check if we're done or need to go to the next test.
+        if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
+            break;
+        } else if (rt.num_isolated_tests_finished == next_test) {
+            continue;
+        }
 
-        if (!rt.work_queue.hasUnfinishedTasks()) {
-            if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
-                break;
-            } else if (rt.num_isolated_tests_finished == next_test) {
+        // Wait for events.
+        // log.debug("main thread wait", .{});
+        const Timeout = 4 * 1e9;
+        const wait_res = rt.main_wakeup.timedWait(Timeout);
+        rt.main_wakeup.reset();
+        if (wait_res == .timed_out) {
+            if (rt.num_uv_handles > 0) {
+                // Continue until no more long lived uv handles.
                 continue;
+            } else {
+                break;
             }
         }
 
-        // Wait on the next done task.
-        const Timeout = 4 * 1e9;
-        const wait_res = rt.work_queue.done_wakeup.timedWait(Timeout);
-        rt.work_queue.done_wakeup.reset();
-        if (wait_res == .timed_out) {
-            break;
-        }
+        processMainEventLoop(rt);
     }
 }
 
@@ -852,8 +926,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     v8.executeString(alloc, iso, ctx, src, origin, &res);
 
     while (platform.pumpMessageLoop(iso, false)) {
-        log.debug("What does this do?", .{});
-        unreachable;
+        @panic("Did not expect v8 event loop task");
     }
 
     if (!res.success) {

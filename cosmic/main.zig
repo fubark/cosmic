@@ -142,8 +142,7 @@ fn repl() void {
             }
 
             while (platform.pumpMessageLoop(iso, false)) {
-                log.info("What does this do?", .{});
-                unreachable;
+                @panic("Did not expect v8 event loop task");
             }
             // log.info("input: {s}", .{input});
         } else {

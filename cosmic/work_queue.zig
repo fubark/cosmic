@@ -2,6 +2,8 @@ const std = @import("std");
 const stdx = @import("stdx");
 const ds = stdx.ds;
 const log = stdx.log.scoped(.work_queue);
+const builtin = @import("builtin");
+const uv = @import("uv");
 
 pub const WorkQueue = struct {
     const Self = @This();
@@ -20,13 +22,14 @@ pub const WorkQueue = struct {
     // This let's the main thread process them all without needing thread locks.
     done: std.atomic.Queue(TaskResult),
 
-    // For an external thread that wants to wait until a task is done.
-    done_wakeup: std.Thread.ResetEvent,
+    // When workers have processed a task and added to done, wakeup event is set.
+    // Must refer to the same memory address.
+    done_notify: *std.Thread.ResetEvent,
 
     num_processing: u32,
     num_processing_mutex: std.Thread.Mutex,
 
-    pub fn init(alloc: std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator, done_notify: *std.Thread.ResetEvent) Self {
         var new = Self{
             .alloc = alloc,
             .tasks_mutex = std.Thread.Mutex{},
@@ -34,11 +37,10 @@ pub const WorkQueue = struct {
             .ready = std.atomic.Queue(TaskId).init(),
             .done = std.atomic.Queue(TaskResult).init(),
             .workers = std.ArrayList(*Worker).init(alloc),
-            .done_wakeup = undefined,
+            .done_notify = done_notify,
             .num_processing = 0,
             .num_processing_mutex = std.Thread.Mutex{},
         };
-        new.done_wakeup.init() catch unreachable;
         return new;
     }
 
@@ -66,8 +68,6 @@ pub const WorkQueue = struct {
             self.alloc.destroy(worker);
         }
         self.workers.deinit();
-
-        self.done_wakeup.deinit();
     }
 
     /// An unfinished task can be in the following states:
@@ -124,6 +124,8 @@ pub const WorkQueue = struct {
 
     /// Workers submit their results through this method.
     fn addTaskResult(self: *Self, res: TaskResult) void {
+        // log.debug("task done processing", .{});
+
         // TODO: Ensure allocator is thread safe or use our own array list with lock.
         const res_node = self.alloc.create(std.atomic.Queue(TaskResult).Node) catch unreachable;
         res_node.data = res;
@@ -135,11 +137,13 @@ pub const WorkQueue = struct {
             self.num_processing -= 1;
         }
 
-        self.done_wakeup.set();
+        // Notify that we have done tasks.
+        self.done_notify.set();
     }
 
     pub fn processDone(self: *Self) void {
         while (self.done.get()) |n| {
+            // log.debug("processed done task", .{});
             const task_id = n.data.task_id;
             const task_info = self.tasks.get(task_id);
             if (task_info.has_cb) {
@@ -333,4 +337,53 @@ const TaskResult = struct {
     task_id: TaskId,
     success: bool,
     err: anyerror,
+};
+
+/// A dedicated thread is used to poll libuv's backend fd.
+pub const UvPoller = struct {
+    const Self = @This();
+
+    uv_loop: *uv.uv_loop_t,
+    epfd: i32,
+    wakeup: std.Thread.ResetEvent,
+
+    // Must refer to the same address in memory.
+    notify: *std.Thread.ResetEvent,
+
+    pub fn init(uv_loop: *uv.uv_loop_t, notify: *std.Thread.ResetEvent) Self {
+        var wakeup: std.Thread.ResetEvent = undefined;
+        wakeup.init() catch unreachable;
+
+        const backend_fd = uv.uv_backend_fd(uv_loop);
+
+        var evt: std.os.linux.epoll_event = undefined;
+        evt.events = std.os.linux.EPOLL.IN;
+        evt.data.fd = backend_fd;
+
+        const epfd = std.os.epoll_create1(std.os.linux.EPOLL.CLOEXEC) catch unreachable;
+        std.os.epoll_ctl(epfd, std.os.linux.EPOLL.CTL_ADD, backend_fd, &evt) catch unreachable;
+        return .{
+            .uv_loop = uv_loop,
+            .epfd = epfd,
+            .wakeup = wakeup,
+            .notify = notify,
+        };
+    }
+
+    pub fn loop(self: *Self) void {
+        while (true) {
+            // Only start polling when uv is done processing.
+            self.wakeup.wait();
+            self.wakeup.reset();
+
+            const timeout = uv.uv_backend_timeout(self.uv_loop);
+            var evts: [1]std.os.linux.epoll_event = undefined;
+            // log.debug("uv poller wait", .{});
+            _ = std.os.epoll_wait(self.epfd, &evts, timeout);
+            // log.debug("uv poller wait return {}", .{uv.uv_loop_alive(self.uv_loop)});
+
+            // Notify that there is new uv work to process.
+            self.notify.set();
+        }
+    }
 };

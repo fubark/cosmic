@@ -451,17 +451,16 @@ fn register_handler(hostconf: *h2o.h2o_hostconf, path: [:0]const u8, on_req: fn 
     return pathconf;
 }
 
-var accept_ctx: h2o.h2o_accept_ctx = undefined;
 fn on_accept(listener: *uv.uv_stream_t, status: c_int) callconv(.C) void {
     log.debug("accept!", .{});
-    var conn: *uv.uv_tcp_t = undefined;
-    var sock: *h2o.h2o_socket_t = undefined;
 
     if (status != 0) {
         return;
     }
 
-    conn = stdx.mem.ptrCastAlign(*uv.uv_tcp_t, h2o.h2o_mem_alloc(@sizeOf(uv.uv_tcp_t)).?);
+    const server = stdx.mem.ptrCastAlign(*HttpServerHandle, listener.data.?);
+
+    var conn = stdx.mem.ptrCastAlign(*uv.uv_tcp_t, h2o.h2o_mem_alloc(@sizeOf(uv.uv_tcp_t)).?);
     _ = uv.uv_tcp_init(listener.loop, conn);
 
     if (uv.uv_accept(listener, @ptrCast(*uv.uv_stream_t, conn)) != 0) {
@@ -469,63 +468,85 @@ fn on_accept(listener: *uv.uv_stream_t, status: c_int) callconv(.C) void {
         return;
     }
 
-    sock = h2o.h2o_uv_socket_create(@ptrCast(*uv.uv_handle_t, conn), @ptrCast(uv.uv_close_cb, h2o.free)).?;
-    h2o.h2o_accept(&accept_ctx, sock);
+    var sock = h2o.h2o_uv_socket_create(@ptrCast(*uv.uv_handle_t, conn), @ptrCast(uv.uv_close_cb, h2o.free)).?;
+    h2o.h2o_accept(&server.accept_ctx, sock);
 }
+
+const HttpServerHandle = struct {
+    const Self = @This();
+
+    rt: *RuntimeContext,
+
+    handle: uv.uv_tcp_t,
+
+    config: h2o.h2o_globalconf,
+    hostconf: *h2o.h2o_hostconf,
+    ctx: h2o.h2o_context,
+    accept_ctx: h2o.h2o_accept_ctx,
+
+    pub fn init(self: *Self, rt: *RuntimeContext) void {
+        self.* = .{
+            .rt = rt,
+            .handle = undefined,
+            .config = undefined,
+            .hostconf = undefined,
+            .ctx = undefined,
+            .accept_ctx = undefined,
+        };
+
+        h2o.h2o_config_init(&self.config);
+        self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init("default", "default".len), 65535);
+        h2o.h2o_context_init(&self.ctx, rt.uv_loop, &self.config);
+
+        self.accept_ctx.ctx = &self.ctx;
+        self.accept_ctx.hosts = self.config.hosts;
+        self.accept_ctx.ssl_ctx = null;
+
+        _ = uv.uv_tcp_init(rt.uv_loop, &self.handle);
+        // Need to callback with handle.
+        self.handle.data = self;
+    }
+
+    fn deinitC(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+        log.debug("---DEINIT", .{});
+        const uv_tcp = @ptrCast(*uv.uv_tcp_t, ptr);
+        const self = stdx.mem.ptrCastAlign(*Self, uv_tcp.data.?);
+        self.rt.alloc.destroy(self);
+    }
+};
 
 fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
     log.debug("serving http at {s}:{}", .{host, port});
 
-    rt.has_background_task = true;
-
-    // TODO: (Method 1) Merge libuv event loop into ours by using a separate thread to wait on uv_backend_fd/uv_backend_timeout,
-    //       then wake up our main thread which runs the queued tasks with uv_run(UV_RUN_NOWAIT)
-    // TODO: (Method 2) Merge libuv event loop by doing uv_run(UV_RUN_DEFAULT) in separate thread and push callbacks to
-    //       allocated closures for main loop.
     // TODO: Improve serve api.
     // TODO: Get serve https to work.
     // TODO: Implement "cosmic serve-http" and "cosmic serve-https" cli utilities.
 
-    h2o.init();
+    const server = rt.alloc.create(HttpServerHandle) catch unreachable;
+    server.init(rt);
 
-    var config: h2o.h2o_globalconf = undefined;
-    h2o.h2o_config_init(&config);
+    _ = register_handler(server.hostconf, "/hello", hello);
 
-    var hostconf = h2o.h2o_config_register_host(&config, h2o.h2o_iovec_init("default", "default".len), 65535);
-
-    _ = register_handler(hostconf, "/hello", hello);
-
-    var loop: uv.uv_loop_t = undefined;
-    _ = uv.uv_loop_init(&loop);
-
-    var ctx: h2o.h2o_context = undefined;
-    h2o.h2o_context_init(&ctx, &loop, &config);
-
-    accept_ctx.ctx = &ctx;
-    accept_ctx.hosts = config.hosts;
-
-    var listener: uv.uv_tcp_t = undefined;
     var addr: uv.sockaddr_in = undefined;
     var r: c_int = undefined;
 
-    _ = uv.uv_tcp_init(ctx.loop, &listener);
     const c_host = std.cstr.addNullByte(rt.alloc, host) catch unreachable;
     defer rt.alloc.free(c_host);
     _ = uv.uv_ip4_addr(c_host, port, &addr);
-    r = uv.uv_tcp_bind(&listener, @ptrCast(*uv.sockaddr, &addr), 0);
+
+    r = uv.uv_tcp_bind(&server.handle, @ptrCast(*uv.sockaddr, &addr), 0);
     if (r != 0) {
         log.debug("uv_tcp_bind: {s}", .{uv.uv_strerror(r)});
-        uv.uv_close(@ptrCast(*uv.uv_handle_t, &listener), null);
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &server.handle), HttpServerHandle.deinitC);
     }
-    r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &listener), 128, on_accept);
+
+    r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &server.handle), 128, on_accept);
     if (r != 0) {
         log.debug("uv_listen: {s}", .{uv.uv_strerror(r)});
-        uv.uv_close(@ptrCast(*uv.uv_handle_t, &listener), null);
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &server.handle), HttpServerHandle.deinitC);
     }
-    r = uv.uv_run(ctx.loop, uv.UV_RUN_DEFAULT);
-    if (r != 0) {
-        log.debug("uv_run: {s}", .{uv.uv_strerror(r)});
-    }
+
+    rt.num_uv_handles += 1;
 }
 
 fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {

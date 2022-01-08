@@ -279,6 +279,7 @@ cs.test('cs.http.get', () => {
     contains(resp, 'Zig is a general-purpose programming language')
 })
 
-cs.test('cs.http.serveHttp', () => {
+cs.testIsolated('cs.http.serveHttp', async () => {
     cs.http.serve('127.0.0.1', 3000);
+    return new Promise(() => {});
 })
