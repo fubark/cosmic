@@ -1,7 +1,8 @@
 const eq = cs.asserts.eq
 const neq = cs.asserts.neq
 const contains = cs.asserts.contains
-const fs = cs.files;
+const fs = cs.files
+const throws = cs.asserts.throws
 
 cs.test('cs.asserts', () => {
     eq(1, 1)
@@ -275,8 +276,20 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
 })
 
 cs.test('cs.http.get', () => {
-    const resp = cs.http.get('https://ziglang.org')
+    let resp = cs.http.get('https://127.0.0.1')
+    eq(resp, false)
+
+    resp = cs.http.get('https://ziglang.org')
     contains(resp, 'Zig is a general-purpose programming language')
+})
+
+cs.test('cs.http.request', () => {
+    throws(() => cs.http.request('get', 'https://127.0.0.1'), 'RequestFailed')
+
+    const resp = cs.http.request('get', 'https://ziglang.org')
+    eq(resp.status, 200)
+    eq(resp.getHeader('content-type'), 'text/html')
+    contains(resp.text(), 'Zig is a general-purpose programming language')
 })
 
 cs.testIsolated('cs.http.serveHttp', async () => {

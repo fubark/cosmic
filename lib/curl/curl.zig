@@ -42,6 +42,10 @@ pub const Curl = struct {
         return c.curl_easy_perform(self.handle);
     }
 
+    pub fn getInfo(self: Self, option: c.CURLINFO, ptr: anytype) c.CURLcode {
+        return c.curl_easy_getinfo(self.handle, option, ptr);
+    }
+
     pub fn getStrError(code: c.CURLcode) [*:0]const u8 {
         return c.curl_easy_strerror(code);
     }

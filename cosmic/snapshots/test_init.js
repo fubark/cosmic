@@ -18,9 +18,22 @@
         if (typeof act === 'string') {
             if (act.includes(needle)) {
                 return
+            } else {
+                throw new Error(`"${act}" does not include "${needle}"`)
             }
         } else {
             throw new Error(`unsupported type: ${typeof act}`)
+        }
+    }
+
+    cs.asserts.throws = function(fn, containsText) {
+        try {
+            fn()
+            throw new Error(`expected exception`)
+        } catch (err) {
+            if (containsText) {
+                cs.asserts.contains(err.message, containsText)
+            }
         }
     }
 

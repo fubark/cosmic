@@ -32,4 +32,31 @@
         }
     }
 
+    cs.http.request = function(method, url) {
+        const resp = cs.http._request(method, url)
+        const headers = resp.headers
+        resp.headers = new Map()
+        for (const h of headers) {
+            const key = h.key.toLowerCase()
+            if (resp.headers.has(key)) {
+                resp.headers.set(key, resp.headers.get(h.key) + ' ' + h.value)
+            } else {
+                resp.headers.set(key, h.value)
+            }
+        }
+        return resp
+    }
+
+    cs.http.Response.prototype.getHeader = function(key) {
+        return this.headers.get(key.toLowerCase())
+    }
+
+    cs.http.Response.prototype.text = function() {
+        return this.body;
+    }
+
+    cs.http.Response.prototype.json = function() {
+        return JSON.parse(this.body);
+    }
+
 })();

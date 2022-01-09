@@ -17,6 +17,7 @@ const PromiseId = runtime.PromiseId;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const ManagedSlice = runtime.ManagedSlice;
+const ManagedStruct = runtime.ManagedStruct;
 const log = stdx.log.scoped(.js_env);
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
@@ -217,7 +218,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", http_get);
-    ctx.setConstFuncT(http, "serve", http_serve);
+    ctx.setConstFuncT(http, "_request", http_request);
+    ctx.setConstFuncT(http, "serveHttp", http_serveHttp);
+    // cs.http.Response
+    const response_class = v8.FunctionTemplate.initDefault(iso);
+    response_class.setClassName(v8.String.initUtf8(iso, "Response"));
+    ctx.setConstProp(http, "Response", response_class);
+    rt.http_response_class = response_class;
     ctx.setConstProp(cs, "http", http);
 
     if (rt.is_test_env) {
@@ -515,7 +522,7 @@ const HttpServerHandle = struct {
     }
 };
 
-fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
+fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) void {
     log.debug("serving http at {s}:{}", .{host, port});
 
     // TODO: Improve serve api.
@@ -549,9 +556,32 @@ fn http_serve(rt: *RuntimeContext, host: []const u8, port: u16) void {
     rt.num_uv_handles += 1;
 }
 
+/// Returns response body text if request was successful.
+/// Returns false if there was an error or the response code is 5xx.
+/// Advanced: cs.http.request
 fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
     const resp = stdx.http.get(rt.alloc, url) catch return null;
-    return ds.Box([]const u8).init(rt.alloc, resp);
+    if (resp.status_code < 500) {
+        return ds.Box([]const u8).init(rt.alloc, resp.body);
+    } else {
+        return null;
+    }
+}
+
+/// Returns Response object if request was successful.
+/// Throws exception if there was a connection or protocol error.
+fn http_request(rt: *RuntimeContext, method: []const u8, url: []const u8) !ManagedStruct(stdx.http.Response) {
+    rt.str_buf.resize(method.len) catch unreachable;
+    const lower = stdx.string.toLower(method, rt.str_buf.items[0..method.len]);
+    if (stdx.string.eq("get", lower)) {
+        const resp = try stdx.http.get(rt.alloc, url);
+        return ManagedStruct(stdx.http.Response){
+            .alloc = rt.alloc,
+            .val = resp,
+        };
+    } else {
+        return error.UnsupportedMethod;
+    }
 }
 
 const Promise = struct {
@@ -1238,8 +1268,19 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool, comptime 
                 const return_value = info.getReturnValue();
                 return_value.setValueHandle(rt.getJsValuePtr(promise));
             } else {
-                if (stdx.meta.FunctionReturnType(@TypeOf(native_fn)) == void) {
+                const ReturnType = comptime stdx.meta.FunctionReturnType(NativeFn);
+                if (ReturnType == void) {
                     @call(.{}, native_fn, native_args);
+                } else if (@typeInfo(ReturnType) == .ErrorUnion) {
+                    if (@call(.{}, native_fn, native_args)) |native_val| {
+                        const js_val = rt.getJsValuePtr(native_val);
+                        const return_value = info.getReturnValue();
+                        return_value.setValueHandle(js_val);
+                        freeNativeValue(rt.alloc, native_val);
+                    } else |err| {
+                        v8.throwErrorExceptionFmt(rt.alloc, iso, "Error: {s}", .{@errorName(err)});
+                        return;
+                    }
                 } else {
                     const native_val = @call(.{}, native_fn, native_args);
                     const js_val = rt.getJsValuePtr(native_val);

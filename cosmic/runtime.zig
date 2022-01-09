@@ -28,6 +28,7 @@ pub const RuntimeContext = struct {
 
     window_class: v8.FunctionTemplate,
     graphics_class: v8.FunctionTemplate,
+    http_response_class: v8.FunctionTemplate,
     image_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
     handle_class: v8.ObjectTemplate,
@@ -100,6 +101,7 @@ pub const RuntimeContext = struct {
             .window_class = undefined,
             .color_class = undefined,
             .graphics_class = undefined,
+            .http_response_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
             .default_obj_t = undefined,
@@ -313,6 +315,22 @@ pub const RuntimeContext = struct {
             u32 => return iso.initIntegerU32(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
+            stdx.http.Response => {
+                const headers_buf = self.alloc.alloc(v8.Value, native_val.headers.len) catch unreachable;
+                defer self.alloc.free(headers_buf);
+                for (native_val.headers) |header, i| {
+                    const js_header = self.default_obj_t.initInstance(ctx);
+                    _ = js_header.setValue(ctx, iso.initStringUtf8("key"), iso.initStringUtf8(native_val.header[header.key.start..header.key.end]));
+                    _ = js_header.setValue(ctx, iso.initStringUtf8("value"), iso.initStringUtf8(native_val.header[header.value.start..header.value.end]));
+                    headers_buf[i] = .{ .handle = js_header.handle };
+                }
+
+                const new = self.http_response_class.getFunction(ctx).initInstance(ctx, &.{}).?;
+                _ = new.setValue(ctx, iso.initStringUtf8("status"), iso.initIntegerU32(native_val.status_code));
+                _ = new.setValue(ctx, iso.initStringUtf8("headers"), iso.initArrayElements(headers_buf));
+                _ = new.setValue(ctx, iso.initStringUtf8("body"), iso.initStringUtf8(native_val.body));
+                return new.handle;
+            },
             graphics.Image => {
                 const new = self.image_class.getFunction(ctx).initInstance(ctx, &.{}).?;
                 new.setInternalField(0, iso.initIntegerU32(native_val.id));
@@ -377,6 +395,8 @@ pub const RuntimeContext = struct {
                     }
                 } else if (@hasDecl(Type, "ManagedSlice")) {
                     return self.getJsValuePtr(native_val.slice);
+                } else if (@hasDecl(Type, "ManagedStruct")) {
+                    return self.getJsValuePtr(native_val.val);
                 } else {
                     comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
                 }
@@ -467,6 +487,20 @@ pub fn ManagedSlice(comptime T: type) type {
                 it.deinit(self.alloc);
             }
             self.alloc.free(self.slice);
+        }
+    };
+}
+
+/// A struct that knows how to deinit itself.
+pub fn ManagedStruct(comptime T: type) type {
+    return struct {
+        pub const ManagedStruct = true;
+
+        alloc: std.mem.Allocator,
+        val: T,
+
+        pub fn deinit(self: @This()) void {
+            self.val.deinit(self.alloc);
         }
     };
 }
