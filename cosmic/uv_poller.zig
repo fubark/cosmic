@@ -54,6 +54,8 @@ pub const UvPoller = struct {
             // Notify that there is new uv work to process.
             self.notify.set();
         }
+
+        // Resuse flag to indicate the thread is done.
         self.close_flag.store(false, .Release);
     }
 };

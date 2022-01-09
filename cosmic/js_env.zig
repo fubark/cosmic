@@ -23,7 +23,9 @@ const log = stdx.log.scoped(.js_env);
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
-const HttpServer = @import("server.zig").HttpServer;
+const _server = @import("server.zig");
+const HttpServer = _server.HttpServer;
+const ResponseWriter = _server.ResponseWriter;
 
 const uv = @import("uv");
 const h2o = @import("h2o");
@@ -229,17 +231,29 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     rt.http_response_class = response_class;
     {
         // cs.http.Server
-        const server_class = v8.FunctionTemplate.initDefault(iso);
-        server_class.setClassName(v8.String.initUtf8(iso, "Server"));
+        const server_class = iso.initFunctionTemplateDefault();
+        server_class.setClassName(iso.initStringUtf8("Server"));
 
         const inst = server_class.getInstanceTemplate();
         inst.setInternalFieldCount(1);
 
         const proto = server_class.getPrototypeTemplate();
         ctx.setConstFuncT(proto, "setHandler", HttpServer.setHandler);
+        ctx.setConstFuncT(proto, "close", HttpServer.close);
 
         ctx.setConstProp(http, "Server", server_class);
         rt.http_server_class = server_class;
+    }
+    {
+        // cs.http.ResponseWriter
+        const constructor = iso.initFunctionTemplateDefault();
+        constructor.setClassName(iso.initStringUtf8("ResponseWriter"));
+
+        const obj_t = iso.initObjectTemplate(constructor);
+        ctx.setConstFuncT(obj_t, "setStatus", ResponseWriter.setStatus);
+        ctx.setConstFuncT(obj_t, "setHeader", ResponseWriter.setHeader);
+        ctx.setConstFuncT(obj_t, "send", ResponseWriter.send);
+        rt.http_response_writer = obj_t;
     }
     ctx.setConstProp(cs, "http", http);
 
@@ -470,7 +484,7 @@ fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
 /// Returns false if there was a connection error, timeout error (30 secs), or the response code is 5xx.
 /// Advanced: cs.http.request
 fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
-    const resp = stdx.http.get(rt.alloc, url, 30) catch return null;
+    const resp = stdx.http.get(rt.alloc, url, 30, false) catch return null;
     defer resp.deinit(rt.alloc);
     if (resp.status_code < 500) {
         return ds.Box([]const u8).init(rt.alloc, rt.alloc.dupe(u8, resp.body) catch unreachable);
@@ -491,7 +505,7 @@ fn http_request(rt: *RuntimeContext, method: []const u8, url: []const u8) !Manag
     rt.str_buf.resize(method.len) catch unreachable;
     const lower = stdx.string.toLower(method, rt.str_buf.items[0..method.len]);
     if (stdx.string.eq("get", lower)) {
-        const resp = try stdx.http.get(rt.alloc, url, 30);
+        const resp = try stdx.http.get(rt.alloc, url, 30, false);
         return ManagedStruct(stdx.http.Response){
             .alloc = rt.alloc,
             .val = resp,

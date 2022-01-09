@@ -13,6 +13,7 @@ pub const uv_close_cb = c.uv_close_cb;
 pub const uv_async_t = c.uv_async_t;
 
 pub const UV_RUN_DEFAULT = c.UV_RUN_DEFAULT;
+pub const UV_RUN_ONCE = c.UV_RUN_ONCE;
 pub const UV_RUN_NOWAIT = c.UV_RUN_NOWAIT;
 
 // Handle types

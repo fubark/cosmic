@@ -22,7 +22,12 @@ pub const HttpServer = struct {
     accept_ctx: h2o.h2o_accept_ctx,
     generator: h2o.h2o_generator_t,
 
+    // Track active socket handles to make sure we freed all uv handles.
+    // This is not always the number of active connections since it's incremented the moment we allocate a uv handle.
+    socket_handles: u32,
+
     requested_shutdown: bool,
+    done: bool,
 
     js_handler: ?v8.Persistent(v8.Function),
 
@@ -37,6 +42,8 @@ pub const HttpServer = struct {
             .js_handler = null,
             .generator = .{ .proceed = null, .stop = null },
             .requested_shutdown = false,
+            .done = false,
+            .socket_handles = 0,
         };
 
         h2o.h2o_config_init(&self.config);
@@ -47,7 +54,6 @@ pub const HttpServer = struct {
         self.accept_ctx.hosts = self.config.hosts;
         self.accept_ctx.ssl_ctx = null;
 
-        log.debug("init {*}", .{&self.handle});
         _ = uv.uv_tcp_init(rt.uv_loop, &self.handle);
         // Need to callback with handle.
         self.handle.data = self;
@@ -95,8 +101,12 @@ pub const HttpServer = struct {
 
     pub fn setHandler(res: ThisResource(*Self), handler: v8.Function) void {
         const self = res.ptr;
-        log.debug("set handler", .{});
         self.js_handler = self.rt.isolate.initPersistent(v8.Function, handler);
+    }
+
+    pub fn close(res: ThisResource(*Self)) void {
+        const self = res.ptr;
+        self.shutdown();
     }
 
     fn registerHandler(self: *Self, path: [:0]const u8, onRequest: fn (handler: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int) *h2o.h2o_pathconf {
@@ -109,37 +119,35 @@ pub const HttpServer = struct {
 
     fn defaultHandler(ptr: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int {
         const self = @ptrCast(*H2oServerHandler, ptr).server;
-
-        _ = req;
-
-        log.debug("default handler", .{});
-
+        const iso = self.rt.isolate;
         const ctx = self.rt.context;
+
         if (self.js_handler) |handler| {
-            if (handler.inner.call(ctx, self.rt.js_undefined, &.{})) |res| {
-                _ = res;
+            const js_req = self.rt.default_obj_t.initInstance(ctx);
+            const method = req.method.base[0..req.method.len];
+            _ = js_req.setValue(ctx, iso.initStringUtf8("method"), iso.initStringUtf8(method));
+            const path = req.path_normalized.base[0..req.path_normalized.len];
+            _ = js_req.setValue(ctx, iso.initStringUtf8("path"), iso.initStringUtf8(path));
+
+            ResponseWriter.cur_req = req;
+            ResponseWriter.cur_generator = &self.generator;
+            const writer = self.rt.http_response_writer.initInstance(ctx);
+            if (handler.inner.call(ctx, self.rt.js_undefined, &.{ js_req.toValue(), writer.toValue() })) |res| {
+                if (res.toBool(iso)) {
+                    return 0;
+                }
             } else {
                 // Js exception, start shutdown.
                 self.shutdown();
             }
         }
 
-        // if (h2o_memis(req->method.base, req->method.len, H2O_STRLIT("POST")) &&
-        //     h2o_memis(req->path_normalized.base, req->path_normalized.len, H2O_STRLIT("/post-test/"))) {
-            // req.res.status = 200;
-            // req.res.reason = "OK";
-            // const str = "text/plain; charset=utf-8";
-            // _ = h2o.h2o_add_header(&req.pool, &req.res.headers, h2o.H2O_TOKEN_CONTENT_TYPE, null, str, str.len);
-            // h2o.h2o_start_response(req, &generator);
-            // h2o.h2o_send(req, &req.entity, 1, 1);
-            // return 0;
-        // }
+        // Let H2o serve default 404 not found.
         return -1;
     }
 
     fn onAccept(listener: *uv.uv_stream_t, status: c_int) callconv(.C) void {
-        log.debug("accept!", .{});
-
+        // log.debug("accept", .{});
         if (status != 0) {
             return;
         }
@@ -151,26 +159,41 @@ pub const HttpServer = struct {
         conn.server = self;
         _ = uv.uv_tcp_init(listener.loop, @ptrCast(*uv.uv_tcp_t, conn));
 
+        self.socket_handles += 1;
         if (uv.uv_accept(listener, @ptrCast(*uv.uv_stream_t, conn)) != 0) {
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, conn), onH2oUvHandleClose);
+            conn.super.data = self;
+            uv.uv_close(@ptrCast(*uv.uv_handle_t, conn), onCloseH2oSocketHandle);
             return;
         }
 
-        var sock = h2o.h2o_uv_socket_create(@ptrCast(*uv.uv_handle_t, conn), onH2oUvHandleClose).?;
-        sock.data = self;
+        var sock = h2o.h2o_uv_socket_create(@ptrCast(*uv.uv_handle_t, conn), onCloseH2oSocketHandle).?;
         h2o.h2o_accept(&self.accept_ctx, sock);
     }
 
     // For closing uv handles that have been attached to h2o handles.
-    fn onH2oUvHandleClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+    fn onCloseH2oSocketHandle(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
         const kind = uv.uv_handle_get_type(ptr);
         if (kind == uv.UV_TCP) {
             const handle = @ptrCast(*H2oUvTcp, ptr);
             const self = stdx.mem.ptrCastAlign(*HttpServer, handle.server);
             self.rt.alloc.destroy(handle);
+
+            self.socket_handles -= 1;
+            self.updateDone();
         } else {
             unreachable;
         }
+    }
+
+    fn updateDone(self: *Self) void {
+        if (self.done) {
+            return;
+        }
+        if (self.socket_handles > 0) {
+            return;
+        }
+        self.rt.num_uv_handles -= 1;
+        self.done = true;
     }
 
     fn onUvHandleClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
@@ -189,12 +212,14 @@ pub const HttpServer = struct {
         if (self.requested_shutdown) {
             return;
         }
-        log.debug("before request server shutdown", .{});
+        // Once shutdown is requested, h2o won't be accepting more connections
+        // and will start to gracefully shutdown existing connections.
+        // After a small delay, a timeout will force any connections to close.
+        // We track number of socket handles and once there are no more, we mark this done in updateDone.
         h2o.h2o_context_request_shutdown(&self.ctx);
         self.requested_shutdown = true;
-        log.debug("after request server shutdown", .{});
 
-        // TODO: Wait for all connections to close. See h2o/src/main.c
+        // TODO: Might want to provide option to wait for all connections to close. See h2o/src/main.c
     }
 };
 
@@ -208,3 +233,53 @@ const H2oServerHandler = struct {
     super: h2o.h2o_handler,
     server: *HttpServer,
 };
+
+pub const ResponseWriter = struct {
+
+    pub var cur_req: ?*h2o.h2o_req = null;
+    pub var cur_generator: *h2o.h2o_generator_t = undefined;
+
+    pub fn setStatus(status_code: u32) void {
+        if (cur_req) |req| {
+            req.res.status = @intCast(c_int, status_code);
+            req.res.reason = getStatusReason(status_code).ptr;
+        }
+    }
+
+    pub fn setHeader(key: []const u8, value: []const u8) void {
+        if (cur_req) |req| {
+            _ = h2o.h2o_set_header_by_str(&req.pool, &req.res.headers, key.ptr, key.len, 1, value.ptr, value.len, 1);
+        }
+    }
+
+    pub fn send(text: []const u8) void {
+        if (cur_req) |req| {
+            h2o.h2o_start_response(req, cur_generator);
+            const slice_ptr = @intToPtr([*c]h2o.h2o_iovec_t, @ptrToInt(&text));
+            h2o.h2o_send(req, slice_ptr, 1, h2o.H2O_SEND_STATE_FINAL);
+        }
+    }
+};
+
+fn getStatusReason(code: u32) []const u8 {
+    switch (code) {
+        200 => return "OK",
+        201 => return "Created",
+        301 => return "Moved Permanently",
+        302 => return "Found",
+        303 => return "See Other",
+        304 => return "Not Modified",
+        400 => return "Bad Request",
+        401 => return "Unauthorized",
+        402 => return "Payment Required",
+        403 => return "Forbidden",
+        404 => return "Not Found",
+        405 => return "Method Not Allowed",
+        500 => return "Internal Server Error",
+        501 => return "Not Implemented",
+        502 => return "Bad Gateway",
+        503 => return "Service Unavailable",
+        504 => return "Gateway Timeout",
+        else => unreachable,
+    }
+}

@@ -20,7 +20,9 @@ pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config
 pub extern fn h2o_context_dispose(context: *h2o_context) void;
 pub extern fn h2o_context_request_shutdown(context: *h2o_context) void;
 pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: *h2o_socket) void; 
-pub extern fn h2o_add_header(pool: [*c]c.h2o_mem_pool_t, headers: [*c]h2o_headers, token: [*c]const h2o_token, orig_name: [*c]const u8, value: [*c]const u8, value_len: usize) isize;
+pub extern fn h2o_add_header(pool: *c.h2o_mem_pool_t, headers: *h2o_headers, token: *const h2o_token, orig_name: [*c]const u8, value: [*c]const u8, value_len: usize) isize;
+pub extern fn h2o_set_header(pool: *c.h2o_mem_pool_t, headers: *h2o_headers, token: *const h2o_token, value: [*c]const u8, value_len: usize, overwrite_if_exists: c_int) isize;
+pub extern fn h2o_set_header_by_str(pool: *c.h2o_mem_pool_t, headers: *h2o_headers, lowercase_name: [*c]const u8, lowercase_name_len: usize, maybe_token: c_int, value: [*c]const u8, value_len: usize, overwrite_if_exists: c_int) isize;
 pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_t) void;
 pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
 pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket;
@@ -48,8 +50,14 @@ pub fn init() void {
     std.debug.assert(h2o_socket_size() == @sizeOf(h2o_socket));
 }
 
+// Send states.
+pub const H2O_SEND_STATE_IN_PROGRESS = c.H2O_SEND_STATE_IN_PROGRESS;
+pub const H2O_SEND_STATE_FINAL = c.H2O_SEND_STATE_FINAL;
+pub const H2O_SEND_STATE_ERROR = c.H2O_SEND_STATE_ERROR;
+
 pub const h2o_generator_t = c.h2o_generator_t;
 pub const h2o_iovec_init = c.h2o_iovec_init;
+pub const h2o_iovec_t = c.h2o_iovec_t;
 pub const h2o_req_t = c.h2o_req_t;
 pub const uv_loop_t = c.uv_loop_t;
 pub const uv_loop_init = c.uv_loop_init;

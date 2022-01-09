@@ -71,7 +71,7 @@ pub fn getAsync(alloc: std.mem.Allocator, url: []const u8) !Response {
 }
 
 /// 0 timeout = no timeout
-pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64) !Response {
+pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64, keep_connection_open: bool) !Response {
     const HeaderContext = struct {
         headers_buf: std.ArrayList(Header),
         header_data_buf: std.ArrayList(u8),
@@ -126,6 +126,11 @@ pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64) !Respon
     _ = curl_h.setOption(curl.CURLOPT_HEADERFUNCTION, S.writeHeader);
     _ = curl_h.setOption(curl.CURLOPT_HEADERDATA, &header_ctx);
     _ = curl_h.setOption(curl.CURLOPT_TIMEOUT, timeout_secs);
+    if (keep_connection_open) {
+        _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
+    } else {
+        _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 1));
+    }
 
     // _ = curl_h.setOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
     

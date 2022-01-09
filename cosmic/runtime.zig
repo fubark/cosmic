@@ -31,6 +31,7 @@ pub const RuntimeContext = struct {
     graphics_class: v8.FunctionTemplate,
     http_response_class: v8.FunctionTemplate,
     http_server_class: v8.FunctionTemplate,
+    http_response_writer: v8.ObjectTemplate,
     image_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
     handle_class: v8.ObjectTemplate,
@@ -107,6 +108,7 @@ pub const RuntimeContext = struct {
             .color_class = undefined,
             .graphics_class = undefined,
             .http_response_class = undefined,
+            .http_response_writer = undefined,
             .http_server_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
@@ -862,16 +864,13 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     printFmt("Tests: {d}\n", .{rt.num_tests});
 
     shutdownRuntime(&rt);
-
-    log.debug("shutdown runtime", .{});
 }
 
-/// Shutdown other threads gracefully.
+/// Shutdown other threads gracefully before starting deinit.
 fn shutdownRuntime(rt: *RuntimeContext) void {
-    // Gracefully shutdown other threads before starting deinit.
+    rt.uv_poller.close_flag.store(true, .Release);
 
     // Make uv poller wake up with dummy update.
-    rt.uv_poller.close_flag.store(true, .Release);
     _ = uv.uv_async_send(rt.uv_dummy_async);
 
     // uv poller might be waiting for wakeup.
@@ -879,6 +878,14 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
 
     // Busy wait.
     while (!rt.uv_poller.close_flag.load(.Acquire)) {}
+
+    // Block on uv loop until all uv handles are done.
+    while (rt.num_uv_handles > 0) {
+        // RUN_ONCE lets it return after running some events. RUN_DEFAULT keeps blocking since we have dummy async in the queue.
+        _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_ONCE);
+    }
+
+    // log.debug("shutdown runtime", .{});
 }
 
 /// Isolated tests are stored to be run later.
@@ -902,8 +909,8 @@ fn processMainEventLoop(rt: *RuntimeContext) void {
     // [uv] Poll for i/o once but don’t block if there are no pending callbacks.
     //      Returns zero if done (no active handles or requests left),
     //      or non-zero if more callbacks are expected (meaning you should run the event loop again sometime in the future).
-    const res = uv.uv_run(rt.uv_loop, uv.UV_RUN_NOWAIT);
-    log.debug("uv run {}", .{res});
+    _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_NOWAIT);
+    // log.debug("uv run {}", .{res});
 
     // Notify poller to continue.
     rt.uv_poller.wakeup.set();
