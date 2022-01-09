@@ -293,6 +293,27 @@ cs.test('cs.http.request', () => {
 })
 
 cs.testIsolated('cs.http.serveHttp', async () => {
-    cs.http.serve('127.0.0.1', 3000);
-    return new Promise(() => {});
+    const s = cs.http.serveHttp('127.0.0.1', 3000)
+    s.setHandler((req, resp) => {
+        print('LOL')
+        if (req.path == '/hello') {
+            resp.setStatus(200)
+            resp.setHeader('content-type', 'text/plain; charset=utf-8')
+            resp.send('Hello from server!')
+            return true
+        }
+    })
+
+    try {
+        // Sync get won't work since it blocks and the server won't be able to accept.
+        // However, async get should work.
+        eq(await cs.http.getAsync('http://127.0.0.1:3000'), 'not found')
+        const req = await cs.http.requestAsync('get', 'http://127.0.0.1:3000/hello')
+        print(req.text())
+        eq(req.status, 200)
+        eq(req.text(), 'Hello from server!')
+    } finally {
+        // s.close()
+    }
+    return new Promise(() => {})
 })

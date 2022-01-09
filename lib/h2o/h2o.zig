@@ -17,16 +17,19 @@ pub extern fn h2o_config_register_host(config: *h2o_globalconf, host: c.h2o_iove
 pub extern fn h2o_config_register_path(hostconf: [*c]h2o_hostconf, path: [*c]const u8, flags: c_int) [*c]h2o_pathconf;
 pub extern fn h2o_create_handler(conf: [*c]h2o_pathconf, sz: usize) ?*h2o_handler;
 pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
-pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: ?*h2o_socket_t) void; 
+pub extern fn h2o_context_dispose(context: *h2o_context) void;
+pub extern fn h2o_context_request_shutdown(context: *h2o_context) void;
+pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: *h2o_socket) void; 
 pub extern fn h2o_add_header(pool: [*c]c.h2o_mem_pool_t, headers: [*c]h2o_headers, token: [*c]const h2o_token, orig_name: [*c]const u8, value: [*c]const u8, value_len: usize) isize;
 pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_t) void;
 pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
-pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket_t;
+pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket;
 pub extern fn h2o_globalconf_size() usize;
 pub extern fn h2o_hostconf_size() usize;
 pub extern fn h2o_context_size() usize;
 pub extern fn h2o_accept_ctx_size() usize;
 pub extern fn h2o_httpclient_ctx_size() usize;
+pub extern fn h2o_socket_size() usize;
 
 pub extern const h2o__tokens: [100]h2o_token;
 pub var H2O_TOKEN_CONTENT_TYPE: *const h2o_token = undefined;
@@ -42,6 +45,7 @@ pub fn init() void {
     std.debug.assert(h2o_httpclient_ctx_size() == @sizeOf(h2o_httpclient_ctx));
     std.debug.assert(h2o_context_size() == @sizeOf(h2o_context));
     std.debug.assert(h2o_accept_ctx_size() == @sizeOf(h2o_accept_ctx));
+    std.debug.assert(h2o_socket_size() == @sizeOf(h2o_socket));
 }
 
 pub const h2o_generator_t = c.h2o_generator_t;
@@ -1202,5 +1206,50 @@ const h2o_token_flags = extern struct {
         dont_compress: bool, // consult `h2o_header_t:dont_compress` as well 
         likely_to_repeat: bool,
         padding: u1,
+    },
+};
+
+/// abstraction layer for sockets (SSL vs. TCP)
+pub const h2o_socket = struct {
+    data: *anyopaque,
+    ssl: *c.st_h2o_socket_ssl_t,
+    input: *c.h2o_buffer_t,
+    /// total bytes read (above the TLS layer)
+    bytes_read: u64,
+    /// total bytes written (above the TLS layer)
+    bytes_written: u64,
+
+    fields: packed struct {
+        /// boolean flag to indicate if sock is NOT being traced
+        _skip_tracing: bool,
+
+        padding: u7,
+    },
+    on_close: extern struct {
+        cb: fn (data: *anyopaque) callconv(.C) void,
+        data: *anyopaque,
+    },
+    _cb: extern struct {
+        read: c.h2o_socket_cb,
+        write: c.h2o_socket_cb,
+    },
+    _peername: *c.st_h2o_socket_addr_t,
+    _sockname: *c.st_h2o_socket_addr_t,
+    _write_buf: extern struct {
+        cnt: usize,
+        bufs: *c.h2o_iovec_t,
+        u: extern union {
+            alloced_ptr: *c.h2o_iovec_t,
+            smallbufs: [4]c.h2o_iovec_t,
+        },
+    },
+    _latency_optimization: extern struct {
+        state: u8, // one of H2O_SOCKET_LATENCY_STATE_* 
+        fields: packed struct {
+            notsent_is_minimized: bool,
+            padding: u7,
+        },
+        suggested_tls_payload_size: usize, // suggested TLS record payload size, or SIZE_MAX when no need to restrict 
+        suggested_write_size: usize,       // SIZE_MAX if no need to optimize for latency 
     },
 };

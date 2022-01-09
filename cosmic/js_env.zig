@@ -18,10 +18,12 @@ const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const ManagedSlice = runtime.ManagedSlice;
 const ManagedStruct = runtime.ManagedStruct;
+const ThisResource = runtime.ThisResource;
 const log = stdx.log.scoped(.js_env);
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
+const HttpServer = @import("server.zig").HttpServer;
 
 const uv = @import("uv");
 const h2o = @import("h2o");
@@ -63,8 +65,6 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     graphics_class.setClassName(v8.String.initUtf8(iso, "Graphics"));
     {
         const inst = graphics_class.getInstanceTemplate();
-        // Currently we set a native pointer with bitCastedU64, seems to work fine.
-        // TODO: What is the advantage of using the builtin v8::External instead of a ptr int?
         inst.setInternalFieldCount(1);
 
         const proto = graphics_class.getPrototypeTemplate();
@@ -218,13 +218,29 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", http_get);
+    ctx.setConstAsyncFuncT(http, "getAsync", http_get);
     ctx.setConstFuncT(http, "_request", http_request);
+    ctx.setConstAsyncFuncT(http, "_requestAsync", http_request);
     ctx.setConstFuncT(http, "serveHttp", http_serveHttp);
     // cs.http.Response
     const response_class = v8.FunctionTemplate.initDefault(iso);
     response_class.setClassName(v8.String.initUtf8(iso, "Response"));
     ctx.setConstProp(http, "Response", response_class);
     rt.http_response_class = response_class;
+    {
+        // cs.http.Server
+        const server_class = v8.FunctionTemplate.initDefault(iso);
+        server_class.setClassName(v8.String.initUtf8(iso, "Server"));
+
+        const inst = server_class.getInstanceTemplate();
+        inst.setInternalFieldCount(1);
+
+        const proto = server_class.getPrototypeTemplate();
+        ctx.setConstFuncT(proto, "setHandler", HttpServer.setHandler);
+
+        ctx.setConstProp(http, "Server", server_class);
+        rt.http_server_class = server_class;
+    }
     ctx.setConstProp(cs, "http", http);
 
     if (rt.is_test_env) {
@@ -433,139 +449,40 @@ fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
     return ds.Box([]const u8).init(rt.alloc, res);
 }
 
-var generator: h2o.h2o_generator_t = .{ .proceed = null, .stop = null };
-
-fn hello(self: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int {
-    _ = self;
-    log.debug("received hello!", .{});
-    // if (h2o_memis(req->method.base, req->method.len, H2O_STRLIT("POST")) &&
-    //     h2o_memis(req->path_normalized.base, req->path_normalized.len, H2O_STRLIT("/post-test/"))) {
-        req.res.status = 200;
-        req.res.reason = "OK";
-        const str = "text/plain; charset=utf-8";
-        _ = h2o.h2o_add_header(&req.pool, &req.res.headers, h2o.H2O_TOKEN_CONTENT_TYPE, null, str, str.len);
-        h2o.h2o_start_response(req, &generator);
-        h2o.h2o_send(req, &req.entity, 1, 1);
-        return 0;
-    // }
-    // return -1;
-}
-
-fn register_handler(hostconf: *h2o.h2o_hostconf, path: [:0]const u8, on_req: fn (handler: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int) *h2o.h2o_pathconf {
-    const pathconf = h2o.h2o_config_register_path(hostconf, path, 0);
-    var handler = h2o.h2o_create_handler(pathconf, @sizeOf(h2o.h2o_handler)).?;
-    handler.on_req = on_req;
-    return pathconf;
-}
-
-fn on_accept(listener: *uv.uv_stream_t, status: c_int) callconv(.C) void {
-    log.debug("accept!", .{});
-
-    if (status != 0) {
-        return;
-    }
-
-    const server = stdx.mem.ptrCastAlign(*HttpServerHandle, listener.data.?);
-
-    var conn = stdx.mem.ptrCastAlign(*uv.uv_tcp_t, h2o.h2o_mem_alloc(@sizeOf(uv.uv_tcp_t)).?);
-    _ = uv.uv_tcp_init(listener.loop, conn);
-
-    if (uv.uv_accept(listener, @ptrCast(*uv.uv_stream_t, conn)) != 0) {
-        uv.uv_close(@ptrCast(*uv.uv_handle_t, conn), @ptrCast(uv.uv_close_cb, h2o.free));
-        return;
-    }
-
-    var sock = h2o.h2o_uv_socket_create(@ptrCast(*uv.uv_handle_t, conn), @ptrCast(uv.uv_close_cb, h2o.free)).?;
-    h2o.h2o_accept(&server.accept_ctx, sock);
-}
-
-const HttpServerHandle = struct {
-    const Self = @This();
-
-    rt: *RuntimeContext,
-
-    handle: uv.uv_tcp_t,
-
-    config: h2o.h2o_globalconf,
-    hostconf: *h2o.h2o_hostconf,
-    ctx: h2o.h2o_context,
-    accept_ctx: h2o.h2o_accept_ctx,
-
-    pub fn init(self: *Self, rt: *RuntimeContext) void {
-        self.* = .{
-            .rt = rt,
-            .handle = undefined,
-            .config = undefined,
-            .hostconf = undefined,
-            .ctx = undefined,
-            .accept_ctx = undefined,
-        };
-
-        h2o.h2o_config_init(&self.config);
-        self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init("default", "default".len), 65535);
-        h2o.h2o_context_init(&self.ctx, rt.uv_loop, &self.config);
-
-        self.accept_ctx.ctx = &self.ctx;
-        self.accept_ctx.hosts = self.config.hosts;
-        self.accept_ctx.ssl_ctx = null;
-
-        _ = uv.uv_tcp_init(rt.uv_loop, &self.handle);
-        // Need to callback with handle.
-        self.handle.data = self;
-    }
-
-    fn deinitC(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
-        log.debug("---DEINIT", .{});
-        const uv_tcp = @ptrCast(*uv.uv_tcp_t, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, uv_tcp.data.?);
-        self.rt.alloc.destroy(self);
-    }
-};
-
-fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) void {
-    log.debug("serving http at {s}:{}", .{host, port});
+fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
+    // log.debug("serving http at {s}:{}", .{host, port});
 
     // TODO: Improve serve api.
     // TODO: Get serve https to work.
     // TODO: Implement "cosmic serve-http" and "cosmic serve-https" cli utilities.
 
-    const server = rt.alloc.create(HttpServerHandle) catch unreachable;
+    const handle = rt.createCsHttpServerResource();
+    const server = handle.ptr;
     server.init(rt);
+    try server.start(host, port);
 
-    _ = register_handler(server.hostconf, "/hello", hello);
-
-    var addr: uv.sockaddr_in = undefined;
-    var r: c_int = undefined;
-
-    const c_host = std.cstr.addNullByte(rt.alloc, host) catch unreachable;
-    defer rt.alloc.free(c_host);
-    _ = uv.uv_ip4_addr(c_host, port, &addr);
-
-    r = uv.uv_tcp_bind(&server.handle, @ptrCast(*uv.sockaddr, &addr), 0);
-    if (r != 0) {
-        log.debug("uv_tcp_bind: {s}", .{uv.uv_strerror(r)});
-        uv.uv_close(@ptrCast(*uv.uv_handle_t, &server.handle), HttpServerHandle.deinitC);
-    }
-
-    r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &server.handle), 128, on_accept);
-    if (r != 0) {
-        log.debug("uv_listen: {s}", .{uv.uv_strerror(r)});
-        uv.uv_close(@ptrCast(*uv.uv_handle_t, &server.handle), HttpServerHandle.deinitC);
-    }
-
-    rt.num_uv_handles += 1;
+    const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
+    js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
+    return js_handle;
 }
 
 /// Returns response body text if request was successful.
-/// Returns false if there was an error or the response code is 5xx.
+/// Returns false if there was a connection error, timeout error (30 secs), or the response code is 5xx.
 /// Advanced: cs.http.request
 fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
-    const resp = stdx.http.get(rt.alloc, url) catch return null;
+    const resp = stdx.http.get(rt.alloc, url, 30) catch return null;
+    defer resp.deinit(rt.alloc);
     if (resp.status_code < 500) {
-        return ds.Box([]const u8).init(rt.alloc, resp.body);
+        return ds.Box([]const u8).init(rt.alloc, rt.alloc.dupe(u8, resp.body) catch unreachable);
     } else {
         return null;
     }
+}
+
+// TODO: Implement async request with uv.
+fn http_getAsync(rt: *RuntimeContext, url: []const u8) void {
+    _ = rt;
+    _ = url;
 }
 
 /// Returns Response object if request was successful.
@@ -574,7 +491,7 @@ fn http_request(rt: *RuntimeContext, method: []const u8, url: []const u8) !Manag
     rt.str_buf.resize(method.len) catch unreachable;
     const lower = stdx.string.toLower(method, rt.str_buf.items[0..method.len]);
     if (stdx.string.eq("get", lower)) {
-        const resp = try stdx.http.get(rt.alloc, url);
+        const resp = try stdx.http.get(rt.alloc, url, 30);
         return ManagedStruct(stdx.http.Response){
             .alloc = rt.alloc,
             .val = resp,
@@ -758,6 +675,7 @@ const This = struct {
     obj: v8.Object,
 };
 
+// Attached function data.
 const Data = struct {
     val: v8.Value,
 };
@@ -841,7 +759,7 @@ fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
 
             _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
         } else {
-            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
+            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -850,7 +768,7 @@ fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
         if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
             rt.num_tests_passed += 1;
         } else {
-            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
+            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -970,8 +888,12 @@ fn freeNativeValue(alloc: std.mem.Allocator, native_val: anytype) void {
                 if (native_val) |child_val| {
                     freeNativeValue(alloc, child_val);
                 }
-            } else if (comptime std.meta.trait.isContainer(Type) and @hasDecl(Type, "ManagedSlice")) {
-                native_val.deinit();
+            } else if (comptime std.meta.trait.isContainer(Type)) {
+                if (@hasDecl(Type, "ManagedSlice")) {
+                    native_val.deinit();
+                } else if (@hasDecl(Type, "ManagedStruct")) {
+                    native_val.deinit();
+                }
             }
         }
     }
@@ -1023,6 +945,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
 
 const JsFuncInfo = struct {
     this_field: ?std.builtin.TypeInfo.StructField,
+    this_res_field: ?std.builtin.TypeInfo.StructField,
     native_ptr_field: ?std.builtin.TypeInfo.StructField,
     data_field: ?std.builtin.TypeInfo.StructField,
     rt_ptr_field: ?std.builtin.TypeInfo.StructField,
@@ -1046,6 +969,16 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
     res.native_ptr_field = b: {
         inline for (arg_fields) |field| {
             if (comptime std.meta.trait.isSingleItemPtr(field.field_type) and field.field_type != *RuntimeContext) {
+                break :b field;
+            }
+        }
+        break :b null;
+    };
+
+    // First ThisResource param will have their resource id from this->getInternalField(0) dereferenced.
+    res.this_res_field = b: {
+        inline for (arg_fields) |field| {
+            if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "ThisResource")) {
                 break :b field;
             }
         }
@@ -1079,6 +1012,11 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
             var is_func_arg = true;
             if (res.this_field) |this_field| {
                 if (std.mem.eql(u8, field.name, this_field.name)) {
+                    is_func_arg = false;
+                }
+            }
+            if (res.this_res_field) |this_res_field| {
+                if (std.mem.eql(u8, field.name, this_res_field.name)) {
                     is_func_arg = false;
                 }
             }
@@ -1191,12 +1129,22 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool, comptime 
             if (ct_info.this_field) |field| {
                 @field(native_args, field.name) = This{ .obj = info.getThis() };
             }
+            if (ct_info.this_res_field) |field| {
+                const PtrType = stdx.meta.FieldType(field.field_type, .ptr);
+                const res_id = info.getThis().getInternalField(0).castToInteger().getValueU32();
+                if (rt.getResourcePtr(PtrType, res_id)) |ptr| {
+                    @field(native_args, field.name) = ThisResource(PtrType){ .ptr = ptr };
+                } else {
+                    v8.throwErrorException(iso, "Native handle expired");
+                    return;
+                }
+            }
             if (ct_info.data_field) |field| {
                 @field(native_args, field.name) = .{ .val = info.getData() };
             }
             if (ct_info.native_ptr_field) |field| {
                 const Ptr = field.field_type;
-                const ptr = info.getThis().getInternalField(0).bitCastToU64(ctx);
+                const ptr = @ptrToInt(info.getThis().getInternalField(0).castToExternal().get());
                 if (ptr > 0) {
                     @field(native_args, field.name) = @intToPtr(Ptr, ptr);
                 } else {

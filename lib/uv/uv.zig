@@ -15,6 +15,9 @@ pub const uv_async_t = c.uv_async_t;
 pub const UV_RUN_DEFAULT = c.UV_RUN_DEFAULT;
 pub const UV_RUN_NOWAIT = c.UV_RUN_NOWAIT;
 
+// Handle types
+pub const UV_TCP = c.UV_TCP;
+
 pub const uv_connection_cb = ?fn (*uv_stream_t, c_int) callconv(.C) void;
 pub extern fn uv_loop_init(loop: *uv_loop_t) c_int;
 pub extern fn uv_listen(stream: *uv_stream_t, backlog: c_int, cb: uv_connection_cb) c_int;
@@ -31,3 +34,4 @@ pub extern fn uv_loop_size() usize;
 pub extern fn uv_loop_alive(loop: *const uv_loop_t) c_int;
 pub extern fn uv_async_init(*uv_loop_t, @"async": *uv_async_t, async_cb: c.uv_async_cb) c_int;
 pub extern fn uv_async_send(@"async": *uv_async_t) c_int;
+pub extern fn uv_handle_get_type(handle: *const uv_handle_t) c.uv_handle_type;

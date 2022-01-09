@@ -110,7 +110,11 @@ pub fn executeString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, src: 
     }
 }
 
-pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catch: TryCatch) []const u8 {
+pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catch: TryCatch) ?[]const u8 {
+    if (!try_catch.hasCaught()) {
+        return null;
+    }
+
     var hscope: HandleScope = undefined;
     hscope.init(iso);
     defer hscope.deinit();
@@ -156,7 +160,7 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: Isolate, ctx: Conte
         return buf.toOwnedSlice();
     } else {
         // V8 didn't provide any extra information about this error, just get exception str.
-        const exception = try_catch.getException();
+        const exception = try_catch.getException().?;
         return valueToUtf8Alloc(alloc, iso, ctx, exception);
     }
 }

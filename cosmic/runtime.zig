@@ -14,7 +14,8 @@ const log = stdx.log.scoped(.runtime);
 
 const work_queue = @import("work_queue.zig");
 const WorkQueue = work_queue.WorkQueue;
-const UvPoller = work_queue.UvPoller;
+const UvPoller = @import("uv_poller.zig").UvPoller;
+const HttpServer = @import("server.zig").HttpServer;
 
 pub const PromiseId = u32;
 
@@ -29,6 +30,7 @@ pub const RuntimeContext = struct {
     window_class: v8.FunctionTemplate,
     graphics_class: v8.FunctionTemplate,
     http_response_class: v8.FunctionTemplate,
+    http_server_class: v8.FunctionTemplate,
     image_class: v8.FunctionTemplate,
     color_class: v8.FunctionTemplate,
     handle_class: v8.ObjectTemplate,
@@ -38,6 +40,9 @@ pub const RuntimeContext = struct {
     resources: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle),
 
     weak_handles: ds.CompactUnorderedList(u32, WeakHandle),
+
+    generic_resource_list: ResourceListId,
+    generic_resource_list_last: ResourceId,
 
     window_resource_list: ResourceListId,
     window_resource_list_last: ResourceId,
@@ -102,11 +107,14 @@ pub const RuntimeContext = struct {
             .color_class = undefined,
             .graphics_class = undefined,
             .http_response_class = undefined,
+            .http_server_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
+            .generic_resource_list = undefined,
+            .generic_resource_list_last = undefined,
             .window_resource_list = undefined,
             .window_resource_list_last = undefined,
             .num_windows = 0,
@@ -178,6 +186,8 @@ pub const RuntimeContext = struct {
         const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
         self.window_resource_list = self.resources.addListWithHead(dummy) catch unreachable;
         self.window_resource_list_last = self.resources.getListHead(self.window_resource_list).?;
+        self.generic_resource_list = self.resources.addListWithHead(dummy) catch unreachable;
+        self.generic_resource_list_last = self.resources.getListHead(self.generic_resource_list).?;
 
         // Set up uncaught promise rejection handler.
         iso.setPromiseRejectCallback(promiseRejectCallback);
@@ -210,6 +220,12 @@ pub const RuntimeContext = struct {
                         window.deinit(self);
                         self.alloc.destroy(window);
                     },
+                    .CsHttpServer => {
+                        const server = stdx.mem.ptrCastAlign(*HttpServer, item.data.ptr);
+                        server.shutdown();
+                        server.deinit();
+                        self.alloc.destroy(server);
+                    },
                     .Dummy => {},
                 }
             }
@@ -237,6 +253,14 @@ pub const RuntimeContext = struct {
         self.alloc.destroy(self.uv_loop);
     }
 
+    pub fn getResourcePtr(self: *Self, comptime Ptr: type, res_id: ResourceId) ?Ptr {
+        const Tag = GetResourceTag(Ptr);
+        const item = self.resources.get(res_id);
+        if (item.tag == Tag) {
+            return stdx.mem.ptrCastAlign(Ptr, item.ptr);
+        } else return null;
+    }
+
     pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
         var id: u32 = 0;
         while (id < self.weak_handles.data.items.len) : (id += 1) {
@@ -249,6 +273,18 @@ pub const RuntimeContext = struct {
                 }
             }
         }
+    }
+
+    pub fn createCsHttpServerResource(self: *Self) CreatedResource(HttpServer) {
+        const ptr = self.alloc.create(HttpServer) catch unreachable;
+        self.generic_resource_list_last = self.resources.insertAfter(self.generic_resource_list_last, .{
+            .ptr = ptr,
+            .tag = .CsHttpServer,
+        }) catch unreachable;
+        return .{
+            .ptr = ptr,
+            .id = self.generic_resource_list_last,
+        };
     }
 
     pub fn createCsWindowResource(self: *Self) CreatedResource(CsWindow) {
@@ -505,6 +541,14 @@ pub fn ManagedStruct(comptime T: type) type {
     };
 }
 
+// Resolves to native ptr from resource id attached to js this.
+pub fn ThisResource(comptime Ptr: type) type {
+    return struct {
+        pub const ThisResource = true;
+        ptr: Ptr,
+    };
+}
+
 var galloc: std.mem.Allocator = undefined;
 var uncaught_promise_errors: std.AutoHashMap(c_int, []const u8) = undefined;
 
@@ -600,7 +644,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
             _ = onDrawFrame.inner.call(ctx, rt.active_window.js_window, &.{
                 rt.active_window.js_graphics.toValue(), iso.initNumber(@intToFloat(f64, fps)).toValue(),
             }) orelse {
-                const trace = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
+                const trace = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(trace);
                 printFmt("{s}", .{trace});
                 return;
@@ -621,8 +665,16 @@ const ResourceListId = u32;
 const ResourceId = u32;
 const ResourceTag = enum {
     CsWindow,
+    CsHttpServer,
     Dummy,
 };
+
+pub fn GetResourceTag(comptime T: type) ResourceTag {
+    switch (T) {
+        *HttpServer => return .CsHttpServer,
+        else => @compileError("unreachable"),
+    }
+}
 
 const ResourceHandle = struct {
     ptr: *anyopaque,
@@ -656,8 +708,7 @@ pub const CsWindow = struct {
 
         const g = alloc.create(graphics.Graphics) catch unreachable;
         const js_graphics = rt.graphics_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-        const js_graphics_ptr = iso.initNumberBitCastedU64(@ptrToInt(g));
-        js_graphics.setInternalField(0, js_graphics_ptr);
+        js_graphics.setInternalField(0, iso.initExternal(g));
 
         self.* = .{
             .window = window,
@@ -809,6 +860,25 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     // Test results.
     printFmt("Passed: {d}\n", .{rt.num_tests_passed});
     printFmt("Tests: {d}\n", .{rt.num_tests});
+
+    shutdownRuntime(&rt);
+
+    log.debug("shutdown runtime", .{});
+}
+
+/// Shutdown other threads gracefully.
+fn shutdownRuntime(rt: *RuntimeContext) void {
+    // Gracefully shutdown other threads before starting deinit.
+
+    // Make uv poller wake up with dummy update.
+    rt.uv_poller.close_flag.store(true, .Release);
+    _ = uv.uv_async_send(rt.uv_dummy_async);
+
+    // uv poller might be waiting for wakeup.
+    rt.uv_poller.wakeup.set();
+
+    // Busy wait.
+    while (!rt.uv_poller.close_flag.load(.Acquire)) {}
 }
 
 /// Isolated tests are stored to be run later.
@@ -881,7 +951,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                     iso.performMicrotasksCheckpoint();
                 }
             } else {
-                const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch);
+                const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
                 printFmt("Test: {s}\n{s}", .{ case.name, err_str });
                 break;
@@ -911,6 +981,12 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
         }
 
         processMainEventLoop(rt);
+    }
+
+    // Check for any js uncaught exceptions from calling into js.
+    if (v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch)) |err_str| {
+        defer rt.alloc.free(err_str);
+        printFmt("Uncaught Exception:\n{s}", .{ err_str });
     }
 }
 

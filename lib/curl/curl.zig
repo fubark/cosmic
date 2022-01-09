@@ -19,6 +19,30 @@ pub fn deinit() void {
     c.curl_global_cleanup();
 }
 
+pub const CurlM = struct {
+    const Self = @This();
+
+    handle: *c.CURLM,
+
+    pub fn init() Self {
+        return .{
+            .handle = c.curl_multi_init().?,
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        _ = c.curl_multi_cleanup(self.handle);
+    }
+
+    pub fn setOption(self: Self, option: c.CURLMoption, arg: anytype) c.CURLcode {
+        return c.curl_multi_setopt(self.handle, option, arg);
+    }
+
+    pub fn addHandle(self: Self, curl_h: Curl) c.CURLcode {
+        return c.curl_multi_add_handle(self.handle, curl_h.handle);
+    }
+};
+
 pub const Curl = struct {
     const Self = @This();
 

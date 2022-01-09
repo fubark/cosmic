@@ -47,6 +47,21 @@
         return resp
     }
 
+    cs.http.requestAsync = async function(method, url) {
+        const resp = await cs.http._requestAsync(method, url)
+        const headers = resp.headers
+        resp.headers = new Map()
+        for (const h of headers) {
+            const key = h.key.toLowerCase()
+            if (resp.headers.has(key)) {
+                resp.headers.set(key, resp.headers.get(h.key) + ' ' + h.value)
+            } else {
+                resp.headers.set(key, h.value)
+            }
+        }
+        return resp
+    }
+
     cs.http.Response.prototype.getHeader = function(key) {
         return this.headers.get(key.toLowerCase())
     }
