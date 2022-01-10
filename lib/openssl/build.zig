@@ -1014,6 +1014,8 @@ pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
         addCSourceFileFmt(b, lib, "./vendor/openssl/providers/{s}", .{file}, c_flags.items);
     }
 
+    lib.disable_sanitize_c = true;
+
     lib.linkLibC();
     lib.addIncludeDir("./vendor/openssl/providers/implementations/include");
     lib.addIncludeDir("./vendor/openssl/providers/common/include");
@@ -1093,6 +1095,8 @@ pub fn buildLinkSsl(b: *Builder, step: *LibExeObjStep) void {
     for (c_files) |file| {
         addCSourceFileFmt(b, lib, "./vendor/openssl/ssl/{s}", .{file}, c_flags);
     }
+
+    lib.disable_sanitize_c = true;
 
     lib.linkLibC();
     // openssl headers need to be generated with:

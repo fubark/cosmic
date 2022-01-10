@@ -8,6 +8,7 @@
   - [x] Complex polygons.
   - [x] Curves.
   - [x] SVG path rendering, SVG file support (subset of spec)
+  - [ ] [TinyVG](https://github.com/TinyVG) file support.
   - [ ] Line join styles.
 - [x] Text rendering.
   - [x] Supports TTF/OTF fonts.

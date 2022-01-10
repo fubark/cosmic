@@ -218,20 +218,7 @@ pub const RuntimeContext = struct {
         {
             var iter = self.resources.items.iterator();
             while (iter.next()) |item| {
-                switch (item.data.tag) {
-                    .CsWindow => {
-                        const window = stdx.mem.ptrCastAlign(*CsWindow, item.data.ptr);
-                        window.deinit(self);
-                        self.alloc.destroy(window);
-                    },
-                    .CsHttpServer => {
-                        const server = stdx.mem.ptrCastAlign(*HttpServer, item.data.ptr);
-                        server.requestShutdown();
-                        server.deinit();
-                        self.alloc.destroy(server);
-                    },
-                    .Dummy => {},
-                }
+                self.deinitResourceHandle(item.data);
             }
             self.resources.deinit();
         }
@@ -257,12 +244,34 @@ pub const RuntimeContext = struct {
         self.alloc.destroy(self.uv_loop);
     }
 
+    /// Destroys the resource owned by the handle.
+    fn deinitResourceHandle(self: *Self, handle: ResourceHandle) void {
+        switch (handle.tag) {
+            .CsWindow => {
+                // TODO: This should do cleanup like deleteCsWindowBySdlId
+                const window = stdx.mem.ptrCastAlign(*CsWindow, handle.ptr);
+                window.deinit(self);
+                self.alloc.destroy(window);
+            },
+            .CsHttpServer => {
+                const server = stdx.mem.ptrCastAlign(*HttpServer, handle.ptr);
+                server.requestShutdown();
+                server.deinitPreClosing();
+                self.alloc.destroy(server);
+            },
+            .Dummy => {},
+        }
+    }
+
     pub fn getResourcePtr(self: *Self, comptime Ptr: type, res_id: ResourceId) ?Ptr {
         const Tag = GetResourceTag(Ptr);
-        const item = self.resources.get(res_id);
-        if (item.tag == Tag) {
-            return stdx.mem.ptrCastAlign(Ptr, item.ptr);
-        } else return null;
+        if (self.resources.hasItem(res_id)) {
+            const item = self.resources.get(res_id);
+            if (item.tag == Tag) {
+                return stdx.mem.ptrCastAlign(Ptr, item.ptr);
+            }
+        }
+        return null;
     }
 
     pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
@@ -304,45 +313,65 @@ pub const RuntimeContext = struct {
         };
     }
 
-    fn deleteCsWindowBySdlId(self: *Self, sdl_win_id: u32) void {
-        // Head is always a dummy resource for convenience.
-        var last_window_id: ResourceId = self.resources.getListHead(self.window_resource_list).?;
-        var mb_window_id = self.resources.getNext(last_window_id);
-        while (mb_window_id) |window_id| {
-            const res = self.resources.get(window_id);
-            const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-            switch (graphics.Backend) {
-                .OpenGL => {
-                    if (cs_window.window.inner.id == sdl_win_id) {
-                        // Deinit and destroy.
-                        cs_window.deinit(self);
-                        self.alloc.destroy(cs_window);
-
-                        // Remove from resources.
-                        self.resources.removeNext(last_window_id);
-
-                        // Update current vars.
-                        if (self.window_resource_list_last == window_id) {
-                            self.window_resource_list_last = last_window_id;
-                        }
-                        self.num_windows -= 1;
-                        if (self.num_windows > 0) {
-                            if (self.active_window == cs_window) {
-                                // TODO: Revisit this. For now just pick the last window.
-                                self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(last_window_id).ptr);
-                                self.active_graphics = self.active_window.graphics;
-                            }
-                        } else {
-                            self.active_window = undefined;
-                            self.active_graphics = undefined;
-                        }
-                        break;
-                    }
-                },
-                else => stdx.panic("unsupported"),
+    /// Deinit the underlying resource and removes the handle from the runtime.
+    pub fn destroyResource(self: *Self, list_id: ResourceListId, res_id: ResourceId) void {
+        const S = struct {
+            fn findPrev(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
+                if (buf.getNext(item_id)) |next| {
+                    return next == target;
+                } else return false;
             }
-            last_window_id = window_id;
-            mb_window_id = self.resources.getNext(window_id);
+        };
+
+        if (self.resources.findInList(list_id, res_id, S.findPrev)) |prev_id| {
+            const id = self.resources.getNext(prev_id).?;
+            self.deinitResourceHandle(self.resources.get(id));
+
+            // Remove from resources.
+            self.resources.removeNext(prev_id);
+        }
+    }
+
+    fn deleteCsWindowBySdlId(self: *Self, sdl_win_id: u32) void {
+        if (graphics.Backend != .OpenGL) {
+            @panic("unsupported");
+        }
+        const S = struct {
+            fn pred(_sdl_win_id: u32, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
+                if (buf.getNext(item_id)) |next| {
+                    const res = buf.get(next);
+                    const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                    return cs_window.window.inner.id == _sdl_win_id;
+                } else return false;
+            }
+        };
+        if (self.resources.findInList(self.window_resource_list, sdl_win_id, S.pred)) |prev_id| {
+            const window_id = self.resources.getNext(prev_id).?;
+            const res = self.resources.get(window_id);
+
+            const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+            // Deinit and destroy.
+            cs_window.deinit(self);
+            self.alloc.destroy(cs_window);
+
+            // Remove from resources.
+            self.resources.removeNext(prev_id);
+
+            // Update current vars.
+            if (self.window_resource_list_last == window_id) {
+                self.window_resource_list_last = prev_id;
+            }
+            self.num_windows -= 1;
+            if (self.num_windows > 0) {
+                if (self.active_window == cs_window) {
+                    // TODO: Revisit this. For now just pick the last window.
+                    self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(prev_id).ptr);
+                    self.active_graphics = self.active_window.graphics;
+                }
+            } else {
+                self.active_window = undefined;
+                self.active_graphics = undefined;
+            }
         }
     }
 
@@ -666,7 +695,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
 }
 
 const ResourceListId = u32;
-const ResourceId = u32;
+pub const ResourceId = u32;
 const ResourceTag = enum {
     CsWindow,
     CsHttpServer,

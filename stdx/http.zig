@@ -1,8 +1,14 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const curl = @import("curl");
 const Curl = curl.Curl;
 const CurlM = curl.CurlM;
 const log = std.log.scoped(.http);
+
+// NOTES:
+// Debugging tls handshake: "openssl s_client -connect 127.0.0.1:3000" Useful options: -prexit -debug -msg 
+// Curl also has tracing: "curl --trace /dev/stdout https://127.0.0.1:3000"
+// Generating a self-signed localhost certificate: "openssl req -x509 -out localhost.crt -keyout localhost.key -newkey rsa:2048 -nodes -sha256 -subj '/CN=localhost' -extensions EXT -config <( printf "[dn]\nCN=localhost\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:localhost\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")"
 
 // Synchronous curl. Keep curl handle to reuse connection pool.
 var curl_h: Curl = undefined;
@@ -118,6 +124,10 @@ pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64, keep_co
     
     _ = curl_h.setOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
     _ = curl_h.setOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
+    if (builtin.os.tag == .linux) {
+        _ = curl_h.setOption(curl.CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+        _ = curl_h.setOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
+    }
 
     _ = curl_h.setOption(curl.CURLOPT_URL, c_url.ptr);
     _ = curl_h.setOption(curl.CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");

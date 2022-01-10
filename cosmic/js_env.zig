@@ -465,11 +465,11 @@ fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
     return ds.Box([]const u8).init(rt.alloc, res);
 }
 
-fn http_serveHttps(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
+fn http_serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
     const handle = rt.createCsHttpServerResource();
     const server = handle.ptr;
-    server.init(rt, true);
-    try server.start(host, port);
+    server.init(rt);
+    try server.startHttps(host, port, cert_path, key_path);
 
     const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
     js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
@@ -479,14 +479,12 @@ fn http_serveHttps(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object 
 fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
     // log.debug("serving http at {s}:{}", .{host, port});
 
-    // TODO: Improve serve api.
-    // TODO: Get serve https to work.
     // TODO: Implement "cosmic serve-http" and "cosmic serve-https" cli utilities.
 
     const handle = rt.createCsHttpServerResource();
     const server = handle.ptr;
-    server.init(rt, false);
-    try server.start(host, port);
+    server.init(rt);
+    try server.startHttp(host, port);
 
     const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
     js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
@@ -723,6 +721,7 @@ pub fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
     const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
     defer rt.alloc.free(str);
 
+    // TODO: Show stack trace.
     printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
 }
 

@@ -8,6 +8,7 @@ const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const ThisResource = runtime.ThisResource;
 const PromiseId = runtime.PromiseId;
+const ResourceId = runtime.ResourceId;
 const v8 = @import("v8.zig");
 const log = stdx.log.scoped(.server);
 
@@ -18,6 +19,7 @@ pub const HttpServer = struct {
 
     listen_handle: uv.uv_tcp_t,
 
+    h2o_started: bool,
     config: h2o.h2o_globalconf,
     hostconf: *h2o.h2o_hostconf,
     ctx: h2o.h2o_context,
@@ -28,66 +30,54 @@ pub const HttpServer = struct {
     // This is not always the number of active connections since it's incremented the moment we allocate a uv handle.
     socket_handles: u32,
 
-    requested_shutdown: bool,
+    closing: bool,
     closed_listen_handle: bool,
-    done: bool,
+
+    // When true, it means there are no handles to be cleaned up. The initial state is true.
+    // If we end up owning additional memory in the future, we'd still need to deinit those.
+    closed: bool,
 
     js_handler: ?v8.Persistent(v8.Function),
 
     https: bool,
 
-    pub fn init(self: *Self, rt: *RuntimeContext, https: bool) void {
+    // The initial state is closed and nothing happens until we do startHttp/startHttps.
+    pub fn init(self: *Self, rt: *RuntimeContext) void {
         self.* = .{
             .rt = rt,
             .listen_handle = undefined,
+            .h2o_started = false,
             .config = undefined,
             .hostconf = undefined,
             .ctx = undefined,
             .accept_ctx = undefined,
             .js_handler = null,
             .generator = .{ .proceed = null, .stop = null },
-            .requested_shutdown = false,
-            .done = false,
+            .closing = false,
+            .closed = true,
             .socket_handles = 0,
-            .closed_listen_handle = false,
-            .https = https,
+            .closed_listen_handle = true,
+            .https = false,
         };
+    }
 
-        h2o.h2o_config_init(&self.config);
-        self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init("default", "default".len), 65535);
-        h2o.h2o_context_init(&self.ctx, rt.uv_loop, &self.config);
+    // Deinit before entering closing phase.
+    pub fn deinitPreClosing(self: *Self) void {
+        _ = self;
+    }
 
-        self.accept_ctx.ctx = &self.ctx;
-        self.accept_ctx.hosts = self.config.hosts;
+    /// This is just setting up the uv socket listener. Does not set up for http or https.
+    fn startListener(self: *Self, host: []const u8, port: u16) !void {
+        const rt = self.rt;
 
-        if (https) {
-            self.accept_ctx.ssl_ctx = ssl.SSL_CTX_new(ssl.TLS_server_method());
-
-        } else {
-            self.accept_ctx.ssl_ctx = null;
-        }
+        self.closed = false;
 
         _ = uv.uv_tcp_init(rt.uv_loop, &self.listen_handle);
         // Need to callback with handle.
         self.listen_handle.data = self;
+        self.closed_listen_handle = false;
 
-        _ = self.registerHandler("/", HttpServer.defaultHandler);
-    }
-
-    pub fn deinit(self: *Self) void {
-        _ = self;
-    }
-
-    fn onCloseListenHandle(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
-        const handle = @ptrCast(*uv.uv_tcp_t, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, handle.data.?);
-        // We don't need to free the handle since it's embedded into server struct.
-        self.closed_listen_handle = true;
-        self.updateDone();
-    }
-
-    pub fn start(self: *Self, host: []const u8, port: u16) !void {
-        const rt = self.rt;
+        errdefer self.requestShutdown();
 
         var addr: uv.sockaddr_in = undefined;
         var r: c_int = undefined;
@@ -99,18 +89,72 @@ pub const HttpServer = struct {
         r = uv.uv_tcp_bind(&self.listen_handle, @ptrCast(*uv.sockaddr, &addr), 0);
         if (r != 0) {
             log.debug("uv_tcp_bind: {s}", .{uv.uv_strerror(r)});
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
             return error.SocketAddrBind;
         }
 
         r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &self.listen_handle), 128, HttpServer.onAccept);
         if (r != 0) {
             log.debug("uv_listen: {s}", .{uv.uv_strerror(r)});
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
             return error.ListenError;
         }
 
         rt.num_uv_handles += 1;
+    }
+
+    /// Default H2O startup for both HTTP/HTTPS
+    fn startH2O(self: *Self) void {
+        h2o.h2o_config_init(&self.config);
+        self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init("default", "default".len), 65535);
+        h2o.h2o_context_init(&self.ctx, self.rt.uv_loop, &self.config);
+
+        self.accept_ctx.ctx = &self.ctx;
+        self.accept_ctx.hosts = self.config.hosts;
+        self.accept_ctx.ssl_ctx = null;
+
+        _ = self.registerHandler("/", HttpServer.defaultHandler);
+
+        self.h2o_started = true;
+    }
+
+    /// If an error occurs during startup, the server will request shutdown and be in a closing state.
+    /// "closed" should be checked later on to ensure everything was cleaned up.
+    pub fn startHttp(self: *Self, host: []const u8, port: u16) !void {
+        try self.startListener(host, port);
+        self.startH2O();
+    }
+
+    pub fn startHttps(self: *Self, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !void {
+        try self.startListener(host, port);
+        self.startH2O();
+
+        self.https = true;
+        self.accept_ctx.ssl_ctx = ssl.SSL_CTX_new(ssl.TLS_server_method());
+
+        errdefer self.requestShutdown();
+
+        const rt = self.rt;
+        const c_cert = std.cstr.addNullByte(rt.alloc, cert_path) catch unreachable;
+        defer rt.alloc.free(c_cert);
+        const c_key = std.cstr.addNullByte(rt.alloc, key_path) catch unreachable;
+        defer rt.alloc.free(c_key);
+
+        if (ssl.SSL_CTX_use_certificate_chain_file(self.accept_ctx.ssl_ctx, c_cert) != 1) {
+            log.debug("Failed to load server certificate file: {s}", .{cert_path});
+            return error.UseCertificate;
+        }
+
+        if (ssl.SSL_CTX_use_PrivateKey_file(self.accept_ctx.ssl_ctx, c_key, ssl.SSL_FILETYPE_PEM) != 1) {
+            log.debug("Failed to load private key file: {s}", .{key_path});
+            return error.UsePrivateKey;
+        }
+    }
+
+    fn onCloseListenHandle(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+        const handle = @ptrCast(*uv.uv_tcp_t, ptr);
+        const self = stdx.mem.ptrCastAlign(*Self, handle.data.?);
+        // We don't need to free the handle since it's embedded into server struct.
+        self.closed_listen_handle = true;
+        self.updateClosed();
     }
 
     pub fn setHandler(res: ThisResource(*Self), handler: v8.Function) void {
@@ -123,8 +167,8 @@ pub const HttpServer = struct {
         self.requestShutdown();
     }
 
-    // The aim is to provide a clean way to shutdown in a promise which resolves when done.
-    // Requests shutdown and adds a task that continually watches the done variable.
+    // The aim is to provide a clean way to shutdown in a promise which resolves when closed and freed.
+    // Requests shutdown and adds a task that continually watches the closed variable.
     pub fn closeAsync(res: ThisResource(*Self)) v8.Promise {
         const self = res.ptr;
         self.requestShutdown();
@@ -140,24 +184,33 @@ pub const HttpServer = struct {
             const ServerCloseTimer = struct {
                 super: uv.uv_timer_t,
                 promise_id: PromiseId,
+                resource_id: ResourceId,
             };
 
             fn onCheckServerClose(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
                 const timer = @ptrCast(*ServerCloseTimer, ptr);
                 const server = stdx.mem.ptrCastAlign(*Self, timer.super.data.?);
-                if (!server.done) {
+                if (!server.closed) {
                     return;
                 }
-                runtime.resolvePromise(server.rt, timer.promise_id, .{
-                    .handle = server.rt.js_true.handle,
-                });
                 uv.uv_close(@ptrCast(*uv.uv_handle_t, ptr), onCloseTimer);
             }
 
             fn onCloseTimer(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
                 const timer = @ptrCast(*ServerCloseTimer, ptr);
                 const server = stdx.mem.ptrCastAlign(*Self, timer.super.data);
-                server.rt.alloc.destroy(timer);
+
+                // Save rt before we free server.
+                const _rt = server.rt;
+
+                // At this point there should be nothing that references HttpServer, so destroy the resource.
+                _rt.destroyResource(_rt.generic_resource_list, timer.resource_id);
+
+                runtime.resolvePromise(_rt, timer.promise_id, .{
+                    .handle = _rt.js_true.handle,
+                });
+
+                _rt.alloc.destroy(timer);
             }
         };
 
@@ -241,14 +294,14 @@ pub const HttpServer = struct {
             self.rt.alloc.destroy(handle);
 
             self.socket_handles -= 1;
-            self.updateDone();
+            self.updateClosed();
         } else {
             unreachable;
         }
     }
 
-    fn updateDone(self: *Self) void {
-        if (self.done) {
+    fn updateClosed(self: *Self) void {
+        if (self.closed) {
             return;
         }
         if (self.socket_handles > 0) {
@@ -258,7 +311,7 @@ pub const HttpServer = struct {
             return;
         }
         self.rt.num_uv_handles -= 1;
-        self.done = true;
+        self.closed = true;
     }
 
     fn onUvHandleClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
@@ -274,18 +327,22 @@ pub const HttpServer = struct {
     }
 
     pub fn requestShutdown(self: *Self) void {
-        if (self.requested_shutdown) {
+        if (self.closing) {
             return;
         }
-        // Once shutdown is requested, h2o won't be accepting more connections
-        // and will start to gracefully shutdown existing connections.
-        // After a small delay, a timeout will force any connections to close.
-        // We track number of socket handles and once there are no more, we mark this done in updateDone.
-        h2o.h2o_context_request_shutdown(&self.ctx);
+        if (self.h2o_started) {
+            // Once shutdown is requested, h2o won't be accepting more connections
+            // and will start to gracefully shutdown existing connections.
+            // After a small delay, a timeout will force any connections to close.
+            // We track number of socket handles and once there are no more, we mark this done in updateClosed.
+            h2o.h2o_context_request_shutdown(&self.ctx);
+        }
 
-        uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
+        if (!self.closed_listen_handle) {
+            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
+        }
 
-        self.requested_shutdown = true;
+        self.closing = true;
     }
 };
 

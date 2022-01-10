@@ -204,7 +204,12 @@ const TaskTimer = struct {
 };
 
 pub fn TaskOutput(comptime Task: type) type {
-    return stdx.meta.FieldType(Task, .res);
+    const Result = comptime stdx.meta.FieldType(Task, .res);
+    if (@typeInfo(Result) == .ErrorUnion) {
+        return @typeInfo(Result).ErrorUnion.payload;
+    } else {
+        return Result;
+    }
 }
 
 // A thread is tied to a worker which simply requests the next task to work on.
@@ -288,7 +293,12 @@ const TaskInfo = struct {
             fn success_cb(_ctx_ptr: *anyopaque, ptr: *anyopaque) void {
                 const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
                 const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, ptr);
-                return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr.res });
+                const ResultType = comptime stdx.meta.FieldType(TaskImpl, .res);
+                if (@typeInfo(ResultType) == .ErrorUnion) {
+                    return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr.res catch unreachable });
+                } else {
+                    return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr.res });
+                }
             }
 
             fn failure_cb(_ctx_ptr: *anyopaque, err: anyerror) void {

@@ -11,7 +11,6 @@ pub fn ClosureTask(comptime func: anytype) type {
     const Args = std.meta.ArgsTuple(Fn);
     const ArgFields = std.meta.fields(Args);
     const ReturnType = stdx.meta.FunctionReturnType(Fn);
-    const Output = ClosureOutputType(ReturnType);
     return struct {
         const Self = @This();
 
@@ -19,7 +18,7 @@ pub fn ClosureTask(comptime func: anytype) type {
         alloc: std.mem.Allocator,
         args: Args,
 
-        res: Output = undefined,
+        res: ReturnType = undefined,
 
         pub fn deinit(self: *Self) void {
             inline for (ArgFields) |field| {
@@ -41,14 +40,6 @@ pub fn ClosureTask(comptime func: anytype) type {
     };
 }
 
-pub fn ClosureOutputType(comptime T: type) type {
-    if (@typeInfo(T) == .ErrorUnion) {
-        return @typeInfo(T).ErrorUnion.payload;
-    } else {
-        return T;
-    }
-}
-
 // TODO: Should this be the same as js_env.freeNativeValue ?
 fn deinitResult(res: anytype) void {
     const Result = @TypeOf(res);
@@ -59,6 +50,10 @@ fn deinitResult(res: anytype) void {
                 if (res) |_res| {
                     deinitResult(_res);
                 }
+            } else if (@typeInfo(Result) == .ErrorUnion) {
+                if (res) |payload| {
+                    deinitResult(payload);
+                } else |_| {}
             } else if (comptime std.meta.trait.isContainer(Result)) {
                 if (@hasDecl(Result, "ManagedSlice")) {
                     res.deinit();

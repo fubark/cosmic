@@ -401,7 +401,22 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
             return self.lists.getPtr(id).head;
         }
 
-        pub fn getItem(self: *const Self, id: ItemId) Item {
+        pub fn findInList(self: Self, list_id: ListId, ctx: anytype, pred: fn (ctx: @TypeOf(ctx), buf: Self, item_id: ItemId) bool) ?ItemId {
+            var mb_id = self.getListHead(list_id);
+            while (mb_id) |id| {
+                if (pred(ctx, self, id)) {
+                    return id;
+                }
+                mb_id = self.getNext(id);
+            }
+            return null;
+        }
+
+        pub fn hasItem(self: Self, id: ItemId) bool {
+            return self.items.data_exists.isSet(id);
+        }
+
+        pub fn getItem(self: Self, id: ItemId) Item {
             return self.items.get(id);
         }
 
@@ -409,7 +424,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
             return self.items.getPtr(id);
         }
 
-        pub fn get(self: *const Self, id: ItemId) T {
+        pub fn get(self: Self, id: ItemId) T {
             return self.items.getPtr(id).data;
         }
 
