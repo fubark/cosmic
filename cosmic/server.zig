@@ -2,10 +2,12 @@ const std = @import("std");
 const stdx = @import("stdx");
 const uv = @import("uv");
 const h2o = @import("h2o");
+const ssl = @import("openssl");
 
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const ThisResource = runtime.ThisResource;
+const PromiseId = runtime.PromiseId;
 const v8 = @import("v8.zig");
 const log = stdx.log.scoped(.server);
 
@@ -14,7 +16,7 @@ pub const HttpServer = struct {
 
     rt: *RuntimeContext,
 
-    handle: uv.uv_tcp_t,
+    listen_handle: uv.uv_tcp_t,
 
     config: h2o.h2o_globalconf,
     hostconf: *h2o.h2o_hostconf,
@@ -27,14 +29,17 @@ pub const HttpServer = struct {
     socket_handles: u32,
 
     requested_shutdown: bool,
+    closed_listen_handle: bool,
     done: bool,
 
     js_handler: ?v8.Persistent(v8.Function),
 
-    pub fn init(self: *Self, rt: *RuntimeContext) void {
+    https: bool,
+
+    pub fn init(self: *Self, rt: *RuntimeContext, https: bool) void {
         self.* = .{
             .rt = rt,
-            .handle = undefined,
+            .listen_handle = undefined,
             .config = undefined,
             .hostconf = undefined,
             .ctx = undefined,
@@ -44,6 +49,8 @@ pub const HttpServer = struct {
             .requested_shutdown = false,
             .done = false,
             .socket_handles = 0,
+            .closed_listen_handle = false,
+            .https = https,
         };
 
         h2o.h2o_config_init(&self.config);
@@ -52,11 +59,17 @@ pub const HttpServer = struct {
 
         self.accept_ctx.ctx = &self.ctx;
         self.accept_ctx.hosts = self.config.hosts;
-        self.accept_ctx.ssl_ctx = null;
 
-        _ = uv.uv_tcp_init(rt.uv_loop, &self.handle);
+        if (https) {
+            self.accept_ctx.ssl_ctx = ssl.SSL_CTX_new(ssl.TLS_server_method());
+
+        } else {
+            self.accept_ctx.ssl_ctx = null;
+        }
+
+        _ = uv.uv_tcp_init(rt.uv_loop, &self.listen_handle);
         // Need to callback with handle.
-        self.handle.data = self;
+        self.listen_handle.data = self;
 
         _ = self.registerHandler("/", HttpServer.defaultHandler);
     }
@@ -65,11 +78,12 @@ pub const HttpServer = struct {
         _ = self;
     }
 
-    fn deinitC(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
-        log.debug("---DEINIT", .{});
-        const uv_tcp = @ptrCast(*uv.uv_tcp_t, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, uv_tcp.data.?);
-        self.rt.alloc.destroy(self);
+    fn onCloseListenHandle(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+        const handle = @ptrCast(*uv.uv_tcp_t, ptr);
+        const self = stdx.mem.ptrCastAlign(*Self, handle.data.?);
+        // We don't need to free the handle since it's embedded into server struct.
+        self.closed_listen_handle = true;
+        self.updateDone();
     }
 
     pub fn start(self: *Self, host: []const u8, port: u16) !void {
@@ -82,17 +96,17 @@ pub const HttpServer = struct {
         defer rt.alloc.free(c_host);
         _ = uv.uv_ip4_addr(c_host, port, &addr);
 
-        r = uv.uv_tcp_bind(&self.handle, @ptrCast(*uv.sockaddr, &addr), 0);
+        r = uv.uv_tcp_bind(&self.listen_handle, @ptrCast(*uv.sockaddr, &addr), 0);
         if (r != 0) {
             log.debug("uv_tcp_bind: {s}", .{uv.uv_strerror(r)});
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.handle), HttpServer.deinitC);
+            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
             return error.SocketAddrBind;
         }
 
-        r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &self.handle), 128, HttpServer.onAccept);
+        r = uv.uv_listen(@ptrCast(*uv.uv_stream_t, &self.listen_handle), 128, HttpServer.onAccept);
         if (r != 0) {
             log.debug("uv_listen: {s}", .{uv.uv_strerror(r)});
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.handle), HttpServer.deinitC);
+            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
             return error.ListenError;
         }
 
@@ -104,9 +118,57 @@ pub const HttpServer = struct {
         self.js_handler = self.rt.isolate.initPersistent(v8.Function, handler);
     }
 
-    pub fn close(res: ThisResource(*Self)) void {
+    pub fn requestClose(res: ThisResource(*Self)) void {
         const self = res.ptr;
-        self.shutdown();
+        self.requestShutdown();
+    }
+
+    // The aim is to provide a clean way to shutdown in a promise which resolves when done.
+    // Requests shutdown and adds a task that continually watches the done variable.
+    pub fn closeAsync(res: ThisResource(*Self)) v8.Promise {
+        const self = res.ptr;
+        self.requestShutdown();
+
+        const rt = self.rt;
+        const iso = rt.isolate;
+
+        const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+        const promise = resolver.inner.getPromise();
+        const promise_id = rt.promises.add(resolver) catch unreachable;
+
+        const S = struct {
+            const ServerCloseTimer = struct {
+                super: uv.uv_timer_t,
+                promise_id: PromiseId,
+            };
+
+            fn onCheckServerClose(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
+                const timer = @ptrCast(*ServerCloseTimer, ptr);
+                const server = stdx.mem.ptrCastAlign(*Self, timer.super.data.?);
+                if (!server.done) {
+                    return;
+                }
+                runtime.resolvePromise(server.rt, timer.promise_id, .{
+                    .handle = server.rt.js_true.handle,
+                });
+                uv.uv_close(@ptrCast(*uv.uv_handle_t, ptr), onCloseTimer);
+            }
+
+            fn onCloseTimer(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+                const timer = @ptrCast(*ServerCloseTimer, ptr);
+                const server = stdx.mem.ptrCastAlign(*Self, timer.super.data);
+                server.rt.alloc.destroy(timer);
+            }
+        };
+
+        const timer = rt.alloc.create(S.ServerCloseTimer) catch unreachable;
+        timer.super.data = self;
+        timer.promise_id = promise_id;
+        _ = uv.uv_timer_init(self.rt.uv_loop, &timer.super);
+        // Check every 200ms.
+        _ = uv.uv_timer_start(&timer.super, S.onCheckServerClose, 200, 200);
+
+        return promise;
     }
 
     fn registerHandler(self: *Self, path: [:0]const u8, onRequest: fn (handler: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int) *h2o.h2o_pathconf {
@@ -138,7 +200,7 @@ pub const HttpServer = struct {
                 }
             } else {
                 // Js exception, start shutdown.
-                self.shutdown();
+                self.requestShutdown();
             }
         }
 
@@ -192,6 +254,9 @@ pub const HttpServer = struct {
         if (self.socket_handles > 0) {
             return;
         }
+        if (!self.closed_listen_handle) {
+            return;
+        }
         self.rt.num_uv_handles -= 1;
         self.done = true;
     }
@@ -208,7 +273,7 @@ pub const HttpServer = struct {
         }
     }
 
-    pub fn shutdown(self: *Self) void {
+    pub fn requestShutdown(self: *Self) void {
         if (self.requested_shutdown) {
             return;
         }
@@ -217,9 +282,10 @@ pub const HttpServer = struct {
         // After a small delay, a timeout will force any connections to close.
         // We track number of socket handles and once there are no more, we mark this done in updateDone.
         h2o.h2o_context_request_shutdown(&self.ctx);
-        self.requested_shutdown = true;
 
-        // TODO: Might want to provide option to wait for all connections to close. See h2o/src/main.c
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
+
+        self.requested_shutdown = true;
     }
 };
 

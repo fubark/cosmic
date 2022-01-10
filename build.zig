@@ -256,7 +256,8 @@ const BuilderContext = struct {
         if (self.link_net or IncludeAllLibs) {
             addCurl(step);
             addUv(step);
-            addH2o(step);
+            addH2O(step);
+            addOpenSSL(step);
         }
         if (self.link_net) {
             openssl.buildLinkCrypto(self.builder, step) catch unreachable;
@@ -264,7 +265,7 @@ const BuilderContext = struct {
             self.buildLinkCurl(step);
             self.buildLinkZlib(step);
             self.buildLinkUv(step) catch unreachable;
-            self.buildLinkH2o(step);
+            self.buildLinkH2O(step);
         }
         if (self.link_graphics or IncludeAllLibs) {
             addSDL(step);
@@ -340,7 +341,7 @@ const BuilderContext = struct {
         // }
     }
 
-    fn buildLinkH2o(self: *Self, step: *LibExeObjStep) void {
+    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("zlib", null);
         lib.c_std = .C99;
         // Unused defines:
@@ -1044,14 +1045,24 @@ fn addSDL(step: *LibExeObjStep) void {
     step.addIncludeDir("./vendor");
 }
 
+const openssl_pkg = Pkg{
+    .name = "openssl",
+    .path = FileSource.relative("./lib/openssl/openssl.zig"),
+};
+
+fn addOpenSSL(step: *LibExeObjStep) void {
+    step.addPackage(openssl_pkg);
+    step.addIncludeDir("./vendor/openssl/include");
+}
+
 const h2o_pkg = Pkg{
     .name = "h2o",
     .path = FileSource.relative("./lib/h2o/h2o.zig"),
 };
 
-fn addH2o(step: *LibExeObjStep) void {
+fn addH2O(step: *LibExeObjStep) void {
     var pkg = h2o_pkg;
-    pkg.dependencies = &.{uv_pkg};
+    pkg.dependencies = &.{uv_pkg, openssl_pkg};
     step.addPackage(pkg);
     step.addIncludeDir("./vendor/h2o/include");
     step.addIncludeDir("./vendor/h2o/deps/picotls/include");

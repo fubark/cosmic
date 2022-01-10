@@ -20,7 +20,7 @@ pub const WorkQueue = struct {
 
     // Done queue holds tasks that have completed but haven't taken post steps (invoking callbacks and resolving deps)
     // This let's the main thread process them all without needing thread locks.
-    done: std.atomic.Queue(TaskResult),
+    done: std.atomic.Queue(TaskResultInfo),
 
     // When workers have processed a task and added to done, wakeup event is set.
     // Must refer to the same memory address.
@@ -29,17 +29,21 @@ pub const WorkQueue = struct {
     num_processing: u32,
     num_processing_mutex: std.Thread.Mutex,
 
-    pub fn init(alloc: std.mem.Allocator, done_notify: *std.Thread.ResetEvent) Self {
+    // uv loop is used to set timers.
+    uv_loop: *uv.uv_loop_t,
+
+    pub fn init(alloc: std.mem.Allocator, uv_loop: *uv.uv_loop_t, done_notify: *std.Thread.ResetEvent) Self {
         var new = Self{
             .alloc = alloc,
             .tasks_mutex = std.Thread.Mutex{},
             .tasks = ds.CompactUnorderedList(TaskId, TaskInfo).init(alloc),
             .ready = std.atomic.Queue(TaskId).init(),
-            .done = std.atomic.Queue(TaskResult).init(),
+            .done = std.atomic.Queue(TaskResultInfo).init(),
             .workers = std.ArrayList(*Worker).init(alloc),
             .done_notify = done_notify,
             .num_processing = 0,
             .num_processing_mutex = std.Thread.Mutex{},
+            .uv_loop = uv_loop,
         };
         return new;
     }
@@ -112,6 +116,10 @@ pub const WorkQueue = struct {
         const task_info = TaskInfo.initWithCb(Task, task_dupe, ctx_dupe, success_cb, failure_cb);
         const task_id = self.tasks.add(task_info) catch unreachable;
 
+        self.addReadyTaskAndNotify(task_id);
+    }
+
+    fn addReadyTaskAndNotify(self: *Self, task_id: TaskId) void {
         const task_node = self.alloc.create(std.atomic.Queue(TaskId).Node) catch unreachable;
         task_node.data = task_id;
 
@@ -123,11 +131,11 @@ pub const WorkQueue = struct {
     }
 
     /// Workers submit their results through this method.
-    fn addTaskResult(self: *Self, res: TaskResult) void {
+    fn addTaskResult(self: *Self, res: TaskResultInfo) void {
         // log.debug("task done processing", .{});
 
         // TODO: Ensure allocator is thread safe or use our own array list with lock.
-        const res_node = self.alloc.create(std.atomic.Queue(TaskResult).Node) catch unreachable;
+        const res_node = self.alloc.create(std.atomic.Queue(TaskResultInfo).Node) catch unreachable;
         res_node.data = res;
         self.done.put(res_node);
 
@@ -146,22 +154,53 @@ pub const WorkQueue = struct {
             // log.debug("processed done task", .{});
             const task_id = n.data.task_id;
             const task_info = self.tasks.get(task_id);
-            if (task_info.has_cb) {
-                if (n.data.success) {
-                    task_info.invokeSuccessCallback();
-                } else {
-                    task_info.invokeFailureCallback(n.data.err);
-                }
+            switch (n.data.result) {
+                .Success => {
+                    if (task_info.has_cb) {
+                        task_info.invokeSuccessCallback();
+                    }
+                    task_info.deinit(self.alloc);
+                },
+                .Failure => |res| {
+                    if (task_info.has_cb) {
+                        task_info.invokeFailureCallback(res);
+                    }
+                    task_info.deinit(self.alloc);
+                },
+                .Requeue => |res| {
+                    // TODO: Allocate into dense array.
+                    const handle = self.alloc.create(TaskTimer) catch unreachable;
+                    handle.super.data = self;
+
+                    _ = uv.uv_timer_init(self.uv_loop, &handle.super);
+                    _ = uv.uv_timer_start(&handle.super, onTaskTimer, res.delay_ms, 0);
+                },
             }
             self.alloc.destroy(n);
-
-            task_info.deinit(self.alloc);
 
             self.tasks_mutex.lock();
             defer self.tasks_mutex.unlock();
             self.tasks.remove(task_id);
         }
     }
+
+    fn onTaskTimer(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
+        const timer = @ptrCast(*TaskTimer, ptr);
+        const self = stdx.mem.ptrCastAlign(*Self, timer.super.data);
+        self.addReadyTaskAndNotify(timer.task_id);
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, ptr), onCloseTaskTimer);
+    }
+
+    fn onCloseTaskTimer(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+        const timer = @ptrCast(*TaskTimer, ptr);
+        const self = stdx.mem.ptrCastAlign(*Self, timer.super.data);
+        self.alloc.destroy(timer);
+    }
+};
+
+const TaskTimer = struct {
+    super: uv.uv_timer_t,
+    task_id: TaskId,
 };
 
 pub fn TaskOutput(comptime Task: type) type {
@@ -206,17 +245,15 @@ const Worker = struct {
 
                 const task_info = self.queue.getTaskInfo(task_id);
 
-                if (task_info.task.process()) {
+                if (task_info.task.process()) |res| {
                     self.queue.addTaskResult(.{
                         .task_id = task_id,
-                        .success = true,
-                        .err = undefined,
+                        .result = res,
                     });
                 } else |err| {
                     self.queue.addTaskResult(.{
                         .task_id = task_id,
-                        .success = false,
-                        .err = err,
+                        .result = .{ .Failure = err },
                     });
                 }
             }
@@ -293,7 +330,7 @@ const TaskInfo = struct {
 const TaskIface = struct {
     const Self = @This();
     const VTable = struct {
-        process: fn (ptr: *anyopaque) anyerror!void,
+        process: fn (ptr: *anyopaque) anyerror!TaskResult,
         deinit: fn (ptr: *anyopaque) void,
     };
 
@@ -309,7 +346,7 @@ const TaskIface = struct {
                 .process = _process,
                 .deinit = _deinit,
             };
-            fn _process(ptr: *anyopaque) !void {
+            fn _process(ptr: *anyopaque) anyerror!TaskResult {
                 const self = stdx.mem.ptrCastAlign(ImplPtr, ptr);
                 return @call(.{ .modifier = .always_inline }, Impl.process, .{ self });
             }
@@ -324,7 +361,7 @@ const TaskIface = struct {
         };
     }
 
-    fn process(self: Self) !void {
+    fn process(self: Self) !TaskResult {
         return self.vtable.process(self.ptr);
     }
 
@@ -333,8 +370,19 @@ const TaskIface = struct {
     }
 };
 
-const TaskResult = struct {
+const TaskResultInfo = struct {
     task_id: TaskId,
-    success: bool,
-    err: anyerror,
+    result: TaskResult,
+};
+
+pub const TaskResult = union(enum) {
+    // Success, success callback should be invoked at processDone.
+    Success: void,
+    // Failure, failure callback should be invoked at processDone.
+    Failure: anyerror,
+    // Requeue, set a timeout to requeue the task at processDone.
+    // TODO: Although this is implemented, it remains untested since the use case ended up using a different method.
+    Requeue: struct {
+        delay_ms: u32
+    },
 };

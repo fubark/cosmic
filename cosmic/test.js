@@ -311,7 +311,7 @@ cs.testIsolated('cs.http.serveHttp', async () => {
         eq(req.status, 200)
         eq(req.text(), 'Hello from server!')
     } finally {
-        s.close()
+        await s.closeAsync()
     }
     // return new Promise(() => {})
 })

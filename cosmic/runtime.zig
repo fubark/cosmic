@@ -70,6 +70,7 @@ pub const RuntimeContext = struct {
 
     js_undefined: v8.Primitive,
     js_false: v8.Boolean,
+    js_true: v8.Boolean,
 
     // Whether this was invoked from "cosmic test"
     is_test_env: bool,
@@ -131,8 +132,9 @@ pub const RuntimeContext = struct {
             .vec2_buf = std.ArrayList(Vec2).init(alloc),
 
             // Store locally for quick access.
-            .js_undefined = v8.initUndefined(iso),
-            .js_false = v8.initFalse(iso),
+            .js_undefined = iso.initUndefined(),
+            .js_false = iso.initFalse(),
+            .js_true = iso.initTrue(),
 
             .is_test_env = false,
             .num_tests = 0,
@@ -153,9 +155,6 @@ pub const RuntimeContext = struct {
         };
 
         self.main_wakeup.init() catch unreachable;
-
-        self.work_queue = WorkQueue.init(alloc, &self.main_wakeup);
-        self.work_queue.createAndRunWorker();
 
         // Create libuv evloop instance.
         self.uv_loop = alloc.create(uv.uv_loop_t) catch unreachable;
@@ -183,6 +182,9 @@ pub const RuntimeContext = struct {
         // Start uv poller thread.
         self.uv_poller = UvPoller.init(self.uv_loop, &self.main_wakeup);
         _ = std.Thread.spawn(.{}, UvPoller.loop, .{&self.uv_poller}) catch unreachable;
+
+        self.work_queue = WorkQueue.init(alloc, self.uv_loop, &self.main_wakeup);
+        self.work_queue.createAndRunWorker();
 
         // Insert dummy head so we can set last.
         const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
@@ -224,7 +226,7 @@ pub const RuntimeContext = struct {
                     },
                     .CsHttpServer => {
                         const server = stdx.mem.ptrCastAlign(*HttpServer, item.data.ptr);
-                        server.shutdown();
+                        server.requestShutdown();
                         server.deinit();
                         self.alloc.destroy(server);
                     },
@@ -1162,4 +1164,14 @@ pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate
     arr.items.len = start + val.len;
     _ = val.str.writeUtf8(isolate, arr.items[start..arr.items.len]);
     return arr.items[start..];
+}
+
+pub fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
+    const resolver = rt.promises.get(promise_id);
+    _ = resolver.inner.reject(rt.context, val);
+}
+
+pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
+    const resolver = rt.promises.get(promise_id);
+    _ = resolver.inner.resolve(rt.context, val);
 }

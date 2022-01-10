@@ -224,6 +224,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(http, "_request", http_request);
     ctx.setConstAsyncFuncT(http, "_requestAsync", http_request);
     ctx.setConstFuncT(http, "serveHttp", http_serveHttp);
+    ctx.setConstFuncT(http, "serveHttps", http_serveHttps);
     // cs.http.Response
     const response_class = v8.FunctionTemplate.initDefault(iso);
     response_class.setClassName(v8.String.initUtf8(iso, "Response"));
@@ -239,7 +240,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
         const proto = server_class.getPrototypeTemplate();
         ctx.setConstFuncT(proto, "setHandler", HttpServer.setHandler);
-        ctx.setConstFuncT(proto, "close", HttpServer.close);
+        ctx.setConstFuncT(proto, "requestClose", HttpServer.requestClose);
+        ctx.setConstFuncT(proto, "closeAsync", HttpServer.closeAsync);
 
         ctx.setConstProp(http, "Server", server_class);
         rt.http_server_class = server_class;
@@ -463,6 +465,17 @@ fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
     return ds.Box([]const u8).init(rt.alloc, res);
 }
 
+fn http_serveHttps(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
+    const handle = rt.createCsHttpServerResource();
+    const server = handle.ptr;
+    server.init(rt, true);
+    try server.start(host, port);
+
+    const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
+    js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
+    return js_handle;
+}
+
 fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
     // log.debug("serving http at {s}:{}", .{host, port});
 
@@ -472,7 +485,7 @@ fn http_serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
 
     const handle = rt.createCsHttpServerResource();
     const server = handle.ptr;
-    server.init(rt);
+    server.init(rt, false);
     try server.start(host, port);
 
     const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
@@ -519,16 +532,6 @@ const Promise = struct {
     task_id: u32,
 };
 
-fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
-    const resolver = rt.promises.get(promise_id);
-    _ = resolver.inner.reject(rt.context, val);
-}
-
-fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
-    const resolver = rt.promises.get(promise_id);
-    _ = resolver.inner.resolve(rt.context, val);
-}
-
 /// This function sets up a async endpoint manually for future reference.
 /// Most of the time we'll want to reuse the sync endpoint and call ctx.setConstAsyncFuncT.
 fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
@@ -547,14 +550,14 @@ fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
     const S = struct {
         fn onSuccess(ctx: RuntimeValue(PromiseId), _res: TaskOutput(tasks.ReadFileTask)) void {
             const _promise_id = ctx.inner;
-            resolvePromise(ctx.rt, _promise_id, .{
+            runtime.resolvePromise(ctx.rt, _promise_id, .{
                 .handle = ctx.rt.getJsValuePtr(_res),
             });
         }
 
         fn onFailure(ctx: RuntimeValue(PromiseId), _err: anyerror) void {
             const _promise_id = ctx.inner;
-            rejectPromise(ctx.rt, _promise_id, .{
+            runtime.rejectPromise(ctx.rt, _promise_id, .{
                 .handle = ctx.rt.getJsValuePtr(_err),
             });
         }
@@ -1211,13 +1214,13 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime is_async: bool, comptime 
                 const S = struct {
                     fn onSuccess(_ctx: RuntimeValue(PromiseId), _res: TaskOutput(ClosureTask)) void {
                         const _promise_id = _ctx.inner;
-                        resolvePromise(_ctx.rt, _promise_id, .{
+                        runtime.resolvePromise(_ctx.rt, _promise_id, .{
                             .handle = _ctx.rt.getJsValuePtr(_res),
                         });
                     }
                     fn onFailure(_ctx: RuntimeValue(PromiseId), _err: anyerror) void {
                         const _promise_id = _ctx.inner;
-                        rejectPromise(_ctx.rt, _promise_id, .{
+                        runtime.rejectPromise(_ctx.rt, _promise_id, .{
                             .handle = _ctx.rt.getJsValuePtr(_err),
                         });
                     }

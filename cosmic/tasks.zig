@@ -2,6 +2,8 @@ const std = @import("std");
 const stdx = @import("stdx");
 const ds = stdx.ds;
 const log = std.log.scoped(.tasks);
+const server = @import("server.zig");
+const TaskResult = @import("work_queue.zig").TaskResult;
 
 /// Task that invokes a function with allocated args.
 pub fn ClosureTask(comptime func: anytype) type {
@@ -28,12 +30,13 @@ pub fn ClosureTask(comptime func: anytype) type {
             deinitResult(self.res);
         }
 
-        pub fn process(self: *Self) !void {
+        pub fn process(self: *Self) !TaskResult {
             if (@typeInfo(ReturnType) == .ErrorUnion) {
                 self.res = try @call(.{ .modifier = .always_inline }, func, self.args);
             } else {
                 self.res = @call(.{ .modifier = .always_inline }, func, self.args);
             }
+            return TaskResult.Success;
         }
     };
 }
@@ -82,11 +85,12 @@ pub const ReadFileTask = struct {
         }
     }
 
-    pub fn process(self: *Self) !void {
+    pub fn process(self: *Self) !TaskResult {
         self.res = std.fs.cwd().readFileAlloc(self.alloc, self.path, 1e12) catch |err| switch (err) {
             // Whitelist errors to silence.
             error.FileNotFound => null,
             else => unreachable,
         };
+        return TaskResult.Success;
     }
 };

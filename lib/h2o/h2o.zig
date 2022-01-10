@@ -1,5 +1,6 @@
 const std = @import("std");
 const uv = @import("uv");
+const ssl = @import("openssl");
 
 const c = @cImport({
     @cDefine("H2O_USE_LIBUV", "1");
@@ -904,7 +905,7 @@ const h2o_status_handler = extern struct {
 pub const h2o_accept_ctx = extern struct {
     ctx: [*c]h2o_context,
     hosts: [*c][*c]h2o_hostconf,
-    ssl_ctx: ?*c.SSL_CTX,
+    ssl_ctx: ?*ssl.SSL_CTX,
     http2_origin_frame: [*c]c.h2o_iovec_t,
     expect_proxy_line: c_int,
     libmemcached_receiver: [*c]c.h2o_multithread_receiver_t,
