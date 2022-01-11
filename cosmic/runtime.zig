@@ -179,6 +179,9 @@ pub const RuntimeContext = struct {
         self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
         _ = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
 
+        // Uv needs to run once to initialize or UvPoller will never get the first event.
+        _ = uv.uv_run(self.uv_loop, uv.UV_RUN_NOWAIT);
+
         // Start uv poller thread.
         self.uv_poller = UvPoller.init(self.uv_loop, &self.main_wakeup);
         _ = std.Thread.spawn(.{}, UvPoller.loop, .{&self.uv_poller}) catch unreachable;
@@ -932,6 +935,28 @@ const IsolatedTest = struct {
     }
 };
 
+/// Waits until there is work to process.
+/// If true, a follow up processMainEventLoop should be called to do the work and reset the poller.
+/// If false, there are no more pending tasks, and the caller should exit the loop.
+fn pollMainEventLoop(rt: *RuntimeContext) bool {
+    while (true) {
+        // Wait for events.
+        // log.debug("main thread wait", .{});
+        const Timeout = 4 * 1e9;
+        const wait_res = rt.main_wakeup.timedWait(Timeout);
+        rt.main_wakeup.reset();
+        if (wait_res == .timed_out) {
+            if (rt.num_uv_handles > 0) {
+                // Continue until no more long lived uv handles.
+                continue;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
 fn processMainEventLoop(rt: *RuntimeContext) void {
     // Resolve done tasks.
     rt.work_queue.processDone();
@@ -1004,21 +1029,9 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
             continue;
         }
 
-        // Wait for events.
-        // log.debug("main thread wait", .{});
-        const Timeout = 4 * 1e9;
-        const wait_res = rt.main_wakeup.timedWait(Timeout);
-        rt.main_wakeup.reset();
-        if (wait_res == .timed_out) {
-            if (rt.num_uv_handles > 0) {
-                // Continue until no more long lived uv handles.
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        processMainEventLoop(rt);
+        if (pollMainEventLoop(rt)) {
+            processMainEventLoop(rt);
+        } else break;
     }
 
     // Check for any js uncaught exceptions from calling into js.
@@ -1031,6 +1044,8 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
 pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
     defer alloc.free(src);
+
+    h2o.init();
 
     const platform = v8.Platform.initDefault(0, true);
     defer platform.deinit();
@@ -1086,6 +1101,16 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     if (rt.num_windows > 0) {
         runUserLoop(&rt);
     }
+
+    // For now we assume the user won't use a realtime loop with event loop.
+    // TODO: process event loop tasks in the realtime loop.
+    while (true) {
+        if (pollMainEventLoop(&rt)) {
+            processMainEventLoop(&rt);
+        } else break;
+    }
+
+    shutdownRuntime(&rt);
 }
 
 const WeakHandle = struct {

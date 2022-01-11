@@ -245,10 +245,12 @@ pub const HttpServer = struct {
             _ = js_req.setValue(ctx, iso.initStringUtf8("path"), iso.initStringUtf8(path));
 
             ResponseWriter.cur_req = req;
+            ResponseWriter.called_send = false;
             ResponseWriter.cur_generator = &self.generator;
             const writer = self.rt.http_response_writer.initInstance(ctx);
             if (handler.inner.call(ctx, self.rt.js_undefined, &.{ js_req.toValue(), writer.toValue() })) |res| {
-                if (res.toBool(iso)) {
+                // If user code returned true or called send, report as handled.
+                if (res.toBool(iso) or ResponseWriter.called_send) {
                     return 0;
                 }
             } else {
@@ -361,6 +363,7 @@ pub const ResponseWriter = struct {
 
     pub var cur_req: ?*h2o.h2o_req = null;
     pub var cur_generator: *h2o.h2o_generator_t = undefined;
+    pub var called_send: bool = false;
 
     pub fn setStatus(status_code: u32) void {
         if (cur_req) |req| {
@@ -371,15 +374,24 @@ pub const ResponseWriter = struct {
 
     pub fn setHeader(key: []const u8, value: []const u8) void {
         if (cur_req) |req| {
-            _ = h2o.h2o_set_header_by_str(&req.pool, &req.res.headers, key.ptr, key.len, 1, value.ptr, value.len, 1);
+            // h2o doesn't dupe the value by default.
+            var value_slice = h2o.h2o_strdup(&req.pool, value.ptr, value.len);
+            _ = h2o.h2o_set_header_by_str(&req.pool, &req.res.headers, key.ptr, key.len, 1, value_slice.base, value_slice.len, 1);
         }
     }
 
     pub fn send(text: []const u8) void {
+        if (called_send) return;
         if (cur_req) |req| {
             h2o.h2o_start_response(req, cur_generator);
-            const slice_ptr = @intToPtr([*c]h2o.h2o_iovec_t, @ptrToInt(&text));
-            h2o.h2o_send(req, slice_ptr, 1, h2o.H2O_SEND_STATE_FINAL);
+
+            // In case we need to dupe the body:
+            //var slice = h2o.h2o_strdup(&req.pool, text.ptr, text.len);
+            // h2o.h2o_send(req, &slice, 1, h2o.H2O_SEND_STATE_FINAL);
+
+            var slice = text;
+            h2o.h2o_send(req, @ptrCast(*h2o.h2o_iovec_t, &slice), 1, h2o.H2O_SEND_STATE_FINAL);
+            called_send = true;
         }
     }
 };

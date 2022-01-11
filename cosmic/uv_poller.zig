@@ -1,5 +1,6 @@
 const std = @import("std");
 const uv = @import("uv");
+const log = std.log.scoped(.uv_poller);
 
 /// A dedicated thread is used to poll libuv's backend fd.
 pub const UvPoller = struct {
@@ -17,6 +18,9 @@ pub const UvPoller = struct {
     pub fn init(uv_loop: *uv.uv_loop_t, notify: *std.Thread.ResetEvent) Self {
         var wakeup: std.Thread.ResetEvent = undefined;
         wakeup.init() catch unreachable;
+
+        // Polling should happen before event loop processing so this is set initially to start polling when thread is spawned.
+        wakeup.set();
 
         const backend_fd = uv.uv_backend_fd(uv_loop);
 

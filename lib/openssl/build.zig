@@ -828,8 +828,6 @@ pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
     try c_flags.append("-DOPENSSL_CPUID_OBJ");
     if (target.getCpuArch() == .x86_64) {
         lib.addCSourceFile("./vendor/openssl/crypto/x86_64cpuid.s", c_flags.items);
-    } else {
-        @panic("unsupported");
     }
     lib.addCSourceFile("./vendor/openssl/crypto/cpuid.c", c_flags.items);
     lib.addCSourceFile("./vendor/openssl/crypto/ctype.c", c_flags.items);

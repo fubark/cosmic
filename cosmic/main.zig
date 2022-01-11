@@ -12,6 +12,7 @@ const js_env = @import("js_env.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const printFmt = runtime.printFmt;
+const errorFmt = runtime.errorFmt;
 const log = stdx.log.scoped(.main);
 
 const VersionText = "0.1 Alpha";
@@ -64,9 +65,13 @@ fn testAndExit(src_path: []const u8) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    runtime.runTestMain(alloc, src_path) catch {
+    runtime.runTestMain(alloc, src_path) catch |err| {
         stdx.heap.deinitDefaultAllocator();
-        process.exit(1);
+        if (err == error.FileNotFound) {
+            abortFmt("File not found: {s}", .{src_path});
+        } else {
+            abortFmt("Encountered error: {}", .{err});
+        }
     };
     stdx.heap.deinitDefaultAllocator();
     process.exit(0);
@@ -194,7 +199,8 @@ fn version() void {
 }
 
 pub fn abortFmt(comptime format: []const u8, args: anytype) noreturn {
-    log.err(format, args);
+    errorFmt(format, args);
+    errorFmt("\n", .{});
     process.exit(1);
 }
 

@@ -19,6 +19,7 @@ pub fn build(b: *Builder) void {
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
+    const net = b.option(bool, "net", "Link net libs") orelse false;
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
 
@@ -32,7 +33,7 @@ pub fn build(b: *Builder) void {
         .enable_tracy = tracy,
         .link_graphics = graphics,
         .link_v8 = v8,
-        .link_net = false,
+        .link_net = net,
         .static_link = static_link,
         .path = path,
         .filter = filter,
@@ -80,7 +81,7 @@ pub fn build(b: *Builder) void {
         .build_options = build_options,
     };
     const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
-    test_cosmic_js.addArgs(&.{ "test", "cosmic/test.js" });
+    test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
     b.step("test-cosmic-js", "Test cosmic js").dependOn(&test_cosmic_js.step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.

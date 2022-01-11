@@ -8,7 +8,9 @@ const log = std.log.scoped(.http);
 // NOTES:
 // Debugging tls handshake: "openssl s_client -connect 127.0.0.1:3000" Useful options: -prexit -debug -msg 
 // Curl also has tracing: "curl --trace /dev/stdout https://127.0.0.1:3000"
-// Generating a self-signed localhost certificate: "openssl req -x509 -out localhost.crt -keyout localhost.key -newkey rsa:2048 -nodes -sha256 -subj '/CN=localhost' -extensions EXT -config <( printf "[dn]\nCN=localhost\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:localhost\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")"
+// Generating a self-signed localhost certificate: "openssl req -x509 -days 3650 -out localhost.crt -keyout localhost.key -newkey rsa:2048 -nodes -sha256 -subj '/CN=localhost' -extensions EXT -config <( printf "[dn]\nCN=localhost\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:localhost\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")"
+// Testing http2 upgrade: "curl http://127.0.0.1:3000/hello -v --http2"
+// Testing http2 direct: "curl http://127.0.0.1:3000/hello -v --http2-prior-knowledge"
 
 // Synchronous curl. Keep curl handle to reuse connection pool.
 var curl_h: Curl = undefined;

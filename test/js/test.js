@@ -307,9 +307,10 @@ cs.testIsolated('cs.http.serveHttp', async () => {
         // Sync get won't work since it blocks and the server won't be able to accept.
         // However, async get should work.
         eq(await cs.http.getAsync('http://127.0.0.1:3000'), 'not found')
-        const req = await cs.http.requestAsync('get', 'http://127.0.0.1:3000/hello')
-        eq(req.status, 200)
-        eq(req.text(), 'Hello from server!')
+        const resp = await cs.http.requestAsync('get', 'http://127.0.0.1:3000/hello')
+        eq(resp.status, 200)
+        eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
+        eq(resp.text(), 'Hello from server!')
     } finally {
         await s.closeAsync()
     }
@@ -317,7 +318,7 @@ cs.testIsolated('cs.http.serveHttp', async () => {
 })
 
 cs.testIsolated('cs.http.serveHttps', async () => {
-    const s = cs.http.serveHttps('127.0.0.1', 3000, './vendor/localhost.crt', './vendor/localhost.key')
+    const s = cs.http.serveHttps('127.0.0.1', 3000, './vendor/https/localhost.crt', './vendor/https/localhost.key')
     s.setHandler((req, resp) => {
         if (req.path == '/hello') {
             resp.setStatus(200)
@@ -330,13 +331,14 @@ cs.testIsolated('cs.http.serveHttps', async () => {
     try {
         // Sync get won't work since it blocks and the server won't be able to accept.
         // However, async get should work.
-        // Needs self-signed certificate vendor/localhost.crt installed in cainfo or capath and the request needs to hit
+        // Needs self-signed certificate localhost.crt installed in cainfo or capath and the request needs to hit
         // localhost and not 127.0.0.1 for ssl verify host step to work.
         // TODO: Add request option to use specific ca certificate and option to turn off verify host.
         eq(await cs.http.getAsync('https://localhost:3000'), 'not found')
-        const req = await cs.http.requestAsync('get', 'https://localhost:3000/hello')
-        eq(req.status, 200)
-        eq(req.text(), 'Hello from server!')
+        const resp = await cs.http.requestAsync('get', 'https://localhost:3000/hello')
+        eq(resp.status, 200)
+        eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
+        eq(resp.text(), 'Hello from server!')
     } finally {
         await s.closeAsync()
     }
