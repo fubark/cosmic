@@ -220,7 +220,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", http_get);
-    ctx.setConstAsyncFuncT(http, "getAsync", http_get);
+    ctx.setConstAsyncFuncT(http, "getAsync", http_getAsync);
     ctx.setConstFuncT(http, "_request", http_request);
     ctx.setConstAsyncFuncT(http, "_requestAsync", http_request);
     ctx.setConstFuncT(http, "serveHttp", http_serveHttp);
@@ -505,9 +505,14 @@ fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
 }
 
 // TODO: Implement async request with uv.
-fn http_getAsync(rt: *RuntimeContext, url: []const u8) void {
-    _ = rt;
-    _ = url;
+fn http_getAsync(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
+    const resp = stdx.http.getAsync(rt.alloc, url, 30, false) catch return null;
+    defer resp.deinit(rt.alloc);
+    if (resp.status_code < 500) {
+        return ds.Box([]const u8).init(rt.alloc, rt.alloc.dupe(u8, resp.body) catch unreachable);
+    } else {
+        return null;
+    }
 }
 
 /// Returns Response object if request was successful.

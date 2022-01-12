@@ -867,9 +867,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     defer res.deinit();
     v8.executeString(alloc, iso, ctx, src, origin, &res);
 
-    while (platform.pumpMessageLoop(iso, false)) {
-        @panic("Did not expect v8 event loop task");
-    }
+    processV8EventLoop(&rt);
 
     if (!res.success) {
         printFmt("{s}", .{res.err.?});
@@ -877,14 +875,10 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     }
 
     while (rt.num_async_tests_finished < rt.num_async_tests) {
-        rt.work_queue.processDone();
-        // Wait on the next done.
-        const Timeout = 4 * 1e9;
-        const wait_res = rt.main_wakeup.timedWait(Timeout);
-        rt.main_wakeup.reset();
-        if (wait_res == .timed_out) {
-            break;
-        }
+        if (pollMainEventLoop(&rt)) {
+            processMainEventLoop(&rt);
+            continue;
+        } else break;
     }
 
     if (rt.num_isolated_tests_finished < rt.isolated_tests.items.len) {
@@ -917,6 +911,15 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     while (rt.num_uv_handles > 0) {
         // RUN_ONCE lets it return after running some events. RUN_DEFAULT keeps blocking since we have dummy async in the queue.
         _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_ONCE);
+    }
+
+    // TODO: Shutdown worker threads.
+    // Wait for worker queue to finish.
+    while (rt.work_queue.hasUnfinishedTasks()) {
+        rt.main_wakeup.wait();
+        rt.main_wakeup.reset();
+
+        rt.work_queue.processDone();
     }
 
     // log.debug("shutdown runtime", .{});
@@ -968,8 +971,17 @@ fn processMainEventLoop(rt: *RuntimeContext) void {
     _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_NOWAIT);
     // log.debug("uv run {}", .{res});
 
+    // After callbacks and js executions are done, process V8 event loop.
+    processV8EventLoop(rt);
+
     // Notify poller to continue.
     rt.uv_poller.wakeup.set();
+}
+
+/// If there are too many promises to execute for a js execution, v8 will defer the rest into it's event loop.
+/// This is usually called right after a js execution.
+fn processV8EventLoop(rt: *RuntimeContext) void {
+    while (rt.platform.pumpMessageLoop(rt.isolate, false)) {}
 }
 
 fn runIsolatedTests(rt: *RuntimeContext) void {
@@ -1031,6 +1043,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
 
         if (pollMainEventLoop(rt)) {
             processMainEventLoop(rt);
+            continue;
         } else break;
     }
 
@@ -1107,6 +1120,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     while (true) {
         if (pollMainEventLoop(&rt)) {
             processMainEventLoop(&rt);
+            continue;
         } else break;
     }
 

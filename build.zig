@@ -82,6 +82,7 @@ pub fn build(b: *Builder) void {
     };
     const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
     test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
+    // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
     b.step("test-cosmic-js", "Test cosmic js").dependOn(&test_cosmic_js.step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.

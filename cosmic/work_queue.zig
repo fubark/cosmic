@@ -114,7 +114,12 @@ pub const WorkQueue = struct {
         ctx_dupe.* = ctx;
 
         const task_info = TaskInfo.initWithCb(Task, task_dupe, ctx_dupe, success_cb, failure_cb);
-        const task_id = self.tasks.add(task_info) catch unreachable;
+        var task_id: TaskId = undefined;
+        {
+            self.tasks_mutex.lock();
+            defer self.tasks_mutex.unlock();
+            task_id = self.tasks.add(task_info) catch unreachable;
+        }
 
         self.addReadyTaskAndNotify(task_id);
     }
@@ -153,6 +158,8 @@ pub const WorkQueue = struct {
         while (self.done.get()) |n| {
             // log.debug("processed done task", .{});
             const task_id = n.data.task_id;
+
+            // We don't need to acquire the tasks lock here since only the main thread (same thread) can modify it.
             const task_info = self.tasks.get(task_id);
             switch (n.data.result) {
                 .Success => {

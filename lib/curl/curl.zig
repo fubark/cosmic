@@ -38,8 +38,20 @@ pub const CurlM = struct {
         return c.curl_multi_setopt(self.handle, option, arg);
     }
 
-    pub fn addHandle(self: Self, curl_h: Curl) c.CURLcode {
+    pub fn addHandle(self: Self, curl_h: Curl) c.CURLMcode {
         return c.curl_multi_add_handle(self.handle, curl_h.handle);
+    }
+
+    pub fn removeHandle(self: Self, curl_h: Curl) c.CURLMcode {
+        return c.curl_multi_remove_handle(self.handle, curl_h.handle);
+    }
+
+    pub fn perform(self: Self, running_handles: *c_int) c.CURLMcode {
+        return c.curl_multi_perform(self.handle, running_handles);
+    }
+
+    pub fn poll(self: Self, extra_fds: ?*c.struct_curl_waitfd, extra_nfds: c_uint, timeout_ms: c_int, ret: ?*c_int) c.CURLMcode {
+        return c.curl_multi_poll(self.handle, extra_fds, extra_nfds, timeout_ms, ret);
     }
 };
 
