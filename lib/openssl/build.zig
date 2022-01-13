@@ -2,7 +2,14 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
 
+const UsePrebuiltOpenSSL = false;
+
 pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
+    if (UsePrebuiltOpenSSL) {
+        step.addAssemblyFile("/home/linuxbrew/.linuxbrew/Cellar/openssl@3/3.0.1/lib/libcrypto.a");
+        return;
+    }
+
     const target = step.target;
     const lib = b.addStaticLibrary("crypto", null);
     
@@ -1023,6 +1030,11 @@ pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
 }
 
 pub fn buildLinkSsl(b: *Builder, step: *LibExeObjStep) void {
+    if (UsePrebuiltOpenSSL) {
+        step.addAssemblyFile("/home/linuxbrew/.linuxbrew/Cellar/openssl@3/3.0.1/lib/libssl.a");
+        return;
+    }
+
     // TODO: Don't build support for tls1.0 and tls1.1 https://github.com/openssl/openssl/issues/7048
     const lib = b.addStaticLibrary("ssl", null);
     

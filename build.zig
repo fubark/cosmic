@@ -10,6 +10,8 @@ const Pkg = std.build.Pkg;
 // During development you might want zls to see all the lib packages, remember to reset to false.
 const IncludeAllLibs = false;
 
+const UsePrebuiltCurl = false;
+
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
 pub fn build(b: *Builder) void {
@@ -81,8 +83,8 @@ pub fn build(b: *Builder) void {
         .build_options = build_options,
     };
     const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
-    test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
-    // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+    // test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
+    test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
     b.step("test-cosmic-js", "Test cosmic js").dependOn(&test_cosmic_js.step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
@@ -265,6 +267,7 @@ const BuilderContext = struct {
             openssl.buildLinkCrypto(self.builder, step) catch unreachable;
             openssl.buildLinkSsl(self.builder, step);
             self.buildLinkCurl(step);
+            self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
             self.buildLinkUv(step) catch unreachable;
             self.buildLinkH2O(step);
@@ -640,7 +643,57 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    fn buildLinkNghttp2(self: *Self, step: *LibExeObjStep) void {
+        const lib = self.builder.addStaticLibrary("nghttp2", null);
+
+        const c_flags = &[_][]const u8{
+            "-g",
+            "-O2",
+        };
+
+        const c_files = &[_][]const u8{
+            // Copied from nghttp2/lib/CMakeLists.txt 
+            "nghttp2_pq.c",
+            "nghttp2_map.c",
+            "nghttp2_queue.c",
+            "nghttp2_frame.c",
+            "nghttp2_buf.c",
+            "nghttp2_stream.c",
+            "nghttp2_outbound_item.c",
+            "nghttp2_session.c",
+            "nghttp2_submit.c",
+            "nghttp2_helper.c",
+            "nghttp2_npn.c",
+            "nghttp2_hd.c",
+            "nghttp2_hd_huffman.c",
+            "nghttp2_hd_huffman_data.c",
+            "nghttp2_version.c",
+            "nghttp2_priority_spec.c",
+            "nghttp2_option.c",
+            "nghttp2_callbacks.c",
+            "nghttp2_mem.c",
+            "nghttp2_http.c",
+            "nghttp2_rcbuf.c",
+            "nghttp2_debug.c",
+        };
+
+        for (c_files) |file| {
+            self.addCSourceFileFmt(lib, "./vendor/nghttp2/lib/{s}", .{file}, c_flags);
+        }
+
+        // lib.disable_sanitize_c = true;
+
+        lib.linkLibC();
+        lib.addIncludeDir("./vendor/nghttp2/lib/includes");
+        step.linkLibrary(lib);
+    }
+
     fn buildLinkCurl(self: *Self, step: *LibExeObjStep) void {
+        if (UsePrebuiltCurl) {
+            step.addAssemblyFile("/home/fubar/repos/curl/lib/.libs/libcurl.a");
+            return;
+        }
+
         // TODO: Currently seeing BADF panics when doing fs syscalls when building/linking libcurl dynamically.
         // Similar to this issue: https://github.com/ziglang/zig/issues/10375
         // For now, just build a static lib.
@@ -839,11 +892,14 @@ const BuilderContext = struct {
             self.addCSourceFileFmt(lib, "./vendor/curl/lib/{s}", .{file}, c_flags);
         }
 
+        // lib.disable_sanitize_c = true;
+
         lib.linkLibC();
         lib.addIncludeDir("./vendor/curl/include");
         lib.addIncludeDir("./vendor/curl/lib");
         lib.addIncludeDir("./lib/curl");
         lib.addIncludeDir("./vendor/openssl/include");
+        lib.addIncludeDir("./vendor/nghttp2/lib/includes");
         lib.addIncludeDir("./vendor/zlib");
         step.linkLibrary(lib);
     }
@@ -1154,7 +1210,7 @@ const stdx_pkg = Pkg{
 
 fn addStdx(step: *std.build.LibExeObjStep, build_options: Pkg) void {
     var pkg = stdx_pkg;
-    pkg.dependencies = &.{build_options, curl_pkg};
+    pkg.dependencies = &.{build_options, curl_pkg, uv_pkg};
     step.addPackage(pkg);
 }
 
