@@ -62,11 +62,26 @@
 /* Define to 1 if you have the memory.h header file. */
 #define HAVE_MEMORY_H 1
 
+/* Define to 1 if you have the <dlfcn.h> header file. */
+#define HAVE_DLFCN_H 1
+
+/* Define to 1 if you have the alarm function. */
+#define HAVE_ALARM 1
+
+/* Define to 1 if you have the clock_gettime function and monotonic timer. */
+#define HAVE_CLOCK_GETTIME_MONOTONIC 1
+
+/* Define to 1 if you have the connect function. */
+#define HAVE_CONNECT 1
+
 /* if zlib is available */
 #define HAVE_LIBZ 1
 
 /* if you have the zlib.h header file */
 #define HAVE_ZLIB_H 1
+
+/* Define to 1 if you have the fcntl function. */
+#define HAVE_FCNTL 1
 
 /* Define to 1 if you have a working fcntl O_NONBLOCK function. */
 #define HAVE_FCNTL_O_NONBLOCK 1
@@ -149,6 +164,18 @@
 /* Define to the function return type for select. */
 #define SELECT_TYPE_RETV int
 
+
+/** HTTP2 **/
+
+/* if nghttp2 is in use */
+#define USE_NGHTTP2 1
+
+/* Define to 1 if you have the <nghttp2/nghttp2.h> header file. */
+#define HAVE_NGHTTP2_NGHTTP2_H 1
+
+
+/** SSL RELATED **/
+
 /* if OpenSSL is in use */
 #define USE_OPENSSL 1
 
@@ -160,6 +187,9 @@
 
 /* Don't use deprecated openssl code. */
 #define OPENSSL_NO_DEPRECATED
+
+
+/** Disables **/
 
 /* to disable LDAP */
 #define CURL_DISABLE_LDAP 1

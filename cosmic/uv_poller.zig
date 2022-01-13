@@ -59,7 +59,7 @@ pub const UvPoller = struct {
             self.notify.set();
         }
 
-        // Resuse flag to indicate the thread is done.
+        // Reuse flag to indicate the thread is done.
         self.close_flag.store(false, .Release);
     }
 };

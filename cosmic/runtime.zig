@@ -179,6 +179,9 @@ pub const RuntimeContext = struct {
         self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
         _ = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
 
+        stdx.http.curlm_uvloop = self.uv_loop;
+        stdx.http.uv_interrupt = self.uv_dummy_async;
+
         // Uv needs to run once to initialize or UvPoller will never get the first event.
         _ = uv.uv_run(self.uv_loop, uv.UV_RUN_NOWAIT);
 
@@ -797,13 +800,20 @@ const api_init = @embedFile("snapshots/api_init.js");
 const test_init = @embedFile("snapshots/test_init.js");
 
 pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
+    // Measure total time.
+    const timer = try std.time.Timer.start();
+    defer {
+        const duration = timer.read();
+        printFmt("time: {}ms\n", .{duration / @floatToInt(u64, 1e6)});
+    }
+
     const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
     defer alloc.free(src);
 
     _ = curl.initDefault();
     defer curl.deinit();
 
-    stdx.http.init();
+    stdx.http.init(alloc);
     defer stdx.http.deinit();
 
     h2o.init();
@@ -905,7 +915,7 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     rt.uv_poller.wakeup.set();
 
     // Busy wait.
-    while (!rt.uv_poller.close_flag.load(.Acquire)) {}
+    while (rt.uv_poller.close_flag.load(.Acquire)) {}
 
     // Block on uv loop until all uv handles are done.
     while (rt.num_uv_handles > 0) {
@@ -1057,6 +1067,12 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
 pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     const src = try std.fs.cwd().readFileAlloc(alloc, src_path, 1e9);
     defer alloc.free(src);
+
+    _ = curl.initDefault();
+    defer curl.deinit();
+
+    stdx.http.init(alloc);
+    defer stdx.http.deinit();
 
     h2o.init();
 

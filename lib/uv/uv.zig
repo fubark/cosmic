@@ -12,10 +12,14 @@ pub const uv_handle_t = c.uv_handle_t;
 pub const uv_close_cb = c.uv_close_cb;
 pub const uv_async_t = c.uv_async_t;
 pub const uv_timer_t = c.uv_timer_t;
+pub const uv_poll_t = c.uv_poll_t;
 
 pub const UV_RUN_DEFAULT = c.UV_RUN_DEFAULT;
 pub const UV_RUN_ONCE = c.UV_RUN_ONCE;
 pub const UV_RUN_NOWAIT = c.UV_RUN_NOWAIT;
+
+pub const UV_READABLE = c.UV_READABLE;
+pub const UV_WRITABLE = c.UV_WRITABLE;
 
 // Handle types
 pub const UV_TCP = c.UV_TCP;
@@ -48,3 +52,7 @@ pub extern fn uv_async_send(@"async": *uv_async_t) c_int;
 pub extern fn uv_handle_get_type(handle: *const uv_handle_t) c.uv_handle_type;
 pub extern fn uv_timer_init(*uv_loop_t, handle: *uv_timer_t) c_int;
 pub extern fn uv_timer_start(handle: *uv_timer_t, cb: c.uv_timer_cb, timeout: u64, repeat: u64) c_int;
+pub extern fn uv_timer_stop(handle: *uv_timer_t) c_int;
+pub extern fn uv_poll_init_socket(loop: *uv_loop_t, handle: *uv_poll_t, socket: c.uv_os_sock_t) c_int;
+pub extern fn uv_poll_start(handle: *uv_poll_t, events: c_int, cb: c.uv_poll_cb) c_int;
+pub extern fn uv_poll_stop(handle: *uv_poll_t) c_int;

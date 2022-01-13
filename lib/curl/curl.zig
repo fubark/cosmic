@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @cImport({
     @cInclude("curl.h");
 });
@@ -34,7 +35,7 @@ pub const CurlM = struct {
         _ = c.curl_multi_cleanup(self.handle);
     }
 
-    pub fn setOption(self: Self, option: c.CURLMoption, arg: anytype) c.CURLcode {
+    pub fn setOption(self: Self, option: c.CURLMoption, arg: anytype) c.CURLMcode {
         return c.curl_multi_setopt(self.handle, option, arg);
     }
 
@@ -52,6 +53,24 @@ pub const CurlM = struct {
 
     pub fn poll(self: Self, extra_fds: ?*c.struct_curl_waitfd, extra_nfds: c_uint, timeout_ms: c_int, ret: ?*c_int) c.CURLMcode {
         return c.curl_multi_poll(self.handle, extra_fds, extra_nfds, timeout_ms, ret);
+    }
+
+    pub fn socketAction(self: Self, sock_fd: c.curl_socket_t, ev_bitmask: c_int, running_handles: *c_int) c.CURLMcode {
+        return c.curl_multi_socket_action(self.handle, sock_fd, ev_bitmask, running_handles);
+    }
+
+    pub fn assign(self: Self, sock_fd: c.curl_socket_t, sock_ptr: ?*anyopaque) c.CURLMcode {
+        return c.curl_multi_assign(self.handle, sock_fd, sock_ptr);
+    }
+
+    pub fn infoRead(self: Self, num_remaining_msgs: *c_int) ?*c.CURLMsg {
+        return c.curl_multi_info_read(self.handle, num_remaining_msgs);
+    }
+
+    pub fn strerror(code: c.CURLMcode) []const u8 {
+        const str = c.curl_multi_strerror(code);
+        const len = std.mem.len(str);
+        return str[0..len];
     }
 };
 
@@ -84,5 +103,25 @@ pub const Curl = struct {
 
     pub fn getStrError(code: c.CURLcode) [*:0]const u8 {
         return c.curl_easy_strerror(code);
+    }
+};
+
+pub const CurlSH = struct {
+    const Self = @This();
+
+    handle: *c.CURLSH,
+
+    pub fn init() Self {
+        return .{
+            .handle = c.curl_share_init().?,
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        _ = c.curl_share_cleanup(self.handle);
+    }
+
+    pub fn setOption(self: Self, option: c.CURLSHoption, arg: anytype) c.CURLSHcode {
+        return c.curl_share_setopt(self.handle, option, arg);
     }
 };

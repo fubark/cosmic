@@ -220,7 +220,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", http_get);
-    ctx.setConstAsyncFuncT(http, "getAsync", http_getAsync);
+    ctx.setConstFuncT(http, "getAsync", http_getAsync);
     ctx.setConstFuncT(http, "_request", http_request);
     ctx.setConstAsyncFuncT(http, "_requestAsync", http_request);
     ctx.setConstFuncT(http, "serveHttp", http_serveHttp);
@@ -505,14 +505,45 @@ fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
 }
 
 // TODO: Implement async request with uv.
-fn http_getAsync(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
-    const resp = stdx.http.getAsync(rt.alloc, url, 30, false) catch return null;
-    defer resp.deinit(rt.alloc);
-    if (resp.status_code < 500) {
-        return ds.Box([]const u8).init(rt.alloc, rt.alloc.dupe(u8, resp.body) catch unreachable);
-    } else {
-        return null;
-    }
+fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
+    const iso = rt.isolate;
+
+    const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+    const promise = resolver.inner.getPromise();
+    const promise_id = rt.promises.add(resolver) catch unreachable;
+
+    const S = struct {
+        fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
+            const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
+            const pid = ctx.inner;
+            if (resp.status_code < 500) {
+                runtime.resolvePromise(ctx.rt, pid, .{
+                    .handle = ctx.rt.getJsValuePtr(resp.body),
+                });
+            } else {
+                runtime.resolvePromise(ctx.rt, pid, .{
+                    .handle = ctx.rt.js_false.handle,
+                });
+            }
+            resp.deinit(ctx.rt.alloc);
+        }
+
+        fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
+            const _promise_id = ctx.inner;
+            runtime.rejectPromise(ctx.rt, _promise_id, .{
+                .handle = ctx.rt.getJsValuePtr(err),
+            });
+        }
+    };
+
+    const ctx = RuntimeValue(PromiseId){
+        .rt = rt,
+        .inner = promise_id,
+    };
+
+    stdx.http.getAsync(rt.alloc, url, 30, false, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
+
+    return promise;
 }
 
 /// Returns Response object if request was successful.

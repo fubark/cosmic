@@ -2,7 +2,7 @@ const s = cs.http.serveHttps('127.0.0.1', 3000, './vendor/https/localhost.crt', 
 s.setHandler((req, resp) => {
     if (req.path == '/') {
         resp.setStatus(200)
-        resp.setHeader('content-type', 'text/plain; charset=utf-8')
+        resp.setHeader('content-type', 'text/html; charset=utf-8')
         const content = cs.files.readFile('./vendor/https/index.html')
         resp.send(content)
         return true
@@ -23,3 +23,4 @@ s.setHandler((req, resp) => {
         return true
     }
 })
+print('server started')

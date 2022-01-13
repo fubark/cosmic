@@ -10,8 +10,7 @@ const eq = cs.asserts.eq;
 
 cs.test('Concurrent cs.http requests', async () => {
     const tasks = [];
-    // TODO: Implement getAsync with libuv and increase the number of async requests.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 1000; i++) {
         tasks.push(cs.http.getAsync('https://localhost:3000/foo').then(text => {
             cs.asserts.eq(text, 'foo from server')
         }))
