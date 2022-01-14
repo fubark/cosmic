@@ -11,6 +11,7 @@ const h2o = @import("h2o");
 const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
 const log = stdx.log.scoped(.runtime);
+const api = @import("api.zig");
 
 const work_queue = @import("work_queue.zig");
 const WorkQueue = work_queue.WorkQueue;
@@ -421,7 +422,7 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.channels.a));
                 return new.handle;
             },
-            js_env.PathInfo => {
+            api.PathInfo => {
                 const new = self.default_obj_t.initInstance(ctx);
                 _ = new.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(@tagName(native_val.kind)));
                 return new.handle;
@@ -435,7 +436,7 @@ pub const RuntimeContext = struct {
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
             },
-            []const js_env.FileEntry => {
+            []const api.FileEntry => {
                 const buf = self.alloc.alloc(v8.Value, native_val.len) catch unreachable;
                 defer self.alloc.free(buf);
                 for (native_val) |it, i| {
@@ -1259,3 +1260,20 @@ pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value)
     const resolver = rt.promises.get(promise_id);
     _ = resolver.inner.resolve(rt.context, val);
 }
+
+/// A struct that also has the runtime context.
+pub fn RuntimeValue(comptime T: type) type {
+    return struct {
+        rt: *RuntimeContext,
+        inner: T,
+    };
+}
+
+pub const This = struct {
+    obj: v8.Object,
+};
+
+// Attached function data.
+pub const Data = struct {
+    val: v8.Value,
+};
