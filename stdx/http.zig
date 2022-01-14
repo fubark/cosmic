@@ -314,8 +314,6 @@ fn checkDone() void {
 }
 
 pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, keep_connection_open: bool, _ctx: anytype, success_cb: fn (ptr: *anyopaque, Response) void) !void {
-    _ = keep_connection_open;
-
     const S = struct {
         fn writeBody(read_buf: [*]u8, item_size: usize, nitems: usize, user_data: *std.ArrayList(u8)) callconv(.C) usize {
             const write_buf = user_data;
@@ -359,13 +357,9 @@ pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, ke
     _ = ch.setOption(curl.CURLOPT_WRITEFUNCTION, S.writeBody);
     _ = ch.setOption(curl.CURLOPT_HEADERFUNCTION, S.writeHeader);
     _ = ch.setOption(curl.CURLOPT_TIMEOUT, timeout_secs);
-    // if (keep_connection_open) {
-        // _ = ch.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
-    // } else {
-        _ = ch.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 1));
-    // }
-
-    _ = ch.setOption(curl.CURLOPT_URL, c_url.ptr);
+    // Keep connection open doesn't matter since we are deiniting finished curl handles.
+    _ = keep_connection_open;
+    _ = ch.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
 
     const ctx = alloc.create(@TypeOf(_ctx)) catch unreachable;
     ctx.* = _ctx;
@@ -484,10 +478,11 @@ pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64, keep_co
     _ = curl_h.setOption(curl.CURLOPT_HEADERFUNCTION, S.writeHeader);
     _ = curl_h.setOption(curl.CURLOPT_HEADERDATA, &header_ctx);
     _ = curl_h.setOption(curl.CURLOPT_TIMEOUT, timeout_secs);
-    // Keep connection open doesn't matter since we are deiniting finished curl handles.
-    _ = keep_connection_open;
-    _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
-
+    if (keep_connection_open) {
+        _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
+    } else {
+        _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 1));
+    }
     // _ = curl_h.setOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
     
     const res = curl_h.perform();

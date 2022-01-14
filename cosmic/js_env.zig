@@ -504,7 +504,6 @@ fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
     }
 }
 
-// TODO: Implement async request with uv.
 fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
     const iso = rt.isolate;
 

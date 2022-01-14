@@ -28,6 +28,12 @@ pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_
 pub extern fn h2o_strdup(pool: *c.h2o_mem_pool_t, s: [*c]const u8, len: usize) h2o_iovec_t;
 pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
 pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket;
+pub extern fn h2o_ssl_register_alpn_protocols(ctx: *ssl.SSL_CTX, protocols: [*c]const h2o_iovec_t) void;
+
+// Includes just http2
+pub extern fn h2o_get_http2_alpn_protocols() [*c]const h2o_iovec_t;
+// Includes http2 and http1
+pub extern fn h2o_get_alpn_protocols() [*c]const h2o_iovec_t;
 pub extern fn h2o_globalconf_size() usize;
 pub extern fn h2o_hostconf_size() usize;
 pub extern fn h2o_context_size() usize;

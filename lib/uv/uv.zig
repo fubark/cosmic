@@ -33,6 +33,11 @@ pub extern fn uv_ip4_addr(ip: [*c]const u8, port: c_int, addr: *c.struct_sockadd
 pub extern fn uv_tcp_bind(handle: *uv_tcp_t, addr: *const c.struct_sockaddr, flags: c_uint) c_int;
 pub extern fn uv_strerror(err: c_int) [*c]const u8;
 
+/// [uv] Gets the platform dependent file descriptor equivalent.
+///      following handles are supported: TCP, pipes, TTY, UDP and poll. Passing any other handle type will fail with UV_EINVAL.
+///      If a handle doesn’t have an attached file descriptor yet or the handle itself has been closed, this function will return UV_EBADF.
+pub extern fn uv_fileno(handle: *const uv_handle_t, fd: *c.uv_os_fd_t) c_int;
+
 /// [uv] Request handle to be closed. close_cb will be called asynchronously after this call.
 ///      This MUST be called on each handle before memory is released.
 ///      Moreover, the memory can only be released in close_cb or after it has returned.

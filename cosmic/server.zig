@@ -104,12 +104,22 @@ pub const HttpServer = struct {
     /// Default H2O startup for both HTTP/HTTPS
     fn startH2O(self: *Self) void {
         h2o.h2o_config_init(&self.config);
+        // H2O already has proper behavior for resending GOAWAY after 1 second.
+        // If this is greater than 0 it will be an additional timeout to force close remaining connections.
+        // Have not seen any need for this yet, so turn it off.
+        self.config.http2.graceful_shutdown_timeout = 0;
+
         self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init("default", "default".len), 65535);
         h2o.h2o_context_init(&self.ctx, self.rt.uv_loop, &self.config);
 
-        self.accept_ctx.ctx = &self.ctx;
-        self.accept_ctx.hosts = self.config.hosts;
-        self.accept_ctx.ssl_ctx = null;
+        self.accept_ctx = .{
+            .ctx = &self.ctx,
+            .hosts = self.config.hosts,
+            .ssl_ctx = null,
+            .http2_origin_frame = null,
+            .expect_proxy_line = 0,
+            .libmemcached_receiver = null,
+        };
 
         _ = self.registerHandler("/", HttpServer.defaultHandler);
 
@@ -130,6 +140,16 @@ pub const HttpServer = struct {
         self.https = true;
         self.accept_ctx.ssl_ctx = ssl.SSL_CTX_new(ssl.TLS_server_method());
 
+        _ = ssl.initLibrary();
+        _ = ssl.addAllAlgorithms();
+
+        // Disable deprecated or vulnerable protocols.
+        _ = ssl.SSL_CTX_set_options(self.accept_ctx.ssl_ctx, ssl.SSL_OP_NO_SSLv2);
+        _ = ssl.SSL_CTX_set_options(self.accept_ctx.ssl_ctx, ssl.SSL_OP_NO_SSLv3);
+        _ = ssl.SSL_CTX_set_options(self.accept_ctx.ssl_ctx, ssl.SSL_OP_NO_TLSv1);
+        _ = ssl.SSL_CTX_set_options(self.accept_ctx.ssl_ctx, ssl.SSL_OP_NO_DTLSv1);
+        _ = ssl.SSL_CTX_set_options(self.accept_ctx.ssl_ctx, ssl.SSL_OP_NO_TLSv1_1);
+
         errdefer self.requestShutdown();
 
         const rt = self.rt;
@@ -147,6 +167,27 @@ pub const HttpServer = struct {
             log.debug("Failed to load private key file: {s}", .{key_path});
             return error.UsePrivateKey;
         }
+
+        // Ciphers for TLS 1.2 and below.
+        {
+            const ciphers = "DEFAULT:!MD5:!DSS:!DES:!RC4:!RC2:!SEED:!IDEA:!NULL:!ADH:!EXP:!SRP:!PSK";
+            if (ssl.SSL_CTX_set_cipher_list(self.accept_ctx.ssl_ctx, ciphers) != 1) {
+                log.debug("Failed to set ciphers: {s}\n", .{ciphers});
+                return error.UseCiphers;
+            }
+        }
+
+        // Ciphers for TLS 1.3
+        {
+            const ciphers = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256";
+            if (ssl.SSL_CTX_set_ciphersuites(self.accept_ctx.ssl_ctx, ciphers) != 1) {
+                log.debug("Failed to set ciphers: {s}\n", .{ciphers});
+                return error.UseCiphers;
+            }
+        }
+
+        // Accept requests using ALPN.
+        h2o.h2o_ssl_register_alpn_protocols(self.accept_ctx.ssl_ctx.?, h2o.h2o_get_alpn_protocols());
     }
 
     fn onCloseListenHandle(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
@@ -247,6 +288,7 @@ pub const HttpServer = struct {
             ResponseWriter.cur_req = req;
             ResponseWriter.called_send = false;
             ResponseWriter.cur_generator = &self.generator;
+
             const writer = self.rt.http_response_writer.initInstance(ctx);
             if (handler.inner.call(ctx, self.rt.js_undefined, &.{ js_req.toValue(), writer.toValue() })) |res| {
                 // If user code returned true or called send, report as handled.
@@ -321,7 +363,6 @@ pub const HttpServer = struct {
         if (kind == uv.UV_TCP) {
             const handle = @ptrCast(*uv.uv_tcp_t, ptr);
             const self = stdx.mem.ptrCastAlign(*HttpServer, handle.data);
-            log.debug("DEINIT {*}", .{ptr});
             self.rt.alloc.destroy(handle);
         } else {
             unreachable;
@@ -338,6 +379,9 @@ pub const HttpServer = struct {
             // After a small delay, a timeout will force any connections to close.
             // We track number of socket handles and once there are no more, we mark this done in updateClosed.
             h2o.h2o_context_request_shutdown(&self.ctx);
+
+            // Interrupt uv poller to consider any graceful shutdown timeouts set by h2o. eg. http2 resend GOAWAY
+            _ = uv.uv_async_send(self.rt.uv_dummy_async);
         }
 
         if (!self.closed_listen_handle) {
@@ -385,12 +429,9 @@ pub const ResponseWriter = struct {
         if (cur_req) |req| {
             h2o.h2o_start_response(req, cur_generator);
 
-            // In case we need to dupe the body:
-            //var slice = h2o.h2o_strdup(&req.pool, text.ptr, text.len);
-            // h2o.h2o_send(req, &slice, 1, h2o.H2O_SEND_STATE_FINAL);
-
-            var slice = text;
-            h2o.h2o_send(req, @ptrCast(*h2o.h2o_iovec_t, &slice), 1, h2o.H2O_SEND_STATE_FINAL);
+            // Send can be async so dupe.
+            var slice = h2o.h2o_strdup(&req.pool, text.ptr, text.len);
+            h2o.h2o_send(req, &slice, 1, h2o.H2O_SEND_STATE_FINAL);
             called_send = true;
         }
     }

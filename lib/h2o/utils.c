@@ -1,5 +1,14 @@
 #include "h2o.h"
 
+// Not sure why we can't bind with zig's pub extern const
+const h2o_iovec_t* h2o_get_http2_alpn_protocols() {
+	return h2o_http2_alpn_protocols;
+}
+
+const h2o_iovec_t* h2o_get_alpn_protocols() {
+	return h2o_alpn_protocols;
+}
+
 size_t h2o_globalconf_size() {
 	return sizeof(h2o_globalconf_t);
 }

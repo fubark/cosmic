@@ -83,8 +83,8 @@ pub fn build(b: *Builder) void {
         .build_options = build_options,
     };
     const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
-    // test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
-    test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+    test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
+    // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
     b.step("test-cosmic-js", "Test cosmic js").dependOn(&test_cosmic_js.step);
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
@@ -364,6 +364,7 @@ const BuilderContext = struct {
             "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
             "-g3",
             "-DH2O_USE_LIBUV",
+            "-DH2O_USE_ALPN",
         };
 
         const c_files = &[_][]const u8{
