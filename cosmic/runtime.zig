@@ -12,6 +12,7 @@ const v8 = @import("v8.zig");
 const js_env = @import("js_env.zig");
 const log = stdx.log.scoped(.runtime);
 const api = @import("api.zig");
+const gen = @import("gen.zig");
 
 const work_queue = @import("work_queue.zig");
 const WorkQueue = work_queue.WorkQueue;
@@ -1020,14 +1021,17 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                 const promise = val.castToPromise();
 
                 const data = iso.initExternal(rt);
-                const on_fulfilled = v8.Function.initWithData(ctx, js_env.genJsFuncSync(js_env.passIsolatedTest), data);
+                const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passIsolatedTest), data);
 
                 const tmpl = iso.initObjectTemplateDefault();
                 tmpl.setInternalFieldCount(2);
                 const extra_data = tmpl.initInstance(ctx);
                 extra_data.setInternalField(0, data);
                 extra_data.setInternalField(1, iso.initStringUtf8(case.name));
-                const on_rejected = v8.Function.initWithData(ctx, js_env.genJsFunc(js_env.reportIsolatedTestFailure, false, false), extra_data);
+                const on_rejected = v8.Function.initWithData(ctx, gen.genJsFunc(reportIsolatedTestFailure, .{
+                    .asyncify = false,
+                    .is_data_rt = false,
+                }), extra_data);
 
                 _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
 
@@ -1174,17 +1178,17 @@ pub const ContextBuilder = struct {
 
     pub fn setFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
         const data = self.isolate.initExternal(self.rt);
-        self.setProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFuncSync(native_cb), data));
+        self.setProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, gen.genJsFuncSync(native_cb), data));
     }
 
     pub fn setConstFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
         const data = self.isolate.initExternal(self.rt);
-        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFuncSync(native_cb), data));
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, gen.genJsFuncSync(native_cb), data));
     }
 
     pub fn setConstAsyncFuncT(self: Self, tmpl: anytype, key: []const u8, comptime native_cb: anytype) void {
         const data = self.isolate.initExternal(self.rt);
-        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, js_env.genJsFuncAsync(native_cb), data));
+        self.setConstProp(tmpl, key, v8.FunctionTemplate.initCallbackData(self.isolate, gen.genJsFuncAsync(native_cb), data));
     }
 
     pub fn setProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
@@ -1204,18 +1208,18 @@ pub const ContextBuilder = struct {
         if (@typeInfo(@TypeOf(native_val_or_cb)) == .Fn) {
             @compileError("TODO");
         } else {
-            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.isolate, js_env.genJsFuncGetValue(native_val_or_cb)));
+            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.isolate, gen.genJsFuncGetValue(native_val_or_cb)));
         }
     }
 
     pub fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_cb: anytype) void {
         const js_key = v8.String.initUtf8(self.cur_isolate, key);
-        tmpl.setGetter(js_key, js_env.genJsGetter(native_cb));
+        tmpl.setGetter(js_key, gen.genJsGetter(native_cb));
     }
 
     pub fn setAccessor(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_getter_cb: anytype, comptime native_setter_cb: anytype) void {
         const js_key = self.isolate.initStringUtf8(key);
-        tmpl.setGetterAndSetter(js_key, js_env.genJsGetter(native_getter_cb), js_env.genJsSetter(native_setter_cb));
+        tmpl.setGetterAndSetter(js_key, gen.genJsGetter(native_getter_cb), gen.genJsSetter(native_setter_cb));
     }
 
     pub fn setConstProp(self: Self, tmpl: anytype, key: []const u8, value: anytype) void {
@@ -1276,4 +1280,28 @@ pub const This = struct {
 // Attached function data.
 pub const Data = struct {
     val: v8.Value,
+};
+
+fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
+    const obj = data.val.castToObject();
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castToExternal().get());
+
+    const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    defer rt.alloc.free(test_name);
+
+    rt.num_isolated_tests_finished += 1;
+    const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    defer rt.alloc.free(str);
+
+    // TODO: Show stack trace.
+    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+}
+
+fn passIsolatedTest(rt: *RuntimeContext) void {
+    rt.num_isolated_tests_finished += 1;
+    rt.num_tests_passed += 1;
+}
+
+const Promise = struct {
+    task_id: u32,
 };

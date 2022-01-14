@@ -40,7 +40,7 @@ pub fn ClosureTask(comptime func: anytype) type {
     };
 }
 
-// TODO: Should this be the same as js_env.freeNativeValue ?
+// TODO: Should this be the same as gen.freeNativeValue ?
 fn deinitResult(res: anytype) void {
     const Result = @TypeOf(res);
     switch (Result) {

@@ -14,10 +14,12 @@ const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const RuntimeValue = runtime.RuntimeValue;
 const PromiseId = runtime.PromiseId;
+const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
+const gen = @import("gen.zig");
 
 pub fn window_New(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
     const res = rt.createCsWindowResource();
@@ -78,6 +80,30 @@ pub fn color_WithAlpha(rt: *RuntimeContext, this: v8.Object, a: u8) Color {
 
 pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaque {
     return rt.getJsValuePtr(Color.init(r, g, b, a));
+}
+
+/// Path can be absolute or relative to the cwd.
+pub fn graphics_NewImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.Image {
+    return g.createImageFromPath(path) catch |err| {
+        if (err == error.FileNotFound) {
+            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
+            return undefined;
+        } else {
+            unreachable;
+        }
+    };
+}
+
+/// Path can be absolute or relative to the cwd.
+pub fn graphics_AddTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
+    return g.addTTF_FontFromPath(path) catch |err| {
+        if (err == error.FileNotFound) {
+            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
+            return 0;
+        } else {
+            unreachable;
+        }
+    };
 }
 
 pub fn graphics_FillPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
@@ -440,4 +466,99 @@ pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         printFmt("{s} ", .{str});
     }
     printFmt("\n", .{});
+}
+
+/// Path can be absolute or relative to the current executing script.
+fn resolveEnvPath(rt: *RuntimeContext, path: []const u8) []const u8 {
+    return std.fs.path.resolve(rt.alloc, &.{ rt.cur_script_dir_abs, path }) catch unreachable;
+}
+
+// FUTURE: Save test cases and execute them in parallel.
+pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
+    const iso = rt.isolate;
+    const ctx = rt.context;
+
+    // Dupe name since we will be invoking functions that could clear the transient string buffer.
+    const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
+    defer rt.alloc.free(name_dupe);
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(iso);
+    defer hscope.deinit();
+
+    var try_catch: v8.TryCatch = undefined;
+    try_catch.init(iso);
+    defer try_catch.deinit();
+
+    rt.num_tests += 1;
+    if (cb.toValue().isAsyncFunction()) {
+        // Async test.
+        rt.num_async_tests += 1;
+        if (cb.call(ctx, rt.js_undefined, &.{})) |val| {
+            const promise = val.castToPromise();
+
+            const data = iso.initExternal(rt);
+            const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passAsyncTest), data);
+
+            const tmpl = iso.initObjectTemplateDefault();
+            tmpl.setInternalFieldCount(2);
+            const extra_data = tmpl.initInstance(ctx);
+            extra_data.setInternalField(0, data);
+            extra_data.setInternalField(1, iso.initStringUtf8(name_dupe));
+            const on_rejected = v8.Function.initWithData(ctx, gen.genJsFunc(reportAsyncTestFailure, .{
+                .asyncify = false,
+                .is_data_rt = false,
+            }), extra_data);
+
+            _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+        } else {
+            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+            defer rt.alloc.free(err_str);
+            printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+        }
+    } else {
+        // Sync test.
+        if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
+            rt.num_tests_passed += 1;
+        } else {
+            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+            defer rt.alloc.free(err_str);
+            printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+        }
+    }
+}
+
+/// Currently meant for async tests that need to be run sequentially after all sync tests have ran.
+pub fn createIsolatedTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
+    if (!cb.toValue().isAsyncFunction()) {
+        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Test \"{s}\": Only async tests can use testIsolated.", .{name});
+        return;
+    }
+    rt.num_tests += 1;
+    // Store the function to be run later.
+    rt.isolated_tests.append(.{
+        .name = rt.alloc.dupe(u8, name) catch unreachable,
+        .js_fn = rt.isolate.initPersistent(v8.Function, cb),
+    }) catch unreachable;
+}
+
+fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
+    const obj = data.val.castToObject();
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castToExternal().get());
+
+    const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    defer rt.alloc.free(test_name);
+
+    // TODO: report stack trace.
+    rt.num_async_tests_finished += 1;
+    const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    defer rt.alloc.free(str);
+
+    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+}
+
+fn passAsyncTest(rt: *RuntimeContext) void {
+    rt.num_async_tests_passed += 1;
+    rt.num_async_tests_finished += 1;
+    rt.num_tests_passed += 1;
 }
