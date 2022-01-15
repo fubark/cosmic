@@ -174,6 +174,16 @@ fn setResultError(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catc
     };
 }
 
+pub fn appendValueAsUtf8Lower(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
+    const val = v8.getValue(any_value);
+    const str = val.toString(ctx);
+    const len = str.lenUtf8(isolate);
+    const start = arr.items.len;
+    arr.resize(start + len) catch unreachable;
+    _ = str.writeUtf8(isolate, arr.items[start..arr.items.len]);
+    return std.ascii.lowerString(arr.items[start..], arr.items[start..]);
+}
+
 pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);

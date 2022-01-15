@@ -20,6 +20,7 @@ const ManagedSlice = runtime.ManagedSlice;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const gen = @import("gen.zig");
+const log = stdx.log.scoped(.api);
 
 pub fn window_New(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
     const res = rt.createCsWindowResource();
@@ -408,11 +409,10 @@ pub fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
 
 /// Returns Response object if request was successful.
 /// Throws exception if there was a connection or protocol error.
-pub fn http_request(rt: *RuntimeContext, method: []const u8, url: []const u8) !ManagedStruct(stdx.http.Response) {
-    rt.str_buf.resize(method.len) catch unreachable;
-    const lower = stdx.string.toLower(method, rt.str_buf.items[0..method.len]);
-    if (stdx.string.eq("get", lower)) {
-        const resp = try stdx.http.get(rt.alloc, url, 30, false);
+pub fn http_request(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) !ManagedStruct(stdx.http.Response) {
+    const opts = mb_opts orelse RequestOptions{};
+    if (opts.method == .Get) {
+        const resp = try stdx.http.get(rt.alloc, url, opts.timeout, opts.keepConnection);
         return ManagedStruct(stdx.http.Response){
             .alloc = rt.alloc,
             .val = resp,
@@ -421,6 +421,22 @@ pub fn http_request(rt: *RuntimeContext, method: []const u8, url: []const u8) !M
         return error.UnsupportedMethod;
     }
 }
+
+const RequestMethod = enum {
+    Head,
+    Get,
+    Post,
+    Put,
+    Delete,
+};
+
+const RequestOptions = struct {
+    method: RequestMethod = .Get,
+    keepConnection: bool = false,
+    body: ?[]const u8 = null,
+    timeout: u32 = 30,
+    headers: ?std.StringHashMap([]const u8) = null,
+};
 
 pub fn http_serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
     const handle = rt.createCsHttpServerResource();

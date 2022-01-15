@@ -284,9 +284,9 @@ cs.test('cs.http.get', () => {
 })
 
 cs.test('cs.http.request', () => {
-    throws(() => cs.http.request('get', 'https://127.0.0.1'), 'RequestFailed')
+    throws(() => cs.http.request('https://127.0.0.1'), 'RequestFailed')
 
-    const resp = cs.http.request('get', 'https://ziglang.org')
+    const resp = cs.http.request('https://ziglang.org')
     eq(resp.status, 200)
     eq(resp.getHeader('content-type'), 'text/html')
     contains(resp.text(), 'Zig is a general-purpose programming language')
@@ -308,7 +308,7 @@ cs.testIsolated('cs.http.serveHttp', async () => {
         // However, async get should work.
         eq(await cs.http.getAsync('http://127.0.0.1:3000'), 'not found')
         // TODO: Implement requestAsync with new backend.
-        // const resp = await cs.http.requestAsync('get', 'http://127.0.0.1:3000/hello')
+        // const resp = await cs.http.requestAsync('http://127.0.0.1:3000/hello')
         // eq(resp.status, 200)
         // eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
         // eq(resp.text(), 'Hello from server!')
@@ -338,7 +338,7 @@ cs.testIsolated('cs.http.serveHttps', async () => {
         // TODO: Should not be getting SIGPIPE when using 127.0.0.1
         eq(await cs.http.getAsync('https://localhost:3000'), 'not found')
         // TODO: Implement requestAsync with new backend.
-        // const resp = await cs.http.requestAsync('get', 'https://localhost:3000/hello')
+        // const resp = await cs.http.requestAsync('https://localhost:3000/hello')
         // eq(resp.status, 200)
         // eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
         // eq(resp.text(), 'Hello from server!')

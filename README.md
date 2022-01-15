@@ -34,11 +34,6 @@ zig build test
 
 Please star the repo and let's do this!
 
-## Future
-
-After Cosmic, we'll use what we built to start exploring a different way to browse/interact with the web. 
-We might also design a new scripting language called XScript.
-
 ## License
 
 Cosmic is free and open source under the MIT License.

@@ -54,7 +54,8 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
 
             const ct_info = comptime getJsFuncInfo(arg_fields);
 
-            if (info.length() < ct_info.func_arg_fields.len) {
+            const num_js_args = info.length();
+            if (num_js_args < ct_info.num_req_fields) {
                 v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {} args.", .{ct_info.func_arg_fields.len});
                 return;
             }
@@ -152,7 +153,18 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         has_args = false;
                     }
                 } else {
-                    if (rt.getNativeValue(field.field_type, info.getArg(i))) |native_val| {
+                    if (@typeInfo(field.field_type) == .Optional) {
+                        if (i >= num_js_args) {
+                            @field(native_args, field.name) = null;
+                        } else {
+                            const FieldType = comptime @typeInfo(field.field_type).Optional.child;
+                            if (rt.getNativeValue(FieldType, info.getArg(i))) |native_val| {
+                                @field(native_args, field.name) = native_val;
+                            } else {
+                                @field(native_args, field.name) = null;
+                            }
+                        }
+                    } else if (rt.getNativeValue(field.field_type, info.getArg(i))) |native_val| {
                         @field(native_args, field.name) = native_val;
                     } else {
                         v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
@@ -235,6 +247,7 @@ const JsFuncInfo = struct {
     data_field: ?std.builtin.TypeInfo.StructField,
     rt_ptr_field: ?std.builtin.TypeInfo.StructField,
     func_arg_fields: []const std.builtin.TypeInfo.StructField,
+    num_req_fields: u32,
 };
 
 fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) JsFuncInfo {
@@ -291,6 +304,7 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
     };
 
     // Get required js func args.
+    res.num_req_fields = 0;
     res.func_arg_fields = b: {
         var args: []const std.builtin.TypeInfo.StructField = &.{};
         inline for (arg_fields) |field| {
@@ -322,6 +336,9 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
             }
             if (is_func_arg) {
                 args = args ++ &[_]std.builtin.TypeInfo.StructField{field};
+                if (@typeInfo(field.field_type) != .Optional) {
+                    res.num_req_fields += 1;
+                }
             }
         }
         break :b args;

@@ -501,7 +501,7 @@ pub const RuntimeContext = struct {
                 if (@TypeOf(val) == SizedJsString) {
                     return appendSizedJsStringAssumeCap(&self.cb_str_buf, self.isolate, val);
                 } else {
-                    return ctx.appendValueAsUtf8(&self.cb_str_buf, val);
+                    return v8.appendValueAsUtf8(&self.cb_str_buf, self.isolate, ctx, val);
                 }
             },
             bool => return val.toBool(self.isolate),
@@ -546,10 +546,73 @@ pub const RuntimeContext = struct {
                 } else return null;
             },
             v8.Value => return val,
-            else => comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) })),
+            std.StringHashMap([]const u8) => {
+                if (val.isObject()) {
+                    const obj = val.castToObject();
+                    var native_val = std.StringHashMap([]const u8).init(self.alloc);
+
+                    const keys = obj.getOwnPropertyNames(ctx);
+                    const keys_obj = keys.castTo(v8.Object);
+                    const num_keys = keys.length();
+                    var i: u32 = 0;
+                    while (i < num_keys) {
+                        const native_key = v8.valueToUtf8Alloc(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
+                        native_val.put(native_key, self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i)).?) catch unreachable;
+                    }
+                    return native_val;
+                } else return null;
+            },
+            else => {
+                if (@typeInfo(T) == .Struct) {
+                    if (val.isObject()) {
+                        const obj = val.castToObject();
+                        var native_val = T{};
+                        const Fields = std.meta.fields(T);
+                        inline for (Fields) |Field| {
+                            if (@typeInfo(Field.field_type) == .Optional) {
+                                const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
+                                if (self.getNativeValue(ChildType, js_val)) |child_value| {
+                                    @field(native_val, Field.name) = child_value;
+                                } else {
+                                    @field(native_val, Field.name) = null;
+                                }
+                            } else {
+                                const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                if (self.getNativeValue(Field.field_type, js_val)) |child_value| {
+                                    @field(native_val, Field.name) = child_value;
+                                }
+                            }
+                        }
+                        return native_val;
+                    } else return null;
+                } else if (@typeInfo(T) == .Enum) {
+                    // Compare with lower case.
+                    const lower = v8.appendValueAsUtf8Lower(&self.cb_str_buf, self.isolate, ctx, val);
+                    const Fields = @typeInfo(T).Enum.fields;
+                    inline for (Fields) |Field| {
+                        if (std.mem.eql(u8, lower, comptime ctLower(Field.name))) {
+                            return @intToEnum(T, Field.value);
+                        }
+                    }
+                    return null;
+                } else {
+                    comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) }));
+                }
+            },
         }
     }
 };
+
+fn ctLower(comptime str: []const u8) []const u8 {
+    return comptime blk :{
+        var lower: []const u8 = &.{};
+        for (str) |ch| {
+            lower = lower ++ &[_]u8{std.ascii.toLower(ch)};
+        }
+        break :blk lower;
+    };
+}
 
 /// A slice that knows how to deinit itself and it's items.
 pub fn ManagedSlice(comptime T: type) type {
