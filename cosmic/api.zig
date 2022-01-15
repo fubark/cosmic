@@ -378,22 +378,16 @@ pub fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
             const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
             const pid = ctx.inner;
             if (resp.status_code < 500) {
-                runtime.resolvePromise(ctx.rt, pid, .{
-                    .handle = ctx.rt.getJsValuePtr(resp.body),
-                });
+                runtime.resolvePromise(ctx.rt, pid, resp.body);
             } else {
-                runtime.resolvePromise(ctx.rt, pid, .{
-                    .handle = ctx.rt.js_false.handle,
-                });
+                runtime.resolvePromise(ctx.rt, pid, ctx.rt.js_false);
             }
             resp.deinit(ctx.rt.alloc);
         }
 
         fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
             const _promise_id = ctx.inner;
-            runtime.rejectPromise(ctx.rt, _promise_id, .{
-                .handle = ctx.rt.getJsValuePtr(err),
-            });
+            runtime.rejectPromise(ctx.rt, _promise_id, err);
         }
     };
 
@@ -420,6 +414,44 @@ pub fn http_request(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptio
     } else {
         return error.UnsupportedMethod;
     }
+}
+
+pub fn http_requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
+    const opts = mb_opts orelse RequestOptions{};
+
+    const iso = rt.isolate;
+
+    const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+    const promise = resolver.inner.getPromise();
+    const promise_id = rt.promises.add(resolver) catch unreachable;
+
+    const S = struct {
+        fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
+            const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
+            const pid = ctx.inner;
+            runtime.resolvePromise(ctx.rt, pid, resp);
+            resp.deinit(ctx.rt.alloc);
+        }
+
+        fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
+            const _promise_id = ctx.inner;
+            runtime.rejectPromise(ctx.rt, _promise_id, err);
+        }
+    };
+
+    const ctx = RuntimeValue(PromiseId){
+        .rt = rt,
+        .inner = promise_id,
+    };
+
+    switch (opts.method) {
+        .Get => {
+            stdx.http.getAsync(rt.alloc, url, 30, false, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
+        },
+        else => S.onFailure(ctx, error.UnsupportedMethod),
+    }
+
+    return promise;
 }
 
 const RequestMethod = enum {

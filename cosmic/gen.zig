@@ -187,15 +187,11 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 const S = struct {
                     fn onSuccess(_ctx: RuntimeValue(PromiseId), _res: TaskOutput(ClosureTask)) void {
                         const _promise_id = _ctx.inner;
-                        runtime.resolvePromise(_ctx.rt, _promise_id, .{
-                            .handle = _ctx.rt.getJsValuePtr(_res),
-                        });
+                        runtime.resolvePromise(_ctx.rt, _promise_id, _res);
                     }
                     fn onFailure(_ctx: RuntimeValue(PromiseId), _err: anyerror) void {
                         const _promise_id = _ctx.inner;
-                        runtime.rejectPromise(_ctx.rt, _promise_id, .{
-                            .handle = _ctx.rt.getJsValuePtr(_err),
-                        });
+                        runtime.rejectPromise(_ctx.rt, _promise_id, _err);
                     }
                 };
                 const task_ctx = RuntimeValue(PromiseId){

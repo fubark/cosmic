@@ -224,7 +224,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(http, "get", api.http_get);
     ctx.setConstFuncT(http, "getAsync", api.http_getAsync);
     ctx.setConstFuncT(http, "_request", api.http_request);
-    ctx.setConstAsyncFuncT(http, "_requestAsync", api.http_request);
+    ctx.setConstFuncT(http, "_requestAsync", api.http_requestAsync);
     ctx.setConstFuncT(http, "serveHttp", api.http_serveHttp);
     ctx.setConstFuncT(http, "serveHttps", api.http_serveHttps);
     // cs.http.Response

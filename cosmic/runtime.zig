@@ -428,12 +428,9 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(@tagName(native_val.kind)));
                 return new.handle;
             },
-            v8.Object => {
-                return native_val.handle;
-            },
-            v8.Promise => {
-                return native_val.handle;
-            },
+            v8.Boolean => return native_val.handle,
+            v8.Object => return native_val.handle,
+            v8.Promise => return native_val.handle,
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
             },
@@ -1318,14 +1315,16 @@ pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate
     return arr.items[start..];
 }
 
-pub fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
+pub fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
+    const js_val_ptr = rt.getJsValuePtr(native_val);
     const resolver = rt.promises.get(promise_id);
-    _ = resolver.inner.reject(rt.context, val);
+    _ = resolver.inner.reject(rt.context, .{ .handle = js_val_ptr });
 }
 
-pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, val: v8.Value) void {
+pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
+    const js_val_ptr = rt.getJsValuePtr(native_val);
     const resolver = rt.promises.get(promise_id);
-    _ = resolver.inner.resolve(rt.context, val);
+    _ = resolver.inner.resolve(rt.context, .{ .handle = js_val_ptr });
 }
 
 /// A struct that also has the runtime context.

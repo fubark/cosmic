@@ -247,9 +247,7 @@ pub const HttpServer = struct {
                 // At this point there should be nothing that references HttpServer, so destroy the resource.
                 _rt.destroyResource(_rt.generic_resource_list, timer.resource_id);
 
-                runtime.resolvePromise(_rt, timer.promise_id, .{
-                    .handle = _rt.js_true.handle,
-                });
+                runtime.resolvePromise(_rt, timer.promise_id, _rt.js_true);
 
                 _rt.alloc.destroy(timer);
             }

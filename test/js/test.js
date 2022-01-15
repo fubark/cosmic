@@ -307,11 +307,10 @@ cs.testIsolated('cs.http.serveHttp', async () => {
         // Sync get won't work since it blocks and the server won't be able to accept.
         // However, async get should work.
         eq(await cs.http.getAsync('http://127.0.0.1:3000'), 'not found')
-        // TODO: Implement requestAsync with new backend.
-        // const resp = await cs.http.requestAsync('http://127.0.0.1:3000/hello')
-        // eq(resp.status, 200)
-        // eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
-        // eq(resp.text(), 'Hello from server!')
+        const resp = await cs.http.requestAsync('http://127.0.0.1:3000/hello')
+        eq(resp.status, 200)
+        eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
+        eq(resp.text(), 'Hello from server!')
     } finally {
         await s.closeAsync()
     }
@@ -337,11 +336,10 @@ cs.testIsolated('cs.http.serveHttps', async () => {
         // TODO: Add request option to use specific ca certificate and option to turn off verify host.
         // TODO: Should not be getting SIGPIPE when using 127.0.0.1
         eq(await cs.http.getAsync('https://localhost:3000'), 'not found')
-        // TODO: Implement requestAsync with new backend.
-        // const resp = await cs.http.requestAsync('https://localhost:3000/hello')
-        // eq(resp.status, 200)
-        // eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
-        // eq(resp.text(), 'Hello from server!')
+        const resp = await cs.http.requestAsync('https://localhost:3000/hello')
+        eq(resp.status, 200)
+        eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
+        eq(resp.text(), 'Hello from server!')
     } finally {
         await s.closeAsync()
     }
