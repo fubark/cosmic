@@ -223,6 +223,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", api.http_get);
     ctx.setConstFuncT(http, "getAsync", api.http_getAsync);
+    ctx.setConstFuncT(http, "post", api.http_post);
+    ctx.setConstFuncT(http, "postAsync", api.http_postAsync);
     ctx.setConstFuncT(http, "_request", api.http_request);
     ctx.setConstFuncT(http, "_requestAsync", api.http_requestAsync);
     ctx.setConstFuncT(http, "serveHttp", api.http_serveHttp);
@@ -281,7 +283,15 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs_graphics, "Color", color_class);
     ctx.setConstProp(cs, "graphics", cs_graphics);
 
+    // cs.util
+    const cs_util = v8.ObjectTemplate.initDefault(iso);
+
+    // cs.util.bufferToUtf8
+    ctx.setConstFuncT(cs_util, "bufferToUtf8", api.util_bufferToUtf8);
+    ctx.setConstProp(cs, "util", cs_util);
+
     ctx.setConstProp(global, "cs", cs);
+
     const rt_data = iso.initExternal(rt);
     ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.print, rt_data));
 

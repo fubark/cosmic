@@ -261,8 +261,9 @@ pub fn files_moveFile(from: []const u8, to: []const u8) bool {
 }
 
 /// Returns the absolute path of the current working directory.
-pub fn files_cwd(rt: *RuntimeContext) ?[]const u8 {
-    return std.fs.cwd().realpathAlloc(rt.alloc, ".") catch return null;
+pub fn files_cwd(rt: *RuntimeContext) ?ds.Box([]const u8) {
+    const cwd = std.fs.cwd().realpathAlloc(rt.alloc, ".") catch return null;
+    return ds.Box([]const u8).init(rt.alloc, cwd);
 }
 
 /// Path can be absolute or relative to the cwd.
@@ -349,15 +350,59 @@ pub fn files_removeDir(path: []const u8, recursive: bool) bool {
 
 /// Resolves '..' in paths and returns an absolute path.
 /// Currently does not resolve home '~'.
-pub fn files_resolvePath(rt: *RuntimeContext, path: []const u8) ?[]const u8 {
-    return std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
+pub fn files_resolvePath(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
+    const res = std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
+    return ds.Box([]const u8).init(rt.alloc, res);
 }
 
-/// Returns response body text if request was successful.
+/// Makes a GET request and Returns the response body text if successful.
 /// Returns false if there was a connection error, timeout error (30 secs), or the response code is 5xx.
 /// Advanced: cs.http.request
 pub fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
-    const resp = stdx.http.get(rt.alloc, url, 30, false) catch return null;
+    const opts = RequestOptions{
+        .method = .Get,
+        .timeout = 30,
+        .keepConnection = false,
+    };
+    return simpleRequest(rt, url, opts);
+}
+
+pub fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
+    const opts = RequestOptions{
+        .method = .Get,
+        .timeout = 30,
+        .keepConnection = false,
+    };
+    return simpleRequestAsync(rt, url, opts);
+}
+
+/// Makes a POST request and returns the response body text if successful.
+/// Returns false if there was a connection error, timeout error (30 secs), or the response code is 5xx.
+/// Advanced: cs.http.request
+pub fn http_post(rt: *RuntimeContext, url: []const u8, body: []const u8) ?ds.Box([]const u8) {
+    const opts = RequestOptions{
+        .method = .Post,
+        .body = body,
+        .timeout = 30,
+        .keepConnection = false,
+    };
+    return simpleRequest(rt, url, opts);
+}
+
+/// Async version of cs.http.post
+pub fn http_postAsync(rt: *RuntimeContext, url: []const u8, body: []const u8) v8.Promise {
+    const opts = RequestOptions{
+        .method = .Post,
+        .body = body,
+        .timeout = 30,
+        .keepConnection = false,
+    };
+    return simpleRequestAsync(rt, url, opts);
+}
+
+fn simpleRequest(rt: *RuntimeContext, url: []const u8, opts: RequestOptions) ?ds.Box([]const u8) {
+    const std_opts = toStdRequestOptions(opts);
+    const resp = stdx.http.request(rt.alloc, url, std_opts) catch return null;
     defer resp.deinit(rt.alloc);
     if (resp.status_code < 500) {
         return ds.Box([]const u8).init(rt.alloc, rt.alloc.dupe(u8, resp.body) catch unreachable);
@@ -366,7 +411,7 @@ pub fn http_get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
     }
 }
 
-pub fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
+fn simpleRequestAsync(rt: *RuntimeContext, url: []const u8, opts: RequestOptions) v8.Promise {
     const iso = rt.isolate;
 
     const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
@@ -396,24 +441,35 @@ pub fn http_getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
         .inner = promise_id,
     };
 
-    stdx.http.getAsync(rt.alloc, url, 30, false, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
+    stdx.http.requestAsync(rt.alloc, url, toStdRequestOptions(opts), ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
 
     return promise;
+}
+
+fn toStdRequestOptions(opts: RequestOptions) stdx.http.RequestOptions {
+    var res = stdx.http.RequestOptions{
+        .method = std.meta.stringToEnum(stdx.http.RequestMethod, @tagName(opts.method)).?,
+        .body = opts.body,
+        .keep_connection = opts.keepConnection,
+        .timeout = opts.timeout,
+        .headers = opts.headers,
+    };
+    if (opts.contentType) |content_type| {
+        res.content_type = std.meta.stringToEnum(stdx.http.ContentType, @tagName(content_type)).?;
+    }
+    return res;
 }
 
 /// Returns Response object if request was successful.
 /// Throws exception if there was a connection or protocol error.
 pub fn http_request(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) !ManagedStruct(stdx.http.Response) {
     const opts = mb_opts orelse RequestOptions{};
-    if (opts.method == .Get) {
-        const resp = try stdx.http.get(rt.alloc, url, opts.timeout, opts.keepConnection);
-        return ManagedStruct(stdx.http.Response){
-            .alloc = rt.alloc,
-            .val = resp,
-        };
-    } else {
-        return error.UnsupportedMethod;
-    }
+    const std_opts = toStdRequestOptions(opts);
+    const resp = try stdx.http.request(rt.alloc, url, std_opts);
+    return ManagedStruct(stdx.http.Response){
+        .alloc = rt.alloc,
+        .val = resp,
+    };
 }
 
 pub fn http_requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
@@ -444,13 +500,8 @@ pub fn http_requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?Request
         .inner = promise_id,
     };
 
-    switch (opts.method) {
-        .Get => {
-            stdx.http.getAsync(rt.alloc, url, 30, false, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
-        },
-        else => S.onFailure(ctx, error.UnsupportedMethod),
-    }
-
+    const std_opts = toStdRequestOptions(opts);
+    stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
     return promise;
 }
 
@@ -462,10 +513,19 @@ const RequestMethod = enum {
     Delete,
 };
 
+const ContentType = enum {
+    Json,
+    FormData,
+};
+
 const RequestOptions = struct {
     method: RequestMethod = .Get,
     keepConnection: bool = false,
+
+    contentType: ?ContentType = null,
     body: ?[]const u8 = null,
+
+    /// In seconds. 0 timeout = no timeout
     timeout: u32 = 30,
     headers: ?std.StringHashMap([]const u8) = null,
 };
@@ -516,6 +576,22 @@ pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
     printFmt("\n", .{});
 }
 
+pub fn util_bufferToUtf8(buf: v8.Uint8Array) ?[]const u8 {
+    var shared_ptr_store = v8.ArrayBufferView.castFrom(buf).getBuffer().getBackingStore();
+    const store = v8.BackingStore.sharedPtrGet(&shared_ptr_store);
+    v8.BackingStore.sharedPtrReset(&shared_ptr_store);
+
+    const len = store.getByteLength();
+    if (len == 0) {
+        return "";
+    } else {
+        const ptr = @ptrCast([*]u8, store.getData().?);
+        if (std.unicode.utf8ValidateSlice(ptr[0..len])) {
+            return ptr[0..len];
+        } else return null;
+    }
+}
+
 /// Path can be absolute or relative to the current executing script.
 fn resolveEnvPath(rt: *RuntimeContext, path: []const u8) []const u8 {
     return std.fs.path.resolve(rt.alloc, &.{ rt.cur_script_dir_abs, path }) catch unreachable;
@@ -543,7 +619,7 @@ pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
         // Async test.
         rt.num_async_tests += 1;
         if (cb.call(ctx, rt.js_undefined, &.{})) |val| {
-            const promise = val.castToPromise();
+            const promise = val.castTo(v8.Promise);
 
             const data = iso.initExternal(rt);
             const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passAsyncTest), data);
@@ -591,8 +667,8 @@ pub fn createIsolatedTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function
 }
 
 fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
-    const obj = data.val.castToObject();
-    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castToExternal().get());
+    const obj = data.val.castTo(v8.Object);
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
     const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
     defer rt.alloc.free(test_name);

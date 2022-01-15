@@ -282,6 +282,20 @@ pub const HttpServer = struct {
             _ = js_req.setValue(ctx, iso.initStringUtf8("method"), iso.initStringUtf8(method));
             const path = req.path_normalized.base[0..req.path_normalized.len];
             _ = js_req.setValue(ctx, iso.initStringUtf8("path"), iso.initStringUtf8(path));
+            if (req.proceed_req == null) {
+                // Already received request body.
+                if (req.entity.len > 0) {
+                const backing_store = v8.BackingStore.init(iso, req.entity.len);
+                if (backing_store.getData()) |data| {
+                    const buf = @ptrCast([*]u8, data);
+                    std.mem.copy(u8, buf[0..req.entity.len], req.entity.base[0..req.entity.len]);
+                }
+                const shared = backing_store.toSharedPtr();
+                const array_buffer = v8.ArrayBuffer.initWithBackingStore(iso, &shared);
+                const uint8_arr = v8.Uint8Array.init(array_buffer, 0, req.entity.len);
+                _ = js_req.setValue(ctx, iso.initStringUtf8("body"), uint8_arr);
+                }
+            } else unreachable;
 
             ResponseWriter.cur_req = req;
             ResponseWriter.called_send = false;

@@ -56,6 +56,32 @@ pub fn deinit() void {
     share.deinit();
 }
 
+pub const RequestMethod = enum {
+    Head,
+    Get,
+    Post,
+    Put,
+    Delete,
+};
+
+pub const ContentType = enum {
+    Json,
+    FormData,
+};
+
+pub const RequestOptions = struct {
+    method: RequestMethod = .Get,
+    keep_connection: bool = false,
+
+    content_type: ?ContentType = null,
+    body: ?[]const u8 = null,
+
+    /// In seconds. 0 timeout = no timeout
+    timeout: u32 = 30,
+
+    headers: ?std.StringHashMap([]const u8) = null,
+};
+
 const IndexSlice = struct {
     start: usize,
     end: usize,
@@ -125,6 +151,7 @@ const AsyncRequestHandle = struct {
     next_child_req: ?*AsyncRequestHandle,
     attached_to_parent: bool,
 
+    status_code: u32,
     header_ctx: HeaderContext,
     buf: std.ArrayList(u8),
 
@@ -135,8 +162,7 @@ const AsyncRequestHandle = struct {
 
     fn finish(self: *Self) void {
         const resp = Response{
-            // .status_code = @intCast(u32, http_code),
-            .status_code = 200,
+            .status_code = self.status_code,
             .headers = self.header_ctx.headers_buf.toOwnedSlice(),
             .header = self.header_ctx.header_data_buf.toOwnedSlice(),
             .body = self.buf.toOwnedSlice(),
@@ -256,6 +282,19 @@ fn onCurlSocket(_h: *curl.CURL, sock_fd: curl.curl_socket_t, action: c_int, user
                 orig_req.polling_writable = true;
             }
         },
+        curl.CURL_POLL_INOUT => {
+            const orig_req = S.updateRequest(sock_fd, req, socket_ptr);
+            if (!orig_req.polling_readable or !orig_req.polling_writable) {
+                // Update event mask.
+                const res = uv.uv_poll_start(&req.poll, uv.UV_WRITABLE | uv.UV_READABLE, onUvPolled);
+                if (res != 0) {
+                    log.debug("uv_poll_start: {s}", .{uv.uv_strerror(res)});
+                    unreachable;
+                }
+                orig_req.polling_readable = true;
+                orig_req.polling_writable = true;
+            }
+        },
         curl.CURL_POLL_REMOVE => {
             // log.debug("closing {}", .{sock_fd});
 
@@ -272,9 +311,7 @@ fn onCurlSocket(_h: *curl.CURL, sock_fd: curl.curl_socket_t, action: c_int, user
                 _ = curlm.assign(sock_fd, null);
             } else unreachable;
         },
-        else => {
-            unreachable;
-        },
+        else => unreachable,
     }
     return 0;
 }
@@ -299,6 +336,11 @@ fn checkDone() void {
                     _ = ch.getInfo(curl.CURLINFO_PRIVATE, &ptr);
                     const req = stdx.mem.ptrCastAlign(*AsyncRequestHandle, ptr);
 
+                    // Get status code.
+                    var http_code: u64 = 0;
+                    _ = ch.getInfo(curl.CURLINFO_RESPONSE_CODE, &http_code);
+                    req.status_code = @intCast(u32, http_code);
+
                     // Once checkDone reports a request is done,
                     // invoke the success cb and free just the curl resources for the request.
                     // The final uv close callback will free all the chained AsyncRequestHandles.
@@ -313,7 +355,7 @@ fn checkDone() void {
     }
 }
 
-pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, keep_connection_open: bool, _ctx: anytype, success_cb: fn (ptr: *anyopaque, Response) void) !void {
+pub fn requestAsync(alloc: std.mem.Allocator, url: []const u8, opts: RequestOptions, _ctx: anytype, success_cb: fn (ptr: *anyopaque, Response) void) !void {
     const S = struct {
         fn writeBody(read_buf: [*]u8, item_size: usize, nitems: usize, user_data: *std.ArrayList(u8)) callconv(.C) usize {
             const write_buf = user_data;
@@ -345,21 +387,13 @@ pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, ke
     // Currently we create a new CURL handle per request.
     const ch = Curl.init();
 
-    _ = ch.setOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
-    _ = ch.setOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
-    if (builtin.os.tag == .linux) {
-        _ = ch.setOption(curl.CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
-        _ = ch.setOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
-    }
+    var header_list: ?*curl.curl_slist = null;
+    defer curl.curl_slist_free_all(header_list);
 
-    _ = ch.setOption(curl.CURLOPT_URL, c_url.ptr);
-    _ = ch.setOption(curl.CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");
+    try setCurlOptions(alloc, ch, c_url, &header_list, opts);
+
     _ = ch.setOption(curl.CURLOPT_WRITEFUNCTION, S.writeBody);
     _ = ch.setOption(curl.CURLOPT_HEADERFUNCTION, S.writeHeader);
-    _ = ch.setOption(curl.CURLOPT_TIMEOUT, timeout_secs);
-    // Keep connection open doesn't matter since we are deiniting finished curl handles.
-    _ = keep_connection_open;
-    _ = ch.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
 
     const ctx = alloc.create(@TypeOf(_ctx)) catch unreachable;
     ctx.* = _ctx;
@@ -380,6 +414,7 @@ pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, ke
         .cb_ctx_size = @sizeOf(@TypeOf(_ctx)),
         .success_cb = success_cb,
 
+        .status_code = undefined,
         .header_ctx = .{
             .headers_buf = std.ArrayList(Header).initCapacity(alloc, 10) catch unreachable,
             .header_data_buf = std.ArrayList(u8).initCapacity(alloc, 5e2) catch unreachable,
@@ -395,8 +430,6 @@ pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, ke
     // _ = ch.setOption(curl.CURLOPT_SHARE, &share);
     // _ = ch.setOption(curl.CURLOPT_NOSIGNAL, @intCast(c_long, 1));
 
-    // HTTP2 is far more efficient since curl has deprecated HTTP1 pipelining. (Must have built curl with nghttp2)
-    _ = ch.setOption(curl.CURLOPT_HTTP_VERSION, curl.CURL_HTTP_VERSION_2_0);
     // _ = ch.setOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
 
     // Only one timer is needed for all requests.
@@ -422,8 +455,7 @@ pub fn getAsync(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u65, ke
     _ = ch.getInfo(curl.CURLINFO_RESPONSE_CODE, &http_code);
 }
 
-/// 0 timeout = no timeout
-pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64, keep_connection_open: bool) !Response {
+pub fn request(alloc: std.mem.Allocator, url: []const u8, opts: RequestOptions) !Response {
     const S = struct {
         fn writeBody(read_buf: [*]u8, item_size: usize, nitems: usize, user_data: *std.ArrayList(u8)) callconv(.C) usize {
             const write_buf = user_data;
@@ -463,26 +495,17 @@ pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64, keep_co
 
     var c_url = std.cstr.addNullByte(alloc, url) catch unreachable;
     defer alloc.free(c_url);
-    
-    _ = curl_h.setOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
-    _ = curl_h.setOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
-    if (builtin.os.tag == .linux) {
-        _ = curl_h.setOption(curl.CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
-        _ = curl_h.setOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
-    }
 
-    _ = curl_h.setOption(curl.CURLOPT_URL, c_url.ptr);
-    _ = curl_h.setOption(curl.CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");
+    var header_list: ?*curl.curl_slist = null;
+    defer curl.curl_slist_free_all(header_list);
+    
+    try setCurlOptions(alloc, curl_h, c_url, &header_list, opts);
+
     _ = curl_h.setOption(curl.CURLOPT_WRITEFUNCTION, S.writeBody);
     _ = curl_h.setOption(curl.CURLOPT_WRITEDATA, &buf);
     _ = curl_h.setOption(curl.CURLOPT_HEADERFUNCTION, S.writeHeader);
     _ = curl_h.setOption(curl.CURLOPT_HEADERDATA, &header_ctx);
-    _ = curl_h.setOption(curl.CURLOPT_TIMEOUT, timeout_secs);
-    if (keep_connection_open) {
-        _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
-    } else {
-        _ = curl_h.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 1));
-    }
+
     // _ = curl_h.setOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
     
     const res = curl_h.perform();
@@ -500,4 +523,52 @@ pub fn get(alloc: std.mem.Allocator, url: []const u8, timeout_secs: u64, keep_co
         .header = header_ctx.header_data_buf.toOwnedSlice(),
         .body = buf.toOwnedSlice(),
     };
+}
+
+fn setCurlOptions(alloc: std.mem.Allocator, ch: Curl, url: [:0]const u8, header_list: *?*curl.curl_slist, opts: RequestOptions) !void {
+    _ = ch.setOption(curl.CURLOPT_URL, url.ptr);
+    _ = ch.setOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
+    _ = ch.setOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
+    if (builtin.os.tag == .linux) {
+        _ = ch.setOption(curl.CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+        _ = ch.setOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
+    }
+    _ = ch.setOption(curl.CURLOPT_TIMEOUT, opts.timeout);
+    _ = ch.setOption(curl.CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");
+    if (opts.keep_connection) {
+        _ = ch.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 0));
+    } else {
+        _ = ch.setOption(curl.CURLOPT_FORBID_REUSE, @intCast(c_long, 1));
+    }
+    // HTTP2 is far more efficient since curl has deprecated HTTP1 pipelining. (Must have built curl with nghttp2)
+    _ = ch.setOption(curl.CURLOPT_HTTP_VERSION, curl.CURL_HTTP_VERSION_2_0);
+    switch (opts.method) {
+        .Get => _ = ch.setOption(curl.CURLOPT_CUSTOMREQUEST, "GET"),
+        .Post => _ = ch.setOption(curl.CURLOPT_CUSTOMREQUEST, "POST"),
+        else => return error.UnsupportedMethod,
+    }
+
+    if (opts.content_type) |content_type| {
+        switch (content_type) {
+            .Json => header_list.* = curl.curl_slist_append(header_list.*, "content-type: application/json"),
+            .FormData => header_list.* = curl.curl_slist_append(header_list.*, "content-type: application/x-www-form-urlencoded"),
+        }
+    }
+
+    // Custom headers.
+    if (opts.headers) |headers| {
+        var iter = headers.iterator();
+        while (iter.next()) |entry| {
+            const c_str = try std.fmt.allocPrint(alloc, "{s}: {s}\\0", .{ entry.key_ptr.*, entry.value_ptr.* });
+            defer alloc.free(c_str);
+            header_list.* = curl.curl_slist_append(header_list.*, c_str.ptr);
+        }
+    }
+
+    _ = ch.setOption(curl.CURLOPT_HTTPHEADER, header_list.*);
+
+    if (opts.body) |body| {
+        _ = ch.setOption(curl.CURLOPT_POSTFIELDSIZE, @intCast(c_long, body.len));
+        _ = ch.setOption(curl.CURLOPT_POSTFIELDS, body.ptr);
+    }
 }
