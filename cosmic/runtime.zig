@@ -207,6 +207,15 @@ pub const RuntimeContext = struct {
         // By default, scripts will automatically run microtasks when call depth returns to zero.
         // It also allows us to use performMicrotasksCheckpoint in cases where we need to sooner.
         iso.setMicrotasksPolicy(v8.MicrotasksPolicy.kAuto);
+
+        // Ignore sigpipe for writes to sockets that have already closed and let it return as an error to callers.
+        const SIG_IGN = @intToPtr(fn(c_int, *const std.os.linux.siginfo_t, ?*const anyopaque) callconv(.C) void, 1);
+        const act = std.os.Sigaction{
+            .handler = .{ .sigaction = SIG_IGN },
+            .mask = std.os.empty_sigset,
+            .flags = 0,
+        };
+        std.os.sigaction(std.os.SIG.PIPE, &act, null);
     }
 
     fn deinit(self: *Self) void {
@@ -483,9 +492,9 @@ pub const RuntimeContext = struct {
         switch (T) {
             []const f32 => {
                 if (val.isArray()) {
-                    const len = val.castToArray().length();
+                    const len = val.castTo(v8.Array).length();
                     var i: u32 = 0;
-                    const obj = val.castToObject();
+                    const obj = val.castTo(v8.Object);
                     const start = self.cb_f32_buf.items.len;
                     self.cb_f32_buf.resize(start + len) catch unreachable;
                     while (i < len) : (i += 1) {
@@ -508,7 +517,7 @@ pub const RuntimeContext = struct {
             f32 => return val.toF32(ctx),
             graphics.Image => {
                 if (val.isObject()) {
-                    const obj = val.castToObject();
+                    const obj = val.castTo(v8.Object);
                     if (obj.toValue().instanceOf(ctx, self.image_class.getFunction(ctx).toObject())) {
                         const image_id = obj.getInternalField(0).toU32(ctx);
                         return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
@@ -519,7 +528,7 @@ pub const RuntimeContext = struct {
             graphics.Color => {
                 if (val.isObject()) {
                     const iso = self.isolate;
-                    const obj = val.castToObject();
+                    const obj = val.castTo(v8.Object);
                     const r = obj.getValue(ctx, iso.initStringUtf8("r")).toU32(ctx);
                     const g = obj.getValue(ctx, iso.initStringUtf8("g")).toU32(ctx);
                     const b = obj.getValue(ctx, iso.initStringUtf8("b")).toU32(ctx);
@@ -532,20 +541,25 @@ pub const RuntimeContext = struct {
                     );
                 } else return null;
             },
+            v8.Uint8Array => {
+                if (val.isUint8Array()) {
+                    return val.castTo(v8.Uint8Array);
+                } else return null;
+            },
             v8.Function => {
                 if (val.isFunction()) {
-                    return val.castToFunction();
+                    return val.castTo(v8.Function);
                 } else return null;
             },
             v8.Object => {
                 if (val.isObject()) {
-                    return val.castToObject();
+                    return val.castTo(v8.Object);
                 } else return null;
             },
             v8.Value => return val,
             std.StringHashMap([]const u8) => {
                 if (val.isObject()) {
-                    const obj = val.castToObject();
+                    const obj = val.castTo(v8.Object);
                     var native_val = std.StringHashMap([]const u8).init(self.alloc);
 
                     const keys = obj.getOwnPropertyNames(ctx);
@@ -562,7 +576,7 @@ pub const RuntimeContext = struct {
             else => {
                 if (@typeInfo(T) == .Struct) {
                     if (val.isObject()) {
-                        const obj = val.castToObject();
+                        const obj = val.castTo(v8.Object);
                         var native_val = T{};
                         const Fields = std.meta.fields(T);
                         inline for (Fields) |Field| {
@@ -1078,7 +1092,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
             // Assume async test, should have already validated.
             const case = rt.isolated_tests.items[next_test];
             if (case.js_fn.inner.call(ctx, rt.js_undefined, &.{})) |val| {
-                const promise = val.castToPromise();
+                const promise = val.castTo(v8.Promise);
 
                 const data = iso.initExternal(rt);
                 const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passIsolatedTest), data);
@@ -1345,8 +1359,8 @@ pub const Data = struct {
 };
 
 fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
-    const obj = data.val.castToObject();
-    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castToExternal().get());
+    const obj = data.val.castTo(v8.Object);
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
     const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
     defer rt.alloc.free(test_name);

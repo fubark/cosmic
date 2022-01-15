@@ -40,7 +40,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
 
             // RT handle is either data or the first field of data.
             const rt = if (is_data_rt) stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue())
-                else stdx.mem.ptrCastAlign(*RuntimeContext, info.getData().castToObject().getInternalField(0).castToExternal().get());
+                else stdx.mem.ptrCastAlign(*RuntimeContext, info.getData().castTo(v8.Object).getInternalField(0).castTo(v8.External).get());
 
             const iso = rt.isolate;
             const ctx = rt.context;
@@ -110,7 +110,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
             }
             if (ct_info.this_res_field) |field| {
                 const PtrType = stdx.meta.FieldType(field.field_type, .ptr);
-                const res_id = info.getThis().getInternalField(0).castToInteger().getValueU32();
+                const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
                 if (rt.getResourcePtr(PtrType, res_id)) |ptr| {
                     @field(native_args, field.name) = ThisResource(PtrType){ .ptr = ptr };
                 } else {
@@ -123,7 +123,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
             }
             if (ct_info.native_ptr_field) |field| {
                 const Ptr = field.field_type;
-                const ptr = @ptrToInt(info.getThis().getInternalField(0).castToExternal().get());
+                const ptr = @ptrToInt(info.getThis().getInternalField(0).castTo(v8.External).get());
                 if (ptr > 0) {
                     @field(native_args, field.name) = @intToPtr(Ptr, ptr);
                 } else {
@@ -448,8 +448,6 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
 fn freeNativeValue(alloc: std.mem.Allocator, native_val: anytype) void {
     const Type = @TypeOf(native_val);
     switch (Type) {
-        // TODO: slice should be wrapped by a struct that indicates that it should be freed by the current allocator.
-        []const u8 => alloc.free(native_val),
         ds.Box([]const u8) => native_val.deinit(),
         else => {
             if (@typeInfo(Type) == .Optional) {
