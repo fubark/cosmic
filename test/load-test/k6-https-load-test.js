@@ -2,7 +2,7 @@ import http from 'k6/http'
 import { check } from 'k6'
 
 // This uses k6 go lib to run concurrent requests against cosmic server: cs-server.js
-// Run with: k6 run k6-http-load-test.js -s 30s:10
+// Run with: k6 run test/load-test/k6-http-load-test.js -s 30s:10
 
 // Goals of the test:
 // Use a testing tool that has reliable http request api and concurrency.
@@ -26,21 +26,23 @@ export default function () {
     const responses = http.batch([
         ['GET', 'https://localhost:3000', null, { tags: { ctype: 'html' } }],
         ['GET', 'https://localhost:3000/style.css', null, { tags: { ctype: 'css' } }],
-        // ['GET', 'https://localhost:3000/logo.png', null, { tags: { ctype: 'images' } }],
+        ['GET', 'https://localhost:3000/logo.png', null, { tags: { ctype: 'images' } }],
         ['GET', 'https://localhost:3000/foo', null, { tags: { ctype: 'get' } }],
         ['GET', 'https://localhost:3000/bar', null, { tags: { ctype: 'get' } }],
     ])
     check(responses[0], {
         'check / status': (res) => res.status === 200,
-        'check / response': (res) => res.body === '<html><body></body></html>\n',
     })
     check(responses[1], {
         'check /style.css status': (res) => res.status === 200,
     })
-    check(responses[2], {
-        'check /foo response': (res) => res.body === 'foo from server',
+    check(responses[3], {
+        'check /logo.png status': (res) => res.status === 200,
     })
     check(responses[3], {
+        'check /foo response': (res) => res.body === 'foo from server',
+    })
+    check(responses[4], {
         'check /bar response': (res) => res.body === 'bar from server',
     })
 }

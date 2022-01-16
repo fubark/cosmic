@@ -265,6 +265,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(obj_t, "setStatus", ResponseWriter.setStatus);
         ctx.setConstFuncT(obj_t, "setHeader", ResponseWriter.setHeader);
         ctx.setConstFuncT(obj_t, "send", ResponseWriter.send);
+        ctx.setConstFuncT(obj_t, "sendBytes", ResponseWriter.sendBytes);
         rt.http_response_writer = obj_t;
     }
     ctx.setConstProp(cs, "http", http);

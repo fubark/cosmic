@@ -443,6 +443,18 @@ pub const ResponseWriter = struct {
             called_send = true;
         }
     }
+
+    pub fn sendBytes(arr: runtime.Uint8Array) void {
+        if (called_send) return;
+        if (cur_req) |req| {
+            h2o.h2o_start_response(req, cur_generator);
+
+            // Send can be async so dupe.
+            var slice = h2o.h2o_strdup(&req.pool, arr.buf.ptr, arr.buf.len);
+            h2o.h2o_send(req, &slice, 1, h2o.H2O_SEND_STATE_FINAL);
+            called_send = true;
+        }
+    }
 };
 
 fn getStatusReason(code: u32) []const u8 {
