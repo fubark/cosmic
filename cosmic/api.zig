@@ -5,8 +5,9 @@ const Graphics = graphics.Graphics;
 const Vec2 = stdx.math.Vec2;
 const Color = graphics.Color;
 const ds = stdx.ds;
+const v8 = @import("v8");
 
-const v8 = @import("v8.zig");
+const v8x = @import("v8x.zig");
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
@@ -48,7 +49,7 @@ pub fn window_GetGraphics(rt: *RuntimeContext, this: v8.Object) *const anyopaque
         const window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
         return @ptrCast(*const anyopaque, window.js_graphics.inner.handle);
     } else {
-        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Window no longer exists for id {}", .{window_id});
+        v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Window no longer exists for id {}", .{window_id});
         return @ptrCast(*const anyopaque, rt.js_undefined.handle);
     }
 }
@@ -88,7 +89,7 @@ pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaq
 pub fn graphics_NewImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.Image {
     return g.createImageFromPath(path) catch |err| {
         if (err == error.FileNotFound) {
-            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
+            v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
             return undefined;
         } else {
             unreachable;
@@ -100,7 +101,7 @@ pub fn graphics_NewImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) gr
 pub fn graphics_AddTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
     return g.addTTF_FontFromPath(path) catch |err| {
         if (err == error.FileNotFound) {
-            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
+            v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
             return 0;
         } else {
             unreachable;
@@ -349,7 +350,7 @@ pub fn files_appendTextFile(path: []const u8, str: []const u8) bool {
 pub fn files_ensurePath(rt: *RuntimeContext, path: []const u8) bool {
     std.fs.cwd().makePath(path) catch |err| switch (err) {
         else => {
-            v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
+            v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
             return false;
         },
     };
@@ -359,7 +360,7 @@ pub fn files_ensurePath(rt: *RuntimeContext, path: []const u8) bool {
 /// Path can be absolute or relative to the cwd.
 pub fn files_pathExists(rt: *RuntimeContext, path: []const u8) bool {
     return stdx.fs.pathExists(path) catch |err| {
-        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
+        v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
         return false;
     };
 }
@@ -601,7 +602,7 @@ pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
 
     var i: u32 = 0;
     while (i < len) : (i += 1) {
-        const str = v8.valueToUtf8Alloc(rt.alloc, iso, ctx, info.getArg(i));
+        const str = v8x.valueToUtf8Alloc(rt.alloc, iso, ctx, info.getArg(i));
         defer rt.alloc.free(str);
         printFmt("{s} ", .{str});
     }
@@ -666,7 +667,7 @@ pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
 
             _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
         } else {
-            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+            const err_str = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -675,7 +676,7 @@ pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
         if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
             rt.num_tests_passed += 1;
         } else {
-            const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+            const err_str = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -685,7 +686,7 @@ pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
 /// Currently meant for async tests that need to be run sequentially after all sync tests have ran.
 pub fn createIsolatedTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
     if (!cb.toValue().isAsyncFunction()) {
-        v8.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Test \"{s}\": Only async tests can use testIsolated.", .{name});
+        v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Test \"{s}\": Only async tests can use testIsolated.", .{name});
         return;
     }
     rt.num_tests += 1;
@@ -700,12 +701,12 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    const test_name = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     // TODO: report stack trace.
     rt.num_async_tests_finished += 1;
-    const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    const str = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
     defer rt.alloc.free(str);
 
     printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});

@@ -1083,7 +1083,7 @@ const BuilderContext = struct {
 };
 
 const zig_v8_pkg = Pkg{
-    .name = "zig-v8",
+    .name = "v8",
     .path = FileSource.relative("./lib/zig-v8/src/v8.zig"),
 };
 

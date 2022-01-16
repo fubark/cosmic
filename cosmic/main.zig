@@ -6,8 +6,9 @@ const ds = stdx.ds;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const sdl = @import("sdl");
+const v8 = @import("v8");
 
-const v8 = @import("v8.zig");
+const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
@@ -137,9 +138,9 @@ fn repl() void {
                 break;
             }
 
-            var res: v8.ExecuteResult = undefined;
+            var res: v8x.ExecuteResult = undefined;
             defer res.deinit();
-            v8.executeString(alloc, iso, ctx, input, origin, &res);
+            v8x.executeString(alloc, iso, ctx, input, origin, &res);
             if (res.success) {
                 printFmt("{s}", .{res.result.?});
             } else {

@@ -7,8 +7,9 @@ const sdl = @import("sdl");
 const curl = @import("curl");
 const uv = @import("uv");
 const h2o = @import("h2o");
+const v8 = @import("v8");
 
-const v8 = @import("v8.zig");
+const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
 const log = stdx.log.scoped(.runtime);
 const api = @import("api.zig");
@@ -528,7 +529,7 @@ pub const RuntimeContext = struct {
                 if (@TypeOf(val) == SizedJsString) {
                     return appendSizedJsStringAssumeCap(&self.cb_str_buf, self.isolate, val);
                 } else {
-                    return v8.appendValueAsUtf8(&self.cb_str_buf, self.isolate, ctx, val);
+                    return v8x.appendValueAsUtf8(&self.cb_str_buf, self.isolate, ctx, val);
                 }
             },
             bool => return val.toBool(self.isolate),
@@ -601,7 +602,7 @@ pub const RuntimeContext = struct {
                     const num_keys = keys.length();
                     var i: u32 = 0;
                     while (i < num_keys) {
-                        const native_key = v8.valueToUtf8Alloc(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
+                        const native_key = v8x.valueToUtf8Alloc(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
                         native_val.put(native_key, self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i)).?) catch unreachable;
                     }
                     return native_val;
@@ -633,7 +634,7 @@ pub const RuntimeContext = struct {
                     } else return null;
                 } else if (@typeInfo(T) == .Enum) {
                     // Compare with lower case.
-                    const lower = v8.appendValueAsUtf8Lower(&self.cb_str_buf, self.isolate, ctx, val);
+                    const lower = v8x.appendValueAsUtf8Lower(&self.cb_str_buf, self.isolate, ctx, val);
                     const Fields = @typeInfo(T).Enum.fields;
                     inline for (Fields) |Field| {
                         if (std.mem.eql(u8, lower, comptime ctLower(Field.name))) {
@@ -739,7 +740,7 @@ fn promiseRejectCallback(c_msg: v8.C_PromiseRejectMessage) callconv(.C) void {
         v8.PromiseRejectEvent.kPromiseRejectWithNoHandler => {
             // Record this uncaught incident since a follow up kPromiseHandlerAddedAfterReject can remove the record.
             // At a later point reportUncaughtPromiseRejections will list all of them.
-            const str = v8.valueToUtf8Alloc(galloc, iso, ctx, msg.getValue());
+            const str = v8x.valueToUtf8Alloc(galloc, iso, ctx, msg.getValue());
             const key = promise.toObject().getIdentityHash();
             uncaught_promise_errors.put(key, str) catch unreachable;
         },
@@ -806,7 +807,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
             _ = onDrawFrame.inner.call(ctx, rt.active_window.js_window, &.{
                 rt.active_window.js_graphics.toValue(), iso.initNumber(@intToFloat(f64, fps)).toValue(),
             }) orelse {
-                const trace = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+                const trace = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(trace);
                 printFmt("{s}", .{trace});
                 return;
@@ -980,25 +981,25 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
 
     {
         // Run api_init.js
-        var res: v8.ExecuteResult = undefined;
+        var res: v8x.ExecuteResult = undefined;
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "api_init.js");
-        v8.executeString(alloc, iso, ctx, api_init, origin, &res);
+        v8x.executeString(alloc, iso, ctx, api_init, origin, &res);
     }
 
     {
         // Run test_init.js
-        var res: v8.ExecuteResult = undefined;
+        var res: v8x.ExecuteResult = undefined;
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "test_init.js");
-        v8.executeString(alloc, iso, ctx, test_init, origin, &res);
+        v8x.executeString(alloc, iso, ctx, test_init, origin, &res);
     }
 
     const origin = v8.String.initUtf8(iso, src_path);
 
-    var res: v8.ExecuteResult = undefined;
+    var res: v8x.ExecuteResult = undefined;
     defer res.deinit();
-    v8.executeString(alloc, iso, ctx, src, origin, &res);
+    v8x.executeString(alloc, iso, ctx, src, origin, &res);
 
     processV8EventLoop(&rt);
 
@@ -1162,7 +1163,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                     iso.performMicrotasksCheckpoint();
                 }
             } else {
-                const err_str = v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+                const err_str = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
                 printFmt("Test: {s}\n{s}", .{ case.name, err_str });
                 break;
@@ -1184,7 +1185,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
     }
 
     // Check for any js uncaught exceptions from calling into js.
-    if (v8.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch)) |err_str| {
+    if (v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch)) |err_str| {
         defer rt.alloc.free(err_str);
         printFmt("Uncaught Exception:\n{s}", .{ err_str });
     }
@@ -1239,9 +1240,9 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
 
     const origin = v8.String.initUtf8(iso, src_path);
 
-    var res: v8.ExecuteResult = undefined;
+    var res: v8x.ExecuteResult = undefined;
     defer res.deinit();
-    v8.executeString(alloc, iso, ctx, src, origin, &res);
+    v8x.executeString(alloc, iso, ctx, src, origin, &res);
 
     while (platform.pumpMessageLoop(iso, false)) {
         @panic("Did not expect v8 event loop task");
@@ -1409,11 +1410,11 @@ fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    const test_name = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     rt.num_isolated_tests_finished += 1;
-    const str = v8.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    const str = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
     defer rt.alloc.free(str);
 
     // TODO: Show stack trace.

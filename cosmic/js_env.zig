@@ -5,8 +5,8 @@ const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
 const Color = graphics.Color;
 const ds = stdx.ds;
+const v8 = @import("v8");
 
-const v8 = @import("v8.zig");
 const runtime = @import("runtime.zig");
 const SizedJsString = runtime.SizedJsString;
 const RuntimeContext = runtime.RuntimeContext;

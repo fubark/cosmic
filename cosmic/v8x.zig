@@ -1,65 +1,8 @@
 const std = @import("std");
 const stdx = @import("stdx");
-const v8 = @import("zig-v8");
-pub const Platform = v8.Platform;
-pub const Isolate = v8.Isolate;
-pub const External = v8.External;
-pub const Context = v8.Context;
-pub const Array = v8.Array;
-pub const HandleScope = v8.HandleScope;
-pub const ObjectTemplate = v8.ObjectTemplate;
-pub const FunctionTemplate = v8.FunctionTemplate;
-pub const PromiseResolver = v8.PromiseResolver;
-pub const Promise = v8.Promise;
-pub const C_FunctionCallbackInfo = v8.C_FunctionCallbackInfo;
-pub const FunctionCallbackInfo = v8.FunctionCallbackInfo;
-pub const C_PropertyCallbackInfo = v8.C_PropertyCallbackInfo;
-pub const PropertyCallbackInfo = v8.PropertyCallbackInfo;
-pub const C_WeakCallbackInfo = v8.C_WeakCallbackInfo;
-pub const WeakCallbackType = v8.WeakCallbackType;
-pub const WeakCallbackInfo = v8.WeakCallbackInfo;
-pub const C_PromiseRejectMessage = v8.C_PromiseRejectMessage;
-pub const PromiseRejectMessage = v8.PromiseRejectMessage;
-pub const PromiseRejectEvent = v8.PromiseRejectEvent;
-pub const PromiseState = v8.PromiseState;
-pub const MicrotasksPolicy = v8.MicrotasksPolicy;
-pub const AccessorNameGetterCallback = v8.AccessorNameGetterCallback;
-pub const AccessorNameSetterCallback = v8.AccessorNameSetterCallback;
-pub const FunctionCallback = v8.FunctionCallback;
-pub const Name = v8.Name;
-pub const Primitive = v8.Primitive;
-pub const PropertyAttribute = v8.PropertyAttribute;
-const ScriptOrigin = v8.ScriptOrigin;
-pub const TryCatch = v8.TryCatch;
-pub const String = v8.String;
-pub const Boolean = v8.Boolean;
-pub const Value = v8.Value;
-pub const Object = v8.Object;
-pub const Persistent = v8.Persistent;
-pub const PersistentHandle = v8.PersistentHandle;
-pub const Function = v8.Function;
-pub const Integer = v8.Integer;
-pub const Number = v8.Number;
-pub const Exception = v8.Exception;
-pub const BackingStore = v8.BackingStore;
-pub const SharedPtr = v8.SharedPtr;
-pub const ArrayBuffer = v8.ArrayBuffer;
-pub const ArrayBufferView = v8.ArrayBufferView;
-pub const Uint8Array = v8.Uint8Array;
-const log = stdx.log.scoped(.v8);
+const v8 = @import("v8");
 
-pub const initV8Platform = v8.initV8Platform;
-pub const deinitV8Platform = v8.deinitV8Platform;
-pub const initV8 = v8.initV8;
-pub const deinitV8 = v8.deinitV8;
-pub const getVersion = v8.getVersion;
-pub const initUndefined = v8.initUndefined;
-pub const initTrue = v8.initTrue;
-pub const initFalse = v8.initFalse;
-
-pub const initCreateParams = v8.initCreateParams;
-pub const createDefaultArrayBufferAllocator = v8.createDefaultArrayBufferAllocator;
-pub const destroyArrayBufferAllocator = v8.destroyArrayBufferAllocator;
+const log = stdx.log.scoped(.v8_util);
 
 pub const ExecuteResult = struct {
     const Self = @This();
@@ -80,16 +23,16 @@ pub const ExecuteResult = struct {
 };
 
 /// Executes a string within the current v8 context.
-pub fn executeString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, src: []const u8, src_origin: String, result: *ExecuteResult) void {
-    var hscope: HandleScope = undefined;
+pub fn executeString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, src: []const u8, src_origin: v8.String, result: *ExecuteResult) void {
+    var hscope: v8.HandleScope = undefined;
     hscope.init(iso);
     defer hscope.deinit();
 
-    var try_catch: TryCatch = undefined;
+    var try_catch: v8.TryCatch = undefined;
     try_catch.init(iso);
     defer try_catch.deinit();
 
-    var origin = ScriptOrigin.initDefault(iso, src_origin.handle);
+    var origin = v8.ScriptOrigin.initDefault(iso, src_origin.handle);
 
     var context = iso.getCurrentContext();
 
@@ -117,12 +60,12 @@ pub fn executeString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, src: 
     }
 }
 
-pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catch: TryCatch) ?[]const u8 {
+pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, try_catch: v8.TryCatch) ?[]const u8 {
     if (!try_catch.hasCaught()) {
         return null;
     }
 
-    var hscope: HandleScope = undefined;
+    var hscope: v8.HandleScope = undefined;
     hscope.init(iso);
     defer hscope.deinit();
 
@@ -172,7 +115,7 @@ pub fn getTryCatchErrorString(alloc: std.mem.Allocator, iso: Isolate, ctx: Conte
     }
 }
 
-fn setResultError(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catch: TryCatch, result: *ExecuteResult) void {
+fn setResultError(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, try_catch: v8.TryCatch, result: *ExecuteResult) void {
     result.* = .{
         .alloc = alloc,
         .result = null,
@@ -181,7 +124,7 @@ fn setResultError(alloc: std.mem.Allocator, iso: Isolate, ctx: Context, try_catc
     };
 }
 
-pub fn appendValueAsUtf8Lower(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
+pub fn appendValueAsUtf8Lower(arr: *std.ArrayList(u8), isolate: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);
     const len = str.lenUtf8(isolate);
@@ -191,7 +134,7 @@ pub fn appendValueAsUtf8Lower(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Co
     return std.ascii.lowerString(arr.items[start..], arr.items[start..]);
 }
 
-pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
+pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);
     const len = str.lenUtf8(isolate);
@@ -201,7 +144,7 @@ pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: Isolate, ctx: Context
     return arr.items[start..];
 }
 
-pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context, any_value: anytype) []const u8 {
+pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);
     const len = str.lenUtf8(isolate);
@@ -211,11 +154,11 @@ pub fn valueToUtf8Alloc(alloc: std.mem.Allocator, isolate: Isolate, ctx: Context
 }
 
 /// Throws an exception with a stack trace.
-pub fn throwErrorException(iso: Isolate, msg: []const u8) void {
+pub fn throwErrorException(iso: v8.Isolate, msg: []const u8) void {
     _ = iso.throwException(v8.Exception.initError(iso.initStringUtf8(msg)));
 }
 
-pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: Isolate, comptime format: []const u8, args: anytype) void {
+pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: v8.Isolate, comptime format: []const u8, args: anytype) void {
     const str = std.fmt.allocPrint(alloc, format, args) catch unreachable;
     defer alloc.free(str);
     throwErrorException(isolate, str);

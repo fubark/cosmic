@@ -3,13 +3,13 @@ const stdx = @import("stdx");
 const uv = @import("uv");
 const h2o = @import("h2o");
 const ssl = @import("openssl");
+const v8 = @import("v8");
 
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const ThisResource = runtime.ThisResource;
 const PromiseId = runtime.PromiseId;
 const ResourceId = runtime.ResourceId;
-const v8 = @import("v8.zig");
 const log = stdx.log.scoped(.server);
 
 pub const HttpServer = struct {

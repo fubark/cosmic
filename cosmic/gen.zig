@@ -1,8 +1,9 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const ds = stdx.ds;
+const v8 = @import("v8");
 
-const v8 = @import("v8.zig");
+const v8x = @import("v8x.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const SizedJsString = runtime.SizedJsString;
@@ -56,7 +57,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
 
             const num_js_args = info.length();
             if (num_js_args < ct_info.num_req_fields) {
-                v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {} args.", .{ct_info.func_arg_fields.len});
+                v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {} args.", .{ct_info.func_arg_fields.len});
                 return;
             }
 
@@ -114,7 +115,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 if (rt.getResourcePtr(PtrType, res_id)) |ptr| {
                     @field(native_args, field.name) = ThisResource(PtrType){ .ptr = ptr };
                 } else {
-                    v8.throwErrorException(iso, "Native handle expired");
+                    v8x.throwErrorException(iso, "Native handle expired");
                     return;
                 }
             }
@@ -127,7 +128,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 if (ptr > 0) {
                     @field(native_args, field.name) = @intToPtr(Ptr, ptr);
                 } else {
-                    v8.throwErrorException(iso, "Native handle expired");
+                    v8x.throwErrorException(iso, "Native handle expired");
                     return;
                 }
             }
@@ -149,7 +150,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                             @field(native_args, field.name) = native_val;
                         }
                     } else {
-                        v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
+                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
                         has_args = false;
                     }
                 } else {
@@ -167,7 +168,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                     } else if (rt.getNativeValue(field.field_type, info.getArg(i))) |native_val| {
                         @field(native_args, field.name) = native_val;
                     } else {
-                        v8.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
+                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
                         // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
                         has_args = false;
                     }
@@ -212,7 +213,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         return_value.setValueHandle(js_val);
                         freeNativeValue(rt.alloc, native_val);
                     } else |err| {
-                        v8.throwErrorExceptionFmt(rt.alloc, iso, "Error: {s}", .{@errorName(err)});
+                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Error: {s}", .{@errorName(err)});
                         return;
                     }
                 } else {
@@ -374,7 +375,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
                         freeNativeValue(rt.alloc, native_val);
                     }
                 } else {
-                    v8.throwErrorException(iso, "Handle has expired.");
+                    v8x.throwErrorException(iso, "Handle has expired.");
                     return;
                 }
             } else {
@@ -412,14 +413,14 @@ pub fn genJsSetter(comptime native_cb: anytype) v8.AccessorNameSetterCallback {
                     if (ptr > 0) {
                         native_cb(@intToPtr(Ptr, ptr), native_val);
                     } else {
-                        v8.throwErrorException(iso, "Handle has expired.");
+                        v8x.throwErrorException(iso, "Handle has expired.");
                         return;
                     }
                 } else {
                     native_cb(native_val);
                 }
             } else {
-                v8.throwErrorExceptionFmt(rt.alloc, iso, "Could not convert to {s}", .{@typeName(Param)});
+                v8x.throwErrorExceptionFmt(rt.alloc, iso, "Could not convert to {s}", .{@typeName(Param)});
                 return;
             }
         }
