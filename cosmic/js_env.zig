@@ -189,8 +189,11 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     files_constructor.setClassName(iso.initStringUtf8("files"));
     const files = iso.initObjectTemplate(files_constructor);
     ctx.setConstFuncT(files, "readFile", api.files_readFile);
+    ctx.setConstFuncT(files, "readTextFile", api.files_readTextFile);
     ctx.setConstFuncT(files, "writeFile", api.files_writeFile);
+    ctx.setConstFuncT(files, "writeTextFile", api.files_writeTextFile);
     ctx.setConstFuncT(files, "appendFile", api.files_appendFile);
+    ctx.setConstFuncT(files, "appendTextFile", api.files_appendTextFile);
     ctx.setConstFuncT(files, "removeFile", api.files_removeFile);
     ctx.setConstFuncT(files, "ensurePath", api.files_ensurePath);
     ctx.setConstFuncT(files, "pathExists", api.files_pathExists);
@@ -205,8 +208,11 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs, "files", files);
 
     ctx.setConstAsyncFuncT(files, "readFileAsync", api.files_readFile);
+    ctx.setConstAsyncFuncT(files, "readTextFileAsync", api.files_readTextFile);
     ctx.setConstAsyncFuncT(files, "writeFileAsync", api.files_writeFile);
+    ctx.setConstAsyncFuncT(files, "writeTextFileAsync", api.files_writeTextFile);
     ctx.setConstAsyncFuncT(files, "appendFileAsync", api.files_appendFile);
+    ctx.setConstAsyncFuncT(files, "appendTextFileAsync", api.files_appendTextFile);
     ctx.setConstAsyncFuncT(files, "removeFileAsync", api.files_removeFile);
     ctx.setConstAsyncFuncT(files, "removeDirAsync", api.files_removeDir);
     ctx.setConstAsyncFuncT(files, "ensurePathAsync", api.files_ensurePath);

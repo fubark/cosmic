@@ -17,6 +17,7 @@ const PromiseId = runtime.PromiseId;
 const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
+const Uint8Array = runtime.Uint8Array;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const gen = @import("gen.zig");
@@ -192,8 +193,19 @@ pub fn graphics_FillConvexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []cons
 }
 
 /// Path can be absolute or relative to the cwd.
-/// Returns the contents on success or false.
-pub fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
+/// Returns the contents on success or null.
+pub fn files_readFile(rt: *RuntimeContext, path: []const u8) ?ManagedStruct(Uint8Array) {
+    const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
+        // Whitelist errors to silence.
+        error.FileNotFound => return null,
+        else => unreachable,
+    };
+    return ManagedStruct(Uint8Array).init(rt.alloc, Uint8Array{ .buf = res });
+}
+
+/// Path can be absolute or relative to the cwd.
+/// Returns the contents as utf8 on success or null.
+pub fn files_readTextFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
     const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
         // Whitelist errors to silence.
         error.FileNotFound => return null,
@@ -242,8 +254,18 @@ fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
     return promise;
 }
 
+/// Writes bytes to a file.
 /// Path can be absolute or relative to the cwd.
-pub fn files_writeFile(path: []const u8, str: []const u8) bool {
+/// Returns true on success or false.
+pub fn files_writeFile(path: []const u8, arr: Uint8Array) bool {
+    std.fs.cwd().writeFile(path, arr.buf) catch return false;
+    return true;
+}
+
+/// Writes UTF8 text to a file.
+/// Path can be absolute or relative to the cwd.
+/// Returns true on success or false.
+pub fn files_writeTextFile(path: []const u8, str: []const u8) bool {
     std.fs.cwd().writeFile(path, str) catch return false;
     return true;
 }
@@ -307,8 +329,18 @@ pub const FileEntry = struct {
     }
 };
 
+/// Appends bytes to a file. File is created if it doesn't exist.
 /// Path can be absolute or relative to the cwd.
-pub fn files_appendFile(path: []const u8, str: []const u8) bool {
+/// Returns true on success or false.
+pub fn files_appendFile(path: []const u8, arr: Uint8Array) bool {
+    stdx.fs.appendFile(path, arr.buf) catch return false;
+    return true;
+}
+
+/// Appends UTF-8 text to a file. File is created if it doesn't exist.
+/// Path can be absolute or relative to the cwd.
+/// Returns true on success or false.
+pub fn files_appendTextFile(path: []const u8, str: []const u8) bool {
     stdx.fs.appendFile(path, str) catch return false;
     return true;
 }
@@ -578,18 +610,16 @@ pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
 
 pub fn util_bufferToUtf8(buf: v8.Uint8Array) ?[]const u8 {
     var shared_ptr_store = v8.ArrayBufferView.castFrom(buf).getBuffer().getBackingStore();
-    const store = v8.BackingStore.sharedPtrGet(&shared_ptr_store);
-    v8.BackingStore.sharedPtrReset(&shared_ptr_store);
+    defer v8.BackingStore.sharedPtrReset(&shared_ptr_store);
 
+    const store = v8.BackingStore.sharedPtrGet(&shared_ptr_store);
     const len = store.getByteLength();
-    if (len == 0) {
-        return "";
-    } else {
+    if (len > 0) {
         const ptr = @ptrCast([*]u8, store.getData().?);
         if (std.unicode.utf8ValidateSlice(ptr[0..len])) {
             return ptr[0..len];
         } else return null;
-    }
+    } else return "";
 }
 
 /// Path can be absolute or relative to the current executing script.

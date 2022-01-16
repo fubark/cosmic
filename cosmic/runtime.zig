@@ -71,6 +71,7 @@ pub const RuntimeContext = struct {
     vec2_buf: std.ArrayList(Vec2),
 
     js_undefined: v8.Primitive,
+    js_null: v8.Primitive,
     js_false: v8.Boolean,
     js_true: v8.Boolean,
 
@@ -135,6 +136,7 @@ pub const RuntimeContext = struct {
 
             // Store locally for quick access.
             .js_undefined = iso.initUndefined(),
+            .js_null = iso.initNull(),
             .js_false = iso.initFalse(),
             .js_true = iso.initTrue(),
 
@@ -392,6 +394,12 @@ pub const RuntimeContext = struct {
         }
     }
 
+    pub fn getJsValue(self: Self, native_val: anytype) v8.Value {
+        return .{
+            .handle = self.getJsValuePtr(native_val),
+        };
+    }
+
     /// Returns raw value pointer so we don't need to convert back to a v8.Value.
     pub fn getJsValuePtr(self: Self, native_val: anytype) *const anyopaque {
         const Type = @TypeOf(native_val);
@@ -437,6 +445,19 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(@tagName(native_val.kind)));
                 return new.handle;
             },
+            Uint8Array => {
+                const store = v8.BackingStore.init(iso, native_val.buf.len);
+                if (store.getData()) |ptr| {
+                    const buf = @ptrCast([*]u8, ptr);
+                    std.mem.copy(u8, buf[0..native_val.buf.len], native_val.buf);
+                }
+                var shared = store.toSharedPtr();
+                defer v8.BackingStore.sharedPtrReset(&shared);
+
+                const array_buffer = v8.ArrayBuffer.initWithBackingStore(iso, &shared);
+                const js_uint8arr = v8.Uint8Array.init(array_buffer, 0, native_val.buf.len);
+                return js_uint8arr.handle;
+            },
             v8.Boolean => return native_val.handle,
             v8.Object => return native_val.handle,
             v8.Promise => return native_val.handle,
@@ -474,7 +495,7 @@ pub const RuntimeContext = struct {
                     if (native_val) |child_val| {
                         return self.getJsValuePtr(child_val);
                     } else {
-                        return @ptrCast(*const anyopaque, self.js_false.handle);
+                        return @ptrCast(*const anyopaque, self.js_null.handle);
                     }
                 } else if (@hasDecl(Type, "ManagedSlice")) {
                     return self.getJsValuePtr(native_val.slice);
@@ -539,6 +560,19 @@ pub const RuntimeContext = struct {
                         @intCast(u8, b),
                         @intCast(u8, a),
                     );
+                } else return null;
+            },
+            Uint8Array => {
+                if (val.isUint8Array()) {
+                    var shared_store = val.castTo(v8.ArrayBufferView).getBuffer().getBackingStore();
+                    defer v8.BackingStore.sharedPtrReset(&shared_store);
+
+                    const store = v8.BackingStore.sharedPtrGet(&shared_store);
+                    const len = store.getByteLength();
+                    if (len > 0) {
+                        const buf = @ptrCast([*]u8, store.getData().?);
+                        return Uint8Array{ .buf = buf[0..len] };
+                    } else return Uint8Array{ .buf = "" };
                 } else return null;
             },
             v8.Uint8Array => {
@@ -642,6 +676,15 @@ pub fn ManagedSlice(comptime T: type) type {
     };
 }
 
+/// To be converted to v8.Uint8Array.
+pub const Uint8Array =  struct {
+    buf: []const u8,
+
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.buf);
+    }
+};
+
 /// A struct that knows how to deinit itself.
 pub fn ManagedStruct(comptime T: type) type {
     return struct {
@@ -649,6 +692,10 @@ pub fn ManagedStruct(comptime T: type) type {
 
         alloc: std.mem.Allocator,
         val: T,
+
+        pub fn init(alloc: std.mem.Allocator, val: T) @This() {
+            return .{ .alloc = alloc, .val = val };
+        }
 
         pub fn deinit(self: @This()) void {
             self.val.deinit(self.alloc);

@@ -12,68 +12,90 @@ cs.test('cs.asserts', () => {
 })
 
 cs.test('cs.files.readFile', () => {
-    fs.writeFile('foo.txt', 'foo')
+    fs.writeFile('foo.dat', Uint8Array.from([1, 2, 3]))
     try {
-        eq(fs.readFile('foo.txt'), 'foo')
-        eq(fs.readFile('bar.txt'), false)
+        eq(fs.readFile('foo.dat'), Uint8Array.from([1, 2, 3]))
+        eq(fs.readFile('bar.dat'), null)
+    } finally {
+        fs.removeFile('foo.dat')
+    }
+})
+
+cs.test('cs.files.readTextFile', () => {
+    fs.writeTextFile('foo.txt', 'foo')
+    try {
+        eq(fs.readTextFile('foo.txt'), 'foo')
+        eq(fs.readTextFile('bar.txt'), null)
     } finally {
         fs.removeFile('foo.txt')
     }
 })
 
-cs.testIsolated('cs.files.readFileAsync', async () => {
-    fs.writeFile('foo.txt', 'foo')
+cs.testIsolated('cs.files.readTextFileAsync', async () => {
+    fs.writeTextFile('foo.txt', 'foo')
     try {
-        let content = await fs.readFileAsync('foo.txt')
+        let content = await fs.readTextFileAsync('foo.txt')
         eq(content, 'foo');
-        content = await fs.readFileAsync('bar.txt')
-        eq(content, false);
+        content = await fs.readTextFileAsync('bar.txt')
+        eq(content, null);
     } finally {
         fs.removeFile('foo.txt')
     }
 })
 
 cs.test('cs.files.writeFile', () => {
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+    eq(fs.writeFile('foo.dat', Uint8Array.from([1, 2, 3])), true)
     try {
-        eq(fs.readFile('foo.txt'), 'foo')
-        eq(fs.writeFile('foo.txt', 'bar'), true)
+        eq(fs.readFile('foo.dat'), Uint8Array.from([1, 2, 3]))
+        eq(fs.writeFile('foo.dat', Uint8Array.from([4, 5, 6, 7])), true)
         // File is overwritten.
-        eq(fs.readFile('foo.txt'), 'bar')
+        eq(fs.readFile('foo.dat'), Uint8Array.from([4, 5, 6, 7]))
     } finally {
-        fs.removeFile('foo.txt')
+        fs.removeFile('foo.dat')
     }
 })
 
-cs.testIsolated('cs.files.writeFileAsync', async () => {
-    eq(await fs.writeFileAsync('foo.txt', 'foo'), true);
+cs.test('cs.files.writeTextFile', () => {
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
-        eq(fs.readFile('foo.txt'), 'foo')
-        eq(await fs.writeFileAsync('foo.txt', 'bar'), true)
+        eq(fs.readTextFile('foo.txt'), 'foo')
+        eq(fs.writeTextFile('foo.txt', 'bar'), true)
         // File is overwritten.
-        eq(fs.readFile('foo.txt'), 'bar')
+        eq(fs.readTextFile('foo.txt'), 'bar')
     } finally {
         fs.removeFile('foo.txt')
     }
 })
 
-cs.test('cs.files.appendFile', () => {
-    eq(fs.appendFile('foo.txt', 'foo'), true)
+cs.testIsolated('cs.files.writeTextFileAsync', async () => {
+    eq(await fs.writeTextFileAsync('foo.txt', 'foo'), true);
     try {
-        eq(fs.readFile('foo.txt'), 'foo')
-        eq(fs.appendFile('foo.txt', 'bar'), true)
-        eq(fs.readFile('foo.txt'), 'foobar')
+        eq(fs.readTextFile('foo.txt'), 'foo')
+        eq(await fs.writeTextFileAsync('foo.txt', 'bar'), true)
+        // File is overwritten.
+        eq(fs.readTextFile('foo.txt'), 'bar')
     } finally {
         fs.removeFile('foo.txt')
     }
 })
 
-cs.testIsolated('cs.files.appendFileAsync', async () => {
-    eq(await fs.appendFileAsync('foo.txt', 'foo'), true)
+cs.test('cs.files.appendTextFile', () => {
+    eq(fs.appendTextFile('foo.txt', 'foo'), true)
     try {
-        eq(fs.readFile('foo.txt'), 'foo')
-        eq(await fs.appendFileAsync('foo.txt', 'bar'), true)
-        eq(fs.readFile('foo.txt'), 'foobar')
+        eq(fs.readTextFile('foo.txt'), 'foo')
+        eq(fs.appendTextFile('foo.txt', 'bar'), true)
+        eq(fs.readTextFile('foo.txt'), 'foobar')
+    } finally {
+        fs.removeFile('foo.txt')
+    }
+})
+
+cs.testIsolated('cs.files.appendTextFileAsync', async () => {
+    eq(await fs.appendTextFileAsync('foo.txt', 'foo'), true)
+    try {
+        eq(fs.readTextFile('foo.txt'), 'foo')
+        eq(await fs.appendTextFileAsync('foo.txt', 'bar'), true)
+        eq(fs.readTextFile('foo.txt'), 'foobar')
     } finally {
         fs.removeFile('foo.txt')
     }
@@ -81,13 +103,13 @@ cs.testIsolated('cs.files.appendFileAsync', async () => {
 
 cs.test('cs.files.removeFile', () => {
     eq(fs.removeFile('foo.txt'), false)
-    fs.writeFile('foo.txt', 'foo');
+    fs.writeTextFile('foo.txt', 'foo');
     eq(fs.removeFile('foo.txt'), true);
 })
 
 cs.testIsolated('cs.files.removeFileAsync', async () => {
     eq(await fs.removeFileAsync('foo.txt'), false)
-    fs.writeFile('foo.txt', 'foo');
+    fs.writeTextFile('foo.txt', 'foo');
     eq(await fs.removeFileAsync('foo.txt'), true);
 })
 
@@ -134,12 +156,12 @@ cs.test('cs.files.resolvePath', () => {
 })
 
 cs.test('cs.files.copyFile', () => {
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
-        eq(fs.readFile('bar.txt'), false)
+        eq(fs.readTextFile('bar.txt'), null)
         eq(fs.copyFile('foo.txt', 'bar.txt'), true)
-        eq(fs.readFile('bar.txt'), 'foo')
-        eq(fs.readFile('foo.txt'), 'foo')
+        eq(fs.readTextFile('bar.txt'), 'foo')
+        eq(fs.readTextFile('foo.txt'), 'foo')
     } finally {
         fs.removeFile('foo.txt')
         fs.removeFile('bar.txt')
@@ -147,12 +169,12 @@ cs.test('cs.files.copyFile', () => {
 })
 
 cs.testIsolated('cs.files.copyFileAsync', async () => {
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
-        eq(fs.readFile('bar.txt'), false)
+        eq(fs.readTextFile('bar.txt'), null)
         eq(await fs.copyFileAsync('foo.txt', 'bar.txt'), true)
-        eq(fs.readFile('bar.txt'), 'foo')
-        eq(fs.readFile('foo.txt'), 'foo')
+        eq(fs.readTextFile('bar.txt'), 'foo')
+        eq(fs.readTextFile('foo.txt'), 'foo')
     } finally {
         fs.removeFile('foo.txt')
         fs.removeFile('bar.txt')
@@ -160,25 +182,25 @@ cs.testIsolated('cs.files.copyFileAsync', async () => {
 })
 
 cs.test('cs.files.moveFile', () => {
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
-        eq(fs.readFile('bar.txt'), false)
+        eq(fs.readTextFile('bar.txt'), null)
         eq(fs.moveFile('foo.txt', 'bar.txt'), true)
-        eq(fs.readFile('bar.txt'), 'foo')
-        eq(fs.readFile('foo.txt'), false)
+        eq(fs.readTextFile('bar.txt'), 'foo')
+        eq(fs.readTextFile('foo.txt'), null)
     } finally {
         fs.removeFile('foo.txt')
         fs.removeFile('bar.txt')
     }
 })
 
-cs.testIsolated('cs.files.moveFile', async () => {
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+cs.testIsolated('cs.files.moveFileAsync', async () => {
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
-        eq(fs.readFile('bar.txt'), false)
+        eq(fs.readTextFile('bar.txt'), null)
         eq(await fs.moveFileAsync('foo.txt', 'bar.txt'), true)
-        eq(fs.readFile('bar.txt'), 'foo')
-        eq(fs.readFile('foo.txt'), false)
+        eq(fs.readTextFile('bar.txt'), 'foo')
+        eq(fs.readTextFile('foo.txt'), null)
     } finally {
         fs.removeFile('foo.txt')
         fs.removeFile('bar.txt')
@@ -190,8 +212,8 @@ cs.test('cs.files.cwd', () => {
 })
 
 cs.test('cs.files.getPathInfo', () => {
-    eq(fs.getPathInfo('foo.txt'), false)
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+    eq(fs.getPathInfo('foo.txt'), null)
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
         eq(fs.getPathInfo('foo.txt'), { kind: 'File' });
     } finally {
@@ -199,11 +221,11 @@ cs.test('cs.files.getPathInfo', () => {
     }
 })
 
-cs.testIsolated('cs.files.getPathInfo', async () => {
-    eq(await fs.getPathInfo('foo.txt'), false)
-    eq(fs.writeFile('foo.txt', 'foo'), true)
+cs.testIsolated('cs.files.getPathInfoAsync', async () => {
+    eq(await fs.getPathInfoAsync('foo.txt'), null)
+    eq(fs.writeTextFile('foo.txt', 'foo'), true)
     try {
-        eq(await fs.getPathInfo('foo.txt'), { kind: 'File' });
+        eq(await fs.getPathInfoAsync('foo.txt'), { kind: 'File' });
     } finally {
         fs.removeFile('foo.txt')
     }
@@ -211,10 +233,10 @@ cs.testIsolated('cs.files.getPathInfo', async () => {
 
 cs.test('cs.files.listDir', () => {
     eq(fs.pathExists('foo/bar'), false)
-    eq(fs.listDir('foo'), false)
+    eq(fs.listDir('foo'), null)
     eq(fs.ensurePath('foo/bar'), true)
     try {
-        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
+        eq(fs.writeTextFile('foo/foo.txt', 'foo'), true)
         eq(fs.listDir('foo'), [{ name: 'bar', kind: 'Directory' }, { name: 'foo.txt', kind: 'File' }]);
     } finally {
         fs.removeDir('foo', true)
@@ -223,10 +245,10 @@ cs.test('cs.files.listDir', () => {
 
 cs.testIsolated('cs.files.listDirAsync', async () => {
     eq(fs.pathExists('foo/bar'), false)
-    eq(await fs.listDir('foo'), false)
+    eq(await fs.listDir('foo'), null)
     eq(fs.ensurePath('foo/bar'), true)
     try {
-        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
+        eq(fs.writeTextFile('foo/foo.txt', 'foo'), true)
         eq(await fs.listDir('foo'), [{ name: 'bar', kind: 'Directory' }, { name: 'foo.txt', kind: 'File' }]);
     } finally {
         fs.removeDir('foo', true)
@@ -238,8 +260,8 @@ cs.test('cs.files.walkDir', () => {
     eq(fs.walkDir('foo').next().done, true)
     eq(fs.ensurePath('foo/bar'), true)
     try {
-        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
-        eq(fs.writeFile('foo/bar/bar.txt', 'bar'), true)
+        eq(fs.writeTextFile('foo/foo.txt', 'foo'), true)
+        eq(fs.writeTextFile('foo/bar/bar.txt', 'bar'), true)
         const paths = []
         for (const e of fs.walkDir('foo')) {
             paths.push(e.path)
@@ -259,8 +281,8 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
     eq((await fs.walkDirAsync('foo').next()).done, true)
     eq(fs.ensurePath('foo/bar'), true)
     try {
-        eq(fs.writeFile('foo/foo.txt', 'foo'), true)
-        eq(fs.writeFile('foo/bar/bar.txt', 'bar'), true)
+        eq(fs.writeTextFile('foo/foo.txt', 'foo'), true)
+        eq(fs.writeTextFile('foo/bar/bar.txt', 'bar'), true)
         const paths = []
         for await (const e of fs.walkDirAsync('foo')) {
             paths.push(e.path)
@@ -277,7 +299,7 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
 
 cs.test('cs.http.get', () => {
     let resp = cs.http.get('https://127.0.0.1')
-    eq(resp, false)
+    eq(resp, null)
 
     resp = cs.http.get('https://ziglang.org')
     contains(resp, 'Zig is a general-purpose programming language')

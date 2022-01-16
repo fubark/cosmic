@@ -2,7 +2,7 @@
 
     cs.files.walkDir = function* (path) {
         const entries = cs.files.listDir(path)
-        if (entries === false) {
+        if (entries === null) {
             return
         }
         for (const entry of cs.files.listDir(path)) {
@@ -18,7 +18,7 @@
 
     cs.files.walkDirAsync = async function* (path) {
         const entries = await cs.files.listDirAsync(path)
-        if (entries === false) {
+        if (entries === null) {
             return
         }
         for (const entry of entries) {
