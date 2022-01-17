@@ -7,6 +7,8 @@ const builtin = @import("builtin");
 const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
 
+const VersionName = "v0.1 Alpha";
+
 // During development you might want zls to see all the lib packages, remember to reset to false.
 const IncludeAllLibs = false;
 
@@ -27,6 +29,7 @@ pub fn build(b: *Builder) void {
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
+    build_options.addOption([]const u8, "VersionName", VersionName);
 
     const target = b.standardTargetOptions(.{});
 
@@ -69,23 +72,47 @@ pub fn build(b: *Builder) void {
     const build_wasm = ctx.createBuildWasmBundleStep();
     b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
 
-    var test_cosmic_js_ctx = BuilderContext{
-        .builder = b,
-        .enable_tracy = tracy,
-        .link_net = true,
-        .link_graphics = true,
-        .link_v8 = true,
-        .static_link = static_link,
-        .path = "cosmic/main.zig",
-        .filter = filter,
-        .mode = b.standardReleaseOptions(),
-        .target = target,
-        .build_options = build_options,
-    };
-    const test_cosmic_js = test_cosmic_js_ctx.createBuildExeStep().run();
-    test_cosmic_js.addArgs(&.{ "test", "test/js/test.js" });
-    // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
-    b.step("test-cosmic-js", "Test cosmic js").dependOn(&test_cosmic_js.step);
+    {
+        const _build_options = b.addOptions();
+        _build_options.addOption([]const u8, "VersionName", VersionName);
+        _build_options.addOption([]const u8, "BuildRoot", b.build_root);
+        var _ctx = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_v8 = true,
+            .static_link = static_link,
+            .path = "cosmic/doc_gen.zig",
+            .filter = filter,
+            .mode = b.standardReleaseOptions(),
+            .target = target,
+            .build_options = _build_options,
+        };
+        const step = _ctx.createBuildExeStep().run();
+        step.addArgs(args);
+        b.step("gen-docs", "Generate docs").dependOn(&step.step);
+    }
+
+    {
+        var _ctx = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_v8 = true,
+            .static_link = static_link,
+            .path = "cosmic/main.zig",
+            .filter = filter,
+            .mode = b.standardReleaseOptions(),
+            .target = target,
+            .build_options = build_options,
+        };
+        const step = _ctx.createBuildExeStep().run();
+        step.addArgs(&.{ "test", "test/js/test.js" });
+        // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+        b.step("test-cosmic-js", "Test cosmic js").dependOn(&step.step);
+    }
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestStep();
@@ -197,6 +224,7 @@ const BuilderContext = struct {
         const output_dir = self.fromRoot(output_dir_rel);
         step.setOutputDir(output_dir);
 
+        step.addPackage(build_options);
         addStdx(step, build_options);
         addGraphics(step);
         self.addDeps(step);

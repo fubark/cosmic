@@ -58,8 +58,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         inst.setInternalFieldCount(1);
 
         const proto = window_class.getPrototypeTemplate();
-        ctx.setFuncT(proto, "onDrawFrame", api.window_OnDrawFrame);
-        ctx.setFuncT(proto, "getGraphics", api.window_GetGraphics);
+        ctx.setFuncT(proto, "onDrawFrame", api.cs_window.onDrawFrame);
+        ctx.setFuncT(proto, "getGraphics", api.cs_window.getGraphics);
     }
     rt.window_class = window_class;
 
@@ -80,8 +80,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "translate", Graphics.translate);
         ctx.setConstFuncT(proto, "rotateDeg", Graphics.rotateDeg);
         ctx.setConstFuncT(proto, "resetTransform", Graphics.resetTransform);
-        ctx.setConstFuncT(proto, "newImage", api.graphics_NewImage);
-        ctx.setConstFuncT(proto, "addTtfFont", api.graphics_AddTtfFont);
+        ctx.setConstFuncT(proto, "newImage", api.cs_graphics.newImage);
+        ctx.setConstFuncT(proto, "addTtfFont", api.cs_graphics.addTtfFont);
         ctx.setConstFuncT(proto, "addFallbackFont", Graphics.addFallbackFont);
         ctx.setConstFuncT(proto, "setFont", Graphics.setFont);
         ctx.setConstFuncT(proto, "fillText", Graphics.fillText);
@@ -94,19 +94,19 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "drawEllipse", Graphics.drawEllipse);
         ctx.setConstFuncT(proto, "drawEllipseArcDeg", Graphics.drawEllipseArcDeg);
         ctx.setConstFuncT(proto, "fillTriangle", Graphics.fillTriangle);
-        ctx.setConstFuncT(proto, "fillConvexPolygon", api.graphics_FillConvexPolygon);
-        ctx.setConstFuncT(proto, "fillPolygon", api.graphics_FillPolygon);
-        ctx.setConstFuncT(proto, "drawPolygon", api.graphics_DrawPolygon);
+        ctx.setConstFuncT(proto, "fillConvexPolygon", api.cs_graphics.fillConvexPolygon);
+        ctx.setConstFuncT(proto, "fillPolygon", api.cs_graphics.fillPolygon);
+        ctx.setConstFuncT(proto, "drawPolygon", api.cs_graphics.drawPolygon);
         ctx.setConstFuncT(proto, "fillRoundRect", Graphics.fillRoundRect);
         ctx.setConstFuncT(proto, "drawRoundRect", Graphics.drawRoundRect);
         ctx.setConstFuncT(proto, "drawPoint", Graphics.drawPoint);
         ctx.setConstFuncT(proto, "drawLine", Graphics.drawLine);
-        ctx.setConstFuncT(proto, "drawSvgContent", api.graphics_DrawSvgContent);
-        ctx.setConstFuncT(proto, "compileSvgContent", api.graphics_CompileSvgContent);
-        ctx.setConstFuncT(proto, "executeDrawList", api.graphics_ExecuteDrawList);
+        ctx.setConstFuncT(proto, "drawSvgContent", api.cs_graphics.drawSvgContent);
+        ctx.setConstFuncT(proto, "compileSvgContent", api.cs_graphics.compileSvgContent);
+        ctx.setConstFuncT(proto, "executeDrawList", api.cs_graphics.executeDrawList);
         ctx.setConstFuncT(proto, "drawQuadraticBezierCurve", Graphics.drawQuadraticBezierCurve);
         ctx.setConstFuncT(proto, "drawCubicBezierCurve", Graphics.drawCubicBezierCurve);
-        ctx.setConstFuncT(proto, "drawImageSized", api.graphics_DrawImageSized);
+        ctx.setConstFuncT(proto, "drawImageSized", api.cs_graphics.drawImageSized);
     }
     rt.graphics_class = graphics_class;
 
@@ -181,60 +181,60 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const window_constructor = iso.initFunctionTemplateDefault();
     window_constructor.setClassName(iso.initStringUtf8("window"));
     const window = iso.initObjectTemplate(window_constructor);
-    ctx.setConstFuncT(window, "new", api.window_New);
+    ctx.setConstFuncT(window, "new", api.cs_window.new);
     ctx.setConstProp(cs, "window", window);
 
     // cs.files
     const files_constructor = iso.initFunctionTemplateDefault();
     files_constructor.setClassName(iso.initStringUtf8("files"));
     const files = iso.initObjectTemplate(files_constructor);
-    ctx.setConstFuncT(files, "readFile", api.files_readFile);
-    ctx.setConstFuncT(files, "readTextFile", api.files_readTextFile);
-    ctx.setConstFuncT(files, "writeFile", api.files_writeFile);
-    ctx.setConstFuncT(files, "writeTextFile", api.files_writeTextFile);
-    ctx.setConstFuncT(files, "appendFile", api.files_appendFile);
-    ctx.setConstFuncT(files, "appendTextFile", api.files_appendTextFile);
-    ctx.setConstFuncT(files, "removeFile", api.files_removeFile);
-    ctx.setConstFuncT(files, "ensurePath", api.files_ensurePath);
-    ctx.setConstFuncT(files, "pathExists", api.files_pathExists);
-    ctx.setConstFuncT(files, "removeDir", api.files_removeDir);
-    ctx.setConstFuncT(files, "resolvePath", api.files_resolvePath);
-    ctx.setConstFuncT(files, "copyFile", api.files_copyFile);
-    ctx.setConstFuncT(files, "moveFile", api.files_moveFile);
-    ctx.setConstFuncT(files, "cwd", api.files_cwd);
-    ctx.setConstFuncT(files, "getPathInfo", api.files_getPathInfo);
-    ctx.setConstFuncT(files, "listDir", api.files_listDir);
+    ctx.setConstFuncT(files, "readFile", api.cs_files.readFile);
+    ctx.setConstFuncT(files, "readTextFile", api.cs_files.readTextFile);
+    ctx.setConstFuncT(files, "writeFile", api.cs_files.writeFile);
+    ctx.setConstFuncT(files, "writeTextFile", api.cs_files.writeTextFile);
+    ctx.setConstFuncT(files, "appendFile", api.cs_files.appendFile);
+    ctx.setConstFuncT(files, "appendTextFile", api.cs_files.appendTextFile);
+    ctx.setConstFuncT(files, "removeFile", api.cs_files.removeFile);
+    ctx.setConstFuncT(files, "ensurePath", api.cs_files.ensurePath);
+    ctx.setConstFuncT(files, "pathExists", api.cs_files.pathExists);
+    ctx.setConstFuncT(files, "removeDir", api.cs_files.removeDir);
+    ctx.setConstFuncT(files, "resolvePath", api.cs_files.resolvePath);
+    ctx.setConstFuncT(files, "copyFile", api.cs_files.copyFile);
+    ctx.setConstFuncT(files, "moveFile", api.cs_files.moveFile);
+    ctx.setConstFuncT(files, "cwd", api.cs_files.cwd);
+    ctx.setConstFuncT(files, "getPathInfo", api.cs_files.getPathInfo);
+    ctx.setConstFuncT(files, "listDir", api.cs_files.listDir);
     // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
 
-    ctx.setConstAsyncFuncT(files, "readFileAsync", api.files_readFile);
-    ctx.setConstAsyncFuncT(files, "readTextFileAsync", api.files_readTextFile);
-    ctx.setConstAsyncFuncT(files, "writeFileAsync", api.files_writeFile);
-    ctx.setConstAsyncFuncT(files, "writeTextFileAsync", api.files_writeTextFile);
-    ctx.setConstAsyncFuncT(files, "appendFileAsync", api.files_appendFile);
-    ctx.setConstAsyncFuncT(files, "appendTextFileAsync", api.files_appendTextFile);
-    ctx.setConstAsyncFuncT(files, "removeFileAsync", api.files_removeFile);
-    ctx.setConstAsyncFuncT(files, "removeDirAsync", api.files_removeDir);
-    ctx.setConstAsyncFuncT(files, "ensurePathAsync", api.files_ensurePath);
-    ctx.setConstAsyncFuncT(files, "pathExistsAsync", api.files_pathExists);
-    ctx.setConstAsyncFuncT(files, "copyFileAsync", api.files_copyFile);
-    ctx.setConstAsyncFuncT(files, "moveFileAsync", api.files_moveFile);
-    ctx.setConstAsyncFuncT(files, "getPathInfoAsync", api.files_getPathInfo);
-    ctx.setConstAsyncFuncT(files, "listDirAsync", api.files_listDir);
+    ctx.setConstAsyncFuncT(files, "readFileAsync", api.cs_files.readFile);
+    ctx.setConstAsyncFuncT(files, "readTextFileAsync", api.cs_files.readTextFile);
+    ctx.setConstAsyncFuncT(files, "writeFileAsync", api.cs_files.writeFile);
+    ctx.setConstAsyncFuncT(files, "writeTextFileAsync", api.cs_files.writeTextFile);
+    ctx.setConstAsyncFuncT(files, "appendFileAsync", api.cs_files.appendFile);
+    ctx.setConstAsyncFuncT(files, "appendTextFileAsync", api.cs_files.appendTextFile);
+    ctx.setConstAsyncFuncT(files, "removeFileAsync", api.cs_files.removeFile);
+    ctx.setConstAsyncFuncT(files, "removeDirAsync", api.cs_files.removeDir);
+    ctx.setConstAsyncFuncT(files, "ensurePathAsync", api.cs_files.ensurePath);
+    ctx.setConstAsyncFuncT(files, "pathExistsAsync", api.cs_files.pathExists);
+    ctx.setConstAsyncFuncT(files, "copyFileAsync", api.cs_files.copyFile);
+    ctx.setConstAsyncFuncT(files, "moveFileAsync", api.cs_files.moveFile);
+    ctx.setConstAsyncFuncT(files, "getPathInfoAsync", api.cs_files.getPathInfo);
+    ctx.setConstAsyncFuncT(files, "listDirAsync", api.cs_files.listDir);
     // TODO: chmod op
 
     // cs.http
     const http_constructor = iso.initFunctionTemplateDefault();
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
-    ctx.setConstFuncT(http, "get", api.http_get);
-    ctx.setConstFuncT(http, "getAsync", api.http_getAsync);
-    ctx.setConstFuncT(http, "post", api.http_post);
-    ctx.setConstFuncT(http, "postAsync", api.http_postAsync);
-    ctx.setConstFuncT(http, "_request", api.http_request);
-    ctx.setConstFuncT(http, "_requestAsync", api.http_requestAsync);
-    ctx.setConstFuncT(http, "serveHttp", api.http_serveHttp);
-    ctx.setConstFuncT(http, "serveHttps", api.http_serveHttps);
+    ctx.setConstFuncT(http, "get", api.cs_http.get);
+    ctx.setConstFuncT(http, "getAsync", api.cs_http.getAsync);
+    ctx.setConstFuncT(http, "post", api.cs_http.post);
+    ctx.setConstFuncT(http, "postAsync", api.cs_http.postAsync);
+    ctx.setConstFuncT(http, "_request", api.cs_http.request);
+    ctx.setConstFuncT(http, "_requestAsync", api.cs_http.requestAsync);
+    ctx.setConstFuncT(http, "serveHttp", api.cs_http.serveHttp);
+    ctx.setConstFuncT(http, "serveHttps", api.cs_http.serveHttps);
     // cs.http.Response
     const response_class = v8.FunctionTemplate.initDefault(iso);
     response_class.setClassName(v8.String.initUtf8(iso, "Response"));
@@ -294,13 +294,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const cs_util = v8.ObjectTemplate.initDefault(iso);
 
     // cs.util.bufferToUtf8
-    ctx.setConstFuncT(cs_util, "bufferToUtf8", api.util_bufferToUtf8);
+    ctx.setConstFuncT(cs_util, "bufferToUtf8", api.cs_core.bufferToUtf8);
     ctx.setConstProp(cs, "util", cs_util);
 
     ctx.setConstProp(global, "cs", cs);
 
     const rt_data = iso.initExternal(rt);
-    ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.print, rt_data));
+    ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
 
     const res = iso.initContext(global, null);
 

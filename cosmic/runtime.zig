@@ -441,7 +441,7 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.channels.a));
                 return new.handle;
             },
-            api.PathInfo => {
+            api.cs_files.PathInfo => {
                 const new = self.default_obj_t.initInstance(ctx);
                 _ = new.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(@tagName(native_val.kind)));
                 return new.handle;
@@ -465,7 +465,7 @@ pub const RuntimeContext = struct {
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
             },
-            []const api.FileEntry => {
+            []const api.cs_files.FileEntry => {
                 const buf = self.alloc.alloc(v8.Value, native_val.len) catch unreachable;
                 defer self.alloc.free(buf);
                 for (native_val) |it, i| {
