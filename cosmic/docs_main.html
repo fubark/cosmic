@@ -1,0 +1,60 @@
+<a href="#" id="about"></a>
+<h3>Cosmic</h3>
+<p>
+    Cosmic is a simple Javascript and WASM runtime for developing Desktop, Gaming, Backend, and Web applications.
+    Our approach is to start with V8 (the fastest script engine) and design a rich API and tools around it.
+    To get a gauge of what Cosmic can do now, check out the docs for each API module as well as the <a href="#tools">Tools</a> section.
+</p>
+<h6>Web API</h6>
+<p>
+    Supporting the Javascript Web API is a non goal, but we do want to enable similar capabilities. For example, we have implemented "fetch"
+    as making http requests from the <a href="http.html">cs.http</a> module.
+    Once we have fleshed out more of the API, it shouldn't be hard for one to create a Web polyfill in pure JS. 
+</p>
+<h6>Conventions</h6>
+<p>
+    If you've come from Web or Node development you might be wondering how different it is to code in Cosmic:
+</p>
+<ul>
+    <li>
+        <b>Importing:</b> We want to support ES modules as the way to import code from local and the web. This is currently not implemented but it is a priority.
+        Support for node npm packages is a non goal and will only be considered depending on demand.
+    </li>
+    <li>
+        <b>Async:</b> All API functions that have an async alternative are synchronous by default.
+        For example, <a href="http.html#get">cs.http.get()</a> is synchronous and the async version will be <a href="http.html#getAsync">cs.http.getAsync()</a>.
+        Code having clear intentions is a goal for Cosmic.
+        One should feel that they can accomplish anything synchronously and only reach for async when they are ready to or planned to.
+    </li>
+    <li>
+        <b>Errors:</b> Synchronous functions will never throw an exception.
+        null will be returned instead and a follow up errCode() or errString() will get you info about the error.
+        Exceptions are evil and is an example of hidden control flow we wish to avoid in Cosmic.
+        Async promises will be rejected with the error info. errCode and errString are not currently implemented but they are priority features.
+    </li>
+</ul>
+<p>
+    We are aiming to make coding accessible, unrestrictive, productive, fast, and fun! Like what you see? Join our <a href="#community">community</a> and voice your opinions!
+</p>
+
+<h3></h3>
+<p></p>
+
+<a href="#" id="install"></a>
+<h3>Install</h3>
+<p>
+    Download links are served from the home page: <a href="https://cosmic-js.com">cosmic-js.com</a>.
+    One liner cli install commands will make it here eventually.
+</p>
+
+<a href="#" id="start"></a>
+<h3>Getting Started</h3>
+
+<a href="#" id="tools"></a>
+<h3>Tools</h3>
+
+<a href="#" id="community"></a>
+<h3>Community</h3>
+
+<a href="#" id="contribute"></a>
+<h3>Contributing</h3>

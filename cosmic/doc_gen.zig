@@ -412,9 +412,11 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
     ctx.write("</select>");
     {
         // General.
-        ctx.write("<section><div class=\"category secondary\">General</div><ul>");
-        ctx.write("<li><a href=\"/#start\">Getting Started</a></li>");
-        ctx.write("<li><a href=\"/#tools\">Tools</a></li>");
+        ctx.write("<section><ul>");
+        ctx.write("<li><a href=\"index.html#about\">About</a></li>");
+        ctx.write("<li><a href=\"index.html#start\">Getting Started</a></li>");
+        ctx.write("<li><a href=\"index.html#tools\">Tools</a></li>");
+        ctx.write("<li><a href=\"index.html#community\">Community</a></li>");
         ctx.write("</ul></section>");
 
         // Api.
@@ -435,13 +437,11 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         if (mb_mod_id) |mod_id| {
             const mod = api_model.get(mod_id).?;
             ctx.writeFmt(
-                \\<section id="{s}">
                 \\<mark class="ns">{s}</mark>
                 \\<h3>{s}</h3>
                 \\<p>{s}</p>
-                , .{ mod.name, mod.ns, mod.title, mod.desc }
+                , .{ mod.ns, mod.title, mod.desc }
             );
-            defer ctx.write("</section>");
 
             // List Functions
             for (mod.funcs) |func| {
@@ -477,6 +477,10 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             // TODO: List Types
         } else {
             // Render index.html
+            const content_path = fromBuildRoot(ctx.alloc, "cosmic/docs_main.html");
+            const content = try std.fs.cwd().readFileAlloc(ctx.alloc, content_path, 10e6);
+            defer ctx.alloc.free(content);
+            ctx.write(content);
         }
     }
     ctx.write(
