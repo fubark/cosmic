@@ -1,18 +1,23 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const ds = stdx.ds;
 const process = std.process;
 const build_options = @import("build_options");
+const graphics = @import("graphics");
+const v8 = @import("v8");
 
 const runtime = @import("runtime.zig");
 const printFmt = runtime.printFmt;
 const log = std.log.scoped(.doc_gen);
+const gen = @import("gen.zig");
 const api = @import("api.zig");
 
 const doc_versions: []const DocVersion = &.{
     DocVersion{ .name = build_options.VersionName, .url = "/docs" },
 };
 
-const modules: []const []const u8 = &.{
+const ModuleId = []const u8;
+const modules: []const ModuleId = &.{
     "cs_core",
     "cs_files",
     "cs_graphics",
@@ -47,10 +52,21 @@ pub fn main() !void {
         .alloc = alloc,
         .buf = std.ArrayList(u8).init(alloc),
     };
-    try genHtml(&ctx, api_model);
 
+    // Generate a page per module.
+    for (modules) |mod_id| {
+        const mod = api_model.get(mod_id).?;
+        try genHtml(&ctx, mod_id, api_model);
+
+        const page_file = try std.fmt.allocPrint(alloc, "{s}.html", .{ mod.name });
+        const page_path = try std.fs.path.join(alloc, &.{ docs_path, page_file });
+        try std.fs.cwd().writeFile(page_path, ctx.buf.toOwnedSlice());
+    }
+
+    // Generate the index page.
+    try genHtml(&ctx, null, api_model);
     const index_path = try std.fs.path.join(alloc, &.{ docs_path, "index.html" });
-    try std.fs.cwd().writeFile(index_path, ctx.buf.items);
+    try std.fs.cwd().writeFile(index_path, ctx.buf.toOwnedSlice());
 }
 
 fn fromPath(alloc: std.mem.Allocator, path: []const u8, rel_path: []const u8) []const u8 {
@@ -160,9 +176,88 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                     if (!found_ns) std.debug.panic("{s} is missing @ns", .{ident_str});
                     if (!found_name) std.debug.panic("{s} is missing @name", .{ident_str});
 
+                    var funcs = std.ArrayList(FunctionInfo).init(alloc);
+                    var types = std.ArrayList(TypeInfo).init(alloc);
+
+                    const container_node = tree.nodes.items(.data)[member].rhs;
+
                     // Parse functions and types.
+                    const Decls = std.meta.declarations(api);
+                    inline for (Decls) |Decl| {
+                        if (Decl.is_pub and Decl.data == .Type) {
+                            if (std.mem.eql(u8, Decl.name, ident_str)) {
+                                const ModuleDecls = std.meta.declarations(Decl.data.Type);
+                                inline for (ModuleDecls) |ModuleDecl| {
+                                    if (ModuleDecl.is_pub) {
+                                        if (ModuleDecl.data == .Fn) {
+                                            var func = FunctionInfo{
+                                                .desc = "",
+                                                .name = ModuleDecl.name,
+                                                .params = &.{},
+                                                .ret = undefined,
+                                            };
+                                            try extractFunctionMetadata(alloc, tree, container_node, &func);
 
+                                            // Extract params.
+                                            const ArgsTuple = std.meta.ArgsTuple(ModuleDecl.data.Fn.fn_type);
+                                            const ArgFields = std.meta.fields(ArgsTuple);
+                                            const FuncInfo = comptime gen.getJsFuncInfo(ArgFields);
 
+                                            var params = std.ArrayList(FunctionParamInfo).init(alloc);
+
+                                            // arg_names are currently empty.
+                                            // https://github.com/ziglang/zig/issues/8259
+
+                                            inline for (FuncInfo.func_arg_field_idxs) |Idx| {
+                                                const Field = ArgFields[Idx];
+                                                const BaseType = if (@typeInfo(Field.field_type) == .Optional) @typeInfo(Field.field_type).Optional.child else Field.field_type;
+                                                try params.append(.{
+                                                    .param_name = "",
+                                                    //.param_name = ModuleDecl.data.Fn.arg_names[Idx],
+                                                    .type_name = getJsTypeName(BaseType),
+                                                    .type_decl_mod = null,
+                                                    .optional = @typeInfo(Field.field_type) == .Optional,
+                                                });
+                                                // log.debug("{s}", .{@typeName(Field.field_type)});
+                                            }
+                                            func.params = params.toOwnedSlice();
+
+                                            // Extract return.
+                                            const ReturnType = ModuleDecl.data.Fn.return_type;
+                                            if (@typeInfo(ReturnType) == .Optional) {
+                                                const BaseType = @typeInfo(ReturnType).Optional.child;
+                                                func.ret = .{
+                                                    .type_name = if (BaseType == void) null else getJsTypeName(BaseType),
+                                                    .type_decl_mod = null,
+                                                    .can_be_null = true,
+                                                };
+                                            } else if (@typeInfo(ReturnType) == .ErrorUnion) {
+                                                const BaseType = @typeInfo(ReturnType).ErrorUnion.payload;
+                                                // We are moving away from exceptions so an error union can return null.
+                                                func.ret = .{
+                                                    .type_name = if (BaseType == void) null else getJsTypeName(BaseType),
+                                                    .type_decl_mod = null,
+                                                    .can_be_null = true,
+                                                };
+                                            } else {
+                                                func.ret = .{
+                                                    .type_name = if (ReturnType == void) null else getJsTypeName(ReturnType),
+                                                    .type_decl_mod = null,
+                                                    .can_be_null = false,
+                                                };
+                                            }
+                                            try funcs.append(func);
+                                        } else if (ModuleDecl.data == .Type) {
+                                            // Type
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    module.funcs = funcs.toOwnedSlice();
+                    module.types = types.toOwnedSlice();
 
                     try res.put(try alloc.dupe(u8, ident_str), module);
                 }
@@ -179,6 +274,104 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
     return res;
 }
 
+fn getJsTypeName(comptime T: type) []const u8 {
+    return switch (T) {
+        []const f32 => "Array",
+
+        v8.Uint8Array,
+        runtime.Uint8Array => "Uint8Array",
+        []const api.cs_files.FileEntry => "[]FileEntry",
+
+        ds.Box([]const u8),
+        []const u8 => "string",
+
+        bool => "boolean",
+
+        v8.Promise => "Promise",
+
+        f32,
+        u32,
+        u16 => "number",
+
+        *const anyopaque => "any",
+
+        *const v8.C_FunctionCallbackInfo => "...any",
+
+        v8.Persistent(v8.Object),
+        v8.Object => "object",
+
+        v8.Function => "function",
+
+        api.cs_http.RequestOptions => "RequestOptions",
+        stdx.http.Response => "Response",
+        api.cs_files.PathInfo => "PathInfo",
+        graphics.Image => "Image",
+
+        else => {
+            if (@typeInfo(T) == .Struct) {
+                if (@hasDecl(T, "ManagedStruct")) {
+                    return getJsTypeName(std.meta.fieldInfo(T, .val).field_type);
+                } else if (@hasDecl(T, "ManagedSlice")) {
+                    return getJsTypeName(std.meta.fieldInfo(T, .slice).field_type);
+                }
+            }
+            std.debug.panic("Can't convert to js type name: {s}", .{ @typeName(T) });
+        }
+    };
+}
+
+// Finds the function in the container ast and extracts metadata in comments.
+fn extractFunctionMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index, func: *FunctionInfo) !void {
+    if (tree.nodes.items(.tag)[container_node] == .container_decl) {
+        const container = tree.containerDecl(container_node);
+        for (container.ast.members) |member| {
+            if (tree.nodes.items(.tag)[member] == .fn_decl) {
+                // Filter by fn name.
+                const proto_id = tree.nodes.items(.data)[member].lhs;
+                if (tree.nodes.items(.tag)[proto_id] == .fn_proto_multi) {
+                    const fn_proto = tree.fnProtoMulti(proto_id);
+                    if (!std.mem.eql(u8, tree.tokenSlice(fn_proto.name_token.?), func.name)) {
+                        continue;
+                    }
+                } else if (tree.nodes.items(.tag)[proto_id] == .fn_proto_simple) {
+                    var buf: std.zig.Ast.Node.Index = undefined;
+                    const fn_proto = tree.fnProtoSimple(&buf, proto_id);
+                    if (!std.mem.eql(u8, tree.tokenSlice(fn_proto.name_token.?), func.name)) {
+                        continue;
+                    }
+                } else {
+                    log.debug("unsupported: {}", .{tree.nodes.items(.tag)[proto_id]});
+                    continue;
+                }
+
+                // Get desc.
+                var desc_buf = std.ArrayList(u8).init(alloc);
+
+                // Parse module metadata from doc comments.
+                var cur_tok = tree.firstToken(proto_id);
+                while (cur_tok > 0) {
+                    cur_tok -= 1;
+                    if (tree.tokens.items(.tag)[cur_tok] == .doc_comment) {
+                        const comment = tree.tokenSlice(cur_tok);
+                        // Accumulate desc.
+                        if (desc_buf.items.len > 0) {
+                            try desc_buf.insertSlice(0, " ");
+                        }
+                        try desc_buf.insertSlice(0, std.mem.trim(u8, comment[3..], " "));
+                    } else {
+                        break;
+                    }
+                }
+                func.desc = desc_buf.toOwnedSlice();
+                return;
+            }
+        }
+        std.debug.panic("metadata not found for: {s}", .{func.name});
+    } else {
+        log.debug("unsupported: {}", .{tree.nodes.items(.tag)[container_node]});
+    }
+}
+
 fn isModuleName(name: []const u8) bool {
     for (modules) |mod_name| {
         if (std.mem.eql(u8, mod_name, name)) {
@@ -188,7 +381,7 @@ fn isModuleName(name: []const u8) bool {
     return false;
 }
 
-fn genHtml(ctx: *Context, api_model: std.StringHashMap(Module)) !void {
+fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Module)) !void {
     // Head.
     ctx.writeFmt(
         \\<!DOCTYPE html>
@@ -201,18 +394,14 @@ fn genHtml(ctx: *Context, api_model: std.StringHashMap(Module)) !void {
         \\  <title>Cosmic Docs | {s}</title>
         \\</head>
         \\<body>
-        \\  <main class="container">
+        \\  <main class="container-fluid">
         , .{ build_options.VersionName }
     );
-    defer ctx.write(
-        \\  </main>
-        \\</body>
-        \\</html>
-    );
+    defer ctx.write("</body></html>");
 
     // Side nav.
     ctx.write(
-        \\<aside>
+        \\<aside><div>
         \\<h3><span class="primary">Cosmic</span> Docs</h3>
         \\<nav>
     );
@@ -224,44 +413,100 @@ fn genHtml(ctx: *Context, api_model: std.StringHashMap(Module)) !void {
     {
         // General.
         ctx.write("<section><div class=\"category secondary\">General</div><ul>");
-        ctx.write("<li><a href=\"#start\">Getting Started</a></li>");
-        ctx.write("<li><a href=\"#tools\">Tools</a></li>");
+        ctx.write("<li><a href=\"/#start\">Getting Started</a></li>");
+        ctx.write("<li><a href=\"/#tools\">Tools</a></li>");
         ctx.write("</ul></section>");
 
         // Api.
         ctx.write("<section><div class=\"category secondary\">API</div><ul>");
-        for (modules) |mod_name| {
-            const mod = api_model.get(mod_name).?;
-            _ = mod;
-
-            ctx.writeFmt("<li><a href=\"#{s}\">{s}</a></li>", .{mod.name, mod.ns});
+        for (modules) |mod_id| {
+            const mod = api_model.get(mod_id).?;
+            ctx.writeFmt("<li><a id=\"{s}\" href=\"{s}.html\">{s}</a></li>", .{mod.name, mod.name, mod.ns});
         }
         ctx.write("</ul></section>");
     }
-    ctx.write("</nav></aside>");
+    ctx.write("</nav></div></aside>");
 
     // Main.
     ctx.write(
         \\<div class="docs">
     );
     {
-        for (modules) |mod_name| {
-            const module = api_model.get(mod_name).?;
-            _ = module;
-
+        if (mb_mod_id) |mod_id| {
+            const mod = api_model.get(mod_id).?;
             ctx.writeFmt(
                 \\<section id="{s}">
                 \\<mark class="ns">{s}</mark>
                 \\<h3>{s}</h3>
                 \\<p>{s}</p>
-                \\</section>
-                , .{ module.name, module.ns, module.title, module.desc }
+                , .{ mod.name, mod.ns, mod.title, mod.desc }
             );
+            defer ctx.write("</section>");
+
+            // List Functions
+            for (mod.funcs) |func| {
+                ctx.writeFmt(
+                    \\<div>
+                    \\  <a id="{s}" href="#"><small>{s}</small>.{s}</a> <span class="params">(
+                    , .{ func.name, mod.ns, func.name }
+                );
+                // Params.
+                for (func.params) |param, i| {
+                    if (i > 0) {
+                        ctx.write(", ");
+                    }
+                    if (param.optional) {
+                        ctx.writeFmt("<span class=\"param\">{s} ?{s}</span>", .{param.param_name, param.type_name});
+                    } else {
+                        ctx.writeFmt("<span class=\"param\">{s} {s}</span>", .{param.param_name, param.type_name});
+                    }
+                }
+                ctx.write(" )</span>");
+
+                // Return.
+                ctx.writeFmt(" <span class=\"return\">{s}</span>", .{func.ret.type_name});
+
+                // Description.
+                ctx.writeFmt(
+                    \\</div>
+                    \\<p>{s}</p>
+                    , .{ func.desc }
+                );
+            }
+
+            // TODO: List Types
+        } else {
+            // Render index.html
         }
     }
     ctx.write(
         \\</div>
     );
+
+    // Right symbol nav.
+    if (mb_mod_id) |mod_id| {
+        const mod = api_model.get(mod_id).?;
+        ctx.write(
+            \\<aside class="symbols"><div>
+            \\<nav>
+        );
+        for (mod.funcs) |func| {
+            ctx.writeFmt("<li><a href=\"#{s}\">{s}()</a></li>", .{func.name, func.name});
+        }
+        ctx.write("</nav></div></aside>");
+    }
+
+    // Script
+    if (mb_mod_id) |mod_id| {
+        const mod = api_model.get(mod_id).?;
+        ctx.writeFmt(
+            \\ <script>
+            \\     document.getElementById('{s}').focus();
+            \\ </script>
+            , .{mod.name}
+        );
+    }
+    ctx.write("</main>");
 }
 
 fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
@@ -293,6 +538,20 @@ const TypeInfo = struct {
 const FunctionInfo = struct {
     desc: []const u8,
     name: []const u8,
-    args: []const []const u8,
-    ret: []const u8,
+    params: []const FunctionParamInfo,
+    ret: ReturnInfo,
+};
+
+const ReturnInfo = struct {
+    // Null type name indicates no return type or undefined.
+    type_name: ?[]const u8,
+    type_decl_mod: ?ModuleId,
+    can_be_null: bool,
+};
+
+const FunctionParamInfo = struct {
+    param_name: []const u8,
+    type_name: []const u8,
+    type_decl_mod: ?ModuleId,
+    optional: bool,
 };

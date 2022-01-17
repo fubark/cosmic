@@ -244,10 +244,12 @@ const JsFuncInfo = struct {
     data_field: ?std.builtin.TypeInfo.StructField,
     rt_ptr_field: ?std.builtin.TypeInfo.StructField,
     func_arg_fields: []const std.builtin.TypeInfo.StructField,
+    // For doc-gen, we use the index to get the arg variable name.
+    func_arg_field_idxs: []const u32,
     num_req_fields: u32,
 };
 
-fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) JsFuncInfo {
+pub fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) JsFuncInfo {
     var res: JsFuncInfo = undefined;
 
     // First This param will receive "this".
@@ -302,9 +304,9 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
 
     // Get required js func args.
     res.num_req_fields = 0;
-    res.func_arg_fields = b: {
-        var args: []const std.builtin.TypeInfo.StructField = &.{};
-        inline for (arg_fields) |field| {
+    res.func_arg_field_idxs = b: {
+        var idxs: []const u32 = &.{};
+        inline for (arg_fields) |field, i| {
             var is_func_arg = true;
             if (res.this_field) |this_field| {
                 if (std.mem.eql(u8, field.name, this_field.name)) {
@@ -332,11 +334,18 @@ fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructField) 
                 }
             }
             if (is_func_arg) {
-                args = args ++ &[_]std.builtin.TypeInfo.StructField{field};
+                idxs = idxs ++ &[_]u32{i};
                 if (@typeInfo(field.field_type) != .Optional) {
                     res.num_req_fields += 1;
                 }
             }
+        }
+        break :b idxs;
+    };
+    res.func_arg_fields = b: {
+        var args: []const std.builtin.TypeInfo.StructField = &.{};
+        inline for (res.func_arg_field_idxs) |idx| {
+            args = args ++ &[_]std.builtin.TypeInfo.StructField{arg_fields[idx]};
         }
         break :b args;
     };

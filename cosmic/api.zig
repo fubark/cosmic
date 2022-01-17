@@ -95,7 +95,7 @@ pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaq
 /// @title Graphics
 /// @name graphics
 /// @ns cs.graphics
-/// Provides a cross platform API to draw lines, shapes, text, images, and graphics onto a window or buffer.
+/// Provides a cross platform API to draw lines, shapes, text, images, and other graphics onto a window or buffer.
 /// By default, the coordinate system assumes the origin is at the top-left corner (0, 0). Positive x values go right and positive y values go down.
 /// In a future release, there will be a direct API to the OpenGL 3 context, and support for WebGPU to target modern graphics hardware.
 /// Currently, the API is focused on 2D graphics, but there are plans to add 3D graphics utilities.
@@ -542,7 +542,7 @@ pub const cs_http = struct {
         FormData,
     };
 
-    const RequestOptions = struct {
+    pub const RequestOptions = struct {
         method: RequestMethod = .Get,
         keepConnection: bool = false,
 
@@ -717,42 +717,42 @@ fn passAsyncTest(rt: *RuntimeContext) void {
     rt.num_tests_passed += 1;
 }
 
-/// This function sets up a async endpoint manually for future reference.
-/// We can also resuse the sync endpoint and run it on the worker thread with ctx.setConstAsyncFuncT.
-fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
-    const iso = rt.isolate;
+// This function sets up a async endpoint manually for future reference.
+// We can also resuse the sync endpoint and run it on the worker thread with ctx.setConstAsyncFuncT.
+// fn files_ReadFileAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+//     const iso = rt.isolate;
 
-    const task = tasks.ReadFileTask{
-        .alloc = rt.alloc,
-        .path = rt.alloc.dupe(u8, path) catch unreachable,
-    };
+//     const task = tasks.ReadFileTask{
+//         .alloc = rt.alloc,
+//         .path = rt.alloc.dupe(u8, path) catch unreachable,
+//     };
 
-    const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+//     const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
 
-    const promise = resolver.inner.getPromise();
-    const promise_id = rt.promises.add(resolver) catch unreachable;
+//     const promise = resolver.inner.getPromise();
+//     const promise_id = rt.promises.add(resolver) catch unreachable;
 
-    const S = struct {
-        fn onSuccess(ctx: RuntimeValue(PromiseId), _res: TaskOutput(tasks.ReadFileTask)) void {
-            const _promise_id = ctx.inner;
-            runtime.resolvePromise(ctx.rt, _promise_id, .{
-                .handle = ctx.rt.getJsValuePtr(_res),
-            });
-        }
+//     const S = struct {
+//         fn onSuccess(ctx: RuntimeValue(PromiseId), _res: TaskOutput(tasks.ReadFileTask)) void {
+//             const _promise_id = ctx.inner;
+//             runtime.resolvePromise(ctx.rt, _promise_id, .{
+//                 .handle = ctx.rt.getJsValuePtr(_res),
+//             });
+//         }
 
-        fn onFailure(ctx: RuntimeValue(PromiseId), _err: anyerror) void {
-            const _promise_id = ctx.inner;
-            runtime.rejectPromise(ctx.rt, _promise_id, .{
-                .handle = ctx.rt.getJsValuePtr(_err),
-            });
-        }
-    };
+//         fn onFailure(ctx: RuntimeValue(PromiseId), _err: anyerror) void {
+//             const _promise_id = ctx.inner;
+//             runtime.rejectPromise(ctx.rt, _promise_id, .{
+//                 .handle = ctx.rt.getJsValuePtr(_err),
+//             });
+//         }
+//     };
 
-    const task_ctx = RuntimeValue(PromiseId){
-        .rt = rt,
-        .inner = promise_id,
-    };
-    _ = rt.work_queue.addTaskWithCb(task, task_ctx, S.onSuccess, S.onFailure);
+//     const task_ctx = RuntimeValue(PromiseId){
+//         .rt = rt,
+//         .inner = promise_id,
+//     };
+//     _ = rt.work_queue.addTaskWithCb(task, task_ctx, S.onSuccess, S.onFailure);
 
-    return promise;
-}
+//     return promise;
+// }
