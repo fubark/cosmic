@@ -199,7 +199,8 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                                             var type_info = TypeInfo{
                                                 .name = ModuleDecl.name,
                                                 .desc = "",
-                                                .funcs = &.{},
+                                                .constants = &.{},
+                                                .methods = &.{},
                                             };
 
                                             const child = findContainerChild(tree, container_node, ModuleDecl.name);
@@ -211,19 +212,27 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
 
                                             // Type's Function declarations.
                                             const TypeDecls = std.meta.declarations(ModuleDecl.data.Type);
-                                            var type_funcs = std.ArrayList(FunctionInfo).init(alloc);
+                                            var methods = std.ArrayList(FunctionInfo).init(alloc);
+                                            var constants = std.ArrayList([]const u8).init(alloc);
                                             inline for (TypeDecls) |TypeDecl| {
                                                 if (TypeDecl.is_pub) {
                                                     if (TypeDecl.data == .Fn) {
-                                                        // Skip deinit function.
+                                                        // Assume method.
                                                         const mb_type_func = try parseFunctionInfo(TypeDecl, alloc, tree, type_container);
                                                         if (mb_type_func) |type_func| {
-                                                            try type_funcs.append(type_func);
+                                                            try methods.append(type_func);
+                                                        }
+                                                    } else if (TypeDecl.data == .Var) {
+                                                        // Constant.
+                                                        const mb_constant = try parseConstantInfo(TypeDecl, alloc, tree, type_container);
+                                                        if (mb_constant) |constant| {
+                                                            try constants.append(constant);
                                                         }
                                                     }
                                                 }
                                             }
-                                            type_info.funcs = type_funcs.toOwnedSlice();
+                                            type_info.methods = methods.toOwnedSlice();
+                                            type_info.constants = constants.toOwnedSlice();
                                             try types.append(type_info);
                                         }
                                     }
@@ -248,6 +257,14 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
         }
     }
     return res;
+}
+
+fn parseConstantInfo(comptime VarDecl: std.builtin.TypeInfo.Declaration, alloc: std.mem.Allocator, tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index) !?[]const u8 {
+    _ = alloc;
+    _ = tree;
+    _ = container_node;
+    // For now, just return the name.
+    return VarDecl.name;
 }
 
 // container_node is the parent container that declares the function.
@@ -346,6 +363,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
         api.cs_files.PathInfo => "PathInfo",
         graphics.Image => "Image",
         graphics.Color => "Color",
+        api.cs_graphics.Color => "Color",
 
         else => {
             if (@typeInfo(T) == .Struct) {
@@ -538,7 +556,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             for (mod.funcs) |func| {
                 ctx.writeFmt(
                     \\<div class="func">
-                    \\  <a id="{s}" href="#"><small>{s}</small>.{s}</a> <span class="params">(
+                    \\  <a id="{s}" href="#"><small class="secondary">{s}.</small>{s}</a> <span class="params">(
                     , .{ func.name, mod.ns, func.name }
                 );
                 // Params.
@@ -569,7 +587,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             for (mod.types) |info| {
                 ctx.writeFmt(
                     \\<div class="type">
-                    \\  <a id="{s}" href="#"><small>{s}</small>.{s}</a> <span class="params"> Type
+                    \\  <a id="{s}" href="#"><small class="secondary">{s}</small>.{s}</a> <span class="params"> Type
                     , .{ info.name, mod.ns, info.name }
                 );
 
@@ -580,11 +598,11 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                     , .{ info.desc }
                 );
 
-                // Instance funcs.
-                for (info.funcs) |func| {
+                // Instance methods.
+                for (info.methods) |func| {
                     ctx.writeFmt(
                         \\<div class="func">
-                        \\  <a id="{s}" href="#"><span class="secondary"><small>{s}.{s}</small></span><span class="method">{s}</span></a> <span class="params">(
+                        \\  <a id="{s}" href="#"><small class="secondary">{s}.{s}</small><span class="method">{s}</span></a> <span class="params">(
                         , .{ func.name, mod.ns, info.name, func.name }
                     );
                     // Params.
@@ -608,6 +626,21 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                         \\</div>
                         \\<p class="func-desc">{s}</p>
                         , .{ func.desc }
+                    );
+                }
+
+                // Constants.
+                for (info.constants) |constant| {
+                    ctx.writeFmt(
+                        \\<div class="constant">
+                        \\  <a id="{s}" href="#"><small class="secondary">{s}.</small>{s}.{s}</a>
+                        , .{ constant, mod.ns, info.name, constant}
+                    );
+
+                    ctx.writeFmt(
+                        \\</div>
+                        \\<p class="constant-desc">{s}</p>
+                        , .{ "" }
                     );
                 }
             }
@@ -635,8 +668,11 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         }
         for (mod.types) |info| {
             ctx.writeFmt("<li><a href=\"#{s}\">{s} Type</a></li>", .{info.name, info.name});
-            for (info.funcs) |func| {
+            for (info.methods) |func| {
                 ctx.writeFmt("<li class=\"indent\"><a href=\"#{s}\">{s}()</a></li>", .{func.name, func.name});
+            }
+            for (info.constants) |constant| {
+                ctx.writeFmt("<li><a href=\"#{s}\">{s}.{s}</a></li>", .{constant, info.name, constant});
             }
         }
         ctx.write("</ul></nav></div></aside>");
@@ -679,7 +715,8 @@ const Module = struct {
 const TypeInfo = struct {
     name: []const u8,
     desc: []const u8,
-    funcs: []const FunctionInfo,
+    constants: []const []const u8,
+    methods: []const FunctionInfo,
 };
 
 const FunctionInfo = struct {

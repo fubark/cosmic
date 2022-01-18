@@ -407,6 +407,7 @@ pub const RuntimeContext = struct {
         const iso = self.isolate;
         const ctx = self.context;
         switch (Type) {
+            u8 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
@@ -502,6 +503,14 @@ pub const RuntimeContext = struct {
                     return self.getJsValuePtr(native_val.slice);
                 } else if (@hasDecl(Type, "ManagedStruct")) {
                     return self.getJsValuePtr(native_val.val);
+                } else if (@typeInfo(Type) == .Struct) {
+                    // Generic struct to js object.
+                    const obj = iso.initObject();
+                    const Fields = std.meta.fields(Type);
+                    inline for (Fields) |Field| {
+                        _ = obj.setValue(ctx, iso.initStringUtf8(Field.name), self.getJsValue(@field(native_val, Field.name)));
+                    }
+                    return obj.handle;
                 } else {
                     comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
                 }
@@ -612,7 +621,10 @@ pub const RuntimeContext = struct {
                 if (@typeInfo(T) == .Struct) {
                     if (val.isObject()) {
                         const obj = val.castTo(v8.Object);
-                        var native_val = T{};
+                        var native_val: T = undefined;
+                        if (comptime hasAllOptionalFields(T)) {
+                            native_val = .{};
+                        }
                         const Fields = std.meta.fields(T);
                         inline for (Fields) |Field| {
                             if (@typeInfo(Field.field_type) == .Optional) {
@@ -649,6 +661,16 @@ pub const RuntimeContext = struct {
         }
     }
 };
+
+fn hasAllOptionalFields(comptime T: type) bool {
+    const Fields = comptime std.meta.fields(T);
+    inline for (Fields) |Field| {
+        if (Field.default_value == null) {
+            return false;
+        }
+    }
+    return true;
+}
 
 fn ctLower(comptime str: []const u8) []const u8 {
     return comptime blk :{

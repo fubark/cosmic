@@ -4,7 +4,7 @@ const graphics = @import("graphics");
 const FontId = graphics.font.FontId;
 const Graphics = graphics.Graphics;
 const Vec2 = stdx.math.Vec2;
-const Color = graphics.Color;
+const StdColor = graphics.Color;
 const ds = stdx.ds;
 const v8 = @import("v8");
 
@@ -77,20 +77,23 @@ pub const cs_window = struct {
     }
 };
 
-pub fn color_Lighter(rt: *RuntimeContext, this: v8.Object) Color {
-    return rt.getNativeValue(Color, this.toValue()).?.lighter();
+pub fn color_Lighter(rt: *RuntimeContext, this: v8.Object) cs_graphics.Color {
+    const color = rt.getNativeValue(cs_graphics.Color, this.toValue()).?;
+    return fromStdColor(toStdColor(color).lighter());
 }
 
-pub fn color_Darker(rt: *RuntimeContext, this: v8.Object) Color {
-    return rt.getNativeValue(Color, this.toValue()).?.darker();
+pub fn color_Darker(rt: *RuntimeContext, this: v8.Object) cs_graphics.Color {
+    const color = rt.getNativeValue(cs_graphics.Color, this.toValue()).?;
+    return fromStdColor(toStdColor(color).darker());
 }
 
-pub fn color_WithAlpha(rt: *RuntimeContext, this: v8.Object, a: u8) Color {
-    return rt.getNativeValue(Color, this.toValue()).?.withAlpha(a);
+pub fn color_WithAlpha(rt: *RuntimeContext, this: v8.Object, a: u8) cs_graphics.Color {
+    const color = rt.getNativeValue(cs_graphics.Color, this.toValue()).?;
+    return fromStdColor(toStdColor(color).withAlpha(a));
 }
 
 pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaque {
-    return rt.getJsValuePtr(Color.init(r, g, b, a));
+    return rt.getJsValuePtr(cs_graphics.Color{ .r = r, .g = g, .b = b, .a = a });
 }
 
 /// @title Graphics
@@ -102,26 +105,60 @@ pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaq
 /// Currently, the API is focused on 2D graphics, but there are plans to add 3D graphics utilities.
 pub const cs_graphics = struct {
 
+    pub const Color = struct {
+
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+
+        pub const lightGray = fromStdColor(StdColor.LightGray);
+        pub const gray = fromStdColor(StdColor.Gray);
+        pub const darkGray = fromStdColor(StdColor.DarkGray);
+        pub const yellow = fromStdColor(StdColor.Yellow);
+        pub const gold = fromStdColor(StdColor.Gold);
+        pub const orange = fromStdColor(StdColor.Orange);
+        pub const pink = fromStdColor(StdColor.Pink);
+        pub const red = fromStdColor(StdColor.Red);
+        pub const maroon = fromStdColor(StdColor.Maroon);
+        pub const green = fromStdColor(StdColor.Green);
+        pub const lime = fromStdColor(StdColor.Lime);
+        pub const darkGreen = fromStdColor(StdColor.DarkGreen);
+        pub const skyBlue = fromStdColor(StdColor.SkyBlue);
+        pub const blue = fromStdColor(StdColor.Blue);
+        pub const darkBlue = fromStdColor(StdColor.DarkBlue);
+        pub const purple = fromStdColor(StdColor.Purple);
+        pub const violet = fromStdColor(StdColor.Violet);
+        pub const darkPurple = fromStdColor(StdColor.DarkPurple);
+        pub const beige = fromStdColor(StdColor.Beige);
+        pub const brown = fromStdColor(StdColor.Brown);
+        pub const darkBrown = fromStdColor(StdColor.DarkBrown);
+        pub const white = fromStdColor(StdColor.White);
+        pub const black = fromStdColor(StdColor.Black);
+        pub const transparent = fromStdColor(StdColor.Transparent);
+        pub const magenta = fromStdColor(StdColor.Magenta);
+    };
+
     /// This provides an interface to the underlying graphics handle. It has a similar API to Web Canvas.
     pub const Context = struct {
 
         pub inline fn fillColor(self: *Graphics) Color {
-            return self.getFillColor();
+            return fromStdColor(self.getFillColor());
         }
 
         pub inline fn setFillColor(self: *Graphics, color: Color) void {
-            return self.setFillColor(color);
+            return self.setFillColor(toStdColor(color));
         }
 
         pub inline fn strokeColor(self: *Graphics) Color {
-            return self.getStrokeColor();
+            return fromStdColor(self.getStrokeColor());
         }
 
         pub inline fn setStrokeColor(self: *Graphics, color: Color) void {
-            return self.setStrokeColor(color);
+            return self.setStrokeColor(toStdColor(color));
         }
 
-        pub inline fn getLineWidth(self: *Graphics) f32 {
+        pub inline fn lineWidth(self: *Graphics) f32 {
             return self.getLineWidth();
         }
 
@@ -909,3 +946,11 @@ fn passAsyncTest(rt: *RuntimeContext) void {
 
 //     return promise;
 // }
+
+fn fromStdColor(color: StdColor) cs_graphics.Color {
+    return .{ .r = color.channels.r, .g = color.channels.g, .b = color.channels.b, .a = color.channels.a };
+}
+
+fn toStdColor(color: cs_graphics.Color) StdColor {
+    return .{ .channels = .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a } };
+}

@@ -5,11 +5,16 @@
     Our approach is to start with V8 (the fastest script engine) and design a rich API and tools around it.
     To get a gauge of what Cosmic can do now, check out the docs for each API module as well as the <a href="#tools">Tools</a> section.
 </p>
-<h6>Web API</h6>
+<h6>Native API</h6>
 <p>
-    Supporting the Javascript Web API is a non goal, but we do want to enable similar capabilities. For example, we have implemented "fetch"
+    One of the goals of Cosmic is to provide a cross platform Js/Wasm API to do all the neat things your computer can do.
+    This means having a window API, a 2D/3D graphics API, a multimedia API, a networking API, a file system API, and more.
+    On top of these basic layers, Cosmic will also provide higher level constructs like a UI framework, an animation API, and more.
+</p>
+<p>
+    Supporting the Web/Node API is a non goal, but we do want to enable similar capabilities. For example, we have implemented "fetch"
     as making http requests from the <a href="http.html">cs.http</a> module.
-    Once we have fleshed out more of the API, it shouldn't be hard for one to create a Web polyfill in pure JS. 
+    Once the Cosmic API is fleshed out more, it shouldn't be hard for one to create a Web polyfill in pure JS. 
 </p>
 <h6>Conventions</h6>
 <p>

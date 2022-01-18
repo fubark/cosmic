@@ -3,7 +3,7 @@ const stdx = @import("stdx");
 const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
-const Color = graphics.Color;
+const StdColor = graphics.Color;
 const ds = stdx.ds;
 const v8 = @import("v8");
 
@@ -152,32 +152,34 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setProp(instance, "b", undef_u32);
     ctx.setProp(instance, "a", undef_u32);
     ctx.setFuncT(color_class, "new", api.color_New);
+
+    const Color = api.cs_graphics.Color;
     const colors = &[_]std.meta.Tuple(&.{ []const u8, Color }){
-        .{ "LightGray", Color.LightGray },
-        .{ "Gray", Color.Gray },
-        .{ "DarkGray", Color.DarkGray },
-        .{ "Yellow", Color.Yellow },
-        .{ "Gold", Color.Gold },
-        .{ "Orange", Color.Orange },
-        .{ "Pink", Color.Pink },
-        .{ "Red", Color.Red },
-        .{ "Maroon", Color.Maroon },
-        .{ "Green", Color.Green },
-        .{ "Lime", Color.Lime },
-        .{ "DarkGreen", Color.DarkGreen },
-        .{ "SkyBlue", Color.SkyBlue },
-        .{ "Blue", Color.Blue },
-        .{ "DarkBlue", Color.DarkBlue },
-        .{ "Purple", Color.Purple },
-        .{ "Violet", Color.Violet },
-        .{ "DarkPurple", Color.DarkPurple },
-        .{ "Beige", Color.Beige },
-        .{ "Brown", Color.Brown },
-        .{ "DarkBrown", Color.DarkBrown },
-        .{ "White", Color.White },
-        .{ "Black", Color.Black },
-        .{ "Transparent", Color.Transparent },
-        .{ "Magenta", Color.Magenta },
+        .{ "lightGray", Color.lightGray },
+        .{ "gray", Color.gray },
+        .{ "darkGray", Color.darkGray },
+        .{ "yellow", Color.yellow },
+        .{ "gold", Color.gold },
+        .{ "orange", Color.orange },
+        .{ "pink", Color.pink },
+        .{ "red", Color.red },
+        .{ "maroon", Color.maroon },
+        .{ "green", Color.green },
+        .{ "lime", Color.lime },
+        .{ "darkGreen", Color.darkGreen },
+        .{ "skyBlue", Color.skyBlue },
+        .{ "blue", Color.blue },
+        .{ "darkBlue", Color.darkBlue },
+        .{ "purple", Color.purple },
+        .{ "violet", Color.violet },
+        .{ "darkPurple", Color.darkPurple },
+        .{ "beige", Color.beige },
+        .{ "brown", Color.brown },
+        .{ "darkBrown", Color.darkBrown },
+        .{ "white", Color.white },
+        .{ "black", Color.black },
+        .{ "transparent", Color.transparent },
+        .{ "magenta", Color.magenta },
     };
     inline for (colors) |it| {
         ctx.setFuncGetter(color_class, it.@"0", it.@"1");
