@@ -105,40 +105,6 @@ pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaq
 /// Currently, the API is focused on 2D graphics, but there are plans to add 3D graphics utilities.
 pub const cs_graphics = struct {
 
-    pub const Color = struct {
-
-        r: u8,
-        g: u8,
-        b: u8,
-        a: u8,
-
-        pub const lightGray = fromStdColor(StdColor.LightGray);
-        pub const gray = fromStdColor(StdColor.Gray);
-        pub const darkGray = fromStdColor(StdColor.DarkGray);
-        pub const yellow = fromStdColor(StdColor.Yellow);
-        pub const gold = fromStdColor(StdColor.Gold);
-        pub const orange = fromStdColor(StdColor.Orange);
-        pub const pink = fromStdColor(StdColor.Pink);
-        pub const red = fromStdColor(StdColor.Red);
-        pub const maroon = fromStdColor(StdColor.Maroon);
-        pub const green = fromStdColor(StdColor.Green);
-        pub const lime = fromStdColor(StdColor.Lime);
-        pub const darkGreen = fromStdColor(StdColor.DarkGreen);
-        pub const skyBlue = fromStdColor(StdColor.SkyBlue);
-        pub const blue = fromStdColor(StdColor.Blue);
-        pub const darkBlue = fromStdColor(StdColor.DarkBlue);
-        pub const purple = fromStdColor(StdColor.Purple);
-        pub const violet = fromStdColor(StdColor.Violet);
-        pub const darkPurple = fromStdColor(StdColor.DarkPurple);
-        pub const beige = fromStdColor(StdColor.Beige);
-        pub const brown = fromStdColor(StdColor.Brown);
-        pub const darkBrown = fromStdColor(StdColor.DarkBrown);
-        pub const white = fromStdColor(StdColor.White);
-        pub const black = fromStdColor(StdColor.Black);
-        pub const transparent = fromStdColor(StdColor.Transparent);
-        pub const magenta = fromStdColor(StdColor.Magenta);
-    };
-
     /// This provides an interface to the underlying graphics handle. It has a similar API to Web Canvas.
     pub const Context = struct {
 
@@ -397,6 +363,41 @@ pub const cs_graphics = struct {
             g.fillConvexPolygon(rt.vec2_buf.items);
         }
     };
+
+    pub const Color = struct {
+
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+
+        pub const lightGray = fromStdColor(StdColor.LightGray);
+        pub const gray = fromStdColor(StdColor.Gray);
+        pub const darkGray = fromStdColor(StdColor.DarkGray);
+        pub const yellow = fromStdColor(StdColor.Yellow);
+        pub const gold = fromStdColor(StdColor.Gold);
+        pub const orange = fromStdColor(StdColor.Orange);
+        pub const pink = fromStdColor(StdColor.Pink);
+        pub const red = fromStdColor(StdColor.Red);
+        pub const maroon = fromStdColor(StdColor.Maroon);
+        pub const green = fromStdColor(StdColor.Green);
+        pub const lime = fromStdColor(StdColor.Lime);
+        pub const darkGreen = fromStdColor(StdColor.DarkGreen);
+        pub const skyBlue = fromStdColor(StdColor.SkyBlue);
+        pub const blue = fromStdColor(StdColor.Blue);
+        pub const darkBlue = fromStdColor(StdColor.DarkBlue);
+        pub const purple = fromStdColor(StdColor.Purple);
+        pub const violet = fromStdColor(StdColor.Violet);
+        pub const darkPurple = fromStdColor(StdColor.DarkPurple);
+        pub const beige = fromStdColor(StdColor.Beige);
+        pub const brown = fromStdColor(StdColor.Brown);
+        pub const darkBrown = fromStdColor(StdColor.DarkBrown);
+        pub const white = fromStdColor(StdColor.White);
+        pub const black = fromStdColor(StdColor.Black);
+        pub const transparent = fromStdColor(StdColor.Transparent);
+        pub const magenta = fromStdColor(StdColor.Magenta);
+    };
+
 };
 
 /// @title File System
@@ -407,7 +408,7 @@ pub const cs_files = struct {
 
     /// Path can be absolute or relative to the cwd.
     /// Returns the contents on success or null.
-    pub fn readFile(rt: *RuntimeContext, path: []const u8) ?ManagedStruct(Uint8Array) {
+    pub fn read(rt: *RuntimeContext, path: []const u8) ?ManagedStruct(Uint8Array) {
         const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
             // Whitelist errors to silence.
             error.FileNotFound => return null,
@@ -416,9 +417,14 @@ pub const cs_files = struct {
         return ManagedStruct(Uint8Array).init(rt.alloc, Uint8Array{ .buf = res });
     }
 
+    pub fn readAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, read, .{ rt, path });
+        return runtime.invokeFuncAsync(rt, read, args);
+    }
+
     /// Path can be absolute or relative to the cwd.
     /// Returns the contents as utf8 on success or null.
-    pub fn readTextFile(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
+    pub fn readText(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
         const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
             // Whitelist errors to silence.
             error.FileNotFound => return null,
@@ -427,32 +433,57 @@ pub const cs_files = struct {
         return ds.Box([]const u8).init(rt.alloc, res);
     }
 
+    pub fn readTextAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, readText, .{ rt, path });
+        return runtime.invokeFuncAsync(rt, readText, args);
+    }
+
     /// Writes bytes to a file.
     /// Path can be absolute or relative to the cwd.
     /// Returns true on success or false.
-    pub fn writeFile(path: []const u8, arr: Uint8Array) bool {
+    pub fn write(path: []const u8, arr: Uint8Array) bool {
         std.fs.cwd().writeFile(path, arr.buf) catch return false;
         return true;
+    }
+
+    pub fn writeAsync(rt: *RuntimeContext, path: []const u8, arr: Uint8Array) v8.Promise {
+        const args = dupeArgs(rt.alloc, write, .{ path, arr });
+        return runtime.invokeFuncAsync(rt, write, args);
     }
 
     /// Writes UTF8 text to a file.
     /// Path can be absolute or relative to the cwd.
     /// Returns true on success or false.
-    pub fn writeTextFile(path: []const u8, str: []const u8) bool {
+    pub fn writeText(path: []const u8, str: []const u8) bool {
         std.fs.cwd().writeFile(path, str) catch return false;
         return true;
     }
 
+    pub fn writeTextAsync(rt: *RuntimeContext, path: []const u8, str: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, writeText, .{ path, str });
+        return runtime.invokeFuncAsync(rt, writeText, args);
+    }
+
     /// Path can be absolute or relative to the cwd.
-    pub fn copyFile(from: []const u8, to: []const u8) bool {
+    pub fn copy(from: []const u8, to: []const u8) bool {
         std.fs.cwd().copyFile(from, std.fs.cwd(), to, .{}) catch return false;
         return true;
     }
 
+    pub fn copyAsync(rt: *RuntimeContext, from: []const u8, to: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, copy, .{ from, to });
+        return runtime.invokeFuncAsync(rt, copy, args);
+    }
+
     /// Path can be absolute or relative to the cwd.
-    pub fn moveFile(from: []const u8, to: []const u8) bool {
+    pub fn move(from: []const u8, to: []const u8) bool {
         std.fs.cwd().rename(from, to) catch return false;
         return true;
+    }
+
+    pub fn moveAsync(rt: *RuntimeContext, from: []const u8, to: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, move, .{ from, to });
+        return runtime.invokeFuncAsync(rt, move, args);
     }
 
     /// Returns the absolute path of the current working directory.
@@ -467,6 +498,11 @@ pub const cs_files = struct {
         return PathInfo{
             .kind = stat.kind,
         };
+    }
+
+    pub fn getPathInfoAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, getPathInfo, .{ path });
+        return runtime.invokeFuncAsync(rt, getPathInfo, args);
     }
 
     pub const PathInfo = struct {
@@ -491,6 +527,11 @@ pub const cs_files = struct {
         };
     }
 
+    pub fn listDirAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, listDir, .{ rt, path });
+        return runtime.invokeFuncAsync(rt, listDir, args);
+    }
+
     pub const FileEntry = struct {
         name: []const u8,
 
@@ -506,17 +547,27 @@ pub const cs_files = struct {
     /// Appends bytes to a file. File is created if it doesn't exist.
     /// Path can be absolute or relative to the cwd.
     /// Returns true on success or false.
-    pub fn appendFile(path: []const u8, arr: Uint8Array) bool {
+    pub fn append(path: []const u8, arr: Uint8Array) bool {
         stdx.fs.appendFile(path, arr.buf) catch return false;
         return true;
+    }
+
+    pub fn appendAsync(rt: *RuntimeContext, from: []const u8, arr: Uint8Array) v8.Promise {
+        const args = dupeArgs(rt.alloc, append, .{ from, arr });
+        return runtime.invokeFuncAsync(rt, append, args);
     }
 
     /// Appends UTF-8 text to a file. File is created if it doesn't exist.
     /// Path can be absolute or relative to the cwd.
     /// Returns true on success or false.
-    pub fn appendTextFile(path: []const u8, str: []const u8) bool {
+    pub fn appendText(path: []const u8, str: []const u8) bool {
         stdx.fs.appendFile(path, str) catch return false;
         return true;
+    }
+
+    pub fn appendTextAsync(rt: *RuntimeContext, from: []const u8, str: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, appendText, .{ from, str });
+        return runtime.invokeFuncAsync(rt, appendText, args);
     }
 
     /// Path can be absolute or relative to the cwd.
@@ -530,6 +581,11 @@ pub const cs_files = struct {
         return true;
     }
 
+    pub fn ensurePathAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, ensurePath, .{ rt, path });
+        return runtime.invokeFuncAsync(rt, ensurePath, args);
+    }
+
     /// Path can be absolute or relative to the cwd.
     pub fn pathExists(rt: *RuntimeContext, path: []const u8) bool {
         return stdx.fs.pathExists(path) catch |err| {
@@ -538,10 +594,20 @@ pub const cs_files = struct {
         };
     }
 
+    pub fn pathExistsAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, pathExists, .{ rt, path });
+        return runtime.invokeFuncAsync(rt, pathExists, args);
+    }
+
     /// Path can be absolute or relative to the cwd.
-    pub fn removeFile(path: []const u8) bool {
+    pub fn remove(path: []const u8) bool {
         std.fs.cwd().deleteFile(path) catch return false;
         return true;
+    }
+
+    pub fn removeAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, remove, .{ path });
+        return runtime.invokeFuncAsync(rt, remove, args);
     }
 
     /// Path can be absolute or relative to the cwd.
@@ -552,6 +618,11 @@ pub const cs_files = struct {
             std.fs.cwd().deleteDir(path) catch return false;
         }
         return true;
+    }
+
+    pub fn removeDirAsync(rt: *RuntimeContext, path: []const u8, recursive: bool) v8.Promise {
+        const args = dupeArgs(rt.alloc, removeDir, .{ path, recursive });
+        return runtime.invokeFuncAsync(rt, removeDir, args);
     }
 
     /// Resolves '..' in paths and returns an absolute path.
@@ -953,4 +1024,19 @@ fn fromStdColor(color: StdColor) cs_graphics.Color {
 
 fn toStdColor(color: cs_graphics.Color) StdColor {
     return .{ .channels = .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a } };
+}
+
+fn dupeArgs(alloc: std.mem.Allocator, comptime Func: anytype, args: anytype) std.meta.ArgsTuple(@TypeOf(Func)) {
+    const ArgsTuple = std.meta.ArgsTuple(@TypeOf(Func));
+    const Fields = std.meta.fields(ArgsTuple);
+    const InputFields = std.meta.fields(@TypeOf(args));
+    var res: ArgsTuple = undefined;
+    inline for (Fields) |Field, I| {
+        if (Field.field_type == []const u8) {
+            @field(res, Field.name) = alloc.dupe(u8, @field(args, InputFields[I].name)) catch unreachable;
+        } else {
+            @field(res, Field.name) = @field(args, InputFields[I].name);
+        }
+    }
+    return res;
 }

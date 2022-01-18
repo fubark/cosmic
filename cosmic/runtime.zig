@@ -16,6 +16,8 @@ const api = @import("api.zig");
 const gen = @import("gen.zig");
 
 const work_queue = @import("work_queue.zig");
+const TaskOutput = work_queue.TaskOutput;
+const tasks = @import("tasks.zig");
 const WorkQueue = work_queue.WorkQueue;
 const UvPoller = @import("uv_poller.zig").UvPoller;
 const HttpServer = @import("server.zig").HttpServer;
@@ -1451,3 +1453,34 @@ fn passIsolatedTest(rt: *RuntimeContext) void {
 const Promise = struct {
     task_id: u32,
 };
+
+pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) v8.Promise {
+    const ClosureTask = tasks.ClosureTask(func);
+    const task = ClosureTask{
+        .alloc = rt.alloc,
+        .args = args,
+    };
+
+    const iso = rt.isolate;
+    const ctx = rt.context;
+    const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(ctx));
+    const promise = resolver.inner.getPromise();
+    const promise_id = rt.promises.add(resolver) catch unreachable;
+    const S = struct {
+        fn onSuccess(_ctx: RuntimeValue(PromiseId), _res: TaskOutput(ClosureTask)) void {
+            const _promise_id = _ctx.inner;
+            resolvePromise(_ctx.rt, _promise_id, _res);
+        }
+        fn onFailure(_ctx: RuntimeValue(PromiseId), _err: anyerror) void {
+            const _promise_id = _ctx.inner;
+            rejectPromise(_ctx.rt, _promise_id, _err);
+        }
+    };
+    const task_ctx = RuntimeValue(PromiseId){
+        .rt = rt,
+        .inner = promise_id,
+    };
+    _ = rt.work_queue.addTaskWithCb(task, task_ctx, S.onSuccess, S.onFailure);
+
+    return promise;
+}

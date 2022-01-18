@@ -232,6 +232,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
 const GenJsFuncOptions = struct {
     // Indicates that the native function is synchronous by nature but we want it async by executing it on a worker thread.
     // User must make sure the native function is thread-safe.
+    // Deprecated. Prefer binding to an explicit function and then calling runtime.invokeFuncAsync.
     asyncify: bool,
 
     is_data_rt: bool,
