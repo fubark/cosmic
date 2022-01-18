@@ -71,42 +71,59 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         inst.setInternalFieldCount(1);
 
         const proto = graphics_class.getPrototypeTemplate();
-        ctx.setAccessor(proto, "fillColor", Graphics.getFillColor, Graphics.setFillColor);
-        ctx.setAccessor(proto, "strokeColor", Graphics.getStrokeColor, Graphics.setStrokeColor);
-        ctx.setAccessor(proto, "lineWidth", Graphics.getLineWidth, Graphics.setLineWidth);
+        
+        // NOTE: Accessors are callbacks anyway so it's probably not that much faster than a function call.
+        // Although, I have not explored if there exists a native binding to some memory location.
+        // For now, eep things consistent and use functions for fillColor/strokeColor/lineWidth. One less thing to gen docs for too.
+        // ctx.setAccessor(proto, "fillColor", Graphics.getFillColor, Graphics.setFillColor);
+        // ctx.setAccessor(proto, "strokeColor", Graphics.getStrokeColor, Graphics.setStrokeColor);
+        // ctx.setAccessor(proto, "lineWidth", Graphics.getLineWidth, Graphics.setLineWidth);
 
-        ctx.setConstFuncT(proto, "fillRect", Graphics.fillRect);
-        ctx.setConstFuncT(proto, "drawRect", Graphics.drawRect);
-        ctx.setConstFuncT(proto, "translate", Graphics.translate);
-        ctx.setConstFuncT(proto, "rotateDeg", Graphics.rotateDeg);
-        ctx.setConstFuncT(proto, "resetTransform", Graphics.resetTransform);
-        ctx.setConstFuncT(proto, "newImage", api.cs_graphics.newImage);
-        ctx.setConstFuncT(proto, "addTtfFont", api.cs_graphics.addTtfFont);
-        ctx.setConstFuncT(proto, "addFallbackFont", Graphics.addFallbackFont);
-        ctx.setConstFuncT(proto, "setFont", Graphics.setFont);
-        ctx.setConstFuncT(proto, "fillText", Graphics.fillText);
-        ctx.setConstFuncT(proto, "fillCircle", Graphics.fillCircle);
-        ctx.setConstFuncT(proto, "fillCircleSectorDeg", Graphics.fillCircleSectorDeg);
-        ctx.setConstFuncT(proto, "drawCircle", Graphics.drawCircle);
-        ctx.setConstFuncT(proto, "drawCircleArcDeg", Graphics.drawCircleArcDeg);
-        ctx.setConstFuncT(proto, "fillEllipse", Graphics.fillEllipse);
-        ctx.setConstFuncT(proto, "fillEllipseSectorDeg", Graphics.fillEllipseSectorDeg);
-        ctx.setConstFuncT(proto, "drawEllipse", Graphics.drawEllipse);
-        ctx.setConstFuncT(proto, "drawEllipseArcDeg", Graphics.drawEllipseArcDeg);
-        ctx.setConstFuncT(proto, "fillTriangle", Graphics.fillTriangle);
-        ctx.setConstFuncT(proto, "fillConvexPolygon", api.cs_graphics.fillConvexPolygon);
-        ctx.setConstFuncT(proto, "fillPolygon", api.cs_graphics.fillPolygon);
-        ctx.setConstFuncT(proto, "drawPolygon", api.cs_graphics.drawPolygon);
-        ctx.setConstFuncT(proto, "fillRoundRect", Graphics.fillRoundRect);
-        ctx.setConstFuncT(proto, "drawRoundRect", Graphics.drawRoundRect);
-        ctx.setConstFuncT(proto, "drawPoint", Graphics.drawPoint);
-        ctx.setConstFuncT(proto, "drawLine", Graphics.drawLine);
-        ctx.setConstFuncT(proto, "drawSvgContent", api.cs_graphics.drawSvgContent);
-        ctx.setConstFuncT(proto, "compileSvgContent", api.cs_graphics.compileSvgContent);
-        ctx.setConstFuncT(proto, "executeDrawList", api.cs_graphics.executeDrawList);
-        ctx.setConstFuncT(proto, "drawQuadraticBezierCurve", Graphics.drawQuadraticBezierCurve);
-        ctx.setConstFuncT(proto, "drawCubicBezierCurve", Graphics.drawCubicBezierCurve);
-        ctx.setConstFuncT(proto, "drawImageSized", api.cs_graphics.drawImageSized);
+        const Context = api.cs_graphics.Context;
+        ctx.setConstFuncT(proto, "setFillColor", Context.setFillColor);
+        ctx.setConstFuncT(proto, "fillColor", Context.fillColor);
+        ctx.setConstFuncT(proto, "setStrokeColor", Context.setStrokeColor);
+        ctx.setConstFuncT(proto, "strokeColor", Context.strokeColor);
+        ctx.setConstFuncT(proto, "setLineWidth", Context.setLineWidth);
+        ctx.setConstFuncT(proto, "lineWidth", Context.lineWidth);
+        ctx.setConstFuncT(proto, "fillRect", Context.fillRect);
+        ctx.setConstFuncT(proto, "drawRect", Context.drawRect);
+        ctx.setConstFuncT(proto, "translate", Context.translate);
+        ctx.setConstFuncT(proto, "scale", Context.scale);
+        ctx.setConstFuncT(proto, "rotate", Context.rotate);
+        ctx.setConstFuncT(proto, "rotateDeg", Context.rotateDeg);
+        ctx.setConstFuncT(proto, "resetTransform", Context.resetTransform);
+        ctx.setConstFuncT(proto, "newImage", Context.newImage);
+        ctx.setConstFuncT(proto, "addTtfFont", Context.addTtfFont);
+        ctx.setConstFuncT(proto, "addFallbackFont", Context.addFallbackFont);
+        ctx.setConstFuncT(proto, "setFont", Context.setFont);
+        ctx.setConstFuncT(proto, "fillText", Context.fillText);
+        ctx.setConstFuncT(proto, "fillCircle", Context.fillCircle);
+        ctx.setConstFuncT(proto, "fillCircleSector", Context.fillCircleSector);
+        ctx.setConstFuncT(proto, "fillCircleSectorDeg", Context.fillCircleSectorDeg);
+        ctx.setConstFuncT(proto, "drawCircle", Context.drawCircle);
+        ctx.setConstFuncT(proto, "drawCircleArc", Context.drawCircleArc);
+        ctx.setConstFuncT(proto, "drawCircleArcDeg", Context.drawCircleArcDeg);
+        ctx.setConstFuncT(proto, "fillEllipse", Context.fillEllipse);
+        ctx.setConstFuncT(proto, "fillEllipseSector", Context.fillEllipseSector);
+        ctx.setConstFuncT(proto, "fillEllipseSectorDeg", Context.fillEllipseSectorDeg);
+        ctx.setConstFuncT(proto, "drawEllipse", Context.drawEllipse);
+        ctx.setConstFuncT(proto, "drawEllipseArc", Context.drawEllipseArc);
+        ctx.setConstFuncT(proto, "drawEllipseArcDeg", Context.drawEllipseArcDeg);
+        ctx.setConstFuncT(proto, "fillTriangle", Context.fillTriangle);
+        ctx.setConstFuncT(proto, "fillConvexPolygon", Context.fillConvexPolygon);
+        ctx.setConstFuncT(proto, "fillPolygon", Context.fillPolygon);
+        ctx.setConstFuncT(proto, "drawPolygon", Context.drawPolygon);
+        ctx.setConstFuncT(proto, "fillRoundRect", Context.fillRoundRect);
+        ctx.setConstFuncT(proto, "drawRoundRect", Context.drawRoundRect);
+        ctx.setConstFuncT(proto, "drawPoint", Context.drawPoint);
+        ctx.setConstFuncT(proto, "drawLine", Context.drawLine);
+        ctx.setConstFuncT(proto, "drawSvgContent", Context.drawSvgContent);
+        ctx.setConstFuncT(proto, "compileSvgContent", Context.compileSvgContent);
+        ctx.setConstFuncT(proto, "executeDrawList", Context.executeDrawList);
+        ctx.setConstFuncT(proto, "drawQuadraticBezierCurve", Context.drawQuadraticBezierCurve);
+        ctx.setConstFuncT(proto, "drawCubicBezierCurve", Context.drawCubicBezierCurve);
+        ctx.setConstFuncT(proto, "drawImageSized", Context.drawImageSized);
     }
     rt.graphics_class = graphics_class;
 

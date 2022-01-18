@@ -1240,7 +1240,7 @@ pub const Graphics = struct {
 
     pub fn scale(self: *Self, x: f32, y: f32) void {
         self.view_transform.scale(x, y);
-        const mvp = math.Mul4x4_4X4(self.proj_transform.mat, self.view_transform.mat);
+        const mvp = math.Mul4x4_4x4(self.proj_transform.mat, self.view_transform.mat);
 
         self.flushDraw();
         self.batcher.setMvp(mvp);

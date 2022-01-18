@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
+const FontId = graphics.font.FontId;
 const Graphics = graphics.Graphics;
 const Vec2 = stdx.math.Vec2;
 const Color = graphics.Color;
@@ -101,113 +102,264 @@ pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaq
 /// Currently, the API is focused on 2D graphics, but there are plans to add 3D graphics utilities.
 pub const cs_graphics = struct {
 
-    /// Path can be absolute or relative to the cwd.
-    pub fn newImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.Image {
-        return g.createImageFromPath(path) catch |err| {
-            if (err == error.FileNotFound) {
-                v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
-                return undefined;
-            } else {
-                unreachable;
+    /// This provides an interface to the underlying graphics handle. It has a similar API to Web Canvas.
+    pub const Context = struct {
+
+        pub inline fn fillColor(self: *Graphics) Color {
+            return self.getFillColor();
+        }
+
+        pub inline fn setFillColor(self: *Graphics, color: Color) void {
+            return self.setFillColor(color);
+        }
+
+        pub inline fn strokeColor(self: *Graphics) Color {
+            return self.getStrokeColor();
+        }
+
+        pub inline fn setStrokeColor(self: *Graphics, color: Color) void {
+            return self.setStrokeColor(color);
+        }
+
+        pub inline fn getLineWidth(self: *Graphics) f32 {
+            return self.getLineWidth();
+        }
+
+        pub inline fn setLineWidth(self: *Graphics, width: f32) void {
+            return self.setLineWidth(width);
+        }
+
+        /// Path can be absolute or relative to the cwd.
+        pub fn addTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
+            return g.addTTF_FontFromPath(path) catch |err| {
+                if (err == error.FileNotFound) {
+                    v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
+                    return 0;
+                } else {
+                    unreachable;
+                }
+            };
+        }
+
+        pub inline fn addFallbackFont(self: *Graphics, font_id: FontId) void {
+            self.addFallbackFont(font_id);
+        }
+
+        /// Path can be absolute or relative to the cwd.
+        pub fn newImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.Image {
+            return g.createImageFromPath(path) catch |err| {
+                if (err == error.FileNotFound) {
+                    v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
+                    return undefined;
+                } else {
+                    unreachable;
+                }
+            };
+        }
+
+        /// Fills a rectangle with the current fill color.
+        pub inline fn fillRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+            Graphics.fillRect(self, x, y, width, height);
+        }
+
+        /// Strokes a rectangle with the current stroke color.
+        pub inline fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+            Graphics.drawRect(self, x, y, width, height);
+        }
+
+        /// Shifts the origin x units to the right and y units down.
+        pub inline fn translate(self: *Graphics, x: f32, y: f32) void {
+            Graphics.translate(self, x, y);
+        }
+
+        /// Scales from the origin x units horizontally and y units vertically.
+        /// Negative value flips the axis. Value of 1 does nothing.
+        pub inline fn scale(self: *Graphics, x: f32, y: f32) void {
+            Graphics.scale(self, x, y);
+        }
+
+        /// Rotates the origin by radians clockwise.
+        pub inline fn rotate(self: *Graphics, rad: f32) void {
+            Graphics.rotate(self, rad);
+        }
+
+        pub inline fn rotateDeg(self: *Graphics, deg: f32) void {
+            self.rotateDeg(deg);
+        }
+
+        // Resets the current transform to identity.
+        pub inline fn resetTransform(self: *Graphics) void {
+            self.resetTransform();
+        }
+
+        pub inline fn setFont(self: *Graphics, font_gid: FontId, font_size: f32) void {
+            self.setFont(font_gid, font_size);
+        }
+
+        pub inline fn fillText(self: *Graphics, x: f32, y: f32, text: []const u8) void {
+            self.fillText(x, y, text);
+        }
+
+        pub inline fn fillCircleSector(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+            self.fillCircleSector(x, y, radius, start_rad, sweep_rad);
+        }
+
+        pub inline fn fillCircleSectorDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+            self.fillCircleSectorDeg(x, y, radius, start_deg, sweep_deg);
+        }
+
+        pub inline fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+            self.drawCircleArc(x, y, radius, start_rad, sweep_rad);
+        }
+
+        pub inline fn drawCircleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+            self.drawCircleArcDeg(x, y, radius, start_deg, sweep_deg);
+        }
+
+        pub inline fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+            self.drawCircle(x, y, radius);
+        }
+
+        pub inline fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+            self.fillCircle(x, y, radius);
+        }
+
+        pub inline fn fillEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+            self.fillEllipse(x, y, h_radius, v_radius);
+        }
+
+        pub inline fn fillEllipseSector(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+            self.fillEllipseSector(x, y, h_radius, v_radius, start_rad, sweep_rad);
+        }
+
+        pub inline fn fillEllipseSectorDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+            self.fillEllipseSectorDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
+        }
+
+        pub inline fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+            self.drawEllipse(x, y, h_radius, v_radius);
+        }
+
+        pub inline fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+            self.drawEllipseArc(x, y, h_radius, v_radius, start_rad, sweep_rad);
+        }
+
+        pub inline fn drawEllipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+            self.drawEllipseArcDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
+        }
+
+        pub inline fn drawPoint(self: *Graphics, x: f32, y: f32) void {
+            self.drawPoint(x, y);
+        }
+
+        pub inline fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
+            self.drawLine(x1, y1, x2, y2);
+        }
+
+        pub inline fn drawCubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
+            self.drawCubicBezierCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2);
+        }
+
+        pub inline fn drawQuadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
+            self.drawQuadraticBezierCurve(x1, y1, cx, cy, x2, y2);
+        }
+
+        pub inline fn fillTriangle(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
+            self.fillTriangle(x1, y1, x2, y2, x3, y3);
+        }
+
+        pub inline fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+            self.drawRoundRect(x, y, width, height, radius);
+        }
+
+        pub inline fn fillRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+            self.fillRoundRect(x, y, width, height, radius);
+        }
+
+        pub fn fillPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+            rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+            var i: u32 = 0;
+            var vec_idx: u32 = 0;
+            while (i < pts.len - 1) : ({
+                i += 2;
+                vec_idx += 1;
+            }) {
+                rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
             }
-        };
-    }
+            g.fillPolygon(rt.vec2_buf.items);
+        }
 
-    /// Path can be absolute or relative to the cwd.
-    pub fn addTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
-        return g.addTTF_FontFromPath(path) catch |err| {
-            if (err == error.FileNotFound) {
-                v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
-                return 0;
-            } else {
-                unreachable;
+        pub fn drawSvgContent(g: *Graphics, content: []const u8) void {
+            g.drawSvgContent(content) catch unreachable;
+        }
+
+        pub fn drawImageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
+            g.drawImageSized(x, y, width, height, image.id);
+        }
+
+        pub fn executeDrawList(rt: *RuntimeContext, g: *Graphics, handle: v8.Object) void {
+            const ctx = rt.context;
+            const ptr = handle.getInternalField(0).bitCastToU64(ctx);
+            const list = @intToPtr(*graphics.DrawCommandList, ptr);
+            g.executeDrawList(list.*);
+        }
+
+        pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
+            const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
+
+            const native_ptr = rt.alloc.create(RuntimeValue(graphics.DrawCommandList)) catch unreachable;
+            native_ptr.* = .{
+                .rt = rt,
+                .inner = draw_list,
+            };
+            _ = rt.weak_handles.add(.{
+                .ptr = native_ptr,
+                .tag = .DrawCommandList,
+            }) catch unreachable;
+
+            const ctx = rt.context;
+            const iso = rt.isolate;
+            const new = rt.handle_class.initInstance(ctx);
+            new.setInternalField(0, iso.initNumberBitCastedU64(@ptrToInt(native_ptr)));
+
+            var new_p = iso.initPersistent(v8.Object, new);
+            new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
+            return new_p;
+        }
+
+        fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
+            const info = v8.WeakCallbackInfo.initFromC(c_info);
+            const ptr = info.getParameter();
+            const rt = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr).rt;
+            rt.destroyWeakHandleByPtr(ptr);
+        }
+
+        pub fn drawPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+            rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+            var i: u32 = 0;
+            var vec_idx: u32 = 0;
+            while (i < pts.len - 1) : ({
+                i += 2;
+                vec_idx += 1;
+            }) {
+                rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
             }
-        };
-    }
-
-    pub fn fillPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
-        rt.vec2_buf.resize(pts.len / 2) catch unreachable;
-        var i: u32 = 0;
-        var vec_idx: u32 = 0;
-        while (i < pts.len - 1) : ({
-            i += 2;
-            vec_idx += 1;
-        }) {
-            rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
+            g.drawPolygon(rt.vec2_buf.items);
         }
-        g.fillPolygon(rt.vec2_buf.items);
-    }
 
-    pub fn drawSvgContent(g: *Graphics, content: []const u8) void {
-        g.drawSvgContent(content) catch unreachable;
-    }
-
-    pub fn drawImageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
-        g.drawImageSized(x, y, width, height, image.id);
-    }
-
-    pub fn executeDrawList(rt: *RuntimeContext, g: *Graphics, handle: v8.Object) void {
-        const ctx = rt.context;
-        const ptr = handle.getInternalField(0).bitCastToU64(ctx);
-        const list = @intToPtr(*graphics.DrawCommandList, ptr);
-        g.executeDrawList(list.*);
-    }
-
-    pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
-        const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
-
-        const native_ptr = rt.alloc.create(RuntimeValue(graphics.DrawCommandList)) catch unreachable;
-        native_ptr.* = .{
-            .rt = rt,
-            .inner = draw_list,
-        };
-        _ = rt.weak_handles.add(.{
-            .ptr = native_ptr,
-            .tag = .DrawCommandList,
-        }) catch unreachable;
-
-        const ctx = rt.context;
-        const iso = rt.isolate;
-        const new = rt.handle_class.initInstance(ctx);
-        new.setInternalField(0, iso.initNumberBitCastedU64(@ptrToInt(native_ptr)));
-
-        var new_p = iso.initPersistent(v8.Object, new);
-        new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
-        return new_p;
-    }
-
-    fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
-        const info = v8.WeakCallbackInfo.initFromC(c_info);
-        const ptr = info.getParameter();
-        const rt = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr).rt;
-        rt.destroyWeakHandleByPtr(ptr);
-    }
-
-    pub fn drawPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
-        rt.vec2_buf.resize(pts.len / 2) catch unreachable;
-        var i: u32 = 0;
-        var vec_idx: u32 = 0;
-        while (i < pts.len - 1) : ({
-            i += 2;
-            vec_idx += 1;
-        }) {
-            rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
+        pub fn fillConvexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+            rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+            var i: u32 = 0;
+            var vec_idx: u32 = 0;
+            while (i < pts.len - 1) : ({
+                i += 2;
+                vec_idx += 1;
+            }) {
+                rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
+            }
+            g.fillConvexPolygon(rt.vec2_buf.items);
         }
-        g.drawPolygon(rt.vec2_buf.items);
-    }
-
-    pub fn fillConvexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
-        rt.vec2_buf.resize(pts.len / 2) catch unreachable;
-        var i: u32 = 0;
-        var vec_idx: u32 = 0;
-        while (i < pts.len - 1) : ({
-            i += 2;
-            vec_idx += 1;
-        }) {
-            rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
-        }
-        g.fillConvexPolygon(rt.vec2_buf.items);
-    }
+    };
 };
 
 /// @title File System
@@ -308,6 +460,7 @@ pub const cs_files = struct {
         // This will be static memory.
         kind: []const u8,
 
+        /// @internal
         pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
             alloc.free(self.name);
         }
