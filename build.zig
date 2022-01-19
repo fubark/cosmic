@@ -6,9 +6,11 @@ const print = std.debug.print;
 const builtin = @import("builtin");
 const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
+const log = std.log.scoped(.build);
 
 const VersionName = "v0.1 Alpha";
-const DepsRevision = "7d2c0f02192ce7626e843c3c403df3ed6418c7f1";
+const DepsRevision = "ea46a2cd1af65d020c25b0a36cf66d59a6e5cb83";
+const V8_Revision = "9.9.7";
 
 // During development you might want zls to see all the lib packages, remember to reset to false.
 const IncludeAllLibs = false;
@@ -27,12 +29,11 @@ pub fn build(b: *Builder) void {
     const net = b.option(bool, "net", "Link net libs") orelse false;
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
+    const target = b.standardTargetOptions(.{});
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
     build_options.addOption([]const u8, "VersionName", VersionName);
-
-    const target = b.standardTargetOptions(.{});
 
     var ctx = BuilderContext{
         .builder = b,
@@ -50,6 +51,9 @@ pub fn build(b: *Builder) void {
 
     const get_deps = GetDepsStep.create(b);
     b.step("get-deps", "Clone/pull the required external dependencies into deps folder").dependOn(&get_deps.step);
+
+    const get_v8_lib = createGetV8LibStep(b, target);
+    b.step("get-v8-lib", "Fetches prebuilt static lib. Use -Dtarget to indicate target platform").dependOn(&get_v8_lib.step);
 
     const build_lyon = BuildLyonStep.create(b, ctx.target);
     b.step("lyon", "Builds rust lib with cargo and copies to deps/prebuilt").dependOn(&build_lyon.step);
@@ -971,12 +975,7 @@ const BuilderContext = struct {
     }
 
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
-        const mode_str: []const u8 = if (self.mode == .Debug) "debug" else "release";
-        const path = std.fmt.allocPrint(self.builder.allocator, "lib/zig-v8/v8-out/{s}-{s}/{s}/ninja/obj/zig/libc_v8.a", .{
-            @tagName(self.target.getCpuArch()),
-            @tagName(self.target.getOsTag()),
-            mode_str,
-        }) catch unreachable;
+        const path = getV8_StaticLibPath(self.builder, step.target);
         if (self.target.getOsTag() == .linux) {
             step.addAssemblyFile(path);
             step.linkLibCpp();
@@ -1406,13 +1405,13 @@ const GetDepsStep = struct {
     const Self = @This();
 
     step: std.build.Step,
-    builder: *Builder,
+    b: *Builder,
 
-    fn create(builder: *Builder) *Self {
-        const new = builder.allocator.create(Self) catch unreachable;
+    fn create(b: *Builder) *Self {
+        const new = b.allocator.create(Self) catch unreachable;
         new.* = .{
-            .step = std.build.Step.init(.custom, builder.fmt("get_deps", .{}), builder.allocator, make),
-            .builder = builder,
+            .step = std.build.Step.init(.custom, b.fmt("get_deps", .{}), b.allocator, make),
+            .b = b,
         };
         return new;
     }
@@ -1420,17 +1419,69 @@ const GetDepsStep = struct {
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
 
-        var path = self.builder.pathFromRoot("./deps");
-        if ((try statPath(path)) == .NotExist) {
-            _ = try self.builder.exec(&[_][]const u8{ "git", "clone", "--depth=1", "https://github.com/fubark/cosmic-deps", path });
-        }
+        try syncRepo(self.b, step, "./deps", "https://github.com/fubark/cosmic-deps", DepsRevision, false);
 
-        path = self.builder.pathFromRoot("./lib/zig-v8");
-        if ((try statPath(path)) == .NotExist) {
-            _ = try self.builder.exec(&[_][]const u8{ "git", "clone", "--depth=1", "https://github.com/fubark/zig-v8", path });
-        }
+        // zig-v8 is still changing frequently so pull the repo.
+        try syncRepo(self.b, step, "./lib/zig-v8", "https://github.com/fubark/zig-v8", V8_Revision, true);
     }
 };
+
+fn createGetV8LibStep(b: *Builder, target: std.zig.CrossTarget) *std.build.LogStep {
+    const step = b.addLog("Get V8 Lib\n", .{});
+
+    const url = getV8_StaticLibGithubUrl(b.allocator, V8_Revision, target);
+    const lib_path = getV8_StaticLibPath(b, target);
+
+    if (builtin.os.tag == .windows) {
+        std.debug.panic("TODO: Create powershell script.");
+    } else {
+        var sub_step = b.addSystemCommand(&.{ "curl", url, "-o", lib_path });
+        step.step.dependOn(&sub_step.step);
+    }
+    return step;
+}
+
+fn getV8_StaticLibGithubUrl(alloc: std.mem.Allocator, tag: []const u8, target: std.zig.CrossTarget) []const u8 {
+    const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
+    const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
+    return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_v8_{s}-{s}_{s}_{s}.{s}", .{
+        tag, @tagName(target.getCpuArch()), lib_name, @tagName(target.getOsTag()), "release", tag, lib_ext,
+    }) catch unreachable;
+}
+
+fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
+    // const mode_str: []const u8 = if (self.mode == .Debug) "debug" else "release";
+    // const path = std.fmt.allocPrint(self.builder.allocator, "lib/zig-v8/v8-out/{s}-{s}/{s}/ninja/obj/zig/libc_v8.a", .{
+    //     @tagName(self.target.getCpuArch()),
+    //     @tagName(self.target.getOsTag()),
+    //     mode_str,
+    // }) catch unreachable;
+    const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
+    const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
+    const path = std.fmt.allocPrint(b.allocator, "./lib/zig-v8/{s}.{s}", .{ lib_name, lib_ext }) catch unreachable;
+    return b.pathFromRoot(path);
+}
+
+fn syncRepo(b: *Builder, step: *std.build.Step, rel_path: []const u8, remote_url: []const u8, revision: []const u8, is_tag: bool) !void {
+    const repo_path = b.pathFromRoot(rel_path);
+    if ((try statPath(repo_path)) == .NotExist) {
+        _ = try b.execFromStep(&.{ "git", "clone", remote_url, repo_path }, step);
+        _ = try b.execFromStep(&.{ "git", "-C", repo_path, "checkout", revision }, step);
+    } else {
+        var cur_revision: []const u8 = undefined;
+        if (is_tag) {
+            cur_revision = try b.execFromStep(&.{ "git", "-C", repo_path, "describe", "--tags" }, step);
+        } else {
+            cur_revision = try b.execFromStep(&.{ "git", "-C", repo_path, "rev-parse", "HEAD" }, step);
+        }
+        if (!std.mem.eql(u8, cur_revision[0..revision.len], revision)) {
+            // Fetch and checkout.
+            // Need -f or it will fail if the remote tag now points to a different revision.
+            _ = try b.execFromStep(&.{ "git", "-C", repo_path, "fetch", "--tags", "-f" }, step);
+            _ = try b.execFromStep(&.{ "git", "-C", repo_path, "checkout", revision }, step);
+        }
+    }
+}
 
 const PathStat = enum {
     NotExist,
