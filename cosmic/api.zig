@@ -16,6 +16,7 @@ const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const RuntimeValue = runtime.RuntimeValue;
 const PromiseId = runtime.PromiseId;
+const ThisResource = runtime.ThisResource;
 const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
@@ -24,6 +25,8 @@ const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
 const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
+const _server = @import("server.zig");
+const HttpServer = _server.HttpServer;
 
 /// @title Window Management
 /// @name window
@@ -496,7 +499,7 @@ pub const cs_files = struct {
     pub fn getPathInfo(path: []const u8) ?PathInfo {
         const stat = std.fs.cwd().statFile(path) catch return null;
         return PathInfo{
-            .kind = stat.kind,
+            .kind = std.meta.stringToEnum(FileKind, @tagName(stat.kind)).?,
         };
     }
 
@@ -505,8 +508,22 @@ pub const cs_files = struct {
         return runtime.invokeFuncAsync(rt, getPathInfo, args);
     }
 
+    pub const FileKind = enum {
+        BlockDevice,
+        CharacterDevice,
+        Directory,
+        NamedPipe,
+        SymLink,
+        File,
+        UnixDomainSocket,
+        Whiteout,
+        Door,
+        EventPort,
+        Unknown,
+    };
+
     pub const PathInfo = struct {
-        kind: std.fs.File.Kind,
+        kind: FileKind,
     };
 
     /// Path can be absolute or relative to the cwd.
@@ -790,7 +807,7 @@ pub const cs_http = struct {
         return promise;
     }
 
-    const RequestMethod = enum {
+    pub const RequestMethod = enum {
         Head,
         Get,
         Post,
@@ -798,7 +815,7 @@ pub const cs_http = struct {
         Delete,
     };
 
-    const ContentType = enum {
+    pub const ContentType = enum {
         Json,
         FormData,
     };
@@ -813,6 +830,13 @@ pub const cs_http = struct {
         /// In seconds. 0 timeout = no timeout
         timeout: u32 = 30,
         headers: ?std.StringHashMap([]const u8) = null,
+    };
+
+    /// The response object holds the data received from making a HTTP request.
+    pub const Response = struct {
+        status: u32,
+        headers: std.StringHashMap([]const u8),
+        body: []const u8,
     };
 
     pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
@@ -840,6 +864,52 @@ pub const cs_http = struct {
         js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
         return js_handle;
     }
+
+    /// Provides an interface to the underlying server handle.
+    pub const Server = struct {
+
+        /// Sets the handler for receiving requests.
+        pub fn setHandler(res: ThisResource(*HttpServer), handler: v8.Function) void {
+            HttpServer.setHandler(res, handler);
+        }
+
+        /// Request the server to close. It will gracefully shutdown in the background.
+        pub fn requestClose(res: ThisResource(*HttpServer)) void {
+            HttpServer.requestClose(res);
+        }
+
+        /// Requests the server to close. The promise will resolve when it's done.
+        pub fn closeAsync(res: ThisResource(*HttpServer)) v8.Promise {
+            return HttpServer.closeAsync(res);
+        }
+    };
+
+    /// Provides an interface to the current response writer.
+    pub const ResponseWriter = struct {
+
+        pub fn setStatus(status_code: u32) void {
+            _server.ResponseWriter.setStatus(status_code);
+        }
+
+        pub fn setHeader(key: []const u8, value: []const u8) void {
+            _server.ResponseWriter.setHeader(key, value);
+        }
+
+        pub fn send(text: []const u8) void {
+            _server.ResponseWriter.send(text);
+        }
+
+        pub fn sendBytes(arr: runtime.Uint8Array) void {
+            _server.ResponseWriter.sendBytes(arr);
+        }
+    };
+
+    /// Holds data about the request when hosting an HTTP server.
+    pub const Request = struct {
+        method: RequestMethod,
+        path: []const u8,
+        data: Uint8Array,
+    };
 };
 
 /// @title Core

@@ -199,8 +199,11 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                                             var type_info = TypeInfo{
                                                 .name = ModuleDecl.name,
                                                 .desc = "",
+                                                .fields = &.{},
                                                 .constants = &.{},
                                                 .methods = &.{},
+                                                .is_enum = @typeInfo(ModuleDecl.data.Type) == .Enum,
+                                                .enum_values = &.{},
                                             };
 
                                             const child = findContainerChild(tree, container_node, ModuleDecl.name);
@@ -231,6 +234,37 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                                                     }
                                                 }
                                             }
+
+                                            if (@typeInfo(ModuleDecl.data.Type) == .Struct) {
+                                                var fields = std.ArrayList(TypeField).init(alloc);
+                                                const TypeFields = std.meta.fields(ModuleDecl.data.Type);
+                                                inline for (TypeFields) |Field| {
+                                                    var field = TypeField{
+                                                        .name = Field.name,
+                                                        .type_name = "",
+                                                        .default_value = null,
+                                                        .optional = @typeInfo(Field.field_type) == .Optional,
+                                                    };
+                                                    if (@typeInfo(Field.field_type) == .Optional) {
+                                                        field.type_name = getJsTypeName(@typeInfo(Field.field_type).Optional.child);
+                                                    } else {
+                                                        field.type_name = getJsTypeName(Field.field_type);
+                                                    }
+                                                    if (Field.default_value != null) {
+                                                        field.default_value = try std.fmt.allocPrint(alloc, "{any}", .{Field.default_value.?});
+                                                    }
+                                                    try fields.append(field);
+                                                }
+                                                type_info.fields = fields.toOwnedSlice();
+                                            } else if (@typeInfo(ModuleDecl.data.Type) == .Enum) {
+                                                var values = std.ArrayList([]const u8).init(alloc);
+                                                const TypeFields = std.meta.fields(ModuleDecl.data.Type);
+                                                inline for (TypeFields) |Field| {
+                                                    try values.append(runtime.ctLower(Field.name));
+                                                }
+                                                type_info.enum_values = values.toOwnedSlice();
+                                            }
+
                                             type_info.methods = methods.toOwnedSlice();
                                             type_info.constants = constants.toOwnedSlice();
                                             try types.append(type_info);
@@ -345,6 +379,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
 
         v8.Promise => "Promise",
 
+        u8,
         f32,
         u32,
         u16 => "number",
@@ -353,6 +388,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
 
         *const v8.C_FunctionCallbackInfo => "...any",
 
+        std.StringHashMap([]const u8),
         v8.Persistent(v8.Object),
         v8.Object => "object",
 
@@ -364,6 +400,9 @@ fn getJsTypeName(comptime T: type) []const u8 {
         graphics.Image => "Image",
         graphics.Color => "Color",
         api.cs_graphics.Color => "Color",
+        api.cs_files.FileKind => "FileKind",
+        api.cs_http.RequestMethod => "RequestMethod",
+        api.cs_http.ContentType => "ContentType",
 
         else => {
             if (@typeInfo(T) == .Struct) {
@@ -381,6 +420,8 @@ fn getJsTypeName(comptime T: type) []const u8 {
 fn findContainerChild(tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index, name: []const u8) std.zig.Ast.Node.Index {
     var container: std.zig.Ast.full.ContainerDecl = undefined;
     if (tree.nodes.items(.tag)[container_node] == .container_decl) {
+        container = tree.containerDecl(container_node);
+    } else if (tree.nodes.items(.tag)[container_node] == .container_decl_trailing) {
         container = tree.containerDecl(container_node);
     } else if (tree.nodes.items(.tag)[container_node] == .container_decl_two_trailing) {
         var buf: [2]std.zig.Ast.Node.Index = undefined;
@@ -585,13 +626,30 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
 
             // List Types.
             for (mod.types) |info| {
+                const type_kind = if (info.is_enum) "string" else "object";
                 ctx.writeFmt(
                     \\<div class="type">
-                    \\  <a id="{s}" href="#"><small class="secondary">{s}</small>.{s}</a> <span class="params"> Type
-                    , .{ info.name, mod.ns, info.name }
+                    \\  <a id="{s}" href="#"><small class="secondary">{s}</small>.{s}</a> <span class="params">{s}</span>
+                    , .{ info.name, mod.ns, info.name, type_kind }
                 );
 
-                // Description.
+                if (info.is_enum) {
+                    for (info.enum_values) |value| {
+                        ctx.writeFmt(
+                            \\<div class="indent field"><span class="primary">"{s}"</span></div>
+                            , .{ value }
+                        );
+                    }
+                } else {
+                    for (info.fields) |field| {
+                        const optional: []const u8 = if (field.optional) "?" else "";
+                        ctx.writeFmt(
+                            \\<div class="indent field"><span class="primary">{s}</span>: {s}{s}</div>
+                            , .{ field.name, optional, field.type_name }
+                        );
+                    }
+                }
+
                 ctx.writeFmt(
                     \\</div>
                     \\<p class="type-desc">{s}</p>
@@ -667,7 +725,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             ctx.writeFmt("<li><a href=\"#{s}\">{s}()</a></li>", .{func.name, func.name});
         }
         for (mod.types) |info| {
-            ctx.writeFmt("<li><a href=\"#{s}\">{s} Type</a></li>", .{info.name, info.name});
+            ctx.writeFmt("<li><a href=\"#{s}\">{s}</a></li>", .{info.name, info.name});
             for (info.methods) |func| {
                 ctx.writeFmt("<li class=\"indent\"><a href=\"#{s}\">{s}()</a></li>", .{func.name, func.name});
             }
@@ -715,8 +773,19 @@ const Module = struct {
 const TypeInfo = struct {
     name: []const u8,
     desc: []const u8,
+    fields: []const TypeField,
     constants: []const []const u8,
     methods: []const FunctionInfo,
+
+    is_enum: bool,
+    enum_values: []const []const u8,
+};
+
+const TypeField = struct {
+    name: []const u8,
+    type_name: []const u8,
+    optional: bool,
+    default_value: ?[]const u8,
 };
 
 const FunctionInfo = struct {

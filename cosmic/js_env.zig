@@ -16,7 +16,6 @@ const RuntimeValue = runtime.RuntimeValue;
 const printFmt = runtime.printFmt;
 const ManagedSlice = runtime.ManagedSlice;
 const ManagedStruct = runtime.ManagedStruct;
-const ThisResource = runtime.ThisResource;
 const This = runtime.This;
 const Data = runtime.Data;
 const log = stdx.log.scoped(.js_env);
@@ -268,9 +267,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         inst.setInternalFieldCount(1);
 
         const proto = server_class.getPrototypeTemplate();
-        ctx.setConstFuncT(proto, "setHandler", HttpServer.setHandler);
-        ctx.setConstFuncT(proto, "requestClose", HttpServer.requestClose);
-        ctx.setConstFuncT(proto, "closeAsync", HttpServer.closeAsync);
+        ctx.setConstFuncT(proto, "setHandler", api.cs_http.Server.setHandler);
+        ctx.setConstFuncT(proto, "requestClose", api.cs_http.Server.requestClose);
+        ctx.setConstFuncT(proto, "closeAsync", api.cs_http.Server.closeAsync);
 
         ctx.setConstProp(http, "Server", server_class);
         rt.http_server_class = server_class;
@@ -281,10 +280,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         constructor.setClassName(iso.initStringUtf8("ResponseWriter"));
 
         const obj_t = iso.initObjectTemplate(constructor);
-        ctx.setConstFuncT(obj_t, "setStatus", ResponseWriter.setStatus);
-        ctx.setConstFuncT(obj_t, "setHeader", ResponseWriter.setHeader);
-        ctx.setConstFuncT(obj_t, "send", ResponseWriter.send);
-        ctx.setConstFuncT(obj_t, "sendBytes", ResponseWriter.sendBytes);
+        ctx.setConstFuncT(obj_t, "setStatus", api.cs_http.ResponseWriter.setStatus);
+        ctx.setConstFuncT(obj_t, "setHeader", api.cs_http.ResponseWriter.setHeader);
+        ctx.setConstFuncT(obj_t, "send", api.cs_http.ResponseWriter.send);
+        ctx.setConstFuncT(obj_t, "sendBytes", api.cs_http.ResponseWriter.sendBytes);
         rt.http_response_writer = obj_t;
     }
     ctx.setConstProp(cs, "http", http);

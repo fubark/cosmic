@@ -674,7 +674,7 @@ fn hasAllOptionalFields(comptime T: type) bool {
     return true;
 }
 
-fn ctLower(comptime str: []const u8) []const u8 {
+pub fn ctLower(comptime str: []const u8) []const u8 {
     return comptime blk :{
         var lower: []const u8 = &.{};
         for (str) |ch| {
