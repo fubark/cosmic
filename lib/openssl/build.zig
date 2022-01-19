@@ -828,16 +828,16 @@ pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
         "siphash/siphash.c",
     };
     for (c_files) |file| {
-        addCSourceFileFmt(b, lib, "./vendor/openssl/crypto/{s}", .{file}, c_flags.items);
+        addCSourceFileFmt(b, lib, "./deps/openssl/crypto/{s}", .{file}, c_flags.items);
     }
 
     // cpuid common (openssl/crypto/build.info)
     try c_flags.append("-DOPENSSL_CPUID_OBJ");
     if (target.getCpuArch() == .x86_64) {
-        lib.addCSourceFile("./vendor/openssl/crypto/x86_64cpuid.s", c_flags.items);
+        lib.addCSourceFile("./deps/openssl/crypto/x86_64cpuid.s", c_flags.items);
     }
-    lib.addCSourceFile("./vendor/openssl/crypto/cpuid.c", c_flags.items);
-    lib.addCSourceFile("./vendor/openssl/crypto/ctype.c", c_flags.items);
+    lib.addCSourceFile("./deps/openssl/crypto/cpuid.c", c_flags.items);
+    lib.addCSourceFile("./deps/openssl/crypto/ctype.c", c_flags.items);
 
     const digest_cfiles = &[_][]const u8{
         // openssl/providers/implementations/digests/build.info
@@ -1016,16 +1016,16 @@ pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
         "implementations/signature/mac_legacy_sig.c",
     };
     for (digest_cfiles) |file| {
-        addCSourceFileFmt(b, lib, "./vendor/openssl/providers/{s}", .{file}, c_flags.items);
+        addCSourceFileFmt(b, lib, "./deps/openssl/providers/{s}", .{file}, c_flags.items);
     }
 
     lib.disable_sanitize_c = true;
 
     lib.linkLibC();
-    lib.addIncludeDir("./vendor/openssl/providers/implementations/include");
-    lib.addIncludeDir("./vendor/openssl/providers/common/include");
-    lib.addIncludeDir("./vendor/openssl/include");
-    lib.addIncludeDir("./vendor/openssl");
+    lib.addIncludeDir("./deps/openssl/providers/implementations/include");
+    lib.addIncludeDir("./deps/openssl/providers/common/include");
+    lib.addIncludeDir("./deps/openssl/include");
+    lib.addIncludeDir("./deps/openssl");
     step.linkLibrary(lib);
 }
 
@@ -1103,7 +1103,7 @@ pub fn buildLinkSsl(b: *Builder, step: *LibExeObjStep) void {
         "s3_cbc.c",
     };
     for (c_files) |file| {
-        addCSourceFileFmt(b, lib, "./vendor/openssl/ssl/{s}", .{file}, c_flags);
+        addCSourceFileFmt(b, lib, "./deps/openssl/ssl/{s}", .{file}, c_flags);
     }
 
     lib.disable_sanitize_c = true;
@@ -1112,8 +1112,8 @@ pub fn buildLinkSsl(b: *Builder, step: *LibExeObjStep) void {
     // openssl headers need to be generated with:
     // ./Configure 
     // make build_all_generated
-    lib.addIncludeDir("./vendor/openssl/include");
-    lib.addIncludeDir("./vendor/openssl");
+    lib.addIncludeDir("./deps/openssl/include");
+    lib.addIncludeDir("./deps/openssl");
     step.linkLibrary(lib);
 }
 

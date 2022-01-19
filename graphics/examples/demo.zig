@@ -27,11 +27,11 @@ var last_frame_time_ns: u64 = undefined;
 var font_id: FontId = undefined;
 
 
-/// @buildCopy "../../vendor/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
-/// @buildCopy "../../vendor/assets/tiger-head.svg" "tiger-head.svg"
-/// @buildCopy "../../vendor/fonts/NunitoSans-Regular.ttf" "NunitoSans-Regular.ttf"
-/// @buildCopy "../../vendor/fonts/NotoColorEmoji.ttf" "NotoColorEmoji.ttf"
-/// @buildCopy "../../vendor/assets/game-char.png" "game-char.png"
+/// @buildCopy "../../deps/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
+/// @buildCopy "../../deps/assets/tiger-head.svg" "tiger-head.svg"
+/// @buildCopy "../../deps/fonts/NunitoSans-Regular.ttf" "NunitoSans-Regular.ttf"
+/// @buildCopy "../../deps/fonts/NotoColorEmoji.ttf" "NotoColorEmoji.ttf"
+/// @buildCopy "../../deps/assets/game-char.png" "game-char.png"
 pub fn main() !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();

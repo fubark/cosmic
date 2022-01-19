@@ -7,7 +7,7 @@ const ttf = @import("ttf.zig");
 const log = stdx.log.scoped(.ttf_test);
 
 test "NotoColorEmoji.ttf" {
-    const file = std.fs.cwd().openFile("./vendor/fonts/NotoColorEmoji.ttf", .{}) catch unreachable;
+    const file = std.fs.cwd().openFile("./deps/fonts/NotoColorEmoji.ttf", .{}) catch unreachable;
     defer file.close();
 
     const data = file.readToEndAlloc(t.alloc, 1024 * 1024 * 10) catch unreachable;
@@ -54,7 +54,7 @@ test "NotoColorEmoji.ttf" {
 }
 
 test "NunitoSans-Regular.ttf" {
-    const file = std.fs.cwd().openFile("./vendor/fonts/NunitoSans-Regular.ttf", .{}) catch unreachable;
+    const file = std.fs.cwd().openFile("./deps/fonts/NunitoSans-Regular.ttf", .{}) catch unreachable;
     defer file.close();
 
     const data = file.readToEndAlloc(t.alloc, 1024 * 1024 * 10) catch unreachable;
@@ -79,7 +79,7 @@ test "NunitoSans-Regular.ttf" {
 }
 
 test "Ubuntu-R.ttf" {
-    const file = std.fs.cwd().openFile("./vendor/fonts/Ubuntu-R.ttf", .{}) catch unreachable;
+    const file = std.fs.cwd().openFile("./deps/fonts/Ubuntu-R.ttf", .{}) catch unreachable;
     defer file.close();
 
     const data = file.readToEndAlloc(t.alloc, 1024 * 1024 * 10) catch unreachable;
@@ -96,7 +96,7 @@ test "Ubuntu-R.ttf" {
 test "stbtt glyph sizing" {
     // Use this test to understand how stbtt sizes glyphs.
 
-    const file = std.fs.cwd().openFile("./vendor/fonts/NunitoSans-Regular.ttf", .{}) catch unreachable;
+    const file = std.fs.cwd().openFile("./deps/fonts/NunitoSans-Regular.ttf", .{}) catch unreachable;
     defer file.close();
 
     const data = file.readToEndAlloc(t.alloc, 1024 * 1024 * 10) catch unreachable;

@@ -349,7 +349,7 @@ cs.testIsolated('cs.http.serveHttp', async () => {
 })
 
 cs.testIsolated('cs.http.serveHttps', async () => {
-    const s = cs.http.serveHttps('127.0.0.1', 3000, './vendor/https/localhost.crt', './vendor/https/localhost.key')
+    const s = cs.http.serveHttps('127.0.0.1', 3000, './deps/https/localhost.crt', './deps/https/localhost.key')
     s.setHandler((req, resp) => {
         if (req.path == '/hello' && req.method == 'GET') {
             resp.setStatus(200)

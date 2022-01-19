@@ -43,8 +43,8 @@ pub fn main() !void {
     try std.fs.cwd().makePath(docs_path);
 
     // Copy over assets.
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "vendor/docs/pico.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "pico.min.css"), .{});
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "vendor/docs/docs.css"), std.fs.cwd(), fromPath(alloc, docs_path, "docs.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/pico.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "pico.min.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/docs.css"), std.fs.cwd(), fromPath(alloc, docs_path, "docs.css"), .{});
 
     const api_model = try genApiModel(alloc);
 

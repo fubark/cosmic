@@ -8,6 +8,7 @@ const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
 
 const VersionName = "v0.1 Alpha";
+const DepsRevision = "7d2c0f02192ce7626e843c3c403df3ed6418c7f1";
 
 // During development you might want zls to see all the lib packages, remember to reset to false.
 const IncludeAllLibs = false;
@@ -48,10 +49,10 @@ pub fn build(b: *Builder) void {
     };
 
     const get_deps = GetDepsStep.create(b);
-    b.step("get-deps", "Clone/pull the required external dependencies into vendor folder").dependOn(&get_deps.step);
+    b.step("get-deps", "Clone/pull the required external dependencies into deps folder").dependOn(&get_deps.step);
 
     const build_lyon = BuildLyonStep.create(b, ctx.target);
-    b.step("lyon", "Builds rust lib with cargo and copies to vendor/prebuilt").dependOn(&build_lyon.step);
+    b.step("lyon", "Builds rust lib with cargo and copies to deps/prebuilt").dependOn(&build_lyon.step);
 
     const main_test = ctx.createTestStep();
     b.step("test", "Run tests").dependOn(&main_test.step);
@@ -537,7 +538,7 @@ const BuilderContext = struct {
         };
 
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./vendor/h2o/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags);
         }
 
         lib.addCSourceFile("./lib/h2o/utils.c", c_flags);
@@ -549,23 +550,23 @@ const BuilderContext = struct {
         lib.disable_sanitize_c = true;
 
         lib.linkLibC();
-        lib.addIncludeDir("./vendor/openssl/include");
-        lib.addIncludeDir("./vendor/libuv/include");
-        lib.addIncludeDir("./vendor/h2o/include");
-        lib.addIncludeDir("./vendor/zlib");
-        lib.addIncludeDir("./vendor/h2o/deps/quicly/include");
-        lib.addIncludeDir("./vendor/h2o/deps/picohttpparser");
-        lib.addIncludeDir("./vendor/h2o/deps/picotls/include");
-        lib.addIncludeDir("./vendor/h2o/deps/klib");
-        lib.addIncludeDir("./vendor/h2o/deps/cloexec");
-        lib.addIncludeDir("./vendor/h2o/deps/brotli/c/include");
-        lib.addIncludeDir("./vendor/h2o/deps/yoml");
-        lib.addIncludeDir("./vendor/h2o/deps/hiredis");
-        lib.addIncludeDir("./vendor/h2o/deps/golombset");
-        lib.addIncludeDir("./vendor/h2o/deps/libgkc");
-        lib.addIncludeDir("./vendor/h2o/deps/libyrmcds");
-        lib.addIncludeDir("./vendor/h2o/deps/picotls/deps/cifra/src/ext");
-        lib.addIncludeDir("./vendor/h2o/deps/picotls/deps/cifra/src");
+        lib.addIncludeDir("./deps/openssl/include");
+        lib.addIncludeDir("./deps/libuv/include");
+        lib.addIncludeDir("./deps/h2o/include");
+        lib.addIncludeDir("./deps/zlib");
+        lib.addIncludeDir("./deps/h2o/deps/quicly/include");
+        lib.addIncludeDir("./deps/h2o/deps/picohttpparser");
+        lib.addIncludeDir("./deps/h2o/deps/picotls/include");
+        lib.addIncludeDir("./deps/h2o/deps/klib");
+        lib.addIncludeDir("./deps/h2o/deps/cloexec");
+        lib.addIncludeDir("./deps/h2o/deps/brotli/c/include");
+        lib.addIncludeDir("./deps/h2o/deps/yoml");
+        lib.addIncludeDir("./deps/h2o/deps/hiredis");
+        lib.addIncludeDir("./deps/h2o/deps/golombset");
+        lib.addIncludeDir("./deps/h2o/deps/libgkc");
+        lib.addIncludeDir("./deps/h2o/deps/libyrmcds");
+        lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src/ext");
+        lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
         step.linkLibrary(lib);
     }
 
@@ -629,15 +630,15 @@ const BuilderContext = struct {
         }
 
         for (c_files.items) |file| {
-            self.addCSourceFileFmt(lib, "./vendor/libuv/{s}", .{file}, c_flags.items);
+            self.addCSourceFileFmt(lib, "./deps/libuv/{s}", .{file}, c_flags.items);
         }
 
         // libuv has UB in uv__write_req_update when the last buf->base has a null ptr.
         lib.disable_sanitize_c = true;
 
         lib.linkLibC();
-        lib.addIncludeDir("./vendor/libuv/include");
-        lib.addIncludeDir("./vendor/libuv/src");
+        lib.addIncludeDir("./deps/libuv/include");
+        lib.addIncludeDir("./deps/libuv/src");
         step.linkLibrary(lib);
     }
 
@@ -665,7 +666,7 @@ const BuilderContext = struct {
         };
 
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./vendor/zlib/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/zlib/{s}", .{file}, c_flags);
         }
 
         lib.linkLibC();
@@ -707,13 +708,13 @@ const BuilderContext = struct {
         };
 
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./vendor/nghttp2/lib/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/nghttp2/lib/{s}", .{file}, c_flags);
         }
 
         // lib.disable_sanitize_c = true;
 
         lib.linkLibC();
-        lib.addIncludeDir("./vendor/nghttp2/lib/includes");
+        lib.addIncludeDir("./deps/nghttp2/lib/includes");
         step.linkLibrary(lib);
     }
 
@@ -918,18 +919,18 @@ const BuilderContext = struct {
             "vtls/wolfssl.c",
         };
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./vendor/curl/lib/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/curl/lib/{s}", .{file}, c_flags);
         }
 
         // lib.disable_sanitize_c = true;
 
         lib.linkLibC();
-        lib.addIncludeDir("./vendor/curl/include");
-        lib.addIncludeDir("./vendor/curl/lib");
+        lib.addIncludeDir("./deps/curl/include");
+        lib.addIncludeDir("./deps/curl/lib");
         lib.addIncludeDir("./lib/curl");
-        lib.addIncludeDir("./vendor/openssl/include");
-        lib.addIncludeDir("./vendor/nghttp2/lib/includes");
-        lib.addIncludeDir("./vendor/zlib");
+        lib.addIncludeDir("./deps/openssl/include");
+        lib.addIncludeDir("./deps/nghttp2/lib/includes");
+        lib.addIncludeDir("./deps/zlib");
         step.linkLibrary(lib);
     }
 
@@ -947,7 +948,7 @@ const BuilderContext = struct {
         } else {
             lib = self.builder.addSharedLibrary("stbtt", null, .unversioned);
         }
-        lib.addIncludeDir(self.fromRoot("./vendor/stb"));
+        lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
         const c_flags = [_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
         lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), &c_flags);
@@ -961,7 +962,7 @@ const BuilderContext = struct {
         } else {
             lib = self.builder.addSharedLibrary("stbi", null, .unversioned);
         }
-        lib.addIncludeDir(self.fromRoot("./vendor/stb"));
+        lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
 
         const c_flags = [_][]const u8{ "-O3", "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
@@ -1002,12 +1003,12 @@ const BuilderContext = struct {
                 step.linkFramework("CFNetwork");
                 step.linkSystemLibrary("iconv");
                 step.linkSystemLibrary("m");
-                step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2.a");
+                step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
             } else {
-                step.addAssemblyFile("./vendor/prebuilt/mac64/libSDL2-2.0.0.dylib");
+                step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2-2.0.0.dylib");
             }
         } else if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
-            const path = self.fromRoot("./vendor/prebuilt/win64/SDL2.dll");
+            const path = self.fromRoot("./deps/prebuilt/win64/SDL2.dll");
             step.addAssemblyFile(path);
             if (step.output_dir) |out_dir| {
                 const mkpath = MakePathStep.create(self.builder, out_dir);
@@ -1030,11 +1031,11 @@ const BuilderContext = struct {
             step.linkSystemLibrary("unwind");
         } else {
             if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
-                step.addAssemblyFile("./vendor/prebuilt/linux64/libclyon.so");
+                step.addAssemblyFile("./deps/prebuilt/linux64/libclyon.so");
             } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
-                step.addAssemblyFile("./vendor/prebuilt/mac64/libclyon.dylib");
+                step.addAssemblyFile("./deps/prebuilt/mac64/libclyon.dylib");
             } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
-                const path = self.fromRoot("./vendor/prebuilt/win64/clyon.dll");
+                const path = self.fromRoot("./deps/prebuilt/win64/clyon.dll");
                 step.addAssemblyFile(path);
                 if (step.output_dir) |out_dir| {
                     const mkpath = MakePathStep.create(self.builder, out_dir);
@@ -1129,7 +1130,7 @@ const sdl_pkg = Pkg{
 fn addSDL(step: *LibExeObjStep) void {
     step.addPackage(sdl_pkg);
     step.linkLibC();
-    step.addIncludeDir("./vendor");
+    step.addIncludeDir("./deps");
 }
 
 const openssl_pkg = Pkg{
@@ -1139,7 +1140,7 @@ const openssl_pkg = Pkg{
 
 fn addOpenSSL(step: *LibExeObjStep) void {
     step.addPackage(openssl_pkg);
-    step.addIncludeDir("./vendor/openssl/include");
+    step.addIncludeDir("./deps/openssl/include");
 }
 
 const h2o_pkg = Pkg{
@@ -1151,10 +1152,10 @@ fn addH2O(step: *LibExeObjStep) void {
     var pkg = h2o_pkg;
     pkg.dependencies = &.{uv_pkg, openssl_pkg};
     step.addPackage(pkg);
-    step.addIncludeDir("./vendor/h2o/include");
-    step.addIncludeDir("./vendor/h2o/deps/picotls/include");
-    step.addIncludeDir("./vendor/h2o/deps/quicly/include");
-    step.addIncludeDir("./vendor/openssl/include");
+    step.addIncludeDir("./deps/h2o/include");
+    step.addIncludeDir("./deps/h2o/deps/picotls/include");
+    step.addIncludeDir("./deps/h2o/deps/quicly/include");
+    step.addIncludeDir("./deps/openssl/include");
 }
 
 const uv_pkg = Pkg{
@@ -1164,7 +1165,7 @@ const uv_pkg = Pkg{
 
 fn addUv(step: *LibExeObjStep) void {
     step.addPackage(uv_pkg);
-    step.addIncludeDir("./vendor/libuv/include");
+    step.addIncludeDir("./deps/libuv/include");
 }
 
 const curl_pkg = Pkg{
@@ -1174,7 +1175,7 @@ const curl_pkg = Pkg{
 
 fn addCurl(step: *LibExeObjStep) void {
     step.addPackage(curl_pkg);
-    step.addIncludeDir("./vendor/curl/include/curl");
+    step.addIncludeDir("./deps/curl/include/curl");
 }
 
 const lyon_pkg = Pkg{
@@ -1194,7 +1195,7 @@ const gl_pkg = Pkg{
 
 fn addGL(step: *LibExeObjStep) void {
     step.addPackage(gl_pkg);
-    step.addIncludeDir("./vendor");
+    step.addIncludeDir("./deps");
     step.linkLibC();
 }
 
@@ -1218,7 +1219,7 @@ const stbi_pkg = Pkg{
 
 fn addStbi(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbi_pkg);
-    step.addIncludeDir("./vendor/stb");
+    step.addIncludeDir("./deps/stb");
 }
 
 const stbtt_pkg = Pkg{
@@ -1228,7 +1229,7 @@ const stbtt_pkg = Pkg{
 
 fn addStbtt(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbtt_pkg);
-    step.addIncludeDir("./vendor/stb");
+    step.addIncludeDir("./deps/stb");
     step.linkLibC();
 }
 
@@ -1308,7 +1309,7 @@ const BuildLyonStep = struct {
 
         if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
             const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.so");
-            const to_path = self.builder.pathFromRoot("./vendor/prebuilt/linux64/libclyon.so");
+            const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.so");
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
             _ = try self.builder.exec(&[_][]const u8{ "strip", to_path });
         }
@@ -1419,9 +1420,9 @@ const GetDepsStep = struct {
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
 
-        var path = self.builder.pathFromRoot("./vendor");
+        var path = self.builder.pathFromRoot("./deps");
         if ((try statPath(path)) == .NotExist) {
-            _ = try self.builder.exec(&[_][]const u8{ "git", "clone", "--depth=1", "https://github.com/fubark/cosmic-vendor", path });
+            _ = try self.builder.exec(&[_][]const u8{ "git", "clone", "--depth=1", "https://github.com/fubark/cosmic-deps", path });
         }
 
         path = self.builder.pathFromRoot("./lib/zig-v8");
