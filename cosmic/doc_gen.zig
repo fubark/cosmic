@@ -619,7 +619,8 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                 ctx.write(" )</span>");
 
                 // Return.
-                ctx.writeFmt(" <span class=\"return\">{s}</span>", .{func.ret.type_name});
+                const ret_type_name: []const u8 = if (func.ret.type_name) |name| name else "";
+                ctx.writeFmt(" <span class=\"return\">{s}</span>", .{ ret_type_name});
 
                 // Description.
                 ctx.writeFmt(
@@ -682,7 +683,8 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                     ctx.write(" )</span>");
 
                     // Return.
-                    ctx.writeFmt(" <span class=\"return\">{s}</span>", .{func.ret.type_name});
+                    const ret_type_name: []const u8 = if (func.ret.type_name) |name| name else "";
+                    ctx.writeFmt(" <span class=\"return\">{s}</span>", .{ret_type_name});
 
                     // Description.
                     ctx.writeFmt(

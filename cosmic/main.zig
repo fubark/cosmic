@@ -57,6 +57,9 @@ pub fn main() !void {
     } else if (string.eq(cmd, "version")) {
         version();
         process.exit(0);
+    } else if (string.eq(cmd, "shell")) {
+        repl();
+        process.exit(0);
     } else {
         // Assume param is a js file.
         const src_path = cmd;
