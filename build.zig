@@ -12,9 +12,6 @@ const VersionName = "v0.1 Alpha";
 const DepsRevision = "ea46a2cd1af65d020c25b0a36cf66d59a6e5cb83";
 const V8_Revision = "9.9.7";
 
-// During development you might want zls to see all the lib packages, remember to reset to false.
-const IncludeAllLibs = false;
-
 const UsePrebuiltCurl = false;
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
@@ -84,9 +81,9 @@ pub fn build(b: *Builder) void {
         var _ctx = BuilderContext{
             .builder = b,
             .enable_tracy = tracy,
-            .link_net = true,
-            .link_graphics = true,
-            .link_v8 = true,
+            .link_net = false,
+            .link_graphics = false,
+            .link_v8 = false,
             .static_link = static_link,
             .path = "cosmic/doc_gen.zig",
             .filter = filter,
@@ -94,9 +91,11 @@ pub fn build(b: *Builder) void {
             .target = target,
             .build_options = _build_options,
         };
-        const step = _ctx.createBuildExeStep().run();
-        step.addArgs(args);
-        b.step("gen-docs", "Generate docs").dependOn(&step.step);
+        const step = _ctx.createBuildExeStep();
+        _ctx.buildLinkMock(step);
+        const run = step.run();
+        run.addArgs(args);
+        b.step("gen-docs", "Generate docs").dependOn(&run.step);
     }
 
     {
@@ -290,12 +289,10 @@ const BuilderContext = struct {
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) void {
-        if (self.link_net or IncludeAllLibs) {
-            addCurl(step);
-            addUv(step);
-            addH2O(step);
-            addOpenSSL(step);
-        }
+        addCurl(step);
+        addUv(step);
+        addH2O(step);
+        addOpenSSL(step);
         if (self.link_net) {
             openssl.buildLinkCrypto(self.builder, step) catch unreachable;
             openssl.buildLinkSsl(self.builder, step);
@@ -305,13 +302,11 @@ const BuilderContext = struct {
             self.buildLinkUv(step) catch unreachable;
             self.buildLinkH2O(step);
         }
-        if (self.link_graphics or IncludeAllLibs) {
-            addSDL(step);
-            addStbtt(step);
-            addGL(step);
-            addLyon(step);
-            addStbi(step);
-        }
+        addSDL(step);
+        addStbtt(step);
+        addGL(step);
+        addLyon(step);
+        addStbi(step);
         if (self.link_graphics) {
             self.linkSDL(step);
             self.buildLinkStbtt(step);
@@ -319,10 +314,7 @@ const BuilderContext = struct {
             self.linkLyon(step, self.target);
             self.buildLinkStbi(step);
         }
-
-        if (self.link_v8 or IncludeAllLibs) {
-            addZigV8(step);
-        }
+        addZigV8(step);
         if (self.link_v8) {
             self.linkZigV8(step);
         }
@@ -1430,12 +1422,13 @@ fn createGetV8LibStep(b: *Builder, target: std.zig.CrossTarget) *std.build.LogSt
     const step = b.addLog("Get V8 Lib\n", .{});
 
     const url = getV8_StaticLibGithubUrl(b.allocator, V8_Revision, target);
+    // log.debug("Url: {s}", .{url});
     const lib_path = getV8_StaticLibPath(b, target);
 
     if (builtin.os.tag == .windows) {
         std.debug.panic("TODO: Create powershell script.");
     } else {
-        var sub_step = b.addSystemCommand(&.{ "curl", url, "-o", lib_path });
+        var sub_step = b.addSystemCommand(&.{ "curl", "-L", url, "-o", lib_path });
         step.step.dependOn(&sub_step.step);
     }
     return step;
@@ -1444,8 +1437,8 @@ fn createGetV8LibStep(b: *Builder, target: std.zig.CrossTarget) *std.build.LogSt
 fn getV8_StaticLibGithubUrl(alloc: std.mem.Allocator, tag: []const u8, target: std.zig.CrossTarget) []const u8 {
     const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
-    return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_v8_{s}-{s}_{s}_{s}.{s}", .{
-        tag, @tagName(target.getCpuArch()), lib_name, @tagName(target.getOsTag()), "release", tag, lib_ext,
+    return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}_{s}_{s}.{s}", .{
+        tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
     }) catch unreachable;
 }
 
