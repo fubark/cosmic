@@ -80,12 +80,12 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
         const Context = api.cs_graphics.Context;
         ctx.setConstFuncT(proto, "defaultFont", Context.defaultFont);
-        ctx.setConstFuncT(proto, "setFillColor", Context.setFillColor);
         ctx.setConstFuncT(proto, "fillColor", Context.fillColor);
-        ctx.setConstFuncT(proto, "setStrokeColor", Context.setStrokeColor);
+        ctx.setConstFuncT(proto, "getFillColor", Context.getFillColor);
         ctx.setConstFuncT(proto, "strokeColor", Context.strokeColor);
-        ctx.setConstFuncT(proto, "setLineWidth", Context.setLineWidth);
+        ctx.setConstFuncT(proto, "getStrokeColor", Context.getStrokeColor);
         ctx.setConstFuncT(proto, "lineWidth", Context.lineWidth);
+        ctx.setConstFuncT(proto, "getLineWidth", Context.getLineWidth);
         ctx.setConstFuncT(proto, "rect", Context.rect);
         ctx.setConstFuncT(proto, "rectOutline", Context.rectOutline);
         ctx.setConstFuncT(proto, "translate", Context.translate);
@@ -96,8 +96,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "newImage", Context.newImage);
         ctx.setConstFuncT(proto, "addTtfFont", Context.addTtfFont);
         ctx.setConstFuncT(proto, "addFallbackFont", Context.addFallbackFont);
-        ctx.setConstFuncT(proto, "setFont", Context.setFont);
-        ctx.setConstFuncT(proto, "setFontSize", Context.setFontSize);
+        ctx.setConstFuncT(proto, "font", Context.font);
+        ctx.setConstFuncT(proto, "fontSize", Context.fontSize);
         ctx.setConstFuncT(proto, "text", Context.text);
         ctx.setConstFuncT(proto, "circle", Context.circle);
         ctx.setConstFuncT(proto, "circleSector", Context.circleSector);

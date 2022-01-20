@@ -126,27 +126,27 @@ pub const cs_graphics = struct {
             return self.getDefaultFontId();
         }
 
-        pub inline fn fillColor(self: *Graphics) Color {
+        pub inline fn getFillColor(self: *Graphics) Color {
             return fromStdColor(self.getFillColor());
         }
 
-        pub inline fn setFillColor(self: *Graphics, color: Color) void {
+        pub inline fn fillColor(self: *Graphics, color: Color) void {
             return self.setFillColor(toStdColor(color));
         }
 
-        pub inline fn strokeColor(self: *Graphics) Color {
+        pub inline fn getStrokeColor(self: *Graphics) Color {
             return fromStdColor(self.getStrokeColor());
         }
 
-        pub inline fn setStrokeColor(self: *Graphics, color: Color) void {
+        pub inline fn strokeColor(self: *Graphics, color: Color) void {
             return self.setStrokeColor(toStdColor(color));
         }
 
-        pub inline fn lineWidth(self: *Graphics) f32 {
+        pub inline fn getLineWidth(self: *Graphics) f32 {
             return self.getLineWidth();
         }
 
-        pub inline fn setLineWidth(self: *Graphics, width: f32) void {
+        pub inline fn lineWidth(self: *Graphics, width: f32) void {
             return self.setLineWidth(width);
         }
 
@@ -213,11 +213,11 @@ pub const cs_graphics = struct {
             self.resetTransform();
         }
 
-        pub inline fn setFont(self: *Graphics, font_gid: FontId, font_size: f32) void {
+        pub inline fn font(self: *Graphics, font_gid: FontId, font_size: f32) void {
             self.setFont(font_gid, font_size);
         }
 
-        pub inline fn setFontSize(self: *Graphics, font_size: f32) void {
+        pub inline fn fontSize(self: *Graphics, font_size: f32) void {
             self.setFontSize(font_size);
         }
 
