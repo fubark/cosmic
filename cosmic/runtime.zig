@@ -348,54 +348,48 @@ pub const RuntimeContext = struct {
 
         if (self.resources.findInList(list_id, res_id, S.findPrev)) |prev_id| {
             const id = self.resources.getNext(prev_id).?;
-            self.deinitResourceHandle(self.resources.get(id));
+            const res = self.resources.get(id);
+            self.deinitResourceHandle(res);
 
             // Remove from resources.
             self.resources.removeNext(prev_id);
+
+            if (res.tag == .CsWindow) {
+                if (self.window_resource_list_last == id) {
+                    self.window_resource_list_last = prev_id;
+                }
+                // Update current vars.
+                self.num_windows -= 1;
+                if (self.num_windows > 0) {
+                    if (self.active_window == stdx.mem.ptrCastAlign(*CsWindow, res.ptr)) {
+                        // TODO: Revisit this. For now just pick the last window.
+                        self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(prev_id).ptr);
+                        self.active_graphics = self.active_window.graphics;
+                    }
+                } else {
+                    self.active_window = undefined;
+                    self.active_graphics = undefined;
+                }
+            }
         }
     }
 
-    fn deleteCsWindowBySdlId(self: *Self, sdl_win_id: u32) void {
+    fn getCsWindowResourceBySdlId(self: *Self, sdl_win_id: u32) ?ResourceId {
         if (graphics.Backend != .OpenGL) {
             @panic("unsupported");
         }
         const S = struct {
             fn pred(_sdl_win_id: u32, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-                if (buf.getNext(item_id)) |next| {
-                    const res = buf.get(next);
-                    const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                    return cs_window.window.inner.id == _sdl_win_id;
-                } else return false;
+                const res = buf.get(item_id);
+                // Skip dummy head.
+                if (res.tag == .Dummy) {
+                    return false;
+                }
+                const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                return cs_window.window.inner.id == _sdl_win_id;
             }
         };
-        if (self.resources.findInList(self.window_resource_list, sdl_win_id, S.pred)) |prev_id| {
-            const window_id = self.resources.getNext(prev_id).?;
-            const res = self.resources.get(window_id);
-
-            const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-            // Deinit and destroy.
-            cs_window.deinit(self);
-            self.alloc.destroy(cs_window);
-
-            // Remove from resources.
-            self.resources.removeNext(prev_id);
-
-            // Update current vars.
-            if (self.window_resource_list_last == window_id) {
-                self.window_resource_list_last = prev_id;
-            }
-            self.num_windows -= 1;
-            if (self.num_windows > 0) {
-                if (self.active_window == cs_window) {
-                    // TODO: Revisit this. For now just pick the last window.
-                    self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(prev_id).ptr);
-                    self.active_graphics = self.active_window.graphics;
-                }
-            } else {
-                self.active_window = undefined;
-                self.active_graphics = undefined;
-            }
-        }
+        return self.resources.findInList(self.window_resource_list, sdl_win_id, S.pred) orelse return null;
     }
 
     pub fn getJsValue(self: Self, native_val: anytype) v8.Value {
@@ -789,9 +783,6 @@ fn reportUncaughtPromiseRejections() void {
 
 // Main loop for running user apps.
 pub fn runUserLoop(rt: *RuntimeContext) void {
-    var fps_limiter = graphics.DefaultFpsLimiter.init(60);
-    var fps: u64 = 0;
-
     const iso = rt.isolate;
     const ctx = rt.context;
 
@@ -806,7 +797,9 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                 sdl.SDL_WINDOWEVENT => {
                     switch (event.window.event) {
                         sdl.SDL_WINDOWEVENT_CLOSE => {
-                            rt.deleteCsWindowBySdlId(event.window.windowID);
+                            if (rt.getCsWindowResourceBySdlId(event.window.windowID)) |res_id| {
+                                rt.destroyResource(rt.window_resource_list, res_id);
+                            }
                         },
                         else => {},
                     }
@@ -828,10 +821,9 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
 
         rt.active_graphics.beginFrame();
 
-        for (rt.active_window.onDrawFrameCbs.items) |onDrawFrame| {
-            _ = onDrawFrame.inner.call(ctx, rt.active_window.js_window, &.{
-                rt.active_window.js_graphics.toValue(), iso.initNumber(@intToFloat(f64, fps)).toValue(),
-            }) orelse {
+        for (rt.active_window.onUpdateCbs.items) |cb| {
+            const g_ctx = rt.active_window.js_graphics.toValue();
+            _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
                 const trace = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(trace);
                 printFmt("{s}", .{trace});
@@ -845,8 +837,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
 
         rt.active_window.window.swapBuffers();
 
-        fps_limiter.endFrameAndDelay();
-        fps = fps_limiter.getFps();
+        rt.active_window.fps_limiter.endFrameAndDelay();
     }
 }
 
@@ -881,12 +872,14 @@ pub const CsWindow = struct {
     const Self = @This();
 
     window: graphics.Window,
-    onDrawFrameCbs: std.ArrayList(v8.Persistent(v8.Function)),
+    onUpdateCbs: std.ArrayList(v8.Persistent(v8.Function)),
     js_window: v8.Persistent(v8.Object),
 
     // Currently, each window has its own graphics handle.
     graphics: *graphics.Graphics,
     js_graphics: v8.Persistent(v8.Object),
+
+    fps_limiter: graphics.DefaultFpsLimiter,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
         const iso = rt.isolate;
@@ -901,10 +894,11 @@ pub const CsWindow = struct {
 
         self.* = .{
             .window = window,
-            .onDrawFrameCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
+            .onUpdateCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
             .js_window = iso.initPersistent(v8.Object, js_window),
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
+            .fps_limiter = graphics.DefaultFpsLimiter.init(60),
         };
         self.graphics.init(alloc, window.getWidth(), window.getHeight());
     }
@@ -912,11 +906,13 @@ pub const CsWindow = struct {
     pub fn deinit(self: *Self, rt: *RuntimeContext) void {
         self.graphics.deinit();
         rt.alloc.destroy(self.graphics);
+
         self.window.deinit();
-        for (self.onDrawFrameCbs.items) |*onDrawFrame| {
-            onDrawFrame.deinit();
+        for (self.onUpdateCbs.items) |*onUpdate| {
+            onUpdate.deinit();
         }
-        self.onDrawFrameCbs.deinit();
+        self.onUpdateCbs.deinit();
+
         self.js_window.deinit();
         // Invalidate graphics ptr.
         const iso = rt.isolate;

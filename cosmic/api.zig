@@ -85,8 +85,44 @@ pub const cs_window = struct {
 
                 // Persist callback func.
                 const p = v8.Persistent(v8.Function).init(iso, arg);
-                win.onDrawFrameCbs.append(p) catch unreachable;
+                win.onUpdateCbs.append(p) catch unreachable;
             }
+        }
+
+        /// Returns the time elapsed in milliseconds since the start of the last frame.
+        pub fn getTimeElapsed(rt: *RuntimeContext, this: This) ?u32 {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                return @intCast(u32, win.fps_limiter.getDeltaMs());
+            }
+            return null;
+        }
+
+        /// Returns the average frames per second.
+        pub fn getFps(rt: *RuntimeContext, this: This) ?u32 {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                return @intCast(u32, win.fps_limiter.getFps());
+            }
+            return null;
+        }
+
+        /// Closes the current window and frees the handle. Returns true if successful.
+        pub fn close(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                rt.destroyResource(rt.window_resource_list, window_id);
+                return true;
+            }
+            return false;
         }
     };
 };
@@ -122,32 +158,39 @@ pub const cs_graphics = struct {
     /// This provides an interface to the underlying graphics handle. It has a similar API to Web Canvas.
     pub const Context = struct {
 
+        /// Returns the FontId of "Bitstream Vera Sans" the default font embedded into the runtime.
         pub inline fn defaultFont(self: *Graphics) FontId {
             return self.getDefaultFontId();
         }
 
-        pub inline fn getFillColor(self: *Graphics) Color {
-            return fromStdColor(self.getFillColor());
-        }
-
+        /// Sets the current fill color for painting shapes.
         pub inline fn fillColor(self: *Graphics, color: Color) void {
             return self.setFillColor(toStdColor(color));
         }
 
-        pub inline fn getStrokeColor(self: *Graphics) Color {
-            return fromStdColor(self.getStrokeColor());
+        /// Returns the current fill color.
+        pub inline fn getFillColor(self: *Graphics) Color {
+            return fromStdColor(self.getFillColor());
         }
 
+        /// Sets the current stroke color for painting shape outlines.
         pub inline fn strokeColor(self: *Graphics, color: Color) void {
             return self.setStrokeColor(toStdColor(color));
         }
 
-        pub inline fn getLineWidth(self: *Graphics) f32 {
-            return self.getLineWidth();
+        /// Returns the current stroke color.
+        pub inline fn getStrokeColor(self: *Graphics) Color {
+            return fromStdColor(self.getStrokeColor());
         }
 
+        /// Sets the current line width for painting shape outlines.
         pub inline fn lineWidth(self: *Graphics, width: f32) void {
             return self.setLineWidth(width);
+        }
+
+        /// Returns the current line width.
+        pub inline fn getLineWidth(self: *Graphics) f32 {
+            return self.getLineWidth();
         }
 
         /// Path can be absolute or relative to the cwd.

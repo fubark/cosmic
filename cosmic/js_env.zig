@@ -59,6 +59,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         const proto = window_class.getPrototypeTemplate();
         ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
         ctx.setFuncT(proto, "getGraphics", api.cs_window.Window.getGraphics);
+        ctx.setFuncT(proto, "getTimeElapsed", api.cs_window.Window.getTimeElapsed);
+        ctx.setFuncT(proto, "getFps", api.cs_window.Window.getFps);
+        ctx.setFuncT(proto, "close", api.cs_window.Window.close);
     }
     rt.window_class = window_class;
 

@@ -120,6 +120,5 @@ w.onUpdate(g => {
 
     g.fillColor(Color.blue.lighter())
     g.font(my_font, 26)
-    const fps = 30
-    g.text(1100, 10, `fps ${fps}`)
-});
+    g.text(1100, 10, `fps ${w.getFps()}`)
+})
