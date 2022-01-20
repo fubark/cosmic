@@ -105,6 +105,7 @@ pub const RuntimeContext = struct {
     uv_poller: UvPoller,
 
     // Number of long lived uv handles.
+    // TODO: Check later to remove this. We are now using hasPendingEvents().
     num_uv_handles: u32,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
@@ -837,6 +838,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                 return;
             };
         }
+
         rt.active_graphics.endFrame();
 
         // TODO: Run any queued micro tasks.
@@ -1096,26 +1098,32 @@ const IsolatedTest = struct {
     }
 };
 
-/// Waits until there is work to process.
+/// Returns whether there are pending events in libuv or the work queue.
+inline fn hasPendingEvents(rt: *RuntimeContext) bool {
+    // There will at least be 1 active handle (the dummy async handle used to do interrupts from main thread).
+    // uv handle checks is based on uv_loop_alive():
+    return rt.uv_loop.active_handles > 1 or 
+        rt.uv_loop.active_reqs.count > 0 or
+        rt.uv_loop.closing_handles != null or 
+        rt.work_queue.hasUnfinishedTasks();
+}
+
+/// Waits until there is work to process if there is work in progress.
 /// If true, a follow up processMainEventLoop should be called to do the work and reset the poller.
 /// If false, there are no more pending tasks, and the caller should exit the loop.
 fn pollMainEventLoop(rt: *RuntimeContext) bool {
-    while (true) {
+    while (hasPendingEvents(rt)) {
         // Wait for events.
         // log.debug("main thread wait", .{});
         const Timeout = 4 * 1e9;
         const wait_res = rt.main_wakeup.timedWait(Timeout);
         rt.main_wakeup.reset();
         if (wait_res == .timed_out) {
-            if (rt.num_uv_handles > 0) {
-                // Continue until no more long lived uv handles.
-                continue;
-            } else {
-                return false;
-            }
+            continue;
         }
         return true;
     }
+    return false;
 }
 
 fn processMainEventLoop(rt: *RuntimeContext) void {
@@ -1354,12 +1362,13 @@ pub const ContextBuilder = struct {
         if (@typeInfo(@TypeOf(native_val_or_cb)) == .Fn) {
             @compileError("TODO");
         } else {
-            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallback(self.isolate, gen.genJsFuncGetValue(native_val_or_cb)));
+            const data = self.isolate.initExternal(self.rt);
+            tmpl.setGetter(js_key, v8.FunctionTemplate.initCallbackData(self.isolate, gen.genJsFuncGetValue(native_val_or_cb), data));
         }
     }
 
     pub fn setGetter(self: Self, tmpl: v8.ObjectTemplate, key: []const u8, comptime native_cb: anytype) void {
-        const js_key = v8.String.initUtf8(self.cur_isolate, key);
+        const js_key = v8.String.initUtf8(self.isolate, key);
         tmpl.setGetter(js_key, gen.genJsGetter(native_cb));
     }
 

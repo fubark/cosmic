@@ -581,6 +581,14 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setFontSize(self: *Self, font_size: f32) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.setFontSize(&self.g, font_size),
+            .WasmCanvas => canvas.Graphics.setFontSize(&self.g, font_size),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn setFont(self: *Self, font_gid: FontId, font_size: f32) void {
         switch (Backend) {
             .OpenGL => {
@@ -673,14 +681,13 @@ pub const Graphics = struct {
         }
     }
 
-    // TODO: Should we have a default font?
-    //     pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
-    //         switch (Backend) {
-    //             .OpenGL => return self.g.default_font_gid,
-    //             .Test => return self.g.default_font_gid,
-    //             else => stdx.panic("unsupported"),
-    //         }
-    //     }
+    pub fn getDefaultFontId(self: *Self) FontId {
+        switch (Backend) {
+            .OpenGL => return self.g.default_font_id,
+            .Test => return self.g.default_font_id,
+            else => stdx.panic("unsupported"),
+        }
+    }
 
     pub fn getFontByName(self: *Self, name: []const u8) ?FontId {
         switch (Backend) {

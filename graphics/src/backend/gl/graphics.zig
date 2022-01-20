@@ -40,6 +40,8 @@ const svg = graphics.svg;
 const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
 const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
 
+const vera_ttf = @embedFile("../../../../deps/assets/vera.ttf");
+
 // TODO: Embed a small bitmap font as default.
 
 pub const Graphics = struct {
@@ -61,7 +63,7 @@ pub const Graphics = struct {
     view_transform: Transform,
     initial_mvp: Mat4,
 
-    default_font_gid: FontGroupId,
+    default_font_id: FontId,
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
 
@@ -88,7 +90,7 @@ pub const Graphics = struct {
             .tex_shader = undefined,
             .batcher = undefined,
             .font_cache = undefined,
-            .default_font_gid = undefined,
+            .default_font_id = undefined,
             .cur_font_gid = undefined,
             .cur_font_size = undefined,
             .cur_buffer_width = @intCast(c_int, buf_width),
@@ -141,9 +143,10 @@ pub const Graphics = struct {
 
         self.font_cache.init(alloc, self);
 
-        // TODO: Setup default bitmap font.
-        // self.default_font_gid = group_id;
-        // self.setFont(group_id);
+        // TODO: Add a default monospace font.
+
+        self.default_font_id = self.addTTF_Font(vera_ttf);
+        self.setFont(self.default_font_id);
 
         // Set default font size.
         self.setFontSize(20);
@@ -160,10 +163,10 @@ pub const Graphics = struct {
         // Viewport.
         gl.glViewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
-        // Clear color.
+        // Clear color. Default to white.
+        gl.glClearColor(1, 1, 1, 1.0);
         // gl.glClearColor(0.1, 0.2, 0.3, 1.0);
-        // gl.glClearColor(1, 1, 1, 1.0);
-        gl.glClearColor(0, 0, 0, 1.0);
+        // gl.glClearColor(0, 0, 0, 1.0);
 
         // 2D graphics for now. Turn off 3d options.
         gl.glDisable(gl.GL_DEPTH_TEST);

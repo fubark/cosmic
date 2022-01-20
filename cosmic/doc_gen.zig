@@ -45,6 +45,9 @@ pub fn main() !void {
     // Copy over assets.
     try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/pico.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "pico.min.css"), .{});
     try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/docs.css"), std.fs.cwd(), fromPath(alloc, docs_path, "docs.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/hljs-default.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-default.min.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/hljs-vs.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-vs.min.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/highlight.min.js"), std.fs.cwd(), fromPath(alloc, docs_path, "highlight.min.js"), .{});
 
     const api_model = try genApiModel(alloc);
 
@@ -541,6 +544,8 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         \\  <meta name="viewport" content="width=device-width, initial-scale=1">
         \\  <link rel="stylesheet" href="pico.min.css" />
         \\  <link rel="stylesheet" href="docs.css" />
+        \\  <link rel="stylesheet" href="hljs-default.min.css" />
+        \\  <link rel="stylesheet" href="hljs-vs.min.css" />
         \\  <title>Cosmic Docs | {s}</title>
         \\</head>
         \\<body>
@@ -735,6 +740,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         }
         ctx.write("</ul></nav></div></aside>");
     }
+    ctx.write("</main>");
 
     // Script
     if (mb_mod_id) |mod_id| {
@@ -746,7 +752,12 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             , .{mod.name}
         );
     }
-    ctx.write("</main>");
+    ctx.write(
+        \\<script src="highlight.min.js"></script>
+        \\<script>
+        \\  hljs.highlightAll();
+        \\</script>
+    );
 }
 
 fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {

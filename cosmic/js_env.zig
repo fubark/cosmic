@@ -57,8 +57,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         inst.setInternalFieldCount(1);
 
         const proto = window_class.getPrototypeTemplate();
-        ctx.setFuncT(proto, "onDrawFrame", api.cs_window.onDrawFrame);
-        ctx.setFuncT(proto, "getGraphics", api.cs_window.getGraphics);
+        ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
+        ctx.setFuncT(proto, "getGraphics", api.cs_window.Window.getGraphics);
     }
     rt.window_class = window_class;
 
@@ -79,14 +79,15 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         // ctx.setAccessor(proto, "lineWidth", Graphics.getLineWidth, Graphics.setLineWidth);
 
         const Context = api.cs_graphics.Context;
+        ctx.setConstFuncT(proto, "defaultFont", Context.defaultFont);
         ctx.setConstFuncT(proto, "setFillColor", Context.setFillColor);
         ctx.setConstFuncT(proto, "fillColor", Context.fillColor);
         ctx.setConstFuncT(proto, "setStrokeColor", Context.setStrokeColor);
         ctx.setConstFuncT(proto, "strokeColor", Context.strokeColor);
         ctx.setConstFuncT(proto, "setLineWidth", Context.setLineWidth);
         ctx.setConstFuncT(proto, "lineWidth", Context.lineWidth);
-        ctx.setConstFuncT(proto, "fillRect", Context.fillRect);
-        ctx.setConstFuncT(proto, "drawRect", Context.drawRect);
+        ctx.setConstFuncT(proto, "rect", Context.rect);
+        ctx.setConstFuncT(proto, "rectOutline", Context.rectOutline);
         ctx.setConstFuncT(proto, "translate", Context.translate);
         ctx.setConstFuncT(proto, "scale", Context.scale);
         ctx.setConstFuncT(proto, "rotate", Context.rotate);
@@ -96,33 +97,34 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "addTtfFont", Context.addTtfFont);
         ctx.setConstFuncT(proto, "addFallbackFont", Context.addFallbackFont);
         ctx.setConstFuncT(proto, "setFont", Context.setFont);
-        ctx.setConstFuncT(proto, "fillText", Context.fillText);
-        ctx.setConstFuncT(proto, "fillCircle", Context.fillCircle);
-        ctx.setConstFuncT(proto, "fillCircleSector", Context.fillCircleSector);
-        ctx.setConstFuncT(proto, "fillCircleSectorDeg", Context.fillCircleSectorDeg);
-        ctx.setConstFuncT(proto, "drawCircle", Context.drawCircle);
-        ctx.setConstFuncT(proto, "drawCircleArc", Context.drawCircleArc);
-        ctx.setConstFuncT(proto, "drawCircleArcDeg", Context.drawCircleArcDeg);
-        ctx.setConstFuncT(proto, "fillEllipse", Context.fillEllipse);
-        ctx.setConstFuncT(proto, "fillEllipseSector", Context.fillEllipseSector);
-        ctx.setConstFuncT(proto, "fillEllipseSectorDeg", Context.fillEllipseSectorDeg);
-        ctx.setConstFuncT(proto, "drawEllipse", Context.drawEllipse);
-        ctx.setConstFuncT(proto, "drawEllipseArc", Context.drawEllipseArc);
-        ctx.setConstFuncT(proto, "drawEllipseArcDeg", Context.drawEllipseArcDeg);
-        ctx.setConstFuncT(proto, "fillTriangle", Context.fillTriangle);
-        ctx.setConstFuncT(proto, "fillConvexPolygon", Context.fillConvexPolygon);
-        ctx.setConstFuncT(proto, "fillPolygon", Context.fillPolygon);
-        ctx.setConstFuncT(proto, "drawPolygon", Context.drawPolygon);
-        ctx.setConstFuncT(proto, "fillRoundRect", Context.fillRoundRect);
-        ctx.setConstFuncT(proto, "drawRoundRect", Context.drawRoundRect);
-        ctx.setConstFuncT(proto, "drawPoint", Context.drawPoint);
-        ctx.setConstFuncT(proto, "drawLine", Context.drawLine);
-        ctx.setConstFuncT(proto, "drawSvgContent", Context.drawSvgContent);
+        ctx.setConstFuncT(proto, "setFontSize", Context.setFontSize);
+        ctx.setConstFuncT(proto, "text", Context.text);
+        ctx.setConstFuncT(proto, "circle", Context.circle);
+        ctx.setConstFuncT(proto, "circleSector", Context.circleSector);
+        ctx.setConstFuncT(proto, "circleSectorDeg", Context.circleSectorDeg);
+        ctx.setConstFuncT(proto, "circleOutline", Context.circleOutline);
+        ctx.setConstFuncT(proto, "circleArc", Context.circleArc);
+        ctx.setConstFuncT(proto, "circleArcDeg", Context.circleArcDeg);
+        ctx.setConstFuncT(proto, "ellipse", Context.ellipse);
+        ctx.setConstFuncT(proto, "ellipseSector", Context.ellipseSector);
+        ctx.setConstFuncT(proto, "ellipseSectorDeg", Context.ellipseSectorDeg);
+        ctx.setConstFuncT(proto, "ellipseOutline", Context.ellipseOutline);
+        ctx.setConstFuncT(proto, "ellipseArc", Context.ellipseArc);
+        ctx.setConstFuncT(proto, "ellipseArcDeg", Context.ellipseArcDeg);
+        ctx.setConstFuncT(proto, "triangle", Context.triangle);
+        ctx.setConstFuncT(proto, "convexPolygon", Context.convexPolygon);
+        ctx.setConstFuncT(proto, "polygon", Context.polygon);
+        ctx.setConstFuncT(proto, "polygonOutline", Context.polygonOutline);
+        ctx.setConstFuncT(proto, "roundRect", Context.roundRect);
+        ctx.setConstFuncT(proto, "roundRectOutline", Context.roundRectOutline);
+        ctx.setConstFuncT(proto, "point", Context.point);
+        ctx.setConstFuncT(proto, "line", Context.line);
+        ctx.setConstFuncT(proto, "svgContent", Context.svgContent);
         ctx.setConstFuncT(proto, "compileSvgContent", Context.compileSvgContent);
         ctx.setConstFuncT(proto, "executeDrawList", Context.executeDrawList);
-        ctx.setConstFuncT(proto, "drawQuadraticBezierCurve", Context.drawQuadraticBezierCurve);
-        ctx.setConstFuncT(proto, "drawCubicBezierCurve", Context.drawCubicBezierCurve);
-        ctx.setConstFuncT(proto, "drawImageSized", Context.drawImageSized);
+        ctx.setConstFuncT(proto, "quadraticBezierCurve", Context.quadraticBezierCurve);
+        ctx.setConstFuncT(proto, "cubicBezierCurve", Context.cubicBezierCurve);
+        ctx.setConstFuncT(proto, "imageSized", Context.imageSized);
     }
     rt.graphics_class = graphics_class;
 
@@ -199,7 +201,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const window_constructor = iso.initFunctionTemplateDefault();
     window_constructor.setClassName(iso.initStringUtf8("window"));
     const window = iso.initObjectTemplate(window_constructor);
-    ctx.setConstFuncT(window, "new", api.cs_window.new);
+    ctx.setConstFuncT(window, "create", api.cs_window.create);
     ctx.setConstProp(cs, "window", window);
 
     // cs.files
@@ -315,10 +317,19 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_util, "bufferToUtf8", api.cs_core.bufferToUtf8);
     ctx.setConstProp(cs, "util", cs_util);
 
+    const rt_data = iso.initExternal(rt);
+
+    // cs.core
+    const cs_core = v8.ObjectTemplate.initDefault(iso);
+    ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
+    ctx.setConstProp(cs_core, "printLine", iso.initFunctionTemplateCallbackData(api.cs_core.printLine, rt_data));
+    ctx.setConstProp(cs, "core", cs_core);
+
     ctx.setConstProp(global, "cs", cs);
 
-    const rt_data = iso.initExternal(rt);
+    // cs.core is duplicated into global scope.
     ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
+    ctx.setConstProp(global, "printLine", iso.initFunctionTemplateCallbackData(api.cs_core.printLine, rt_data));
 
     const res = iso.initContext(global, null);
 

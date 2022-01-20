@@ -54,6 +54,22 @@
 
 <a href="#" id="start"></a>
 <h3>Getting Started</h3>
+<h6>Hello World</h6>
+<p>Open up your text editor and create hello.js:</p>
+<pre><code class="language-javascript">const Color = cs.graphics.Color
+
+printLine('Hello World!')
+
+const w = cs.window.create('Demo', 1200, 720)
+w.onUpdate(g => {
+    g.setFontSize(52)
+    g.setFillColor(Color.blue)
+    g.text(400, 300, 'Hello World!')
+})</code></pre>
+<p>Then run this in the terminal:</p>
+<pre><code class="language-bash">cosmic run hello.js</code></pre>
+
+<p>You can find more examples <a href="https://github.com/fubark/cosmic/tree/master/examples">here</a>!</p>
 
 <a href="#" id="tools"></a>
 <h3>Tools</h3>

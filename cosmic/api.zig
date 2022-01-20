@@ -17,6 +17,7 @@ const RuntimeContext = runtime.RuntimeContext;
 const RuntimeValue = runtime.RuntimeValue;
 const PromiseId = runtime.PromiseId;
 const ThisResource = runtime.ThisResource;
+const This = runtime.This;
 const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
@@ -34,7 +35,8 @@ const HttpServer = _server.HttpServer;
 /// Provides a cross platform API to create and manage windows.
 pub const cs_window = struct {
 
-    pub fn new(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
+    /// Creates a new window and returns the handle.
+    pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
         const res = rt.createCsWindowResource();
 
         const win = graphics.Window.init(rt.alloc, .{
@@ -50,34 +52,43 @@ pub const cs_window = struct {
         return res.ptr.js_window.castToObject();
     }
 
-    pub fn getGraphics(rt: *RuntimeContext, this: v8.Object) *const anyopaque {
-        const ctx = rt.context;
-        const window_id = this.getInternalField(0).toU32(ctx);
+    /// An interface for a window handle.
+    pub const Window = struct {
 
-        const res = rt.resources.get(window_id);
-        if (res.tag == .CsWindow) {
-            const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-            return @ptrCast(*const anyopaque, win.js_graphics.inner.handle);
-        } else {
-            v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Window no longer exists for id {}", .{window_id});
-            return @ptrCast(*const anyopaque, rt.js_undefined.handle);
+        /// Returns the graphics context attached to this window.
+        pub fn getGraphics(rt: *RuntimeContext, this: This) *const anyopaque {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                return @ptrCast(*const anyopaque, win.js_graphics.inner.handle);
+            } else {
+                v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Window no longer exists for id {}", .{window_id});
+                return @ptrCast(*const anyopaque, rt.js_undefined.handle);
+            }
         }
-    }
 
-    pub fn onDrawFrame(rt: *RuntimeContext, this: v8.Object, arg: v8.Function) void {
-        const iso = rt.isolate;
-        const ctx = rt.context;
-        const window_id = this.getInternalField(0).toU32(ctx);
+        /// Provide a handler for the window's frame updates.
+        /// This is a good place to do your app's update logic and draw to the screen.
+        /// The frequency of frame updates is limited by an FPS counter.
+        /// Eventually, this frequency will be configurable.
+        pub fn onUpdate(rt: *RuntimeContext, this: This, arg: v8.Function) void {
+            const iso = rt.isolate;
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
 
-        const res = rt.resources.get(window_id);
-        if (res.tag == .CsWindow) {
-            const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
 
-            // Persist callback func.
-            const p = v8.Persistent(v8.Function).init(iso, arg);
-            win.onDrawFrameCbs.append(p) catch unreachable;
+                // Persist callback func.
+                const p = v8.Persistent(v8.Function).init(iso, arg);
+                win.onDrawFrameCbs.append(p) catch unreachable;
+            }
         }
-    }
+    };
 };
 
 pub fn color_Lighter(rt: *RuntimeContext, this: v8.Object) cs_graphics.Color {
@@ -110,6 +121,10 @@ pub const cs_graphics = struct {
 
     /// This provides an interface to the underlying graphics handle. It has a similar API to Web Canvas.
     pub const Context = struct {
+
+        pub inline fn defaultFont(self: *Graphics) FontId {
+            return self.getDefaultFontId();
+        }
 
         pub inline fn fillColor(self: *Graphics) Color {
             return fromStdColor(self.getFillColor());
@@ -164,12 +179,12 @@ pub const cs_graphics = struct {
         }
 
         /// Fills a rectangle with the current fill color.
-        pub inline fn fillRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+        pub inline fn rect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
             Graphics.fillRect(self, x, y, width, height);
         }
 
         /// Strokes a rectangle with the current stroke color.
-        pub inline fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+        pub inline fn rectOutline(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
             Graphics.drawRect(self, x, y, width, height);
         }
 
@@ -202,87 +217,91 @@ pub const cs_graphics = struct {
             self.setFont(font_gid, font_size);
         }
 
-        pub inline fn fillText(self: *Graphics, x: f32, y: f32, text: []const u8) void {
-            self.fillText(x, y, text);
+        pub inline fn setFontSize(self: *Graphics, font_size: f32) void {
+            self.setFontSize(font_size);
         }
 
-        pub inline fn fillCircleSector(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+        pub inline fn text(self: *Graphics, x: f32, y: f32, str: []const u8) void {
+            self.fillText(x, y, str);
+        }
+
+        pub inline fn circleSector(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
             self.fillCircleSector(x, y, radius, start_rad, sweep_rad);
         }
 
-        pub inline fn fillCircleSectorDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+        pub inline fn circleSectorDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
             self.fillCircleSectorDeg(x, y, radius, start_deg, sweep_deg);
         }
 
-        pub inline fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+        pub inline fn circleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
             self.drawCircleArc(x, y, radius, start_rad, sweep_rad);
         }
 
-        pub inline fn drawCircleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+        pub inline fn circleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
             self.drawCircleArcDeg(x, y, radius, start_deg, sweep_deg);
         }
 
-        pub inline fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+        pub inline fn circleOutline(self: *Graphics, x: f32, y: f32, radius: f32) void {
             self.drawCircle(x, y, radius);
         }
 
-        pub inline fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+        pub inline fn circle(self: *Graphics, x: f32, y: f32, radius: f32) void {
             self.fillCircle(x, y, radius);
         }
 
-        pub inline fn fillEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+        pub inline fn ellipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
             self.fillEllipse(x, y, h_radius, v_radius);
         }
 
-        pub inline fn fillEllipseSector(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+        pub inline fn ellipseSector(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
             self.fillEllipseSector(x, y, h_radius, v_radius, start_rad, sweep_rad);
         }
 
-        pub inline fn fillEllipseSectorDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+        pub inline fn ellipseSectorDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
             self.fillEllipseSectorDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
         }
 
-        pub inline fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+        pub inline fn ellipseOutline(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
             self.drawEllipse(x, y, h_radius, v_radius);
         }
 
-        pub inline fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+        pub inline fn ellipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
             self.drawEllipseArc(x, y, h_radius, v_radius, start_rad, sweep_rad);
         }
 
-        pub inline fn drawEllipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+        pub inline fn ellipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
             self.drawEllipseArcDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
         }
 
-        pub inline fn drawPoint(self: *Graphics, x: f32, y: f32) void {
+        pub inline fn point(self: *Graphics, x: f32, y: f32) void {
             self.drawPoint(x, y);
         }
 
-        pub inline fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
+        pub inline fn line(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
             self.drawLine(x1, y1, x2, y2);
         }
 
-        pub inline fn drawCubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
+        pub inline fn cubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
             self.drawCubicBezierCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2);
         }
 
-        pub inline fn drawQuadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
+        pub inline fn quadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
             self.drawQuadraticBezierCurve(x1, y1, cx, cy, x2, y2);
         }
 
-        pub inline fn fillTriangle(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
+        pub inline fn triangle(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
             self.fillTriangle(x1, y1, x2, y2, x3, y3);
         }
 
-        pub inline fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        pub inline fn roundRectOutline(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
             self.drawRoundRect(x, y, width, height, radius);
         }
 
-        pub inline fn fillRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        pub inline fn roundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
             self.fillRoundRect(x, y, width, height, radius);
         }
 
-        pub fn fillPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+        pub fn polygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
             rt.vec2_buf.resize(pts.len / 2) catch unreachable;
             var i: u32 = 0;
             var vec_idx: u32 = 0;
@@ -295,11 +314,11 @@ pub const cs_graphics = struct {
             g.fillPolygon(rt.vec2_buf.items);
         }
 
-        pub fn drawSvgContent(g: *Graphics, content: []const u8) void {
+        pub fn svgContent(g: *Graphics, content: []const u8) void {
             g.drawSvgContent(content) catch unreachable;
         }
 
-        pub fn drawImageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
+        pub fn imageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
             g.drawImageSized(x, y, width, height, image.id);
         }
 
@@ -340,7 +359,7 @@ pub const cs_graphics = struct {
             rt.destroyWeakHandleByPtr(ptr);
         }
 
-        pub fn drawPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+        pub fn polygonOutline(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
             rt.vec2_buf.resize(pts.len / 2) catch unreachable;
             var i: u32 = 0;
             var vec_idx: u32 = 0;
@@ -353,7 +372,7 @@ pub const cs_graphics = struct {
             g.drawPolygon(rt.vec2_buf.items);
         }
 
-        pub fn fillConvexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+        pub fn convexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
             rt.vec2_buf.resize(pts.len / 2) catch unreachable;
             var i: u32 = 0;
             var vec_idx: u32 = 0;
@@ -918,6 +937,7 @@ pub const cs_http = struct {
 /// Contains common utilities. All functions here are also available in the global scope. You can call them directly without the cs.core prefix.
 pub const cs_core = struct {
 
+    /// Prints any number of variables as strings separated by " ".
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         const len = info.length();
@@ -935,6 +955,11 @@ pub const cs_core = struct {
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
         }
+    }
+
+    /// Prints any number of variables as strings separated by " ". Wraps to the next line.
+    pub fn printLine(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        print(raw_info);
         printFmt("\n", .{});
     }
 

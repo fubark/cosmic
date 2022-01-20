@@ -380,6 +380,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setFontSize(self: *Self, font_size: f32) void {
+        if (font_size != self.cur_font_size) {
+            jsSetFontStyle(self.cur_font_gid, font_size);
+            self.cur_font_size = font_size;
+        }
+    }
+
     pub fn getStrokeColor(self: Self) Color {
         return self.cur_stroke_color;
     }
