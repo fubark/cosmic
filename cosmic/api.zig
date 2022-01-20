@@ -91,18 +91,18 @@ pub const cs_window = struct {
     };
 };
 
-pub fn color_Lighter(rt: *RuntimeContext, this: v8.Object) cs_graphics.Color {
-    const color = rt.getNativeValue(cs_graphics.Color, this.toValue()).?;
+pub fn color_Lighter(rt: *RuntimeContext, this: This) cs_graphics.Color {
+    const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
     return fromStdColor(toStdColor(color).lighter());
 }
 
-pub fn color_Darker(rt: *RuntimeContext, this: v8.Object) cs_graphics.Color {
-    const color = rt.getNativeValue(cs_graphics.Color, this.toValue()).?;
+pub fn color_Darker(rt: *RuntimeContext, this: This) cs_graphics.Color {
+    const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
     return fromStdColor(toStdColor(color).darker());
 }
 
-pub fn color_WithAlpha(rt: *RuntimeContext, this: v8.Object, a: u8) cs_graphics.Color {
-    const color = rt.getNativeValue(cs_graphics.Color, this.toValue()).?;
+pub fn color_WithAlpha(rt: *RuntimeContext, this: This, a: u8) cs_graphics.Color {
+    const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
     return fromStdColor(toStdColor(color).withAlpha(a));
 }
 
@@ -322,11 +322,10 @@ pub const cs_graphics = struct {
             g.drawImageSized(x, y, width, height, image.id);
         }
 
-        pub fn executeDrawList(rt: *RuntimeContext, g: *Graphics, handle: v8.Object) void {
-            const ctx = rt.context;
-            const ptr = handle.getInternalField(0).bitCastToU64(ctx);
-            const list = @intToPtr(*graphics.DrawCommandList, ptr);
-            g.executeDrawList(list.*);
+        pub fn executeDrawList(g: *Graphics, handle: v8.Object) void {
+            const ptr = handle.getInternalField(0).castTo(v8.External).get();
+            const value = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr);
+            g.executeDrawList(value.inner);
         }
 
         pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
@@ -345,7 +344,8 @@ pub const cs_graphics = struct {
             const ctx = rt.context;
             const iso = rt.isolate;
             const new = rt.handle_class.initInstance(ctx);
-            new.setInternalField(0, iso.initNumberBitCastedU64(@ptrToInt(native_ptr)));
+            const data = iso.initExternal(native_ptr);
+            new.setInternalField(0, data);
 
             var new_p = iso.initPersistent(v8.Object, new);
             new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);

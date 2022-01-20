@@ -437,12 +437,12 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("height"), iso.initIntegerU32(@intCast(u32, native_val.height)));
                 return new.handle;
             },
-            graphics.Color => {
+            api.cs_graphics.Color => {
                 const new = self.color_class.getFunction(ctx).initInstance(ctx, &.{}).?;
-                _ = new.setValue(ctx, iso.initStringUtf8("r"), iso.initIntegerU32(native_val.channels.r));
-                _ = new.setValue(ctx, iso.initStringUtf8("g"), iso.initIntegerU32(native_val.channels.g));
-                _ = new.setValue(ctx, iso.initStringUtf8("b"), iso.initIntegerU32(native_val.channels.b));
-                _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.channels.a));
+                _ = new.setValue(ctx, iso.initStringUtf8("r"), iso.initIntegerU32(native_val.r));
+                _ = new.setValue(ctx, iso.initStringUtf8("g"), iso.initIntegerU32(native_val.g));
+                _ = new.setValue(ctx, iso.initStringUtf8("b"), iso.initIntegerU32(native_val.b));
+                _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.a));
                 return new.handle;
             },
             api.cs_files.PathInfo => {
@@ -1276,9 +1276,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     defer res.deinit();
     v8x.executeString(alloc, iso, ctx, src, origin, &res);
 
-    while (platform.pumpMessageLoop(iso, false)) {
-        @panic("Did not expect v8 event loop task");
-    }
+    processV8EventLoop(&rt);
 
     if (!res.success) {
         printFmt("{s}", .{res.err.?});
@@ -1311,9 +1309,9 @@ const WeakHandle = struct {
     fn deinit(self: *Self, rt: *RuntimeContext) void {
         switch (self.tag) {
             .DrawCommandList => {
-                const list = stdx.mem.ptrCastAlign(*const graphics.DrawCommandList, self.ptr);
-                list.deinit();
-                rt.alloc.destroy(list);
+                const ptr = stdx.mem.ptrCastAlign(*const RuntimeValue(graphics.DrawCommandList), self.ptr);
+                ptr.inner.deinit();
+                rt.alloc.destroy(ptr);
             },
         }
     }
