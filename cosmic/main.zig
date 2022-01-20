@@ -7,6 +7,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 const sdl = @import("sdl");
 const v8 = @import("v8");
+const build_options = @import("build_options");
 
 const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
@@ -57,8 +58,9 @@ pub fn main() !void {
         version();
         process.exit(0);
     } else {
-        usage();
-        abortFmt("unsupported command {s}", .{cmd});
+        // Assume param is a js file.
+        const src_path = cmd;
+        try runAndExit(src_path);
     }
 }
 
@@ -196,7 +198,7 @@ fn usage() void {
 }
 
 fn version() void {
-    printFmt("cosmic {s}\nv8 {s}\n", .{ VersionText, v8.getVersion() });
+    printFmt("cosmic {s}\nv8 {s}\n", .{ build_options.VersionName, v8.getVersion() });
 }
 
 pub fn abortFmt(comptime format: []const u8, args: anytype) noreturn {
