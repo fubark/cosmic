@@ -1267,17 +1267,20 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
             next_test += 1;
         }
 
-        // Check if we're done or need to go to the next test.
-        if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
-            break;
-        } else if (rt.num_isolated_tests_finished == next_test) {
-            continue;
-        }
-
         if (pollMainEventLoop(rt)) {
             processMainEventLoop(rt);
             continue;
-        } else break;
+        } else {
+            // Nothing in event queue.
+
+            // Check if we're done or need to go to the next test.
+            if (rt.num_isolated_tests_finished == rt.isolated_tests.items.len) {
+                break;
+            } else if (rt.num_isolated_tests_finished == next_test) {
+                continue;
+            }
+            break;
+        }
     }
 
     // Check for any js uncaught exceptions from calling into js.
