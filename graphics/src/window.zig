@@ -42,6 +42,7 @@ pub const Window = struct {
         return self.inner.height;
     }
 
+    /// In the OpenGL SDL backend, swapBuffers will also block the thread to achieve the target refresh rate if vsync is on.
     pub fn swapBuffers(self: Self) void {
         switch (Backend) {
             .OpenGL => gl.Window.swapBuffers(self.inner),

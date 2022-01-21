@@ -102,14 +102,29 @@ pub const cs_window = struct {
             }
         }
 
-        /// Returns the time elapsed in milliseconds since the start of the last frame.
-        pub fn getTimeElapsed(rt: *RuntimeContext, this: This) ?u32 {
+        /// Returns how long the last frame took in microseconds. This includes the onUpdate call and the delay to achieve the target FPS.
+        /// This is useful for animation or physics for calculating the next position of an object.
+        pub fn getLastFrameDuration(rt: *RuntimeContext, this: This) ?u32 {
             const ctx = rt.context;
             const window_id = this.obj.getInternalField(0).toU32(ctx);
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return @intCast(u32, win.fps_limiter.getDeltaMs());
+                return @intCast(u32, win.fps_limiter.getLastFrameDelta());
+            }
+            return null;
+        }
+
+        /// Returns how long the last frame took to perform onUpdate in microseconds. 
+        /// This is useful to measure the performance of your onUpdate logic.
+        pub fn getLastUpdateDuration(rt: *RuntimeContext, this: This) ?u32 {
+            // TODO: Provide config for more accurate measurement with glFinish.
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                return @intCast(u32, win.last_update_duration);
             }
             return null;
         }

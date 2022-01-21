@@ -833,6 +833,8 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
     try_catch.setVerbose(true);
     defer try_catch.deinit();
 
+    const user_update_timer = stdx.time.Timer.start() catch unreachable;
+
     while (true) {
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -870,7 +872,11 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
         rt.work_queue.processDone();
 
         // TODO: render all window surfaces.
+
         rt.active_graphics.beginFrame();
+
+        // Start user timer after beginFrame since it could delay to sync with OpenGL pipeline.
+        const start = user_update_timer.read() / 1000;
 
         if (rt.active_window.on_update_cb) |cb| {
             const g_ctx = rt.active_window.js_graphics.toValue();
@@ -883,9 +889,11 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
         }
 
         rt.active_graphics.endFrame();
+        rt.active_window.last_update_duration = user_update_timer.read() / 1000 - start;
 
         // TODO: Run any queued micro tasks.
 
+        // swapBuffers will delay if vsync is on.
         rt.active_window.window.swapBuffers();
 
         rt.active_window.fps_limiter.endFrameAndDelay();
@@ -933,6 +941,9 @@ pub const CsWindow = struct {
 
     fps_limiter: graphics.DefaultFpsLimiter,
 
+    // In microseconds.
+    last_update_duration: u64,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
         const iso = rt.isolate;
         const ctx = rt.context;
@@ -952,6 +963,7 @@ pub const CsWindow = struct {
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
             .fps_limiter = graphics.DefaultFpsLimiter.init(60),
+            .last_update_duration = 0,
         };
         self.graphics.init(alloc, window.getWidth(), window.getHeight());
     }

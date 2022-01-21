@@ -119,7 +119,8 @@ pub const Graphics = struct {
         }
     }
 
-    // Setup for the frame before user draw calls.
+    /// Setup for the frame before user draw calls.
+    /// In OpenGL, glClear can block if there there are too many commands in the queue.
     pub fn beginFrame(self: *Self) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.beginFrame(&self.g),
