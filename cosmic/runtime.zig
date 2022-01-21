@@ -698,6 +698,14 @@ pub const RuntimeContext = struct {
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
+
+    fn handleMouseMoveEvent(self: *Self, e: api.cs_input.MouseMoveEvent) void {
+        const ctx = self.context;
+        if (self.active_window.on_mouse_move_cb) |cb| {
+            const js_event = self.getJsValue(e);
+            _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
+        }
+    }
 };
 
 fn hasAllOptionalFields(comptime T: type) bool {
@@ -857,6 +865,12 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                     const std_event = input.initSdlMouseupEvent(event.button);
                     rt.handleMouseButtonEvent(api.fromStdMouseEvent(std_event));
                 },
+                sdl.SDL_MOUSEMOTION => {
+                    if (rt.active_window.on_mouse_move_cb != null) {
+                        const std_event = input.initSdlMouseMoveEvent(event.motion);
+                        rt.handleMouseMoveEvent(api.fromStdMouseMoveEvent(std_event));
+                    }
+                },
                 sdl.SDL_QUIT => {
                     // We shouldn't need this since we already check the number of open windows.
                 },
@@ -933,6 +947,7 @@ pub const CsWindow = struct {
     window: graphics.Window,
     on_update_cb: ?v8.Persistent(v8.Function),
     on_mouse_button_cb: ?v8.Persistent(v8.Function),
+    on_mouse_move_cb: ?v8.Persistent(v8.Function),
     js_window: v8.Persistent(v8.Object),
 
     // Currently, each window has its own graphics handle.
@@ -959,6 +974,7 @@ pub const CsWindow = struct {
             .window = window,
             .on_update_cb = null,
             .on_mouse_button_cb = null,
+            .on_mouse_move_cb = null,
             .js_window = iso.initPersistent(v8.Object, js_window),
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,

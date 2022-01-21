@@ -10,3 +10,7 @@ w.onMouseButton(e => {
     }
     printLine(e.button, e.pressed, e.x, e.y)
 })
+
+w.onMouseMove(e => {
+    printLine(`mouse move ${e.x}, ${e.y}`)
+})

@@ -59,6 +59,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         const proto = window_class.getPrototypeTemplate();
         ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
         ctx.setFuncT(proto, "onMouseButton", api.cs_window.Window.onMouseButton);
+        ctx.setFuncT(proto, "onMouseMove", api.cs_window.Window.onMouseMove);
         ctx.setFuncT(proto, "getGraphics", api.cs_window.Window.getGraphics);
         ctx.setFuncT(proto, "getLastFrameDuration", api.cs_window.Window.getLastFrameDuration);
         ctx.setFuncT(proto, "getLastUpdateDuration", api.cs_window.Window.getLastUpdateDuration);

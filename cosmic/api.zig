@@ -102,6 +102,20 @@ pub const cs_window = struct {
             }
         }
 
+        /// Provide the handler for receiving mouse move events when this window is active.
+        /// Provide a null value to disable these events.
+        pub fn onMouseMove(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
+            const iso = rt.isolate;
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_move_cb, mb_cb);
+            }
+        }
+
         /// Returns how long the last frame took in microseconds. This includes the onUpdate call and the delay to achieve the target FPS.
         /// This is useful for animation or physics for calculating the next position of an object.
         pub fn getLastFrameDuration(rt: *RuntimeContext, this: This) ?u32 {
@@ -1073,12 +1087,24 @@ pub const cs_input = struct {
         x1 = @enumToInt(input.MouseButton.X1),
         x2 = @enumToInt(input.MouseButton.X2),
     };
+
+    pub const MouseMoveEvent = struct {
+        x: i16,
+        y: i16,
+    };
 };
 
 pub fn fromStdMouseEvent(e: input.MouseEvent) cs_input.MouseEvent {
     return .{
         .button = @intToEnum(cs_input.MouseButton, @enumToInt(e.button)),
         .pressed = e.pressed,
+        .x = e.x,
+        .y = e.y,
+    };
+}
+
+pub fn fromStdMouseMoveEvent(e: input.MouseMoveEvent) cs_input.MouseMoveEvent {
+    return .{
         .x = e.x,
         .y = e.y,
     };
