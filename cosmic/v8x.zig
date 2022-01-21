@@ -183,3 +183,24 @@ pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: v8.Isolate, com
     defer alloc.free(str);
     throwErrorException(isolate, str);
 }
+
+/// Updates an existing persistent handle from a js value.
+pub fn updateOptionalPersistent(comptime T: type, iso: v8.Isolate, existing: *?v8.Persistent(T), mb_val: ?T) void {
+    if (mb_val) |val| {
+        if (existing.* != null) {
+            if (existing.*.?.inner.handle.* != val.handle.*) {
+                // Internal addresses doesn't match, deinit existing persistent.
+                existing.*.?.deinit();
+            } else {
+                // Internal addresses match.
+                return;
+            }
+        }
+        existing.* = v8.Persistent(T).init(iso, val);
+    } else {
+        if (existing.* != null) {
+            existing.*.?.deinit();
+            existing.* = null;
+        }
+    }
+}

@@ -71,11 +71,12 @@ pub const cs_window = struct {
             }
         }
 
-        /// Provide a handler for the window's frame updates.
+        /// Provide the handler for the window's frame updates.
+        /// Provide a null value to disable these events.
         /// This is a good place to do your app's update logic and draw to the screen.
         /// The frequency of frame updates is limited by an FPS counter.
         /// Eventually, this frequency will be configurable.
-        pub fn onUpdate(rt: *RuntimeContext, this: This, arg: v8.Function) void {
+        pub fn onUpdate(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
             const window_id = this.obj.getInternalField(0).toU32(ctx);
@@ -83,13 +84,13 @@ pub const cs_window = struct {
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                const p = v8.Persistent(v8.Function).init(iso, arg);
-                win.onUpdateCbs.append(p) catch unreachable;
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_update_cb, mb_cb);
             }
         }
 
-        /// Provide a handler for receiving mouse button events when this window is active.
-        pub fn onMouseButton(rt: *RuntimeContext, this: This, arg: v8.Function) void {
+        /// Provide the handler for receiving mouse button events when this window is active.
+        /// Provide a null value to disable these events.
+        pub fn onMouseButton(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
             const window_id = this.obj.getInternalField(0).toU32(ctx);
@@ -97,8 +98,7 @@ pub const cs_window = struct {
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                const p = v8.Persistent(v8.Function).init(iso, arg);
-                win.onMouseButtonCbs.append(p) catch unreachable;
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_button_cb, mb_cb);
             }
         }
 

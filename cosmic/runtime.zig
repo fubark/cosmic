@@ -423,7 +423,7 @@ pub const RuntimeContext = struct {
     }
 
     /// Returns raw value pointer so we don't need to convert back to a v8.Value.
-    pub fn getJsValuePtr(self: Self, native_val: anytype) *const anyopaque {
+    pub fn getJsValuePtr(self: Self, native_val: anytype) *const v8.C_Value {
         const Type = @TypeOf(native_val);
         const iso = self.isolate;
         const ctx = self.context;
@@ -509,17 +509,17 @@ pub const RuntimeContext = struct {
                 return iso.initStringUtf8(str).handle;
             },
             *const anyopaque => {
-                return native_val;
+                return stdx.mem.ptrCastAlign(*const v8.C_Value, native_val);
             },
             v8.Persistent(v8.Object) => {
-                return @ptrCast(*const anyopaque, native_val.inner.handle);
+                return native_val.inner.handle;
             },
             else => {
                 if (@typeInfo(Type) == .Optional) {
                     if (native_val) |child_val| {
                         return self.getJsValuePtr(child_val);
                     } else {
-                        return @ptrCast(*const anyopaque, self.js_null.handle);
+                        return self.js_null.handle;
                     }
                 } else if (@hasDecl(Type, "ManagedSlice")) {
                     return self.getJsValuePtr(native_val.slice);
@@ -693,7 +693,7 @@ pub const RuntimeContext = struct {
 
     fn handleMouseButtonEvent(self: *Self, e: api.cs_input.MouseEvent) void {
         const ctx = self.context;
-        for (self.active_window.onMouseButtonCbs.items) |cb| {
+        if (self.active_window.on_mouse_button_cb) |cb| {
             const js_event = self.getJsValue(e);
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
@@ -872,7 +872,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
         // TODO: render all window surfaces.
         rt.active_graphics.beginFrame();
 
-        for (rt.active_window.onUpdateCbs.items) |cb| {
+        if (rt.active_window.on_update_cb) |cb| {
             const g_ctx = rt.active_window.js_graphics.toValue();
             _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
                 const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
@@ -923,8 +923,8 @@ pub const CsWindow = struct {
     const Self = @This();
 
     window: graphics.Window,
-    onUpdateCbs: std.ArrayList(v8.Persistent(v8.Function)),
-    onMouseButtonCbs: std.ArrayList(v8.Persistent(v8.Function)),
+    on_update_cb: ?v8.Persistent(v8.Function),
+    on_mouse_button_cb: ?v8.Persistent(v8.Function),
     js_window: v8.Persistent(v8.Object),
 
     // Currently, each window has its own graphics handle.
@@ -946,8 +946,8 @@ pub const CsWindow = struct {
 
         self.* = .{
             .window = window,
-            .onUpdateCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
-            .onMouseButtonCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
+            .on_update_cb = null,
+            .on_mouse_button_cb = null,
             .js_window = iso.initPersistent(v8.Object, js_window),
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
@@ -962,15 +962,12 @@ pub const CsWindow = struct {
 
         self.window.deinit();
 
-        for (self.onUpdateCbs.items) |*onUpdate| {
-            onUpdate.deinit();
+        if (self.on_update_cb) |*cb| {
+            cb.deinit();
         }
-        self.onUpdateCbs.deinit();
-
-        for (self.onMouseButtonCbs.items) |*onUpdate| {
-            onUpdate.deinit();
+        if (self.on_mouse_button_cb) |*cb| {
+            cb.deinit();
         }
-        self.onMouseButtonCbs.deinit();
 
         self.js_window.deinit();
         // Invalidate graphics ptr.
