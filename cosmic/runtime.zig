@@ -8,6 +8,7 @@ const curl = @import("curl");
 const uv = @import("uv");
 const h2o = @import("h2o");
 const v8 = @import("v8");
+const input = @import("input");
 
 const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
@@ -108,6 +109,8 @@ pub const RuntimeContext = struct {
     // TODO: Check later to remove this. We are now using hasPendingEvents().
     num_uv_handles: u32,
 
+    received_uncaught_exception: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
         self.* = .{
             .alloc = alloc,
@@ -160,6 +163,7 @@ pub const RuntimeContext = struct {
             .uv_dummy_async = undefined,
             .uv_poller = undefined,
             .num_uv_handles = 0,
+            .received_uncaught_exception = false,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -213,6 +217,11 @@ pub const RuntimeContext = struct {
         // By default, scripts will automatically run microtasks when call depth returns to zero.
         // It also allows us to use performMicrotasksCheckpoint in cases where we need to sooner.
         iso.setMicrotasksPolicy(v8.MicrotasksPolicy.kAuto);
+
+        // Receive the first uncaught exceptions and find the next opportunity to shutdown.
+        const external = iso.initExternal(self).toValue();
+        iso.setCaptureStackTraceForUncaughtExceptions(true, 10);
+        _ = iso.addMessageListenerWithErrorLevel(v8MessageCallback, v8.MessageErrorLevel.kMessageError, external);
 
         // Ignore sigpipe for writes to sockets that have already closed and let it return as an error to callers.
         const SIG_IGN = @intToPtr(fn(c_int, *const std.os.linux.siginfo_t, ?*const anyopaque) callconv(.C) void, 1);
@@ -283,6 +292,21 @@ pub const RuntimeContext = struct {
                 self.alloc.destroy(server);
             },
             .Dummy => {},
+        }
+    }
+
+    fn v8MessageCallback(message: ?*const v8.C_Message, value: ?*const v8.C_Value) callconv(.C) void {
+        const val = v8.Value{.handle = value.?};
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, val.castTo(v8.External).get());
+
+        // Only interested in the first uncaught exception.
+        if (!rt.received_uncaught_exception) {
+            // Print the stack trace immediately.
+            const js_msg = v8.Message{.handle = message.?};
+            const err_str = v8x.allocPrintMessageStackTrace(rt.alloc, rt.isolate, rt.context, js_msg, "Uncaught Exception");
+            defer rt.alloc.free(err_str);
+            errorFmt("\n{s}", .{err_str});
+            rt.received_uncaught_exception = true;
         }
     }
 
@@ -404,6 +428,7 @@ pub const RuntimeContext = struct {
         const iso = self.isolate;
         const ctx = self.context;
         switch (Type) {
+            i16 => return iso.initIntegerI32(native_val).handle,
             u8 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
@@ -508,6 +533,14 @@ pub const RuntimeContext = struct {
                         _ = obj.setValue(ctx, iso.initStringUtf8(Field.name), self.getJsValue(@field(native_val, Field.name)));
                     }
                     return obj.handle;
+                } else if (@typeInfo(Type) == .Enum) {
+                    if (@hasDecl(Type, "IsStringSumType")) {
+                        // string value.
+                        return iso.initStringUtf8(@tagName(native_val)).handle;
+                    } else {
+                        // int value.
+                        return iso.initIntegerU32(@enumToInt(native_val)).handle;
+                    }
                 } else {
                     comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
                 }
@@ -608,7 +641,7 @@ pub const RuntimeContext = struct {
                     const num_keys = keys.length();
                     var i: u32 = 0;
                     while (i < num_keys) {
-                        const native_key = v8x.valueToUtf8Alloc(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
+                        const native_key = v8x.allocPrintValueAsUtf8(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
                         native_val.put(native_key, self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i)).?) catch unreachable;
                     }
                     return native_val;
@@ -655,6 +688,14 @@ pub const RuntimeContext = struct {
                     comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) }));
                 }
             },
+        }
+    }
+
+    fn handleMouseButtonEvent(self: *Self, e: api.cs_input.MouseEvent) void {
+        const ctx = self.context;
+        for (self.active_window.onMouseButtonCbs.items) |cb| {
+            const js_event = self.getJsValue(e);
+            _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
 };
@@ -759,7 +800,7 @@ fn promiseRejectCallback(c_msg: v8.C_PromiseRejectMessage) callconv(.C) void {
         v8.PromiseRejectEvent.kPromiseRejectWithNoHandler => {
             // Record this uncaught incident since a follow up kPromiseHandlerAddedAfterReject can remove the record.
             // At a later point reportUncaughtPromiseRejections will list all of them.
-            const str = v8x.valueToUtf8Alloc(galloc, iso, ctx, msg.getValue());
+            const str = v8x.allocPrintValueAsUtf8(galloc, iso, ctx, msg.getValue());
             const key = promise.toObject().getIdentityHash();
             uncaught_promise_errors.put(key, str) catch unreachable;
         },
@@ -788,6 +829,8 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
 
     var try_catch: v8.TryCatch = undefined;
     try_catch.init(iso);
+    // Allow uncaught exceptions to reach message listener.
+    try_catch.setVerbose(true);
     defer try_catch.deinit();
 
     while (true) {
@@ -804,6 +847,14 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                         else => {},
                     }
                 },
+                sdl.SDL_MOUSEBUTTONDOWN => {
+                    const std_event = input.initSdlMousedownEvent(event.button);
+                    rt.handleMouseButtonEvent(api.fromStdMouseEvent(std_event));
+                },
+                sdl.SDL_MOUSEBUTTONUP => {
+                    const std_event = input.initSdlMouseupEvent(event.button);
+                    rt.handleMouseButtonEvent(api.fromStdMouseEvent(std_event));
+                },
                 sdl.SDL_QUIT => {
                     // We shouldn't need this since we already check the number of open windows.
                 },
@@ -811,22 +862,22 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
             }
         }
 
-        const should_update = rt.num_windows > 0;
+        const should_update = rt.num_windows > 0 and !rt.received_uncaught_exception;
         if (!should_update) {
             return;
         }
 
-        // FUTURE: This could benefit being in a separate thread.
         rt.work_queue.processDone();
 
+        // TODO: render all window surfaces.
         rt.active_graphics.beginFrame();
 
         for (rt.active_window.onUpdateCbs.items) |cb| {
             const g_ctx = rt.active_window.js_graphics.toValue();
             _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
-                const trace = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+                const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(trace);
-                printFmt("{s}", .{trace});
+                errorFmt("{s}", .{trace});
                 return;
             };
         }
@@ -873,6 +924,7 @@ pub const CsWindow = struct {
 
     window: graphics.Window,
     onUpdateCbs: std.ArrayList(v8.Persistent(v8.Function)),
+    onMouseButtonCbs: std.ArrayList(v8.Persistent(v8.Function)),
     js_window: v8.Persistent(v8.Object),
 
     // Currently, each window has its own graphics handle.
@@ -895,6 +947,7 @@ pub const CsWindow = struct {
         self.* = .{
             .window = window,
             .onUpdateCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
+            .onMouseButtonCbs = std.ArrayList(v8.Persistent(v8.Function)).init(alloc),
             .js_window = iso.initPersistent(v8.Object, js_window),
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
@@ -908,10 +961,16 @@ pub const CsWindow = struct {
         rt.alloc.destroy(self.graphics);
 
         self.window.deinit();
+
         for (self.onUpdateCbs.items) |*onUpdate| {
             onUpdate.deinit();
         }
         self.onUpdateCbs.deinit();
+
+        for (self.onMouseButtonCbs.items) |*onUpdate| {
+            onUpdate.deinit();
+        }
+        self.onMouseButtonCbs.deinit();
 
         self.js_window.deinit();
         // Invalidate graphics ptr.
@@ -1191,9 +1250,9 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                     iso.performMicrotasksCheckpoint();
                 }
             } else {
-                const err_str = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+                const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
-                printFmt("Test: {s}\n{s}", .{ case.name, err_str });
+                errorFmt("Test: {s}\n{s}", .{ case.name, err_str });
                 break;
             }
             next_test += 1;
@@ -1213,9 +1272,9 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
     }
 
     // Check for any js uncaught exceptions from calling into js.
-    if (v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch)) |err_str| {
+    if (v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch)) |err_str| {
         defer rt.alloc.free(err_str);
-        printFmt("Uncaught Exception:\n{s}", .{ err_str });
+        errorFmt("Uncaught Exception:\n{s}", .{ err_str });
     }
 }
 
@@ -1437,11 +1496,11 @@ fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     rt.num_isolated_tests_finished += 1;
-    const str = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.context, val);
     defer rt.alloc.free(str);
 
     // TODO: Show stack trace.

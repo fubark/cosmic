@@ -154,6 +154,7 @@ pub const WorkQueue = struct {
         self.done_notify.set();
     }
 
+    /// Should be called by the main thread to process done and dispatch subsequent tasks.
     pub fn processDone(self: *Self) void {
         while (self.done.get()) |n| {
             // log.debug("processed done task", .{});

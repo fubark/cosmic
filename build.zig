@@ -160,6 +160,7 @@ const BuilderContext = struct {
         step.setOutputDir(output_dir);
 
         addStdx(step, build_options);
+        addInput(step);
         addGraphics(step);
         self.addDeps(step);
 
@@ -230,6 +231,7 @@ const BuilderContext = struct {
 
         step.addPackage(build_options);
         addStdx(step, build_options);
+        addInput(step);
         addGraphics(step);
         self.addDeps(step);
         self.copyAssets(step, output_dir_rel);
@@ -266,6 +268,7 @@ const BuilderContext = struct {
         addStdx(step, build_options);
         addCommon(step);
         addGraphics(step);
+        addInput(step);
 
         // Add external lib headers but link with mock lib.
         addStbtt(step);
@@ -1232,6 +1235,17 @@ const stdx_pkg = Pkg{
 fn addStdx(step: *std.build.LibExeObjStep, build_options: Pkg) void {
     var pkg = stdx_pkg;
     pkg.dependencies = &.{build_options, curl_pkg, uv_pkg};
+    step.addPackage(pkg);
+}
+
+const input_pkg = Pkg{
+    .name = "input",
+    .path = FileSource.relative("./input/input.zig"),
+};
+
+fn addInput(step: *std.build.LibExeObjStep) void {
+    var pkg = input_pkg;
+    pkg.dependencies = &.{ sdl_pkg, stdx_pkg };
     step.addPackage(pkg);
 }
 

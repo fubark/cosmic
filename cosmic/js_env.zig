@@ -58,6 +58,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
         const proto = window_class.getPrototypeTemplate();
         ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
+        ctx.setFuncT(proto, "onMouseButton", api.cs_window.Window.onMouseButton);
         ctx.setFuncT(proto, "getGraphics", api.cs_window.Window.getGraphics);
         ctx.setFuncT(proto, "getTimeElapsed", api.cs_window.Window.getTimeElapsed);
         ctx.setFuncT(proto, "getFps", api.cs_window.Window.getFps);
@@ -333,6 +334,19 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     // cs.core is duplicated into global scope.
     ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
     ctx.setConstProp(global, "printLine", iso.initFunctionTemplateCallbackData(api.cs_core.printLine, rt_data));
+
+    // cs.input
+    const cs_input = iso.initObjectTemplateDefault();
+
+    const mouse_button = iso.initObjectTemplateDefault();
+    ctx.setProp(mouse_button, "left", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.left)));
+    ctx.setProp(mouse_button, "middle", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.middle)));
+    ctx.setProp(mouse_button, "right", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.right)));
+    ctx.setProp(mouse_button, "x1", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.x1)));
+    ctx.setProp(mouse_button, "x2", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.x2)));
+    ctx.setConstProp(cs_input, "MouseButton", mouse_button);
+
+    ctx.setConstProp(cs, "input", cs_input);
 
     const res = iso.initContext(global, null);
 

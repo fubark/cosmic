@@ -211,3 +211,10 @@ export fn v8__ArrayBuffer__New2() void {}
 export fn v8__Uint8Array__New() void {}
 export fn glUseProgram() void {}
 export fn h2o_config_init() void {}
+export fn v8__Message__GetStackTrace() void {}
+export fn v8__StackTrace__GetFrameCount() void {}
+export fn v8__StackTrace__GetFrame() void {}
+export fn v8__StackFrame__GetFunctionName() void {}
+export fn v8__StackFrame__GetScriptNameOrSourceURL() void {}
+export fn v8__StackFrame__GetLineNumber() void {}
+export fn v8__StackFrame__GetColumn() void {}

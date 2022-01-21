@@ -7,6 +7,7 @@ const Vec2 = stdx.math.Vec2;
 const StdColor = graphics.Color;
 const ds = stdx.ds;
 const v8 = @import("v8");
+const input = @import("input");
 
 const v8x = @import("v8x.zig");
 const tasks = @import("tasks.zig");
@@ -82,10 +83,22 @@ pub const cs_window = struct {
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-
-                // Persist callback func.
                 const p = v8.Persistent(v8.Function).init(iso, arg);
                 win.onUpdateCbs.append(p) catch unreachable;
+            }
+        }
+
+        /// Provide a handler for receiving mouse button events when this window is active.
+        pub fn onMouseButton(rt: *RuntimeContext, this: This, arg: v8.Function) void {
+            const iso = rt.isolate;
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                const p = v8.Persistent(v8.Function).init(iso, arg);
+                win.onMouseButtonCbs.append(p) catch unreachable;
             }
         }
 
@@ -870,6 +883,7 @@ pub const cs_http = struct {
     }
 
     pub const RequestMethod = enum {
+        pub const IsStringSumType = true;
         Head,
         Get,
         Post,
@@ -878,6 +892,7 @@ pub const cs_http = struct {
     };
 
     pub const ContentType = enum {
+        pub const IsStringSumType = true;
         Json,
         FormData,
     };
@@ -994,7 +1009,7 @@ pub const cs_core = struct {
 
         var i: u32 = 0;
         while (i < len) : (i += 1) {
-            const str = v8x.valueToUtf8Alloc(rt.alloc, iso, ctx, info.getArg(i));
+            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
         }
@@ -1019,6 +1034,53 @@ pub const cs_core = struct {
             } else return null;
         } else return "";
     }
+};
+
+/// @title User Input
+/// @name input
+/// @ns cs.input
+/// This API provides access to input devices connected to your computer like the keyboard and mouse.
+/// You'll need to create a <a href="window.html#create">Window</a> before you can register for events.
+pub const cs_input = struct {
+
+    /// Holds info about a mouse button event.
+    pub const MouseEvent = struct {
+        button: MouseButton,
+        pressed: bool,
+        x: i16,
+        y: i16,
+    };
+
+    pub const MouseButton = enum(u3) {
+        left = @enumToInt(input.MouseButton.Left),
+        middle = @enumToInt(input.MouseButton.Middle),
+        right = @enumToInt(input.MouseButton.Right),
+        x1 = @enumToInt(input.MouseButton.X1),
+        x2 = @enumToInt(input.MouseButton.X2),
+    };
+};
+
+pub fn fromStdMouseEvent(e: input.MouseEvent) cs_input.MouseEvent {
+    return .{
+        .button = @intToEnum(cs_input.MouseButton, @enumToInt(e.button)),
+        .pressed = e.pressed,
+        .x = e.x,
+        .y = e.y,
+    };
+}
+
+/// @title Networking
+/// @name net
+/// @ns cs.net
+/// There are plans to implement a networking API to allow connecting to another device and hosting a TCP/UDP server.
+pub const cs_net = struct {
+};
+
+/// @title Worker Threads
+/// @name worker
+/// @ns cs.worker
+/// There are plans to implement worker threads for Javascript similar to Web Workers.
+pub const cs_worker = struct {
 };
 
 /// Path can be absolute or relative to the current executing script.
@@ -1065,7 +1127,7 @@ pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
 
             _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
         } else {
-            const err_str = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+            const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -1074,7 +1136,7 @@ pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
         if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
             rt.num_tests_passed += 1;
         } else {
-            const err_str = v8x.getTryCatchErrorString(rt.alloc, iso, ctx, try_catch).?;
+            const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
             defer rt.alloc.free(err_str);
             printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
         }
@@ -1099,12 +1161,12 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     // TODO: report stack trace.
     rt.num_async_tests_finished += 1;
-    const str = v8x.valueToUtf8Alloc(rt.alloc, rt.isolate, rt.context, val);
+    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.context, val);
     defer rt.alloc.free(str);
 
     printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});

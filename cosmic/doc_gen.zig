@@ -22,7 +22,10 @@ const modules: []const ModuleId = &.{
     "cs_files",
     "cs_graphics",
     "cs_http",
+    "cs_input",
+    "cs_net",
     "cs_window",
+    "cs_worker",
 };
 
 pub fn main() !void {
@@ -206,6 +209,7 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                                                 .constants = &.{},
                                                 .methods = &.{},
                                                 .is_enum = @typeInfo(ModuleDecl.data.Type) == .Enum,
+                                                .is_enum_string_sumtype = @hasDecl(ModuleDecl.data.Type, "IsStringSumType"),
                                                 .enum_values = &.{},
                                             };
 
@@ -260,12 +264,7 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                                                 }
                                                 type_info.fields = fields.toOwnedSlice();
                                             } else if (@typeInfo(ModuleDecl.data.Type) == .Enum) {
-                                                var values = std.ArrayList([]const u8).init(alloc);
-                                                const TypeFields = std.meta.fields(ModuleDecl.data.Type);
-                                                inline for (TypeFields) |Field| {
-                                                    try values.append(runtime.ctLower(Field.name));
-                                                }
-                                                type_info.enum_values = values.toOwnedSlice();
+                                                type_info.enum_values = try getEnumValues(alloc, ModuleDecl.data.Type);
                                             }
 
                                             type_info.methods = methods.toOwnedSlice();
@@ -296,10 +295,22 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
     return res;
 }
 
+fn getEnumValues(alloc: std.mem.Allocator, comptime E: type) ![]const []const u8 {
+    var values = std.ArrayList([]const u8).init(alloc);
+    const Fields = std.meta.fields(E);
+    inline for (Fields) |Field| {
+        try values.append(runtime.ctLower(Field.name));
+    }
+    return values.toOwnedSlice();
+}
+
 fn parseConstantInfo(comptime VarDecl: std.builtin.TypeInfo.Declaration, alloc: std.mem.Allocator, tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index) !?[]const u8 {
     _ = alloc;
     _ = tree;
     _ = container_node;
+    if (std.mem.eql(u8, VarDecl.name, "IsStringSumType")) {
+        return null;
+    }
     // For now, just return the name.
     return VarDecl.name;
 }
@@ -385,6 +396,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
         u8,
         f32,
         u32,
+        i16,
         u16 => "number",
 
         *const anyopaque => "any",
@@ -406,6 +418,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
         api.cs_files.FileKind => "FileKind",
         api.cs_http.RequestMethod => "RequestMethod",
         api.cs_http.ContentType => "ContentType",
+        api.cs_input.MouseButton => "MouseButton",
 
         else => {
             if (@typeInfo(T) == .Struct) {
@@ -632,7 +645,16 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
 
             // List Types.
             for (mod.types) |info| {
-                const type_kind = if (info.is_enum) "string" else "object";
+                var type_kind: []const u8 = undefined;
+                if (info.is_enum) {
+                    if (info.is_enum_string_sumtype) {
+                        type_kind = "string";
+                    } else {
+                        type_kind = "enum";
+                    }
+                } else {
+                    type_kind = "object";
+                }
                 ctx.writeFmt(
                     \\<div class="type">
                     \\  <a id="{s}" href="#"><small class="secondary">{s}</small>.{s}</a> <span class="params">{s}</span>
@@ -640,11 +662,25 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                 );
 
                 if (info.is_enum) {
-                    for (info.enum_values) |value| {
-                        ctx.writeFmt(
-                            \\<div class="indent field"><span class="primary">"{s}"</span></div>
-                            , .{ value }
-                        );
+                    if (info.is_enum_string_sumtype) {
+                        for (info.enum_values) |value| {
+                            ctx.writeFmt(
+                                \\<div class="indent field"><span class="primary">"{s}"</span></div>
+                                , .{ value }
+                            );
+                        }
+                    } else {
+                        for (info.enum_values) |value| {
+                            // List enum integers as constants.
+                            ctx.writeFmt(
+                                \\<div class="constant">
+                                \\  <a id="{s}" href="#"><small class="secondary">{s}.</small>{s}.{s}</a>
+                                , .{ value, mod.ns, info.name, value}
+                            );
+                            ctx.write(
+                                \\</div>
+                            );
+                        }
                     }
                 } else {
                     for (info.fields) |field| {
@@ -791,6 +827,9 @@ const TypeInfo = struct {
     methods: []const FunctionInfo,
 
     is_enum: bool,
+
+    // Whether the enum is a string sumtype or an actual object with keyed number values.
+    is_enum_string_sumtype: bool,
     enum_values: []const []const u8,
 };
 
