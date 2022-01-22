@@ -7,7 +7,8 @@ const input = @import("input.zig");
 const KeyDownEvent = input.KeyDownEvent;
 const KeyUpEvent = input.KeyUpEvent;
 const KeyCode = input.KeyCode;
-const MouseEvent = input.MouseEvent;
+const MouseDownEvent = input.MouseDownEvent;
+const MouseUpEvent = input.MouseUpEvent;
 const MouseButton = input.MouseButton;
 const MouseMoveEvent = input.MouseMoveEvent;
 const log = stdx.log.scoped(.input_sdl);
@@ -32,12 +33,22 @@ test "ButtonMap" {
     try t.eq(ButtonMap[sdl.SDL_BUTTON_X2], .X2);
 }
 
-pub fn initMousedownEvent(event: sdl.SDL_MouseButtonEvent) MouseEvent {
-    return MouseEvent.init(ButtonMap[event.button], true, @intCast(i16, event.x), @intCast(i16, event.y));
+pub fn initMouseDownEvent(event: sdl.SDL_MouseButtonEvent) MouseDownEvent {
+    return MouseDownEvent.init(
+        ButtonMap[event.button],
+        @intCast(i16, event.x),
+        @intCast(i16, event.y),
+        event.clicks,
+    );
 }
 
-pub fn initMouseupEvent(event: sdl.SDL_MouseButtonEvent) MouseEvent {
-    return MouseEvent.init(ButtonMap[event.button], false, @intCast(i16, event.x), @intCast(i16, event.y));
+pub fn initMouseUpEvent(event: sdl.SDL_MouseButtonEvent) MouseUpEvent {
+    return MouseUpEvent.init(
+        ButtonMap[event.button],
+        @intCast(i16, event.x),
+        @intCast(i16, event.y),
+        event.clicks,
+    );
 }
 
 pub fn initMouseMoveEvent(event: sdl.SDL_MouseMotionEvent) MouseMoveEvent {

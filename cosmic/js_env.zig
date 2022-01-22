@@ -26,6 +26,7 @@ const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
 const ResponseWriter = _server.ResponseWriter;
 const api = @import("api.zig");
+const cs_graphics = @import("api_graphics.zig").cs_graphics;
 
 const uv = @import("uv");
 const h2o = @import("h2o");
@@ -58,7 +59,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
         const proto = window_class.getPrototypeTemplate();
         ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
-        ctx.setFuncT(proto, "onMouseButton", api.cs_window.Window.onMouseButton);
+        ctx.setFuncT(proto, "onMouseDown", api.cs_window.Window.onMouseDown);
+        ctx.setFuncT(proto, "onMouseUp", api.cs_window.Window.onMouseUp);
         ctx.setFuncT(proto, "onMouseMove", api.cs_window.Window.onMouseMove);
         ctx.setFuncT(proto, "onKeyDown", api.cs_window.Window.onKeyDown);
         ctx.setFuncT(proto, "onKeyUp", api.cs_window.Window.onKeyUp);
@@ -86,7 +88,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         // ctx.setAccessor(proto, "strokeColor", Graphics.getStrokeColor, Graphics.setStrokeColor);
         // ctx.setAccessor(proto, "lineWidth", Graphics.getLineWidth, Graphics.setLineWidth);
 
-        const Context = api.cs_graphics.Context;
+        const Context = cs_graphics.Context;
         ctx.setConstFuncT(proto, "defaultFont", Context.defaultFont);
         ctx.setConstFuncT(proto, "fillColor", Context.fillColor);
         ctx.setConstFuncT(proto, "getFillColor", Context.getFillColor);
@@ -151,9 +153,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const color_class = v8.FunctionTemplate.initDefault(iso);
     {
         const proto = color_class.getPrototypeTemplate();
-        ctx.setFuncT(proto, "darker", api.cs_graphics.Color.darker);
-        ctx.setFuncT(proto, "lighter", api.cs_graphics.Color.lighter);
-        ctx.setFuncT(proto, "withAlpha", api.cs_graphics.Color.withAlpha);
+        ctx.setFuncT(proto, "darker", cs_graphics.Color.darker);
+        ctx.setFuncT(proto, "lighter", cs_graphics.Color.lighter);
+        ctx.setFuncT(proto, "withAlpha", cs_graphics.Color.withAlpha);
     }
     var instance = color_class.getInstanceTemplate();
     ctx.setProp(instance, "r", undef_u32);
@@ -161,7 +163,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setProp(instance, "b", undef_u32);
     ctx.setProp(instance, "a", undef_u32);
 
-    const Color = api.cs_graphics.Color;
+    const Color = cs_graphics.Color;
     const colors = &[_]std.meta.Tuple(&.{ []const u8, Color }){
         .{ "lightGray", Color.lightGray },
         .{ "gray", Color.gray },
@@ -311,11 +313,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
 
     // cs.graphics
-    const cs_graphics = v8.ObjectTemplate.initDefault(iso);
+    {
+        const mod = v8.ObjectTemplate.initDefault(iso);
 
-    // cs.graphics.Color
-    ctx.setConstProp(cs_graphics, "Color", color_class);
-    ctx.setConstProp(cs, "graphics", cs_graphics);
+        // cs.graphics.Color
+        ctx.setConstProp(mod, "Color", color_class);
+        ctx.setConstProp(cs, "graphics", mod);
+    }
 
     // cs.util
     const cs_util = v8.ObjectTemplate.initDefault(iso);

@@ -692,9 +692,17 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleMouseButtonEvent(self: *Self, e: api.cs_input.MouseEvent) void {
+    fn handleMouseDownEvent(self: *Self, e: api.cs_input.MouseDownEvent) void {
         const ctx = self.context;
-        if (self.active_window.on_mouse_button_cb) |cb| {
+        if (self.active_window.on_mouse_down_cb) |cb| {
+            const js_event = self.getJsValue(e);
+            _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
+        }
+    }
+
+    fn handleMouseUpEvent(self: *Self, e: api.cs_input.MouseUpEvent) void {
+        const ctx = self.context;
+        if (self.active_window.on_mouse_up_cb) |cb| {
             const js_event = self.getJsValue(e);
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
@@ -883,12 +891,12 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                     rt.handleKeyUpEvent(api.fromStdKeyUpEvent(std_event));
                 },
                 sdl.SDL_MOUSEBUTTONDOWN => {
-                    const std_event = input.initSdlMousedownEvent(event.button);
-                    rt.handleMouseButtonEvent(api.fromStdMouseEvent(std_event));
+                    const std_event = input.initSdlMouseDownEvent(event.button);
+                    rt.handleMouseDownEvent(api.fromStdMouseDownEvent(std_event));
                 },
                 sdl.SDL_MOUSEBUTTONUP => {
-                    const std_event = input.initSdlMouseupEvent(event.button);
-                    rt.handleMouseButtonEvent(api.fromStdMouseEvent(std_event));
+                    const std_event = input.initSdlMouseUpEvent(event.button);
+                    rt.handleMouseUpEvent(api.fromStdMouseUpEvent(std_event));
                 },
                 sdl.SDL_MOUSEMOTION => {
                     if (rt.active_window.on_mouse_move_cb != null) {
@@ -971,7 +979,8 @@ pub const CsWindow = struct {
 
     window: graphics.Window,
     on_update_cb: ?v8.Persistent(v8.Function),
-    on_mouse_button_cb: ?v8.Persistent(v8.Function),
+    on_mouse_up_cb: ?v8.Persistent(v8.Function),
+    on_mouse_down_cb: ?v8.Persistent(v8.Function),
     on_mouse_move_cb: ?v8.Persistent(v8.Function),
     on_key_up_cb: ?v8.Persistent(v8.Function),
     on_key_down_cb: ?v8.Persistent(v8.Function),
@@ -1000,7 +1009,8 @@ pub const CsWindow = struct {
         self.* = .{
             .window = window,
             .on_update_cb = null,
-            .on_mouse_button_cb = null,
+            .on_mouse_up_cb = null,
+            .on_mouse_down_cb = null,
             .on_mouse_move_cb = null,
             .on_key_up_cb = null,
             .on_key_down_cb = null,
@@ -1022,7 +1032,13 @@ pub const CsWindow = struct {
         if (self.on_update_cb) |*cb| {
             cb.deinit();
         }
-        if (self.on_mouse_button_cb) |*cb| {
+        if (self.on_mouse_up_cb) |*cb| {
+            cb.deinit();
+        }
+        if (self.on_mouse_down_cb) |*cb| {
+            cb.deinit();
+        }
+        if (self.on_mouse_move_cb) |*cb| {
             cb.deinit();
         }
         if (self.on_key_up_cb) |*cb| {

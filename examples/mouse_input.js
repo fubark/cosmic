@@ -2,13 +2,17 @@ const Button = cs.input.MouseButton
 
 const w = cs.window.create('Demo', 1200, 720)
 
-w.onMouseButton(e => {
-    if (e.button == Button.left && e.pressed) {
-        printLine('pressed left')
-    } else if (e.button == Button.right && e.pressed) {
-        printLine('pressed right')
+w.onMouseDown(e => {
+    if (e.button == Button.left) {
+        printLine('pressed left', e.clicks)
+    } else if (e.button == Button.right) {
+        printLine('pressed right', e.clicks)
     }
-    printLine(e.button, e.pressed, e.x, e.y)
+    printLine(e.button, e.x, e.y)
+})
+
+w.onMouseUp(e => {
+    printLine('mouse up', e.button, e.x, e.y, e.clicks)
 })
 
 w.onMouseMove(e => {

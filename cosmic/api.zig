@@ -93,10 +93,10 @@ pub const cs_window = struct {
             }
         }
 
-        /// Provide the handler for receiving mouse button events when this window is active.
+        /// Provide the handler for receiving mouse down events when this window is active.
         /// Provide a null value to disable these events.
         /// @param callback
-        pub fn onMouseButton(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
+        pub fn onMouseDown(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
             const window_id = this.obj.getInternalField(0).toU32(ctx);
@@ -104,7 +104,22 @@ pub const cs_window = struct {
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_button_cb, mb_cb);
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_down_cb, mb_cb);
+            }
+        }
+
+        /// Provide the handler for receiving mouse up events when this window is active.
+        /// Provide a null value to disable these events.
+        /// @param callback
+        pub fn onMouseUp(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
+            const iso = rt.isolate;
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_up_cb, mb_cb);
             }
         }
 
@@ -840,12 +855,18 @@ pub const cs_core = struct {
 /// You'll need to create a <a href="window.html#create">Window</a> before you can register for events.
 pub const cs_input = struct {
 
-    /// Holds info about a mouse button event.
-    pub const MouseEvent = struct {
+    pub const MouseDownEvent = struct {
         button: MouseButton,
-        pressed: bool,
         x: i16,
         y: i16,
+        clicks: u8,
+    };
+
+    pub const MouseUpEvent = struct {
+        button: MouseButton,
+        x: i16,
+        y: i16,
+        clicks: u8,
     };
 
     pub const MouseButton = enum(u3) {
@@ -1030,12 +1051,21 @@ const Ascii: [256]u8 = b: {
     break :b res;
 };
 
-pub fn fromStdMouseEvent(e: input.MouseEvent) cs_input.MouseEvent {
+pub fn fromStdMouseDownEvent(e: input.MouseDownEvent) cs_input.MouseDownEvent {
     return .{
         .button = @intToEnum(cs_input.MouseButton, @enumToInt(e.button)),
-        .pressed = e.pressed,
         .x = e.x,
         .y = e.y,
+        .clicks = e.clicks,
+    };
+}
+
+pub fn fromStdMouseUpEvent(e: input.MouseUpEvent) cs_input.MouseUpEvent {
+    return .{
+        .button = @intToEnum(cs_input.MouseButton, @enumToInt(e.button)),
+        .x = e.x,
+        .y = e.y,
+        .clicks = e.clicks,
     };
 }
 

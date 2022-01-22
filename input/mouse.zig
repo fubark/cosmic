@@ -6,18 +6,34 @@ pub const MouseButton = enum {
     X2,
 };
 
-pub const MouseEvent = struct {
+pub const MouseUpEvent = struct {
     button: MouseButton,
-    pressed: bool,
     x: i16,
     y: i16,
+    clicks: u8,
 
-    pub fn init(button: MouseButton, pressed: bool, x: i16, y: i16) @This() {
+    pub fn init(button: MouseButton, x: i16, y: i16, clicks: u8) @This() {
         return .{
             .button = button,
-            .pressed = pressed,
             .x = x,
             .y = y,
+            .clicks = clicks,
+        };
+    }
+};
+
+pub const MouseDownEvent = struct {
+    button: MouseButton,
+    x: i16,
+    y: i16,
+    clicks: u8,
+
+    pub fn init(button: MouseButton, x: i16, y: i16, clicks: u8) @This() {
+        return .{
+            .button = button,
+            .x = x,
+            .y = y,
+            .clicks = clicks,
         };
     }
 };

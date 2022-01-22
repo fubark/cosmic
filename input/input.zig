@@ -7,13 +7,14 @@ const input_sdl = @import("input_sdl.zig");
 
 pub const initSdlKeyDownEvent = input_sdl.initKeyDownEvent;
 pub const initSdlKeyUpEvent = input_sdl.initKeyUpEvent;
-pub const initSdlMousedownEvent = input_sdl.initMousedownEvent;
-pub const initSdlMouseupEvent = input_sdl.initMouseupEvent;
+pub const initSdlMouseDownEvent = input_sdl.initMouseDownEvent;
+pub const initSdlMouseUpEvent = input_sdl.initMouseUpEvent;
 pub const initSdlMouseMoveEvent = input_sdl.initMouseMoveEvent;
 
 const mouse = @import("mouse.zig");
 pub const MouseButton = mouse.MouseButton;
-pub const MouseEvent = mouse.MouseEvent;
+pub const MouseUpEvent = mouse.MouseUpEvent;
+pub const MouseDownEvent = mouse.MouseDownEvent;
 pub const MouseMoveEvent = mouse.MouseMoveEvent;
 
 const keyboard = @import("keyboard.zig");
