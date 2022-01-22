@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 
 const window = @import("../../window.zig");
 const Config = window.Config;
+const Mode = window.Mode;
 const log = stdx.log.scoped(.window_gl);
 
 pub const Window = struct {
@@ -52,6 +53,14 @@ pub const Window = struct {
 
     pub fn restore(self: Self) void {
         sdl.SDL_RestoreWindow(self.sdl_window);
+    }
+
+    pub fn setMode(self: Self, mode: Mode) void {
+        switch (mode) {
+            .Windowed => _ = sdl.SDL_SetWindowFullscreen(self.sdl_window, 0),
+            .PseudoFullscreen => _ = sdl.SDL_SetWindowFullscreen(self.sdl_window, sdl.SDL_WINDOW_FULLSCREEN_DESKTOP),
+            .Fullscreen => _ = sdl.SDL_SetWindowFullscreen(self.sdl_window, sdl.SDL_WINDOW_FULLSCREEN),
+        }
     }
 
     pub fn swapBuffers(self: Self) void {

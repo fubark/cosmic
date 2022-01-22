@@ -63,6 +63,13 @@ pub const Window = struct {
         }
     }
 
+    pub fn setMode(self: Self, mode: Mode) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.setMode(self.inner, mode),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     /// In the OpenGL SDL backend, swapBuffers will also block the thread to achieve the target refresh rate if vsync is on.
     pub fn swapBuffers(self: Self) void {
         switch (Backend) {
@@ -71,6 +78,12 @@ pub const Window = struct {
             .Test => {},
         }
     }
+};
+
+pub const Mode = enum {
+    Windowed,
+    PseudoFullscreen,
+    Fullscreen,
 };
 
 pub fn quit() void {

@@ -315,3 +315,4 @@ export fn v8__Integer__New() void {}
 export fn SDL_MinimizeWindow() void {}
 export fn SDL_MaximizeWindow() void {}
 export fn SDL_RestoreWindow() void {}
+export fn SDL_SetWindowFullscreen() void {}

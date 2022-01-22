@@ -258,6 +258,45 @@ pub const cs_window = struct {
             }
             return false;
         }
+
+        /// Set to fullscreen mode with a videomode change. Returns true if successful.
+        pub fn setFullscreenMode(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.setMode(.Fullscreen);
+                return true;
+            }
+            return false;
+        }
+
+        /// Set to pseudo fullscreen mode which takes up the entire screen but does not change the videomode. Returns true if successful.
+        pub fn setPseudoFullscreenMode(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.setMode(.PseudoFullscreen);
+                return true;
+            }
+            return false;
+        }
+
+        /// Set to windowed mode. Returns true if successful.
+        pub fn setWindowedMode(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.setMode(.Windowed);
+                return true;
+            }
+            return false;
+        }
     };
 };
 

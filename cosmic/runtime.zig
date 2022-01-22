@@ -905,7 +905,9 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                     }
                 },
                 sdl.SDL_QUIT => {
-                    // We shouldn't need this since we already check the number of open windows.
+                    // This can fire if the last window was closed or we received a sigint.
+                    // If we created a window, it will capture the keyboard input so the terminal won't detect ctrl+c.
+                    return;
                 },
                 else => {},
             }

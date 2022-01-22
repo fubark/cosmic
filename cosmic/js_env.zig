@@ -72,6 +72,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setFuncT(proto, "minimize", api.cs_window.Window.minimize);
         ctx.setFuncT(proto, "maximize", api.cs_window.Window.maximize);
         ctx.setFuncT(proto, "restore", api.cs_window.Window.restore);
+        ctx.setFuncT(proto, "setFullscreenMode", api.cs_window.Window.setFullscreenMode);
+        ctx.setFuncT(proto, "setPseudoFullscreenMode", api.cs_window.Window.setPseudoFullscreenMode);
+        ctx.setFuncT(proto, "setWindowedMode", api.cs_window.Window.setWindowedMode);
     }
     rt.window_class = window_class;
 
