@@ -271,10 +271,7 @@ const BuilderContext = struct {
         addInput(step);
 
         // Add external lib headers but link with mock lib.
-        addStbtt(step);
-        addGL(step);
-        addLyon(step);
-        addSDL(step);
+        self.addDeps(step);
         self.buildLinkMock(step);
 
         step.addPackage(build_options);

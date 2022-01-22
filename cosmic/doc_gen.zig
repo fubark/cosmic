@@ -28,6 +28,7 @@ const modules: []const ModuleId = &.{
     "cs_worker",
 };
 
+
 pub fn main() !void {
     // Fast temporary memory allocator.
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -192,7 +193,7 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                     inline for (Decls) |Decl| {
                         if (Decl.is_pub and Decl.data == .Type) {
                             if (std.mem.eql(u8, Decl.name, ident_str)) {
-                                const ModuleDecls = std.meta.declarations(Decl.data.Type);
+                                const ModuleDecls = comptime std.meta.declarations(Decl.data.Type);
                                 inline for (ModuleDecls) |ModuleDecl| {
                                     if (ModuleDecl.is_pub) {
                                         if (ModuleDecl.data == .Fn) {
@@ -217,58 +218,19 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                                             const data = try parseMetadata(alloc, tree, child);
                                             type_info.desc = data.desc;
 
-                                            log.debug("{s} {}", .{ModuleDecl.name, tree.nodes.items(.tag)[child]});
+                                            // log.debug("{s} {}", .{ModuleDecl.name, tree.nodes.items(.tag)[child]});
                                             const type_container = tree.simpleVarDecl(child).ast.init_node;
 
-                                            // Type's Function declarations.
-                                            const TypeDecls = std.meta.declarations(ModuleDecl.data.Type);
-                                            var methods = std.ArrayList(FunctionInfo).init(alloc);
-                                            var constants = std.ArrayList([]const u8).init(alloc);
-                                            inline for (TypeDecls) |TypeDecl| {
-                                                if (TypeDecl.is_pub) {
-                                                    if (TypeDecl.data == .Fn) {
-                                                        // Assume method.
-                                                        const mb_type_func = try parseFunctionInfo(TypeDecl, alloc, tree, type_container);
-                                                        if (mb_type_func) |type_func| {
-                                                            try methods.append(type_func);
-                                                        }
-                                                    } else if (TypeDecl.data == .Var) {
-                                                        // Constant.
-                                                        const mb_constant = try parseConstantInfo(TypeDecl, alloc, tree, type_container);
-                                                        if (mb_constant) |constant| {
-                                                            try constants.append(constant);
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            const AType = ModuleDecl.data.Type;
+                                            parseTypeDecls(alloc, AType, tree, type_container, &type_info);
 
                                             if (@typeInfo(ModuleDecl.data.Type) == .Struct) {
-                                                var fields = std.ArrayList(TypeField).init(alloc);
-                                                const TypeFields = std.meta.fields(ModuleDecl.data.Type);
-                                                inline for (TypeFields) |Field| {
-                                                    var field = TypeField{
-                                                        .name = Field.name,
-                                                        .type_name = "",
-                                                        .default_value = null,
-                                                        .optional = @typeInfo(Field.field_type) == .Optional,
-                                                    };
-                                                    if (@typeInfo(Field.field_type) == .Optional) {
-                                                        field.type_name = getJsTypeName(@typeInfo(Field.field_type).Optional.child);
-                                                    } else {
-                                                        field.type_name = getJsTypeName(Field.field_type);
-                                                    }
-                                                    if (Field.default_value != null) {
-                                                        field.default_value = try std.fmt.allocPrint(alloc, "{any}", .{Field.default_value.?});
-                                                    }
-                                                    try fields.append(field);
-                                                }
-                                                type_info.fields = fields.toOwnedSlice();
+                                                type_info.fields = parseTypeFields(alloc, ModuleDecl.data.Type) catch unreachable;
                                             } else if (@typeInfo(ModuleDecl.data.Type) == .Enum) {
-                                                type_info.enum_values = try getEnumValues(alloc, ModuleDecl.data.Type);
+                                                const to_lower = type_info.is_enum_string_sumtype;
+                                                type_info.enum_values = getEnumValues(alloc, ModuleDecl.data.Type, to_lower) catch unreachable;
                                             }
 
-                                            type_info.methods = methods.toOwnedSlice();
-                                            type_info.constants = constants.toOwnedSlice();
                                             try types.append(type_info);
                                         }
                                     }
@@ -295,11 +257,63 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
     return res;
 }
 
-fn getEnumValues(alloc: std.mem.Allocator, comptime E: type) ![]const []const u8 {
+pub fn parseTypeDecls(alloc: std.mem.Allocator, comptime T: type, tree: std.zig.Ast, type_container: std.zig.Ast.Node.Index, out: *TypeInfo) void {
+    const Decls = comptime std.meta.declarations(T);
+    var methods = std.ArrayList(FunctionInfo).init(alloc);
+    var constants = std.ArrayList([]const u8).init(alloc);
+    inline for (Decls) |Decl| {
+        if (Decl.is_pub) {
+            if (Decl.data == .Fn) {
+                // Assume method.
+                const mb_type_func = parseFunctionInfo(Decl, alloc, tree, type_container) catch unreachable;
+                if (mb_type_func) |type_func| {
+                    methods.append(type_func) catch unreachable;
+                }
+            } else if (Decl.data == .Var) {
+                // Constant.
+                const mb_constant = parseConstantInfo(Decl, alloc, tree, type_container) catch unreachable;
+                if (mb_constant) |constant| {
+                    constants.append(constant) catch unreachable;
+                }
+            }
+        }
+    }
+    out.methods = methods.toOwnedSlice();
+    out.constants = constants.toOwnedSlice();
+}
+
+fn parseTypeFields(alloc: std.mem.Allocator, comptime T: type) ![]const TypeField {
+    var fields = std.ArrayList(TypeField).init(alloc);
+    const Fields = std.meta.fields(T);
+    inline for (Fields) |Field| {
+        var field = TypeField{
+            .name = Field.name,
+            .type_name = "",
+            .default_value = null,
+            .optional = @typeInfo(Field.field_type) == .Optional,
+        };
+        if (@typeInfo(Field.field_type) == .Optional) {
+            field.type_name = getJsTypeName(@typeInfo(Field.field_type).Optional.child);
+        } else {
+            field.type_name = getJsTypeName(Field.field_type);
+        }
+        if (Field.default_value != null) {
+            field.default_value = try std.fmt.allocPrint(alloc, "{any}", .{Field.default_value.?});
+        }
+        try fields.append(field);
+    }
+    return fields.toOwnedSlice();
+}
+
+fn getEnumValues(alloc: std.mem.Allocator, comptime E: type, to_lower: bool) ![]const []const u8 {
     var values = std.ArrayList([]const u8).init(alloc);
     const Fields = std.meta.fields(E);
     inline for (Fields) |Field| {
-        try values.append(runtime.ctLower(Field.name));
+        if (to_lower) {
+            try values.append(runtime.ctLower(Field.name));
+        } else {
+            try values.append(Field.name);
+        }
     }
     return values.toOwnedSlice();
 }
@@ -419,6 +433,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
         api.cs_http.RequestMethod => "RequestMethod",
         api.cs_http.ContentType => "ContentType",
         api.cs_input.MouseButton => "MouseButton",
+        api.cs_input.Key => "Key",
 
         else => {
             if (@typeInfo(T) == .Struct) {

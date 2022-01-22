@@ -4,7 +4,8 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 
 const input = @import("input.zig");
-const KeyboardEvent = input.KeyboardEvent;
+const KeyDownEvent = input.KeyDownEvent;
+const KeyUpEvent = input.KeyUpEvent;
 const KeyCode = input.KeyCode;
 const MouseEvent = input.MouseEvent;
 const MouseButton = input.MouseButton;
@@ -43,26 +44,26 @@ pub fn initMouseMoveEvent(event: sdl.SDL_MouseMotionEvent) MouseMoveEvent {
     return MouseMoveEvent.init(@intCast(i16, event.x), @intCast(i16, event.y));
 }
 
-pub fn initKeydownEvent(key_sym: sdl.SDL_Keysym) KeyboardEvent {
-    const code = toCanonicalKeyCode(key_sym.sym);
+pub fn initKeyDownEvent(e: sdl.SDL_KeyboardEvent) KeyDownEvent {
+    const code = toCanonicalKeyCode(e.keysym.sym);
 
-    const shift = key_sym.mod & (sdl.KMOD_LSHIFT | sdl.KMOD_RSHIFT);
-    const ctrl = key_sym.mod & (sdl.KMOD_LCTRL | sdl.KMOD_RCTRL);
-    const alt = key_sym.mod & (sdl.KMOD_LALT | sdl.KMOD_RALT);
-    const meta = key_sym.mod & (sdl.KMOD_LGUI | sdl.KMOD_RGUI);
+    const shift = e.keysym.mod & (sdl.KMOD_LSHIFT | sdl.KMOD_RSHIFT);
+    const ctrl = e.keysym.mod & (sdl.KMOD_LCTRL | sdl.KMOD_RCTRL);
+    const alt = e.keysym.mod & (sdl.KMOD_LALT | sdl.KMOD_RALT);
+    const meta = e.keysym.mod & (sdl.KMOD_LGUI | sdl.KMOD_RGUI);
 
-    return KeyboardEvent.init(code, true, shift > 0, ctrl > 0, alt > 0, meta > 0);
+    return KeyDownEvent.init(code, e.repeat == 1, shift > 0, ctrl > 0, alt > 0, meta > 0);
 }
 
-pub fn initKeyupEvent(key_sym: sdl.SDL_Keysym) KeyboardEvent {
-    const code = toCanonicalKeyCode(key_sym.sym);
+pub fn initKeyUpEvent(e: sdl.SDL_KeyboardEvent) KeyUpEvent {
+    const code = toCanonicalKeyCode(e.keysym.sym);
 
-    const shift = key_sym.mod & (sdl.KMOD_LSHIFT | sdl.KMOD_RSHIFT);
-    const ctrl = key_sym.mod & (sdl.KMOD_LCTRL | sdl.KMOD_RCTRL);
-    const alt = key_sym.mod & (sdl.KMOD_LALT | sdl.KMOD_RALT);
-    const meta = key_sym.mod & (sdl.KMOD_LGUI | sdl.KMOD_RGUI);
+    const shift = e.keysym.mod & (sdl.KMOD_LSHIFT | sdl.KMOD_RSHIFT);
+    const ctrl = e.keysym.mod & (sdl.KMOD_LCTRL | sdl.KMOD_RCTRL);
+    const alt = e.keysym.mod & (sdl.KMOD_LALT | sdl.KMOD_RALT);
+    const meta = e.keysym.mod & (sdl.KMOD_LGUI | sdl.KMOD_RGUI);
 
-    return KeyboardEvent.init(code, false, shift > 0, ctrl > 0, alt > 0, meta > 0);
+    return KeyUpEvent.init(code, shift > 0, ctrl > 0, alt > 0, meta > 0);
 }
 
 const MaxLowerRangeCodes = 123;

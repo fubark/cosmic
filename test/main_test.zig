@@ -16,4 +16,10 @@ test {
 
     const graphics = @import("../graphics/src/graphics.zig");
     t.refAllDecls(graphics);
+
+    const input = @import("../input/input.zig");
+    t.refAllDecls(input);
+
+    const main = @import("../cosmic/main.zig");
+    t.refAllDecls(main);
 }

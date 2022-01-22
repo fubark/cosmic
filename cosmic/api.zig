@@ -8,6 +8,8 @@ const StdColor = graphics.Color;
 const ds = stdx.ds;
 const v8 = @import("v8");
 const input = @import("input");
+const KeyCode = input.KeyCode;
+const t = stdx.testing;
 
 const v8x = @import("v8x.zig");
 const tasks = @import("tasks.zig");
@@ -113,6 +115,34 @@ pub const cs_window = struct {
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
                 v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_move_cb, mb_cb);
+            }
+        }
+
+        /// Provide the handler for receiving key down events when this window is active.
+        /// Provide a null value to disable these events.
+        pub fn onKeyDown(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
+            const iso = rt.isolate;
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_key_down_cb, mb_cb);
+            }
+        }
+
+        /// Provide the handler for receiving key up events when this window is active.
+        /// Provide a null value to disable these events.
+        pub fn onKeyUp(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
+            const iso = rt.isolate;
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_key_up_cb, mb_cb);
             }
         }
 
@@ -1092,6 +1122,174 @@ pub const cs_input = struct {
         x: i16,
         y: i16,
     };
+
+    pub const KeyDownEvent = struct {
+        key: Key,
+        keyChar: []const u8,
+        isRepeat: bool,
+        shiftDown: bool,
+        ctrlDown: bool,
+        altDown: bool,
+        metaDown: bool,
+    };
+
+    pub const KeyUpEvent = struct {
+        key: Key,
+        keyChar: []const u8,
+        shiftDown: bool,
+        ctrlDown: bool,
+        altDown: bool,
+        metaDown: bool,
+    };
+
+    pub const Key = enum(u8) {
+        unknown = eint(KeyCode.Unknown),
+        backspace = eint(KeyCode.Backspace),
+        tab = eint(KeyCode.Tab),
+        enter = eint(KeyCode.Enter),
+        shift = eint(KeyCode.Shift),
+        control = eint(KeyCode.Control),
+        alt = eint(KeyCode.Alt),
+        pause = eint(KeyCode.Pause),
+        capsLock = eint(KeyCode.CapsLock),
+        escape = eint(KeyCode.Escape),
+        space = eint(KeyCode.Space),
+        pageUp = eint(KeyCode.PageUp),
+        pageDown = eint(KeyCode.PageDown),
+        end = eint(KeyCode.End),
+        home = eint(KeyCode.Home),
+        arrowUp = eint(KeyCode.ArrowUp),
+        arrowLeft = eint(KeyCode.ArrowLeft),
+        arrowRight = eint(KeyCode.ArrowRight),
+        arrowDown = eint(KeyCode.ArrowDown),
+        printScreen = eint(KeyCode.PrintScreen),
+        insert = eint(KeyCode.Insert),
+        delete = eint(KeyCode.Delete),
+
+        digit0 = eint(KeyCode.Digit0),
+        digit1 = eint(KeyCode.Digit1),
+        digit2 = eint(KeyCode.Digit2),
+        digit3 = eint(KeyCode.Digit3),
+        digit4 = eint(KeyCode.Digit4),
+        digit5 = eint(KeyCode.Digit5),
+        digit6 = eint(KeyCode.Digit6),
+        digit7 = eint(KeyCode.Digit7),
+        digit8 = eint(KeyCode.Digit8),
+        digit9 = eint(KeyCode.Digit9),
+
+        a = eint(KeyCode.A),
+        b = eint(KeyCode.B),
+        c = eint(KeyCode.C),
+        d = eint(KeyCode.D),
+        e = eint(KeyCode.E),
+        f = eint(KeyCode.F),
+        g = eint(KeyCode.G),
+        h = eint(KeyCode.H),
+        i = eint(KeyCode.I),
+        j = eint(KeyCode.J),
+        k = eint(KeyCode.K),
+        l = eint(KeyCode.L),
+        m = eint(KeyCode.M),
+        n = eint(KeyCode.N),
+        o = eint(KeyCode.O),
+        p = eint(KeyCode.P),
+        q = eint(KeyCode.Q),
+        r = eint(KeyCode.R),
+        s = eint(KeyCode.S),
+        t = eint(KeyCode.T),
+        u = eint(KeyCode.U),
+        v = eint(KeyCode.V),
+        w = eint(KeyCode.W),
+        x = eint(KeyCode.X),
+        y = eint(KeyCode.Y),
+        z = eint(KeyCode.Z),
+
+        contextMenu = eint(KeyCode.ContextMenu),
+
+        f1 = eint(KeyCode.F1),
+        f2 = eint(KeyCode.F2),
+        f3 = eint(KeyCode.F3),
+        f4 = eint(KeyCode.F4),
+        f5 = eint(KeyCode.F5),
+        f6 = eint(KeyCode.F6),
+        f7 = eint(KeyCode.F7),
+        f8 = eint(KeyCode.F8),
+        f9 = eint(KeyCode.F9),
+        f10 = eint(KeyCode.F10),
+        f11 = eint(KeyCode.F11),
+        f12 = eint(KeyCode.F12),
+        f13 = eint(KeyCode.F13),
+        f14 = eint(KeyCode.F14),
+        f15 = eint(KeyCode.F15),
+        f16 = eint(KeyCode.F16),
+        f17 = eint(KeyCode.F17),
+        f18 = eint(KeyCode.F18),
+        f19 = eint(KeyCode.F19),
+        f20 = eint(KeyCode.F20),
+        f21 = eint(KeyCode.F21),
+        f22 = eint(KeyCode.F22),
+        f23 = eint(KeyCode.F23),
+        f24 = eint(KeyCode.F24),
+
+        scrollLock = eint(KeyCode.ScrollLock),
+        semicolon = eint(KeyCode.Semicolon),
+        equal = eint(KeyCode.Equal),
+        comma = eint(KeyCode.Comma),
+        minus = eint(KeyCode.Minus),
+        period = eint(KeyCode.Period),
+        slash = eint(KeyCode.Slash),
+        backquote = eint(KeyCode.Backquote),
+        bracketLeft = eint(KeyCode.BracketLeft),
+        backslash = eint(KeyCode.Backslash),
+        bracketRight = eint(KeyCode.BracketRight),
+        quote = eint(KeyCode.Quote),
+    };
+};
+
+fn eint(e: anytype) @typeInfo(@TypeOf(e)).Enum.tag_type {
+    return @enumToInt(e);
+}
+
+pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
+    return .{
+        .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
+        .keyChar = Ascii[e.getKeyChar()..e.getKeyChar()+1],
+        .isRepeat = e.is_repeat,
+        .shiftDown = e.isShiftPressed(),
+        .ctrlDown = e.isControlPressed(),
+        .altDown = e.isAltPressed(),
+        .metaDown = e.isMetaPressed(),
+    };
+}
+
+pub fn fromStdKeyUpEvent(e: input.KeyUpEvent) cs_input.KeyUpEvent {
+    return .{
+        .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
+        .keyChar = Ascii[e.getKeyChar()..e.getKeyChar()+1],
+        .shiftDown = e.isShiftPressed(),
+        .ctrlDown = e.isControlPressed(),
+        .altDown = e.isAltPressed(),
+        .metaDown = e.isMetaPressed(),
+    };
+}
+
+test "every input.KeyCode maps to cs_input.Key" {
+    for (std.enums.values(KeyCode)) |code| {
+        _ = std.meta.intToEnum(cs_input.Key, @enumToInt(code)) catch |err| {
+            std.debug.panic("Missing {}", .{code});
+            return err;
+        };
+    }
+    // TODO: Make sure the mapping is correct.
+}
+
+const Ascii: [256]u8 = b: {
+    var res: [256]u8 = undefined;
+    var i: u32 = 0;
+    while (i < 256) : (i += 1) {
+        res[i] = i;
+    }
+    break :b res;
 };
 
 pub fn fromStdMouseEvent(e: input.MouseEvent) cs_input.MouseEvent {

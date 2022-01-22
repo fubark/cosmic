@@ -12,14 +12,14 @@ pub const Window = struct {
     inner: switch (Backend) {
         .OpenGL => gl.Window,
         .WasmCanvas => wasm.Window,
-        .Test => void,
+        .Test => TestWindow,
     },
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
-        const inner = try switch (Backend) {
-            .OpenGL => gl.Window.init(alloc, config),
-            .WasmCanvas => wasm.Window.init(config),
-            .Test => {},
+        const inner = switch (Backend) {
+            .OpenGL => try gl.Window.init(alloc, config),
+            .WasmCanvas => try wasm.Window.init(config),
+            .Test => TestWindow{ .width = config.width, .height = config.height },
         };
         return Self{
             .inner = inner,
@@ -47,7 +47,7 @@ pub const Window = struct {
         switch (Backend) {
             .OpenGL => gl.Window.swapBuffers(self.inner),
             .WasmCanvas => {},
-            else => stdx.panic("unsupported"),
+            .Test => {},
         }
     }
 };
@@ -67,4 +67,9 @@ pub const Config = struct {
     resizable: bool = false,
     high_dpi: bool = false,
     fullscreen: bool = false,
+};
+
+const TestWindow = struct {
+    width: u32,
+    height: u32,
 };

@@ -60,6 +60,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
         ctx.setFuncT(proto, "onMouseButton", api.cs_window.Window.onMouseButton);
         ctx.setFuncT(proto, "onMouseMove", api.cs_window.Window.onMouseMove);
+        ctx.setFuncT(proto, "onKeyDown", api.cs_window.Window.onKeyDown);
+        ctx.setFuncT(proto, "onKeyUp", api.cs_window.Window.onKeyUp);
         ctx.setFuncT(proto, "getGraphics", api.cs_window.Window.getGraphics);
         ctx.setFuncT(proto, "getLastFrameDuration", api.cs_window.Window.getLastFrameDuration);
         ctx.setFuncT(proto, "getLastUpdateDuration", api.cs_window.Window.getLastUpdateDuration);
@@ -347,6 +349,12 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setProp(mouse_button, "x1", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.x1)));
     ctx.setProp(mouse_button, "x2", iso.initIntegerU32(@enumToInt(api.cs_input.MouseButton.x2)));
     ctx.setConstProp(cs_input, "MouseButton", mouse_button);
+
+    const key_obj = iso.initObjectTemplateDefault();
+    for (std.enums.values(api.cs_input.Key)) |key| {
+        ctx.setProp(key_obj, @tagName(key), iso.initIntegerU32(@enumToInt(key)));
+    }
+    ctx.setConstProp(cs_input, "Key", key_obj);
 
     ctx.setConstProp(cs, "input", cs_input);
 
