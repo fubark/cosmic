@@ -590,13 +590,13 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setFont(self: *Self, font_gid: FontId, font_size: f32) void {
+    pub fn setFont(self: *Self, font_id: FontId, font_size: f32) void {
         switch (Backend) {
             .OpenGL => {
-                gl.Graphics.setFont(&self.g, font_gid);
+                gl.Graphics.setFont(&self.g, font_id);
                 gl.Graphics.setFontSize(&self.g, font_size);
             },
-            .WasmCanvas => canvas.Graphics.setFont(&self.g, font_gid, font_size),
+            .WasmCanvas => canvas.Graphics.setFont(&self.g, font_id, font_size),
             else => stdx.panic("unsupported"),
         }
     }

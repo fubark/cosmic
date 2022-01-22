@@ -14,6 +14,7 @@ const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
 const log = stdx.log.scoped(.runtime);
 const api = @import("api.zig");
+const cs_graphics = @import("api_graphics.zig").cs_graphics;
 const gen = @import("gen.zig");
 
 const work_queue = @import("work_queue.zig");
@@ -456,7 +457,7 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("height"), iso.initIntegerU32(@intCast(u32, native_val.height)));
                 return new.handle;
             },
-            api.cs_graphics.Color => {
+            cs_graphics.Color => {
                 const new = self.color_class.getFunction(ctx).initInstance(ctx, &.{}).?;
                 _ = new.setValue(ctx, iso.initStringUtf8("r"), iso.initIntegerU32(native_val.r));
                 _ = new.setValue(ctx, iso.initStringUtf8("g"), iso.initIntegerU32(native_val.g));

@@ -11,6 +11,8 @@ const printFmt = runtime.printFmt;
 const log = std.log.scoped(.doc_gen);
 const gen = @import("gen.zig");
 const api = @import("api.zig");
+const api_graphics = @import("api_graphics.zig");
+const cs_graphics = api_graphics.cs_graphics;
 
 const doc_versions: []const DocVersion = &.{
     DocVersion{ .name = build_options.VersionName, .url = "/docs" },
@@ -27,7 +29,6 @@ const modules: []const ModuleId = &.{
     "cs_window",
     "cs_worker",
 };
-
 
 pub fn main() !void {
     // Fast temporary memory allocator.
@@ -100,16 +101,22 @@ const Context = struct {
     }
 };
 
+const Source = struct {
+    path: []const u8,
+    package: type,
+};
+
 // Parses comments and uses comptime to create api model.
 fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
     var res = std.StringHashMap(Module).init(alloc);
 
-    const srcs: []const []const u8 = &.{
-        "cosmic/api.zig",
+    const srcs: []const Source = &.{
+        .{ .path = "cosmic/api.zig", .package = api },
+        .{ .path = "cosmic/api_graphics.zig", .package = api_graphics },
     };
 
-    for (srcs) |src_path| {
-        const path = fromBuildRoot(alloc, src_path);
+    inline for (srcs) |src| {
+        const path = fromBuildRoot(alloc, src.path);
 
         const file = std.fs.openFileAbsolute(path, .{ .read = true, .write = false }) catch unreachable;
         defer file.close();
@@ -127,61 +134,15 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
 
         const root_members = tree.rootDecls();
         for (root_members) |member| {
-
             if (tree.nodes.items(.tag)[member] == .simple_var_decl) {
                 const ident_tok = tree.nodes.items(.main_token)[member] + 1;
                 const ident_str = tree.tokenSlice(ident_tok);
                 if (isModuleName(ident_str)) {
                     var module: Module = undefined;
                     log.debug("Parsing {s}", .{ident_str});
-                    _ = module;
-
-                    var found_title = false;
-                    var found_ns = false;
-                    var found_name = false;
-                    var desc_buf = std.ArrayList(u8).init(alloc);
 
                     // Parse module metadata from doc comments.
-                    var cur_tok = tree.firstToken(member);
-                    while (cur_tok > 0) {
-                        cur_tok -= 1;
-                        if (tree.tokens.items(.tag)[cur_tok] == .doc_comment) {
-                            const comment = tree.tokenSlice(cur_tok);
-
-                            if (std.mem.indexOf(u8, comment, "@title")) |idx| {
-                                const title = std.mem.trim(u8, comment[idx + "@title".len..], " ");
-                                module.title = try alloc.dupe(u8, title);
-                                found_title = true;
-                                continue;
-                            }
-                            if (std.mem.indexOf(u8, comment, "@ns")) |idx| {
-                                const ns = std.mem.trim(u8, comment[idx + "@ns".len..], " ");
-                                module.ns = try alloc.dupe(u8, ns);
-                                found_ns = true;
-                                continue;
-                            }
-                            if (std.mem.indexOf(u8, comment, "@name")) |idx| {
-                                const name = std.mem.trim(u8, comment[idx + "@name".len..], " ");
-                                module.name = try alloc.dupe(u8, name);
-                                found_name = true;
-                                continue;
-                            }
-
-                            // Accumulate desc.
-                            if (desc_buf.items.len > 0) {
-                                // try desc_buf.insertSlice(0, "<br />");
-                                try desc_buf.insertSlice(0, " ");
-                            }
-                            try desc_buf.insertSlice(0, std.mem.trim(u8, comment[3..], " "));
-                        } else {
-                            break;
-                        }
-                    }
-                    module.desc = desc_buf.toOwnedSlice();
-
-                    if (!found_title) std.debug.panic("{s} is missing @title", .{ident_str});
-                    if (!found_ns) std.debug.panic("{s} is missing @ns", .{ident_str});
-                    if (!found_name) std.debug.panic("{s} is missing @name", .{ident_str});
+                    try parseModuleMetadata(alloc, tree, member, ident_str, &module);
 
                     var funcs = std.ArrayList(FunctionInfo).init(alloc);
                     var types = std.ArrayList(TypeInfo).init(alloc);
@@ -189,7 +150,8 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                     const container_node = tree.nodes.items(.data)[member].rhs;
 
                     // Parse functions and types.
-                    const Decls = std.meta.declarations(api);
+                    const Decls = comptime std.meta.declarations(src.package);
+                    log.debug("{s} {}", .{ident_str, Decls.len});
                     inline for (Decls) |Decl| {
                         if (Decl.is_pub and Decl.data == .Type) {
                             if (std.mem.eql(u8, Decl.name, ident_str)) {
@@ -245,7 +207,6 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                     try res.put(try alloc.dupe(u8, ident_str), module);
                 }
             }
-
         }
     }
 
@@ -255,6 +216,54 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
         }
     }
     return res;
+}
+
+fn parseModuleMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, mod_node: std.zig.Ast.Node.Index, mod_name: []const u8, module: *Module) !void {
+    var found_title = false;
+    var found_ns = false;
+    var found_name = false;
+    var desc_buf = std.ArrayList(u8).init(alloc);
+
+    var cur_tok = tree.firstToken(mod_node);
+    while (cur_tok > 0) {
+        cur_tok -= 1;
+        if (tree.tokens.items(.tag)[cur_tok] == .doc_comment) {
+            const comment = tree.tokenSlice(cur_tok);
+
+            if (std.mem.indexOf(u8, comment, "@title")) |idx| {
+                const title = std.mem.trim(u8, comment[idx + "@title".len..], " ");
+                module.title = try alloc.dupe(u8, title);
+                found_title = true;
+                continue;
+            }
+            if (std.mem.indexOf(u8, comment, "@ns")) |idx| {
+                const ns = std.mem.trim(u8, comment[idx + "@ns".len..], " ");
+                module.ns = try alloc.dupe(u8, ns);
+                found_ns = true;
+                continue;
+            }
+            if (std.mem.indexOf(u8, comment, "@name")) |idx| {
+                const name = std.mem.trim(u8, comment[idx + "@name".len..], " ");
+                module.name = try alloc.dupe(u8, name);
+                found_name = true;
+                continue;
+            }
+
+            // Accumulate desc.
+            if (desc_buf.items.len > 0) {
+                // try desc_buf.insertSlice(0, "<br />");
+                try desc_buf.insertSlice(0, " ");
+            }
+            try desc_buf.insertSlice(0, std.mem.trim(u8, comment[3..], " "));
+        } else {
+            break;
+        }
+    }
+    module.desc = desc_buf.toOwnedSlice();
+
+    if (!found_title) std.debug.panic("{s} is missing @title", .{mod_name});
+    if (!found_ns) std.debug.panic("{s} is missing @ns", .{mod_name});
+    if (!found_name) std.debug.panic("{s} is missing @name", .{mod_name});
 }
 
 pub fn parseTypeDecls(alloc: std.mem.Allocator, comptime T: type, tree: std.zig.Ast, type_container: std.zig.Ast.Node.Index, out: *TypeInfo) void {
@@ -337,8 +346,6 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: s
         .params = &.{},
         .ret = undefined,
     };
-    const valid = try extractFunctionMetadata(alloc, tree, container_node, &func);
-    if (!valid) return null;
 
     // Extract params.
     const ArgsTuple = std.meta.ArgsTuple(FnDecl.data.Fn.fn_type);
@@ -363,6 +370,9 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: s
         // log.debug("{s}", .{@typeName(Field.field_type)});
     }
     func.params = params.toOwnedSlice();
+
+    const valid = try extractFunctionMetadata(alloc, tree, container_node, &func);
+    if (!valid) return null;
 
     // Extract return.
     const ReturnType = FnDecl.data.Fn.return_type;
@@ -428,12 +438,15 @@ fn getJsTypeName(comptime T: type) []const u8 {
         api.cs_files.PathInfo => "PathInfo",
         graphics.Image => "Image",
         graphics.Color => "Color",
-        api.cs_graphics.Color => "Color",
+        cs_graphics.Color => "Color",
         api.cs_files.FileKind => "FileKind",
         api.cs_http.RequestMethod => "RequestMethod",
         api.cs_http.ContentType => "ContentType",
         api.cs_input.MouseButton => "MouseButton",
         api.cs_input.Key => "Key",
+
+        // Shouldn't be available but needed before @internal is parsed.
+        std.mem.Allocator => "Allocator",
 
         else => {
             if (@typeInfo(T) == .Struct) {
@@ -504,6 +517,7 @@ fn findContainerChild(tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index,
 
 const Metadata = struct {
     desc: []const u8,
+    param_names: []const []const u8,
     internal: bool,
 };
 
@@ -511,6 +525,8 @@ const Metadata = struct {
 fn parseMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, node: std.zig.Ast.Node.Index) !Metadata {
     var res: Metadata = undefined;
     var buf = std.ArrayList(u8).init(alloc);
+
+    var params = std.ArrayList([]const u8).init(alloc);
 
     // Start with the first token since we want to break on the first non comment.
     var cur_tok = tree.firstToken(node);
@@ -523,7 +539,11 @@ fn parseMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, node: std.zig.Ast.
                 res.internal = true;
                 continue;
             }
-
+            if (std.mem.indexOf(u8, comment, "@param")) |idx| {
+                const name = std.mem.trim(u8, comment[idx + "@param".len..], " ");
+                try params.insert(0, try alloc.dupe(u8, name));
+                continue;
+            }
             // Accumulate desc.
             if (buf.items.len > 0) {
                 try buf.insertSlice(0, " ");
@@ -534,6 +554,7 @@ fn parseMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, node: std.zig.Ast.
         }
     }
     res.desc = buf.toOwnedSlice();
+    res.param_names = params.toOwnedSlice();
     return res;
 }
 
@@ -546,6 +567,11 @@ fn extractFunctionMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, containe
         return false;
     }
     func.desc = data.desc;
+    for (data.param_names) |name, i| {
+        if (i < func.params.len) {
+            func.params[i].param_name = name;
+        }
+    }
 
     if (func.desc.len == 0) {
         log.debug("metadata not found for: {s}", .{func.name});
@@ -630,7 +656,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             for (mod.funcs) |func| {
                 ctx.writeFmt(
                     \\<div class="func">
-                    \\  <a id="{s}" href="#"><small class="secondary">{s}.</small>{s}</a> <span class="params">(
+                    \\  <a id="{s}" href="#"><small class="secondary">{s}.</small>{s}</a> <span class="params">(&nbsp;
                     , .{ func.name, mod.ns, func.name }
                 );
                 // Params.
@@ -639,9 +665,9 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                         ctx.write(", ");
                     }
                     if (param.optional) {
-                        ctx.writeFmt("<span class=\"param\">{s} ?{s}</span>", .{param.param_name, param.type_name});
+                        ctx.writeFmt("<span class=\"param\">{s}: <span class=\"secondary\">?{s}</span></span>", .{param.param_name, param.type_name});
                     } else {
-                        ctx.writeFmt("<span class=\"param\">{s} {s}</span>", .{param.param_name, param.type_name});
+                        ctx.writeFmt("<span class=\"param\">{s}: <span class=\"secondary\">{s}</span></span>", .{param.param_name, param.type_name});
                     }
                 }
                 ctx.write(" )</span>");
@@ -717,7 +743,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                 for (info.methods) |func| {
                     ctx.writeFmt(
                         \\<div class="func">
-                        \\  <a id="{s}" href="#"><small class="secondary">{s}.{s}</small><span class="method">{s}</span></a> <span class="params">(
+                        \\  <a id="{s}" href="#"><small class="secondary">{s}.{s}</small><span class="method">{s}</span></a> <span class="params">(&nbsp;
                         , .{ func.name, mod.ns, info.name, func.name }
                     );
                     // Params.
@@ -726,9 +752,9 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
                             ctx.write(", ");
                         }
                         if (param.optional) {
-                            ctx.writeFmt("<span class=\"param\">{s} ?{s}</span>", .{param.param_name, param.type_name});
+                            ctx.writeFmt("<span class=\"param\">{s}: <span class=\"secondary\">?{s}</span></span>", .{param.param_name, param.type_name});
                         } else {
-                            ctx.writeFmt("<span class=\"param\">{s} {s}</span>", .{param.param_name, param.type_name});
+                            ctx.writeFmt("<span class=\"param\">{s}: <span class=\"secondary\">{s}</span></span>", .{param.param_name, param.type_name});
                         }
                     }
                     ctx.write(" )</span>");
@@ -858,7 +884,7 @@ const TypeField = struct {
 const FunctionInfo = struct {
     desc: []const u8,
     name: []const u8,
-    params: []const FunctionParamInfo,
+    params: []FunctionParamInfo,
     ret: ReturnInfo,
 };
 

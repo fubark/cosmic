@@ -151,16 +151,15 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const color_class = v8.FunctionTemplate.initDefault(iso);
     {
         const proto = color_class.getPrototypeTemplate();
-        ctx.setFuncT(proto, "darker", api.color_Darker);
-        ctx.setFuncT(proto, "lighter", api.color_Lighter);
-        ctx.setFuncT(proto, "withAlpha", api.color_WithAlpha);
+        ctx.setFuncT(proto, "darker", api.cs_graphics.Color.darker);
+        ctx.setFuncT(proto, "lighter", api.cs_graphics.Color.lighter);
+        ctx.setFuncT(proto, "withAlpha", api.cs_graphics.Color.withAlpha);
     }
     var instance = color_class.getInstanceTemplate();
     ctx.setProp(instance, "r", undef_u32);
     ctx.setProp(instance, "g", undef_u32);
     ctx.setProp(instance, "b", undef_u32);
     ctx.setProp(instance, "a", undef_u32);
-    ctx.setFuncT(color_class, "new", api.color_New);
 
     const Color = api.cs_graphics.Color;
     const colors = &[_]std.meta.Tuple(&.{ []const u8, Color }){

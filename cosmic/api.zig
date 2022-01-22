@@ -1,10 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
-const FontId = graphics.font.FontId;
 const Graphics = graphics.Graphics;
-const Vec2 = stdx.math.Vec2;
-const StdColor = graphics.Color;
 const ds = stdx.ds;
 const v8 = @import("v8");
 const input = @import("input");
@@ -32,6 +29,8 @@ const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
 
+// TODO: Once https://github.com/ziglang/zig/issues/8259 is resolved, use comptime to set param names.
+
 /// @title Window Management
 /// @name window
 /// @ns cs.window
@@ -39,6 +38,9 @@ const HttpServer = _server.HttpServer;
 pub const cs_window = struct {
 
     /// Creates a new window and returns the handle.
+    /// @param title
+    /// @param width
+    /// @param height
     pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
         const res = rt.createCsWindowResource();
 
@@ -78,6 +80,7 @@ pub const cs_window = struct {
         /// This is a good place to do your app's update logic and draw to the screen.
         /// The frequency of frame updates is limited by an FPS counter.
         /// Eventually, this frequency will be configurable.
+        /// @param callback
         pub fn onUpdate(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
@@ -92,6 +95,7 @@ pub const cs_window = struct {
 
         /// Provide the handler for receiving mouse button events when this window is active.
         /// Provide a null value to disable these events.
+        /// @param callback
         pub fn onMouseButton(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
@@ -106,6 +110,7 @@ pub const cs_window = struct {
 
         /// Provide the handler for receiving mouse move events when this window is active.
         /// Provide a null value to disable these events.
+        /// @param callback
         pub fn onMouseMove(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
@@ -120,6 +125,7 @@ pub const cs_window = struct {
 
         /// Provide the handler for receiving key down events when this window is active.
         /// Provide a null value to disable these events.
+        /// @param callback
         pub fn onKeyDown(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
@@ -134,6 +140,7 @@ pub const cs_window = struct {
 
         /// Provide the handler for receiving key up events when this window is active.
         /// Provide a null value to disable these events.
+        /// @param callback
         pub fn onKeyUp(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
             const iso = rt.isolate;
             const ctx = rt.context;
@@ -199,352 +206,16 @@ pub const cs_window = struct {
     };
 };
 
-pub fn color_Lighter(rt: *RuntimeContext, this: This) cs_graphics.Color {
-    const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
-    return fromStdColor(toStdColor(color).lighter());
-}
-
-pub fn color_Darker(rt: *RuntimeContext, this: This) cs_graphics.Color {
-    const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
-    return fromStdColor(toStdColor(color).darker());
-}
-
-pub fn color_WithAlpha(rt: *RuntimeContext, this: This, a: u8) cs_graphics.Color {
-    const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
-    return fromStdColor(toStdColor(color).withAlpha(a));
-}
-
-pub fn color_New(rt: *RuntimeContext, r: u8, g: u8, b: u8, a: u8) *const anyopaque {
-    return rt.getJsValuePtr(cs_graphics.Color{ .r = r, .g = g, .b = b, .a = a });
-}
-
-/// @title Graphics
-/// @name graphics
-/// @ns cs.graphics
-/// Provides a cross platform API to draw lines, shapes, text, images, and other graphics onto a window or buffer.
-/// By default, the coordinate system assumes the origin is at the top-left corner (0, 0). Positive x values go right and positive y values go down.
-/// In a future release, there will be a direct API to the OpenGL 3 context, and support for WebGPU to target modern graphics hardware.
-/// Currently, the API is focused on 2D graphics, but there are plans to add 3D graphics utilities.
-pub const cs_graphics = struct {
-
-    /// This provides an interface to the underlying graphics handle. It has a similar API to Web Canvas.
-    pub const Context = struct {
-
-        /// Returns the FontId of "Bitstream Vera Sans" the default font embedded into the runtime.
-        pub inline fn defaultFont(self: *Graphics) FontId {
-            return self.getDefaultFontId();
-        }
-
-        /// Sets the current fill color for painting shapes.
-        pub inline fn fillColor(self: *Graphics, color: Color) void {
-            return self.setFillColor(toStdColor(color));
-        }
-
-        /// Returns the current fill color.
-        pub inline fn getFillColor(self: *Graphics) Color {
-            return fromStdColor(self.getFillColor());
-        }
-
-        /// Sets the current stroke color for painting shape outlines.
-        pub inline fn strokeColor(self: *Graphics, color: Color) void {
-            return self.setStrokeColor(toStdColor(color));
-        }
-
-        /// Returns the current stroke color.
-        pub inline fn getStrokeColor(self: *Graphics) Color {
-            return fromStdColor(self.getStrokeColor());
-        }
-
-        /// Sets the current line width for painting shape outlines.
-        pub inline fn lineWidth(self: *Graphics, width: f32) void {
-            return self.setLineWidth(width);
-        }
-
-        /// Returns the current line width.
-        pub inline fn getLineWidth(self: *Graphics) f32 {
-            return self.getLineWidth();
-        }
-
-        /// Path can be absolute or relative to the cwd.
-        pub fn addTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
-            return g.addTTF_FontFromPath(path) catch |err| {
-                if (err == error.FileNotFound) {
-                    v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
-                    return 0;
-                } else {
-                    unreachable;
-                }
-            };
-        }
-
-        pub inline fn addFallbackFont(self: *Graphics, font_id: FontId) void {
-            self.addFallbackFont(font_id);
-        }
-
-        /// Path can be absolute or relative to the cwd.
-        pub fn newImage(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.Image {
-            return g.createImageFromPath(path) catch |err| {
-                if (err == error.FileNotFound) {
-                    v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
-                    return undefined;
-                } else {
-                    unreachable;
-                }
-            };
-        }
-
-        /// Fills a rectangle with the current fill color.
-        pub inline fn rect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
-            Graphics.fillRect(self, x, y, width, height);
-        }
-
-        /// Strokes a rectangle with the current stroke color.
-        pub inline fn rectOutline(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
-            Graphics.drawRect(self, x, y, width, height);
-        }
-
-        /// Shifts the origin x units to the right and y units down.
-        pub inline fn translate(self: *Graphics, x: f32, y: f32) void {
-            Graphics.translate(self, x, y);
-        }
-
-        /// Scales from the origin x units horizontally and y units vertically.
-        /// Negative value flips the axis. Value of 1 does nothing.
-        pub inline fn scale(self: *Graphics, x: f32, y: f32) void {
-            Graphics.scale(self, x, y);
-        }
-
-        /// Rotates the origin by radians clockwise.
-        pub inline fn rotate(self: *Graphics, rad: f32) void {
-            Graphics.rotate(self, rad);
-        }
-
-        pub inline fn rotateDeg(self: *Graphics, deg: f32) void {
-            self.rotateDeg(deg);
-        }
-
-        // Resets the current transform to identity.
-        pub inline fn resetTransform(self: *Graphics) void {
-            self.resetTransform();
-        }
-
-        pub inline fn font(self: *Graphics, font_gid: FontId, font_size: f32) void {
-            self.setFont(font_gid, font_size);
-        }
-
-        pub inline fn fontSize(self: *Graphics, font_size: f32) void {
-            self.setFontSize(font_size);
-        }
-
-        pub inline fn text(self: *Graphics, x: f32, y: f32, str: []const u8) void {
-            self.fillText(x, y, str);
-        }
-
-        pub inline fn circleSector(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
-            self.fillCircleSector(x, y, radius, start_rad, sweep_rad);
-        }
-
-        pub inline fn circleSectorDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
-            self.fillCircleSectorDeg(x, y, radius, start_deg, sweep_deg);
-        }
-
-        pub inline fn circleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
-            self.drawCircleArc(x, y, radius, start_rad, sweep_rad);
-        }
-
-        pub inline fn circleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
-            self.drawCircleArcDeg(x, y, radius, start_deg, sweep_deg);
-        }
-
-        pub inline fn circleOutline(self: *Graphics, x: f32, y: f32, radius: f32) void {
-            self.drawCircle(x, y, radius);
-        }
-
-        pub inline fn circle(self: *Graphics, x: f32, y: f32, radius: f32) void {
-            self.fillCircle(x, y, radius);
-        }
-
-        pub inline fn ellipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
-            self.fillEllipse(x, y, h_radius, v_radius);
-        }
-
-        pub inline fn ellipseSector(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
-            self.fillEllipseSector(x, y, h_radius, v_radius, start_rad, sweep_rad);
-        }
-
-        pub inline fn ellipseSectorDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
-            self.fillEllipseSectorDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
-        }
-
-        pub inline fn ellipseOutline(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
-            self.drawEllipse(x, y, h_radius, v_radius);
-        }
-
-        pub inline fn ellipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
-            self.drawEllipseArc(x, y, h_radius, v_radius, start_rad, sweep_rad);
-        }
-
-        pub inline fn ellipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
-            self.drawEllipseArcDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
-        }
-
-        pub inline fn point(self: *Graphics, x: f32, y: f32) void {
-            self.drawPoint(x, y);
-        }
-
-        pub inline fn line(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
-            self.drawLine(x1, y1, x2, y2);
-        }
-
-        pub inline fn cubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
-            self.drawCubicBezierCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2);
-        }
-
-        pub inline fn quadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
-            self.drawQuadraticBezierCurve(x1, y1, cx, cy, x2, y2);
-        }
-
-        pub inline fn triangle(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
-            self.fillTriangle(x1, y1, x2, y2, x3, y3);
-        }
-
-        pub inline fn roundRectOutline(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
-            self.drawRoundRect(x, y, width, height, radius);
-        }
-
-        pub inline fn roundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
-            self.fillRoundRect(x, y, width, height, radius);
-        }
-
-        pub fn polygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
-            rt.vec2_buf.resize(pts.len / 2) catch unreachable;
-            var i: u32 = 0;
-            var vec_idx: u32 = 0;
-            while (i < pts.len - 1) : ({
-                i += 2;
-                vec_idx += 1;
-            }) {
-                rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
-            }
-            g.fillPolygon(rt.vec2_buf.items);
-        }
-
-        pub fn svgContent(g: *Graphics, content: []const u8) void {
-            g.drawSvgContent(content) catch unreachable;
-        }
-
-        pub fn imageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
-            g.drawImageSized(x, y, width, height, image.id);
-        }
-
-        pub fn executeDrawList(g: *Graphics, handle: v8.Object) void {
-            const ptr = handle.getInternalField(0).castTo(v8.External).get();
-            const value = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr);
-            g.executeDrawList(value.inner);
-        }
-
-        pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
-            const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
-
-            const native_ptr = rt.alloc.create(RuntimeValue(graphics.DrawCommandList)) catch unreachable;
-            native_ptr.* = .{
-                .rt = rt,
-                .inner = draw_list,
-            };
-            _ = rt.weak_handles.add(.{
-                .ptr = native_ptr,
-                .tag = .DrawCommandList,
-            }) catch unreachable;
-
-            const ctx = rt.context;
-            const iso = rt.isolate;
-            const new = rt.handle_class.initInstance(ctx);
-            const data = iso.initExternal(native_ptr);
-            new.setInternalField(0, data);
-
-            var new_p = iso.initPersistent(v8.Object, new);
-            new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
-            return new_p;
-        }
-
-        fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
-            const info = v8.WeakCallbackInfo.initFromC(c_info);
-            const ptr = info.getParameter();
-            const rt = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr).rt;
-            rt.destroyWeakHandleByPtr(ptr);
-        }
-
-        pub fn polygonOutline(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
-            rt.vec2_buf.resize(pts.len / 2) catch unreachable;
-            var i: u32 = 0;
-            var vec_idx: u32 = 0;
-            while (i < pts.len - 1) : ({
-                i += 2;
-                vec_idx += 1;
-            }) {
-                rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
-            }
-            g.drawPolygon(rt.vec2_buf.items);
-        }
-
-        pub fn convexPolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
-            rt.vec2_buf.resize(pts.len / 2) catch unreachable;
-            var i: u32 = 0;
-            var vec_idx: u32 = 0;
-            while (i < pts.len - 1) : ({
-                i += 2;
-                vec_idx += 1;
-            }) {
-                rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
-            }
-            g.fillConvexPolygon(rt.vec2_buf.items);
-        }
-    };
-
-    pub const Color = struct {
-
-        r: u8,
-        g: u8,
-        b: u8,
-        a: u8,
-
-        pub const lightGray = fromStdColor(StdColor.LightGray);
-        pub const gray = fromStdColor(StdColor.Gray);
-        pub const darkGray = fromStdColor(StdColor.DarkGray);
-        pub const yellow = fromStdColor(StdColor.Yellow);
-        pub const gold = fromStdColor(StdColor.Gold);
-        pub const orange = fromStdColor(StdColor.Orange);
-        pub const pink = fromStdColor(StdColor.Pink);
-        pub const red = fromStdColor(StdColor.Red);
-        pub const maroon = fromStdColor(StdColor.Maroon);
-        pub const green = fromStdColor(StdColor.Green);
-        pub const lime = fromStdColor(StdColor.Lime);
-        pub const darkGreen = fromStdColor(StdColor.DarkGreen);
-        pub const skyBlue = fromStdColor(StdColor.SkyBlue);
-        pub const blue = fromStdColor(StdColor.Blue);
-        pub const darkBlue = fromStdColor(StdColor.DarkBlue);
-        pub const purple = fromStdColor(StdColor.Purple);
-        pub const violet = fromStdColor(StdColor.Violet);
-        pub const darkPurple = fromStdColor(StdColor.DarkPurple);
-        pub const beige = fromStdColor(StdColor.Beige);
-        pub const brown = fromStdColor(StdColor.Brown);
-        pub const darkBrown = fromStdColor(StdColor.DarkBrown);
-        pub const white = fromStdColor(StdColor.White);
-        pub const black = fromStdColor(StdColor.Black);
-        pub const transparent = fromStdColor(StdColor.Transparent);
-        pub const magenta = fromStdColor(StdColor.Magenta);
-    };
-
-};
-
 /// @title File System
 /// @name files
 /// @ns cs.files
 /// Provides a cross platform API to create and manage files.
+/// Functions with path params can be absolute or relative to the cwd.
 pub const cs_files = struct {
 
-    /// Path can be absolute or relative to the cwd.
+    /// Reads a file as raw bytes.
     /// Returns the contents on success or null.
+    /// @param path
     pub fn read(rt: *RuntimeContext, path: []const u8) ?ManagedStruct(Uint8Array) {
         const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
             // Whitelist errors to silence.
@@ -554,13 +225,15 @@ pub const cs_files = struct {
         return ManagedStruct(Uint8Array).init(rt.alloc, Uint8Array{ .buf = res });
     }
 
+    /// @param path
     pub fn readAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, read, .{ rt, path });
         return runtime.invokeFuncAsync(rt, read, args);
     }
 
-    /// Path can be absolute or relative to the cwd.
-    /// Returns the contents as utf8 on success or null.
+    /// Reads a file as a UTF-8 string.
+    /// Returns the contents on success or null.
+    /// @param path
     pub fn readText(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
         const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
             // Whitelist errors to silence.
@@ -570,54 +243,101 @@ pub const cs_files = struct {
         return ds.Box([]const u8).init(rt.alloc, res);
     }
 
+    /// @param path
     pub fn readTextAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, readText, .{ rt, path });
         return runtime.invokeFuncAsync(rt, readText, args);
     }
 
-    /// Writes bytes to a file.
-    /// Path can be absolute or relative to the cwd.
+    /// Writes raw bytes to a file. If the file already exists, it's replaced.
     /// Returns true on success or false.
+    /// @param path
+    /// @param buffer
     pub fn write(path: []const u8, arr: Uint8Array) bool {
         std.fs.cwd().writeFile(path, arr.buf) catch return false;
         return true;
     }
 
+    /// @param path
+    /// @param buffer
     pub fn writeAsync(rt: *RuntimeContext, path: []const u8, arr: Uint8Array) v8.Promise {
         const args = dupeArgs(rt.alloc, write, .{ path, arr });
         return runtime.invokeFuncAsync(rt, write, args);
     }
 
-    /// Writes UTF8 text to a file.
-    /// Path can be absolute or relative to the cwd.
+    /// Writes UTF-8 text to a file. If the file already exists, it's replaced.
     /// Returns true on success or false.
+    /// @param path
+    /// @param str
     pub fn writeText(path: []const u8, str: []const u8) bool {
         std.fs.cwd().writeFile(path, str) catch return false;
         return true;
     }
 
+    /// @param path
+    /// @param str
     pub fn writeTextAsync(rt: *RuntimeContext, path: []const u8, str: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, writeText, .{ path, str });
         return runtime.invokeFuncAsync(rt, writeText, args);
     }
 
-    /// Path can be absolute or relative to the cwd.
+    /// Appends raw bytes to a file. File is created if it doesn't exist.
+    /// Returns true on success or false.
+    /// @param path
+    /// @param buffer
+    pub fn append(path: []const u8, arr: Uint8Array) bool {
+        stdx.fs.appendFile(path, arr.buf) catch return false;
+        return true;
+    }
+
+    /// @param path
+    /// @param buffer
+    pub fn appendAsync(rt: *RuntimeContext, path: []const u8, arr: Uint8Array) v8.Promise {
+        const args = dupeArgs(rt.alloc, append, .{ path, arr });
+        return runtime.invokeFuncAsync(rt, append, args);
+    }
+
+    /// Appends UTF-8 text to a file. File is created if it doesn't exist.
+    /// Returns true on success or false.
+    /// @param path
+    /// @param str
+    pub fn appendText(path: []const u8, str: []const u8) bool {
+        stdx.fs.appendFile(path, str) catch return false;
+        return true;
+    }
+
+    /// @param path
+    /// @param str
+    pub fn appendTextAsync(rt: *RuntimeContext, path: []const u8, str: []const u8) v8.Promise {
+        const args = dupeArgs(rt.alloc, appendText, .{ path, str });
+        return runtime.invokeFuncAsync(rt, appendText, args);
+    }
+
+    /// Copies a file.
+    /// @param from
+    /// @param to
     pub fn copy(from: []const u8, to: []const u8) bool {
         std.fs.cwd().copyFile(from, std.fs.cwd(), to, .{}) catch return false;
         return true;
     }
 
+    /// @param from
+    /// @param to
     pub fn copyAsync(rt: *RuntimeContext, from: []const u8, to: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, copy, .{ from, to });
         return runtime.invokeFuncAsync(rt, copy, args);
     }
 
-    /// Path can be absolute or relative to the cwd.
+    /// Moves a file.
+    /// @param from
+    /// @param to
     pub fn move(from: []const u8, to: []const u8) bool {
         std.fs.cwd().rename(from, to) catch return false;
         return true;
     }
 
+    /// @param from
+    /// @param to
     pub fn moveAsync(rt: *RuntimeContext, from: []const u8, to: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, move, .{ from, to });
         return runtime.invokeFuncAsync(rt, move, args);
@@ -629,7 +349,8 @@ pub const cs_files = struct {
         return ds.Box([]const u8).init(rt.alloc, _cwd);
     }
 
-    /// Path can be absolute or relative to the cwd.
+    /// Returns info about a file, folder, or special object at a given path.
+    /// @param path
     pub fn getPathInfo(path: []const u8) ?PathInfo {
         const stat = std.fs.cwd().statFile(path) catch return null;
         return PathInfo{
@@ -637,6 +358,7 @@ pub const cs_files = struct {
         };
     }
 
+    /// @param path
     pub fn getPathInfoAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, getPathInfo, .{ path });
         return runtime.invokeFuncAsync(rt, getPathInfo, args);
@@ -660,7 +382,8 @@ pub const cs_files = struct {
         kind: FileKind,
     };
 
-    /// Path can be absolute or relative to the cwd.
+    /// List the files in a directory. This is not recursive.
+    /// @param path
     pub fn listDir(rt: *RuntimeContext, path: []const u8) ?ManagedSlice(FileEntry) {
         const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
 
@@ -678,6 +401,7 @@ pub const cs_files = struct {
         };
     }
 
+    /// @param path
     pub fn listDirAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, listDir, .{ rt, path });
         return runtime.invokeFuncAsync(rt, listDir, args);
@@ -695,33 +419,8 @@ pub const cs_files = struct {
         }
     };
 
-    /// Appends bytes to a file. File is created if it doesn't exist.
-    /// Path can be absolute or relative to the cwd.
-    /// Returns true on success or false.
-    pub fn append(path: []const u8, arr: Uint8Array) bool {
-        stdx.fs.appendFile(path, arr.buf) catch return false;
-        return true;
-    }
-
-    pub fn appendAsync(rt: *RuntimeContext, from: []const u8, arr: Uint8Array) v8.Promise {
-        const args = dupeArgs(rt.alloc, append, .{ from, arr });
-        return runtime.invokeFuncAsync(rt, append, args);
-    }
-
-    /// Appends UTF-8 text to a file. File is created if it doesn't exist.
-    /// Path can be absolute or relative to the cwd.
-    /// Returns true on success or false.
-    pub fn appendText(path: []const u8, str: []const u8) bool {
-        stdx.fs.appendFile(path, str) catch return false;
-        return true;
-    }
-
-    pub fn appendTextAsync(rt: *RuntimeContext, from: []const u8, str: []const u8) v8.Promise {
-        const args = dupeArgs(rt.alloc, appendText, .{ from, str });
-        return runtime.invokeFuncAsync(rt, appendText, args);
-    }
-
-    /// Path can be absolute or relative to the cwd.
+    /// Ensures that a path exists by creating parent directories as necessary.
+    /// @param path
     pub fn ensurePath(rt: *RuntimeContext, path: []const u8) bool {
         std.fs.cwd().makePath(path) catch |err| switch (err) {
             else => {
@@ -732,12 +431,14 @@ pub const cs_files = struct {
         return true;
     }
 
+    /// @param path
     pub fn ensurePathAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, ensurePath, .{ rt, path });
         return runtime.invokeFuncAsync(rt, ensurePath, args);
     }
 
-    /// Path can be absolute or relative to the cwd.
+    /// Returns whether something exists at a path.
+    /// @param path
     pub fn pathExists(rt: *RuntimeContext, path: []const u8) bool {
         return stdx.fs.pathExists(path) catch |err| {
             v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "{}", .{err});
@@ -745,23 +446,28 @@ pub const cs_files = struct {
         };
     }
 
+    /// @param path
     pub fn pathExistsAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, pathExists, .{ rt, path });
         return runtime.invokeFuncAsync(rt, pathExists, args);
     }
 
-    /// Path can be absolute or relative to the cwd.
+    /// Removes a file.
+    /// @param path
     pub fn remove(path: []const u8) bool {
         std.fs.cwd().deleteFile(path) catch return false;
         return true;
     }
 
+    /// @param path
     pub fn removeAsync(rt: *RuntimeContext, path: []const u8) v8.Promise {
         const args = dupeArgs(rt.alloc, remove, .{ path });
         return runtime.invokeFuncAsync(rt, remove, args);
     }
 
-    /// Path can be absolute or relative to the cwd.
+    /// Removes a directory.
+    /// @param path
+    /// @param recursive
     pub fn removeDir(path: []const u8, recursive: bool) bool {
         if (recursive) {
             std.fs.cwd().deleteTree(path) catch return false;
@@ -771,13 +477,16 @@ pub const cs_files = struct {
         return true;
     }
 
+    /// @param path
+    /// @param recursive
     pub fn removeDirAsync(rt: *RuntimeContext, path: []const u8, recursive: bool) v8.Promise {
         const args = dupeArgs(rt.alloc, removeDir, .{ path, recursive });
         return runtime.invokeFuncAsync(rt, removeDir, args);
     }
 
-    /// Resolves '..' in paths and returns an absolute path.
+    /// Resolves '..' in the path and returns an absolute path.
     /// Currently does not resolve home '~'.
+    /// @param path
     pub fn resolvePath(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
         const res = std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
         return ds.Box([]const u8).init(rt.alloc, res);
@@ -791,9 +500,10 @@ pub const cs_files = struct {
 /// There are plans to support WebSockets.
 pub const cs_http = struct {
 
-    /// Makes a GET request and Returns the response body text if successful.
+    /// Makes a GET request and returns the response body text if successful.
     /// Returns false if there was a connection error, timeout error (30 secs), or the response code is 5xx.
     /// Advanced: cs.http.request
+    /// @param url
     pub fn get(rt: *RuntimeContext, url: []const u8) ?ds.Box([]const u8) {
         const opts = RequestOptions{
             .method = .Get,
@@ -803,6 +513,7 @@ pub const cs_http = struct {
         return simpleRequest(rt, url, opts);
     }
 
+    /// @param url
     pub fn getAsync(rt: *RuntimeContext, url: []const u8) v8.Promise {
         const opts = RequestOptions{
             .method = .Get,
@@ -815,6 +526,8 @@ pub const cs_http = struct {
     /// Makes a POST request and returns the response body text if successful.
     /// Returns false if there was a connection error, timeout error (30 secs), or the response code is 5xx.
     /// Advanced: cs.http.request
+    /// @param url
+    /// @param body
     pub fn post(rt: *RuntimeContext, url: []const u8, body: []const u8) ?ds.Box([]const u8) {
         const opts = RequestOptions{
             .method = .Post,
@@ -825,7 +538,8 @@ pub const cs_http = struct {
         return simpleRequest(rt, url, opts);
     }
 
-    /// Async version of cs.http.post
+    /// @param url
+    /// @param body
     pub fn postAsync(rt: *RuntimeContext, url: []const u8, body: []const u8) v8.Promise {
         const opts = RequestOptions{
             .method = .Post,
@@ -898,6 +612,8 @@ pub const cs_http = struct {
 
     /// Returns Response object if request was successful.
     /// Throws exception if there was a connection or protocol error.
+    /// @param url
+    /// @param options
     pub fn request(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) !ManagedStruct(stdx.http.Response) {
         const opts = mb_opts orelse RequestOptions{};
         const std_opts = toStdRequestOptions(opts);
@@ -908,6 +624,8 @@ pub const cs_http = struct {
         };
     }
 
+    /// @param url
+    /// @param options
     pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
         const opts = mb_opts orelse RequestOptions{};
 
@@ -975,17 +693,9 @@ pub const cs_http = struct {
         body: []const u8,
     };
 
-    pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
-        const handle = rt.createCsHttpServerResource();
-        const server = handle.ptr;
-        server.init(rt);
-        try server.startHttps(host, port, cert_path, key_path);
-
-        const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
-        js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
-        return js_handle;
-    }
-
+    /// Starts a HTTP server and returns the handle.
+    /// @param host
+    /// @param port
     pub fn serveHttp(rt: *RuntimeContext, host: []const u8, port: u16) !v8.Object {
         // log.debug("serving http at {s}:{}", .{host, port});
 
@@ -1001,10 +711,27 @@ pub const cs_http = struct {
         return js_handle;
     }
 
+    /// Starts a HTTPS server and returns the handle.
+    /// @param host
+    /// @param port
+    /// @param certPath
+    /// @param keyPath
+    pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
+        const handle = rt.createCsHttpServerResource();
+        const server = handle.ptr;
+        server.init(rt);
+        try server.startHttps(host, port, cert_path, key_path);
+
+        const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
+        js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
+        return js_handle;
+    }
+
     /// Provides an interface to the underlying server handle.
     pub const Server = struct {
 
         /// Sets the handler for receiving requests.
+        /// @param callback
         pub fn setHandler(res: ThisResource(*HttpServer), handler: v8.Function) void {
             HttpServer.setHandler(res, handler);
         }
@@ -1023,18 +750,25 @@ pub const cs_http = struct {
     /// Provides an interface to the current response writer.
     pub const ResponseWriter = struct {
 
+        /// @param status
         pub fn setStatus(status_code: u32) void {
             _server.ResponseWriter.setStatus(status_code);
         }
 
+        /// @param key
+        /// @param value
         pub fn setHeader(key: []const u8, value: []const u8) void {
             _server.ResponseWriter.setHeader(key, value);
         }
 
+        /// Sends UTF-8 text to the response.
+        /// @param text
         pub fn send(text: []const u8) void {
             _server.ResponseWriter.send(text);
         }
 
+        /// Sends raw bytes to the response.
+        /// @param buffer
         pub fn sendBytes(arr: runtime.Uint8Array) void {
             _server.ResponseWriter.sendBytes(arr);
         }
@@ -1055,6 +789,7 @@ pub const cs_http = struct {
 pub const cs_core = struct {
 
     /// Prints any number of variables as strings separated by " ".
+    /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         const len = info.length();
@@ -1075,11 +810,14 @@ pub const cs_core = struct {
     }
 
     /// Prints any number of variables as strings separated by " ". Wraps to the next line.
+    /// @param args
     pub fn printLine(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         print(raw_info);
         printFmt("\n", .{});
     }
 
+    /// Converts a buffer to a UTF-8 string.
+    /// @param buffer
     pub fn bufferToUtf8(buf: v8.Uint8Array) ?[]const u8 {
         var shared_ptr_store = v8.ArrayBufferView.castFrom(buf).getBuffer().getBackingStore();
         defer v8.BackingStore.sharedPtrReset(&shared_ptr_store);
@@ -1456,14 +1194,6 @@ fn passAsyncTest(rt: *RuntimeContext) void {
 
 //     return promise;
 // }
-
-fn fromStdColor(color: StdColor) cs_graphics.Color {
-    return .{ .r = color.channels.r, .g = color.channels.g, .b = color.channels.b, .a = color.channels.a };
-}
-
-fn toStdColor(color: cs_graphics.Color) StdColor {
-    return .{ .channels = .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a } };
-}
 
 fn dupeArgs(alloc: std.mem.Allocator, comptime Func: anytype, args: anytype) std.meta.ArgsTuple(@TypeOf(Func)) {
     const ArgsTuple = std.meta.ArgsTuple(@TypeOf(Func));
