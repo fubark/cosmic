@@ -42,6 +42,27 @@ pub const Window = struct {
         return self.inner.height;
     }
 
+    pub fn minimize(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.minimize(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn maximize(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.maximize(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn restore(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.restore(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     /// In the OpenGL SDL backend, swapBuffers will also block the thread to achieve the target refresh rate if vsync is on.
     pub fn swapBuffers(self: Self) void {
         switch (Backend) {

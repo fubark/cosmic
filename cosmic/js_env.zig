@@ -69,6 +69,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setFuncT(proto, "getLastUpdateDuration", api.cs_window.Window.getLastUpdateDuration);
         ctx.setFuncT(proto, "getFps", api.cs_window.Window.getFps);
         ctx.setFuncT(proto, "close", api.cs_window.Window.close);
+        ctx.setFuncT(proto, "minimize", api.cs_window.Window.minimize);
+        ctx.setFuncT(proto, "maximize", api.cs_window.Window.maximize);
+        ctx.setFuncT(proto, "restore", api.cs_window.Window.restore);
     }
     rt.window_class = window_class;
 

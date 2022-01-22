@@ -48,6 +48,7 @@ pub const cs_window = struct {
             .width = width,
             .height = height,
             .title = title,
+            .resizable = true,
         }) catch unreachable;
         res.ptr.init(rt.alloc, rt, win, res.id);
 
@@ -207,13 +208,52 @@ pub const cs_window = struct {
             return null;
         }
 
-        /// Closes the current window and frees the handle. Returns true if successful.
+        /// Closes the window and frees the handle. Returns true if successful.
         pub fn close(rt: *RuntimeContext, this: This) bool {
             const ctx = rt.context;
             const window_id = this.obj.getInternalField(0).toU32(ctx);
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 rt.destroyResource(rt.window_resource_list, window_id);
+                return true;
+            }
+            return false;
+        }
+
+        /// Minimizes the window. Returns true if successful.
+        pub fn minimize(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.minimize();
+                return true;
+            }
+            return false;
+        }
+
+        /// Maximizes the window. The window must be resizable. Returns true if successful.
+        pub fn maximize(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.maximize();
+                return true;
+            }
+            return false;
+        }
+
+        /// Restores the window to the size before it was minimized or maximized. Returns true if successful.
+        pub fn restore(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.restore();
                 return true;
             }
             return false;

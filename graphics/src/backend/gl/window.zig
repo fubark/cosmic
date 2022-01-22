@@ -42,6 +42,18 @@ pub const Window = struct {
         sdl.SDL_GL_DeleteContext(self.gl_ctx);
     }
 
+    pub fn minimize(self: Self) void {
+        sdl.SDL_MinimizeWindow(self.sdl_window);
+    }
+
+    pub fn maximize(self: Self) void {
+        sdl.SDL_MaximizeWindow(self.sdl_window);
+    }
+
+    pub fn restore(self: Self) void {
+        sdl.SDL_RestoreWindow(self.sdl_window);
+    }
+
     pub fn swapBuffers(self: Self) void {
         // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
         // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).

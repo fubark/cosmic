@@ -312,3 +312,6 @@ export fn v8__Value__InstanceOf() void {}
 export fn v8__Value__IsUint8Array() void {}
 export fn v8__Object__GetOwnPropertyNames() void {}
 export fn v8__Integer__New() void {}
+export fn SDL_MinimizeWindow() void {}
+export fn SDL_MaximizeWindow() void {}
+export fn SDL_RestoreWindow() void {}
