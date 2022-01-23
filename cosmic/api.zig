@@ -340,6 +340,35 @@ pub const cs_window = struct {
             }
             return null;
         }
+
+        /// Sets the window position on the screen.
+        /// @param x
+        /// @param y
+        pub fn position(rt: *RuntimeContext, this: This, x: i32, y: i32) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.setPosition(x, y);
+                return true;
+            }
+            return false;
+        }
+
+        /// Raises the window above other windows and acquires the input focus.
+        pub fn focus(rt: *RuntimeContext, this: This) bool {
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                win.window.focus();
+                return true;
+            }
+            return false;
+        }
+
     };
 };
 

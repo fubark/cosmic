@@ -143,6 +143,14 @@ pub const Window = struct {
         }
     }
 
+    pub fn setPosition(self: Self, x: i32, y: i32) void {
+        sdl.SDL_SetWindowPosition(self.sdl_window, x, y);
+    }
+
+    pub fn focus(self: Self) void {
+        sdl.SDL_RaiseWindow(self.sdl_window);
+    }
+
     pub fn getGraphics(self: Self) *graphics.Graphics {
         return self.graphics;
     }

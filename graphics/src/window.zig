@@ -119,6 +119,20 @@ pub const Window = struct {
         }
     }
 
+    pub fn setPosition(self: Self, x: i32, y: i32) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.setPosition(self.inner, x, y),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn focus(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.focus(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     /// In the OpenGL SDL backend, swapBuffers will also block the thread to achieve the target refresh rate if vsync is on.
     pub fn swapBuffers(self: Self) void {
         switch (Backend) {

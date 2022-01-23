@@ -574,6 +574,7 @@ pub const RuntimeContext = struct {
                 }
             },
             bool => return val.toBool(self.isolate),
+            i32 => return val.toI32(ctx),
             u8 => return @intCast(u8, val.toU32(ctx)),
             u16 => return @intCast(u16, val.toU32(ctx)),
             u32 => return val.toU32(ctx),
