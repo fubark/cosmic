@@ -239,11 +239,18 @@ test('cs.files.listDir', () => {
     eq(fs.ensurePath('foo/bar'), true)
     try {
         eq(fs.writeText('foo/foo.txt', 'foo'), true)
-        eq(fs.listDir('foo'), [{ name: 'bar', kind: 'Directory' }, { name: 'foo.txt', kind: 'File' }]);
+        eq(fs.listDir('foo').sort(fileEntryNameAsc), [
+            { name: 'bar', kind: 'Directory' },
+            { name: 'foo.txt', kind: 'File' },
+        ])
     } finally {
         fs.removeDir('foo', true)
     }
 })
+
+function fileEntryNameAsc(a, b) {
+    return a.name < b.name ? -1 : 1
+}
 
 testIsolated('cs.files.listDirAsync', async () => {
     eq(fs.pathExists('foo/bar'), false)
@@ -251,7 +258,10 @@ testIsolated('cs.files.listDirAsync', async () => {
     eq(fs.ensurePath('foo/bar'), true)
     try {
         eq(fs.writeText('foo/foo.txt', 'foo'), true)
-        eq(await fs.listDir('foo'), [{ name: 'bar', kind: 'Directory' }, { name: 'foo.txt', kind: 'File' }]);
+        eq(await fs.listDir('foo').sort(fileEntryNameAsc), [
+            { name: 'bar', kind: 'Directory' },
+            { name: 'foo.txt', kind: 'File' },
+        ])
     } finally {
         fs.removeDir('foo', true)
     }
@@ -268,7 +278,7 @@ test('cs.files.walkDir', () => {
         for (const e of fs.walkDir('foo')) {
             paths.push(e.path)
         }
-        eq(paths, [
+        eq(paths.sort(), [
             'foo/bar',
             'foo/bar/bar.txt',
             'foo/foo.txt',
@@ -289,7 +299,7 @@ testIsolated('cs.files.walkDirAsync', async () => {
         for await (const e of fs.walkDirAsync('foo')) {
             paths.push(e.path)
         }
-        eq(paths, [
+        eq(paths.sort(), [
             'foo/bar',
             'foo/bar/bar.txt',
             'foo/foo.txt',
