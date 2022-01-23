@@ -9,6 +9,7 @@ const uv = @import("uv");
 const h2o = @import("h2o");
 const v8 = @import("v8");
 const input = @import("input");
+const gl = @import("gl");
 
 const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
@@ -858,15 +859,12 @@ fn reportUncaughtPromiseRejections() void {
 // Main loop for running user apps.
 pub fn runUserLoop(rt: *RuntimeContext) void {
     const iso = rt.isolate;
-    const ctx = rt.context;
 
     var try_catch: v8.TryCatch = undefined;
     try_catch.init(iso);
     // Allow uncaught exceptions to reach message listener.
     try_catch.setVerbose(true);
     defer try_catch.deinit();
-
-    const user_update_timer = stdx.time.Timer.start() catch unreachable;
 
     while (true) {
         var event: sdl.SDL_Event = undefined;
@@ -920,33 +918,87 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
 
         rt.work_queue.processDone();
 
-        // TODO: render all window surfaces.
+        if (rt.num_windows == 1) {
+            updateSingleWindow(rt);
+        } else {
+            updateMultipleWindows(rt);
+        }
+    }
+}
 
-        rt.active_graphics.beginFrame();
+fn updateMultipleWindows(rt: *RuntimeContext) void {
+    const ctx = rt.context;
 
-        // Start user timer after beginFrame since it could delay to sync with OpenGL pipeline.
-        const start = user_update_timer.read() / 1000;
+    // Currently, we just use the smallest delay. This forces larger target fps to be update more frequently.
+    // TODO: Make windows with varying target fps work.
+    var min_delay: u64 = std.math.maxInt(u64);
 
-        if (rt.active_window.on_update_cb) |cb| {
-            const g_ctx = rt.active_window.js_graphics.toValue();
-            _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
-                const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
-                defer rt.alloc.free(trace);
-                errorFmt("{s}", .{trace});
-                return;
+    var cur_res = rt.resources.getListHead(rt.window_resource_list);
+    cur_res = rt.resources.getNext(cur_res.?);
+    while (cur_res) |res_id| {
+        const res = rt.resources.get(res_id);
+        const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+
+        win.window.makeCurrent();
+        win.window.beginFrame();
+
+        // Start frame timer after beginFrame since it could delay to sync with OpenGL pipeline.
+        win.fps_limiter.beginFrame();
+
+        if (win.on_update_cb) |cb| {
+            const g_ctx = win.js_graphics.toValue();
+            _ = cb.inner.call(ctx, win.js_window, &.{ g_ctx }) orelse {
+                // const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
+                // defer rt.alloc.free(trace);
+                // errorFmt("{s}", .{trace});
+                // return;
             };
         }
 
-        rt.active_graphics.endFrame();
-        rt.active_window.last_update_duration = user_update_timer.read() / 1000 - start;
-
-        // TODO: Run any queued micro tasks.
+        win.window.endFrame();
+        const delay = win.fps_limiter.endFrame();
+        if (delay < min_delay) {
+            min_delay = delay;
+        }
 
         // swapBuffers will delay if vsync is on.
-        rt.active_window.window.swapBuffers();
+        win.window.swapBuffers();
 
-        rt.active_window.fps_limiter.endFrameAndDelay();
+        cur_res = rt.resources.getNext(res_id);
     }
+
+    graphics.delay(min_delay);
+
+    // TODO: Run any queued micro tasks.
+}
+
+fn updateSingleWindow(rt: *RuntimeContext) void {
+    const ctx = rt.context;
+    rt.active_window.window.beginFrame();
+
+    // Start frame timer after beginFrame since it could delay to sync with OpenGL pipeline.
+    rt.active_window.fps_limiter.beginFrame();
+
+    if (rt.active_window.on_update_cb) |cb| {
+        const g_ctx = rt.active_window.js_graphics.toValue();
+        _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
+            // const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
+            // defer rt.alloc.free(trace);
+            // errorFmt("{s}", .{trace});
+            // return;
+        };
+    }
+
+    rt.active_window.window.endFrame();
+    const delay = rt.active_window.fps_limiter.endFrame();
+    if (delay > 0) {
+        graphics.delay(delay);
+    }
+
+    // TODO: Run any queued micro tasks.
+
+    // swapBuffers will delay if vsync is on.
+    rt.active_window.window.swapBuffers();
 }
 
 const ResourceListId = u32;
@@ -988,23 +1040,20 @@ pub const CsWindow = struct {
     on_key_down_cb: ?v8.Persistent(v8.Function),
     js_window: v8.Persistent(v8.Object),
 
-    // Currently, each window has its own graphics handle.
+    // Managed by window handle.
     graphics: *graphics.Graphics,
     js_graphics: v8.Persistent(v8.Object),
 
     fps_limiter: graphics.DefaultFpsLimiter,
 
-    // In microseconds.
-    last_update_duration: u64,
-
-    pub fn init(self: *Self, alloc: std.mem.Allocator, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
+    pub fn init(self: *Self, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
         const iso = rt.isolate;
         const ctx = rt.context;
         const js_window = rt.window_class.getFunction(ctx).initInstance(ctx, &.{}).?;
         const js_window_id = iso.initIntegerU32(window_id);
         js_window.setInternalField(0, js_window_id);
 
-        const g = alloc.create(graphics.Graphics) catch unreachable;
+        const g = window.getGraphics();
         const js_graphics = rt.graphics_class.getFunction(ctx).initInstance(ctx, &.{}).?;
         js_graphics.setInternalField(0, iso.initExternal(g));
 
@@ -1020,15 +1069,10 @@ pub const CsWindow = struct {
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
             .fps_limiter = graphics.DefaultFpsLimiter.init(60),
-            .last_update_duration = 0,
         };
-        self.graphics.init(alloc, window.getWidth(), window.getHeight());
     }
 
     pub fn deinit(self: *Self, rt: *RuntimeContext) void {
-        self.graphics.deinit();
-        rt.alloc.destroy(self.graphics);
-
         self.window.deinit();
 
         if (self.on_update_cb) |*cb| {

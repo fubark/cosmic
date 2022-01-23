@@ -3,8 +3,11 @@ const stdx = @import("stdx");
 
 const wasm = @import("backend/wasm/window.zig");
 const gl = @import("backend/gl/window.zig");
+const canvas = @import("backend/wasm/window.zig");
 const log = stdx.log.scoped(.window);
-const Backend = @import("graphics.zig").Backend;
+const graphics = @import("graphics.zig");
+const Graphics = graphics.Graphics;
+const Backend = graphics.Backend;
 
 pub const Window = struct {
     const Self = @This();
@@ -18,8 +21,18 @@ pub const Window = struct {
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         const inner = switch (Backend) {
             .OpenGL => try gl.Window.init(alloc, config),
-            .WasmCanvas => try wasm.Window.init(config),
+            .WasmCanvas => try wasm.Window.init(alloc, config),
             .Test => TestWindow{ .width = config.width, .height = config.height },
+        };
+        return Self{
+            .inner = inner,
+        };
+    }
+
+    pub fn initWithSharedContext(alloc: std.mem.Allocator, config: Config, win: Window) !Self {
+        const inner = switch (Backend) {
+            .OpenGL => try gl.Window.initWithSharedContext(alloc, config, win.inner),
+            else => @panic("unsupported"),
         };
         return Self{
             .inner = inner,
@@ -30,6 +43,42 @@ pub const Window = struct {
         switch (Backend) {
             .OpenGL => gl.Window.deinit(self.inner),
             .WasmCanvas => wasm.Window.deinit(&self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Should be called before beginFrame if multiple windows are being rendered together.
+    /// If there is only one window, it only needs to be called once.
+    pub fn makeCurrent(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.makeCurrent(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Setup for the frame before any user draw calls.
+    /// In OpenGL, glClear can block if there there are too many commands in the queue.
+    pub fn beginFrame(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.beginFrame(self.inner),
+            .WasmCanvas => canvas.Window.beginFrame(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    // Post frame ops.
+    pub fn endFrame(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.endFrame(self.inner),
+            .WasmCanvas => canvas.Window.endFrame(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn getGraphics(self: Self) *graphics.Graphics {
+        switch (Backend) {
+            .OpenGL => return gl.Window.getGraphics(self.inner),
+            .WasmCanvas => return canvas.Window.getGraphics(self.inner),
             else => stdx.panic("unsupported"),
         }
     }
@@ -100,7 +149,7 @@ pub const Config = struct {
     height: u32 = 768,
     resizable: bool = false,
     high_dpi: bool = false,
-    fullscreen: bool = false,
+    mode: Mode = .Windowed,
 };
 
 const TestWindow = struct {

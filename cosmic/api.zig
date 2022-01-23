@@ -42,15 +42,28 @@ pub const cs_window = struct {
     /// @param width
     /// @param height
     pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
+        var win: graphics.Window = undefined;
+        if (rt.num_windows > 0) {
+            // Create a new window using an existing open gl context.
+            win = graphics.Window.initWithSharedContext(rt.alloc, .{
+                .width = width,
+                .height = height,
+                .title = title,
+                .resizable = true,
+                .mode = .Windowed,
+            }, rt.active_window.window) catch unreachable;
+        } else {
+            // Create a new window with a new open gl context.
+            win = graphics.Window.init(rt.alloc, .{
+                .width = width,
+                .height = height,
+                .title = title,
+                .resizable = true,
+                .mode = .Windowed,
+            }) catch unreachable;
+        }
         const res = rt.createCsWindowResource();
-
-        const win = graphics.Window.init(rt.alloc, .{
-            .width = width,
-            .height = height,
-            .title = title,
-            .resizable = true,
-        }) catch unreachable;
-        res.ptr.init(rt.alloc, rt, win, res.id);
+        res.ptr.init(rt, win, res.id);
 
         rt.active_window = res.ptr;
         rt.active_graphics = rt.active_window.graphics;
@@ -191,7 +204,7 @@ pub const cs_window = struct {
             const res = rt.resources.get(window_id);
             if (res.tag == .CsWindow) {
                 const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return @intCast(u32, win.last_update_duration);
+                return @intCast(u32, win.fps_limiter.getLastUpdateDelta());
             }
             return null;
         }
@@ -296,6 +309,36 @@ pub const cs_window = struct {
                 return true;
             }
             return false;
+        }
+
+        /// Creates a child window attached to this window. Returns the new child window handle.
+        /// @param title
+        /// @param width
+        /// @param height
+        pub fn createChild(rt: *RuntimeContext, this: This, title: []const u8, width: u32, height: u32) ?v8.Object {
+            // TODO: Make child windows behave different than creating a new window.
+            const ctx = rt.context;
+            const window_id = this.obj.getInternalField(0).toU32(ctx);
+            const res = rt.resources.get(window_id);
+            if (res.tag == .CsWindow) {
+                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                const new_res = rt.createCsWindowResource();
+
+                const new_win = graphics.Window.initWithSharedContext(rt.alloc, .{
+                    .width = width,
+                    .height = height,
+                    .title = title,
+                    .resizable = true,
+                    .mode = .Windowed,
+                }, win.window) catch unreachable;
+                new_res.ptr.init(rt, new_win, new_res.id);
+
+                // rt.active_window = new_res.ptr;
+                // rt.active_graphics = rt.active_window.graphics;
+
+                return new_res.ptr.js_window.castToObject();
+            }
+            return null;
         }
     };
 };

@@ -14,7 +14,7 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
 
         target_fps: u32,
         target_us_per_frame: u64,
-        last_time_us: u64,
+        start_time_us: u64,
         timer: Timer,
 
         // Result.
@@ -25,6 +25,7 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
         frame_time_samples_idx: usize,
         frame_time_samples_sum: u64,
 
+        last_update_time_us: u64,
         last_frame_time_us: u64,
 
         pub fn init(target_fps: u32) Self {
@@ -33,36 +34,25 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
                 .target_fps = target_fps,
                 .target_us_per_frame = 1000000 / target_fps,
                 .timer = timer,
-                .last_time_us = timer.read() / 1000,
+                .start_time_us = timer.read() / 1000,
                 .frame_time_samples = std.mem.zeroes([NumSamples]u64),
                 .frame_time_samples_idx = 0,
                 .frame_time_samples_sum = 0,
                 .fps = 0,
+                .last_update_time_us = 0,
                 .last_frame_time_us = 0,
             };
         }
 
-        pub fn endFrameAndDelay(self: *Self) void {
+        /// Measures the frame time: the time it took to update the last frame and any delays.
+        /// We do the measure here so user code has a more relevant frame delta to use since user code starts immediately after.
+        pub fn beginFrame(self: *Self) void {
             var now_us = self.timer.read() / 1000;
-
-            // Frame update time does not include the delay time.
-            const update_time_us = now_us - self.last_time_us;
-
-            if (update_time_us < self.target_us_per_frame) {
-                if (builtin.target.cpu.arch != .wasm32) {
-                    sdl.SDL_Delay(@intCast(u32, (self.target_us_per_frame - update_time_us)/ 1000));
-                } else {
-                    // There isn't a good sleep mechanism in js since it's run on event loop.
-                    // stdx.time.sleep(self.target_ms_per_frame - render_time_ms);
-                }
-                // log.debug("sleep {}", .{target_ms_per_frame - diff_ms});
-                // Start timer after sleep so we don't include it as our render time.
-                now_us = self.timer.read() / 1000;
-            }
             // Frame time includes any sleeping so it can be used to calculate fps.
-            const frame_time_us = now_us - self.last_time_us;
-            self.last_time_us = now_us;
+            const frame_time_us = now_us - self.start_time_us;
             self.last_frame_time_us = frame_time_us;
+
+            self.start_time_us = now_us;
 
             // remove oldest sample from sum first.
             self.frame_time_samples_sum -= self.frame_time_samples[self.frame_time_samples_idx];
@@ -85,9 +75,27 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
             }
         }
 
+        /// Measures the user update time and returns delay amount in microseconds to achieve target fps.
+        pub fn endFrame(self: *Self) u64 {
+            var now_us = self.timer.read() / 1000;
+
+            // Frame update time does not include the delay time.
+            const update_time_us = now_us - self.start_time_us;
+            self.last_update_time_us = update_time_us;
+            if (update_time_us < self.target_us_per_frame) {
+                return self.target_us_per_frame - update_time_us;
+            } else {
+                return 0;
+            }
+        }
+
         /// Duration in microseconds.
         pub fn getLastFrameDelta(self: *const Self) u64 {
             return self.last_frame_time_us;
+        }
+
+        pub fn getLastUpdateDelta(self: *const Self) u64 {
+            return self.last_update_time_us;
         }
 
         pub fn getFps(self: *const Self) u64 {

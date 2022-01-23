@@ -55,7 +55,6 @@ extern "graphics" fn jsResetTransform() void;
 extern "graphics" fn jsCreateImage(promise_id: u32, ptr: [*]const u8, len: usize) void;
 extern "graphics" fn jsDrawImageSized(image_id: u32, x: f32, y: f32, width: f32, height: f32) void;
 extern "graphics" fn jsDrawImage(image_id: u32, x: f32, y: f32) void;
-extern "graphics" fn jsBeginFrame() void;
 
 // Incremental path ops.
 extern "graphics" fn jsFill() void;
@@ -71,8 +70,6 @@ pub const Graphics = struct {
 
     js_buf: *WasmJsBuffer,
 
-    buffer_width: usize,
-    buffer_height: usize,
     clear_color: Color,
     cur_stroke_color: Color,
     cur_fill_color: Color,
@@ -83,11 +80,9 @@ pub const Graphics = struct {
     // Used to keep link results back to TextMeasures
     text_measures_buffer: std.ArrayList(*TextMeasure),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, width: usize, height: usize) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         _ = alloc;
         self.* = .{
-            .buffer_width = width,
-            .buffer_height = height,
             .clear_color = Color.initFloat(0, 0, 0, 1.0),
             .text_measures_buffer = std.ArrayList(*TextMeasure).init(alloc),
             .cur_stroke_color = undefined,
@@ -107,15 +102,6 @@ pub const Graphics = struct {
         _ = self;
         self.text_measures_buffer.deinit();
         self.text_buf.deinit();
-    }
-
-    pub fn beginFrame(self: *Self) void {
-        _ = self;
-        jsBeginFrame();
-    }
-
-    pub fn endFrame(self: *Self) void {
-        _ = self;
     }
 
     pub fn flushDraw(self: *Self) void {

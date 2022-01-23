@@ -18,7 +18,7 @@ const log = stdx.log.scoped(.demo);
 const IsWasm = builtin.target.cpu.arch == .wasm32;
 
 var win: Window = undefined;
-var g: Graphics = undefined;
+var g: *Graphics = undefined;
 
 var zig_logo_svg: []const u8 = undefined;
 var tiger_head_draw_list: graphics.DrawCommandList = undefined;
@@ -44,8 +44,7 @@ pub fn main() !void {
     });
     defer win.deinit();
 
-    g.init(alloc, win.getWidth(), win.getHeight());
-    defer g.deinit();
+    g = win.getGraphics();
 
     try initAssets(alloc);
     defer deinitAssets(alloc);
@@ -76,7 +75,10 @@ pub fn main() !void {
 
 // Main loop shared by desktop and web.
 fn update(delta_ms: f32) void {
-    g.beginFrame();
+    win.beginFrame();
+
+    g.setFillColor(Color.Black);
+    g.fillRect(0, 0, @intToFloat(f32, win.getWidth()), @intToFloat(f32, win.getHeight()));
 
     // Shapes.
     g.setFillColor(Color.Red);
@@ -194,7 +196,7 @@ fn update(delta_ms: f32) void {
     g.setFont(font_id, 26);
     g.fillTextFmt(1100, 10, "fps {d:.1}", .{fps});
 
-    g.endFrame();
+    win.endFrame();
     win.swapBuffers();
 }
 
@@ -249,7 +251,7 @@ export fn wasmInit() *const u8 {
         .height = 720,
     }) catch unreachable;
 
-    g.init(alloc, win.getWidth(), win.getHeight());
+    g = win.getGraphics();
 
     const MaxFileSize = 20e6;
     const p1 = stdx.fs.readFilePromise(alloc, "./zig-logo-dark.svg", MaxFileSize).thenCopyTo(&zig_logo_svg).autoFree();

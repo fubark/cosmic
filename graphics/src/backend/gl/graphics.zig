@@ -42,8 +42,7 @@ const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
 
 const vera_ttf = @embedFile("../../../../deps/assets/vera.ttf");
 
-// TODO: Embed a small bitmap font as default.
-
+/// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {
     const Self = @This();
 
@@ -54,12 +53,7 @@ pub const Graphics = struct {
     batcher: Batcher,
     font_cache: FontCache,
 
-    // Initialize to be the default gl buffer. If we are doing MSAA, then we'll need to set this to the multisample framebuffer.
-    cur_fbo_id: gl.GLuint = 0,
-    cur_buffer_width: gl.GLint,
-    cur_buffer_height: gl.GLint,
-
-    proj_transform: Transform,
+    cur_proj_transform: Transform,
     view_transform: Transform,
     initial_mvp: Mat4,
 
@@ -83,7 +77,7 @@ pub const Graphics = struct {
     cur_blend_mode: BlendMode,
 
     // We can initialize without gl calls for use in tests.
-    pub fn init(self: *Self, alloc: std.mem.Allocator, buf_width: usize, buf_height: usize) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
@@ -93,14 +87,12 @@ pub const Graphics = struct {
             .default_font_id = undefined,
             .cur_font_gid = undefined,
             .cur_font_size = undefined,
-            .cur_buffer_width = @intCast(c_int, buf_width),
-            .cur_buffer_height = @intCast(c_int, buf_height),
             .cur_fill_color = Color.Black,
             .cur_stroke_color = Color.Black,
             .cur_blend_mode = ._undefined,
             .cur_line_width = undefined,
             .cur_line_width_half = undefined,
-            .proj_transform = undefined,
+            .cur_proj_transform = undefined,
             .view_transform = undefined,
             .initial_mvp = undefined,
             .images = ds.CompactUnorderedList(ImageId, Image).init(alloc),
@@ -120,8 +112,6 @@ pub const Graphics = struct {
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
         self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false, .{});
-
-        self.enableMsaa();
 
         self.batcher = Batcher.init(alloc, self.tex_shader);
         // Set the initial texture without triggering any flushing.
@@ -143,7 +133,8 @@ pub const Graphics = struct {
 
         self.font_cache.init(alloc, self);
 
-        // TODO: Add a default monospace font.
+        // TODO: Embed a default bitmap font.
+        // TODO: Embed a default ttf monospace font.
 
         self.default_font_id = self.addTTF_Font(vera_ttf);
         self.setFont(self.default_font_id);
@@ -151,17 +142,12 @@ pub const Graphics = struct {
         // Set default font size.
         self.setFontSize(20);
 
-        // Setup transforms.
-        self.proj_transform = initDisplayProjection(@intToFloat(f32, buf_width), @intToFloat(f32, buf_height));
+        // View transform can be changed by user transforms.
         self.view_transform = Transform.initIdentity();
-        self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, self.view_transform.mat);
 
         self.setLineWidth(1);
 
         lyon.init();
-
-        // Viewport.
-        gl.glViewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
         // Clear color. Default to white.
         gl.glClearColor(1, 1, 1, 1.0);
@@ -221,7 +207,7 @@ pub const Graphics = struct {
 
     pub fn resetTransform(self: *Self) void {
         self.view_transform.reset();
-        const mvp = math.Mul4x4_4x4(self.proj_transform.mat, self.view_transform.mat);
+        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
 
         // Need to flush before changing view transform.
         self.flushDraw();
@@ -1187,19 +1173,27 @@ pub const Graphics = struct {
         self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn beginFrame(self: *Self) void {
+    /// Begin frame sets up the context before any other draw call.
+    /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
+    pub fn beginFrame(self: *Self, vp_width: u32, vp_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
         // log.debug("beginFrame", .{});
+
+        // Projection transform is different depending on viewport but is needed for user transforms to recompute the mvp.
+        self.cur_proj_transform = proj_transform;
+
+        // TODO: Viewport only needs to be set on window resize or multiple windows are active.
+        gl.glViewport(0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height));
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
-        self.batcher.setMvp(self.initial_mvp);
+        self.batcher.setMvp(initial_mvp);
 
         // Scissor affects glClear so reset it first.
         self.cur_clip_rect = .{
             .x = 0,
             .y = 0,
-            .width = @intToFloat(f32, self.cur_buffer_width),
-            .height = @intToFloat(f32, self.cur_buffer_height),
+            .width = @intToFloat(f32, vp_width),
+            .height = @intToFloat(f32, vp_height),
         };
         self.cur_scissors = false;
         gl.glDisable(gl.GL_SCISSOR_TEST);
@@ -1208,11 +1202,11 @@ pub const Graphics = struct {
         gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
-        if (self.cur_fbo_id != 0) {
+        if (custom_fbo != 0) {
             // Set the frame buffer we are drawing to.
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, self.cur_fbo_id);
+            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
 
-            // This clears the app canvas buffer. This is typically what you'd do to clear the buffer before each frame.
+            // Clears the custom frame buffer.
             gl.glClear(gl.GL_COLOR_BUFFER_BIT);
         }
 
@@ -1220,21 +1214,21 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
-    pub fn endFrame(self: *Self) void {
+    pub fn endFrame(self: *Self, vp_width: u32, vp_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("endFrame", .{});
         self.flushDraw();
-        if (self.cur_fbo_id != 0) {
+        if (custom_fbo != 0) {
             // If we were drawing to custom framebuffer such as msaa buffer, then blit the custom buffer into the default ogl buffer.
-            gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, self.cur_fbo_id);
+            gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, custom_fbo);
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
             // blit's filter is only used when the sizes between src and dst buffers are different.
-            gl.blitFramebuffer(0, 0, self.cur_buffer_width, self.cur_buffer_height, 0, 0, self.cur_buffer_width, self.cur_buffer_height, gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
+            gl.blitFramebuffer(0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height), 0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
         self.view_transform.translate(x, y);
-        const mvp = math.Mul4x4_4x4(self.proj_transform.mat, self.view_transform.mat);
+        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
 
         // Need to flush before changing view transform.
         self.flushDraw();
@@ -1243,7 +1237,7 @@ pub const Graphics = struct {
 
     pub fn scale(self: *Self, x: f32, y: f32) void {
         self.view_transform.scale(x, y);
-        const mvp = math.Mul4x4_4x4(self.proj_transform.mat, self.view_transform.mat);
+        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
 
         self.flushDraw();
         self.batcher.setMvp(mvp);
@@ -1251,7 +1245,7 @@ pub const Graphics = struct {
 
     pub fn rotate(self: *Self, rad: f32) void {
         self.view_transform.rotateZ(rad);
-        const mvp = math.Mul4x4_4x4(self.proj_transform.mat, self.view_transform.mat);
+        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
 
         self.flushDraw();
         self.batcher.setMvp(mvp);
@@ -1317,38 +1311,6 @@ pub const Graphics = struct {
         gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0);
     }
-
-    // TODO: Support simpler msaa setup for newer opengl.
-    pub fn enableMsaa(self: *Self) void {
-        // Setup multisampling anti alias.
-        // See: https://learnopengl.com/Advanced-OpenGL/Anti-Aliasing
-        const max_samples = gl.getMaxSamples();
-        log.debug("max samples: {}", .{max_samples});
-        const msaa_preferred_samples: u32 = 8;
-        if (max_samples >= 4) {
-            var ms_fbo: gl.GLuint = 0;
-            gl.genFramebuffers(1, &ms_fbo);
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);
-
-            var ms_tex: gl.GLuint = 0;
-            gl.glGenTextures(1, &ms_tex);
-
-            gl.glEnable(gl.GL_MULTISAMPLE);
-            // gl.glHint(gl.GL_MULTISAMPLE_FILTER_HINT_NV, gl.GL_NICEST);
-            const num_samples = std.math.min(max_samples, msaa_preferred_samples);
-            gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
-            gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, self.cur_buffer_width, self.cur_buffer_height, gl.GL_TRUE);
-            gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
-            gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
-
-            self.setCurrentFrameBuffer(ms_fbo);
-            log.debug("msaa framebuffer created with {} samples", .{num_samples});
-        }
-    }
-
-    fn setCurrentFrameBuffer(self: *Self, fbo_id: gl.GLuint) void {
-        self.cur_fbo_id = fbo_id;
-    }
 };
 
 // Define how to get attribute data out of vertex buffer. Eg. an attribute a_pos could be a vec4 meaning 4 components.
@@ -1399,24 +1361,3 @@ const DrawState = struct {
     blend_mode: BlendMode,
     view_transform: Transform,
 };
-
-pub fn initDisplayProjection(width: f32, height: f32) Transform {
-    var res = Transform.initIdentity();
-    // first reduce to [0,1] values
-    res.scale(1.0 / width, 1.0 / height);
-    // to [0,2] values
-    res.scale(2.0, 2.0);
-    // to clip space [-1,1]
-    res.translate(-1.0, -1.0);
-    // flip y since clip space is based on cartesian
-    res.scale(1.0, -1.0);
-    return res;
-}
-
-test "initDisplayProjection" {
-    var transform = initDisplayProjection(800, 600);
-    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{ -1, 1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 800, 0, 0, 1 }), .{ 1, 1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 800, 600, 0, 1 }), .{ 1, -1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 0, 600, 0, 1 }), .{ -1, -1, 0, 1 });
-}

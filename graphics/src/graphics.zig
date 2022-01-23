@@ -4,6 +4,7 @@ const math = stdx.math;
 const Vec2 = math.Vec2;
 const builtin = @import("builtin");
 const t = stdx.testing;
+const sdl = @import("sdl");
 
 const window = @import("window.zig");
 pub const Window = window.Window;
@@ -83,6 +84,7 @@ pub const Backend: BackendType = b: {
 pub const Graphics = struct {
     const Self = @This();
 
+    // TODO: Rename to inner.
     g: switch (Backend) {
         .OpenGL => gl.Graphics,
         .WasmCanvas => canvas.Graphics,
@@ -93,7 +95,7 @@ pub const Graphics = struct {
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, buf_width: u32, buf_height: u32) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
             .alloc = alloc,
             .path_parser = svg.PathParser.init(alloc),
@@ -102,8 +104,8 @@ pub const Graphics = struct {
             .g = undefined,
         };
         switch (Backend) {
-            .OpenGL => gl.Graphics.init(&self.g, alloc, buf_width, buf_height),
-            .WasmCanvas => canvas.Graphics.init(&self.g, alloc, buf_width, buf_height),
+            .OpenGL => gl.Graphics.init(&self.g, alloc),
+            .WasmCanvas => canvas.Graphics.init(&self.g, alloc),
             .Test => testg.Graphics.init(&self.g, alloc),
         }
     }
@@ -116,25 +118,6 @@ pub const Graphics = struct {
             .OpenGL => self.g.deinit(),
             .WasmCanvas => self.g.deinit(),
             .Test => {},
-        }
-    }
-
-    /// Setup for the frame before user draw calls.
-    /// In OpenGL, glClear can block if there there are too many commands in the queue.
-    pub fn beginFrame(self: *Self) void {
-        switch (Backend) {
-            .OpenGL => gl.Graphics.beginFrame(&self.g),
-            .WasmCanvas => canvas.Graphics.beginFrame(&self.g),
-            else => stdx.panic("unsupported"),
-        }
-    }
-
-    // Post frame ops.
-    pub fn endFrame(self: *Self) void {
-        switch (Backend) {
-            .OpenGL => gl.Graphics.endFrame(&self.g),
-            .WasmCanvas => canvas.Graphics.endFrame(&self.g),
-            else => stdx.panic("unsupported"),
         }
     }
 
@@ -846,3 +829,13 @@ pub const Image = struct {
     width: usize,
     height: usize,
 };
+
+pub fn delay(us: u64) void {
+    if (builtin.target.cpu.arch != .wasm32) {
+        // TODO: How does this compare to std.time.sleep ?
+        sdl.SDL_Delay(@intCast(u32, us / 1000));
+    } else {
+        // There isn't a good sleep mechanism in js since it's run on event loop.
+        // stdx.time.sleep(self.target_ms_per_frame - render_time_ms);
+    }
+}

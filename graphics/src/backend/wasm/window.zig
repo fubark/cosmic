@@ -1,7 +1,11 @@
+const std = @import("std");
+
 const window = @import("../../window.zig");
 const Config = window.Config;
+const graphics = @import("../../graphics.zig");
 
 extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) void;
+extern "graphics" fn jsBeginFrame() void;
 
 pub const Window = struct {
     const Self = @This();
@@ -10,17 +14,37 @@ pub const Window = struct {
     width: u32,
     height: u32,
 
-    pub fn init(config: Config) !Self {
+    alloc: std.mem.Allocator,
+    graphics: *graphics.Graphics,
+
+    pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         var res: Self = .{
             .id = undefined,
             .width = @intCast(u32, config.width),
             .height = @intCast(u32, config.height),
+            .alloc = alloc,
+            .graphics = alloc.create(graphics.Graphics) catch unreachable,
         };
         jsSetCanvasBuffer(config.width, config.height);
+        res.graphics.init(alloc);
         return res;
     }
 
     pub fn deinit(self: Self) void {
+        self.graphics.deinit();
+        self.alloc.destroy(self.graphics);
+    }
+
+    pub fn beginFrame(self: Self) void {
         _ = self;
+        jsBeginFrame();
+    }
+
+    pub fn endFrame(self: Self) void {
+        _ = self;
+    }
+
+    pub fn getGraphics(self: Self) *graphics.Graphics {
+        return self.graphics;
     }
 };
