@@ -26,8 +26,9 @@ pub const WorkQueue = struct {
     // Must refer to the same memory address.
     done_notify: *std.Thread.ResetEvent,
 
-    num_processing: u32,
-    num_processing_mutex: std.Thread.Mutex,
+    /// A task isn't finished until it's been taken from the ready queue, processed by a worker, moved to done, 
+    /// and post-processed by the main thread again.
+    num_unfinished_tasks: u32,
 
     // uv loop is used to set timers.
     uv_loop: *uv.uv_loop_t,
@@ -41,9 +42,8 @@ pub const WorkQueue = struct {
             .done = std.atomic.Queue(TaskResultInfo).init(),
             .workers = std.ArrayList(*Worker).init(alloc),
             .done_notify = done_notify,
-            .num_processing = 0,
-            .num_processing_mutex = std.Thread.Mutex{},
             .uv_loop = uv_loop,
+            .num_unfinished_tasks = 0,
         };
         return new;
     }
@@ -74,16 +74,9 @@ pub const WorkQueue = struct {
         self.workers.deinit();
     }
 
-    /// An unfinished task can be in the following states:
-    /// - currently in ready (not picked up by a worker)
-    /// - currently being processed by a worker
-    /// - currently in done queue but still hasn't done post processing (we check this for the last in-progress task that is marked done)
-    /// This is useful to determine whether waiting for unfinished tasks will actually have a wakeup call.
+    /// Should only be called by the main thread.
     pub fn hasUnfinishedTasks(self: *Self) bool {
-        self.num_processing_mutex.lock();
-        defer self.num_processing_mutex.unlock();
-
-        return !self.ready.isEmpty() or self.num_processing > 0 or !self.done.isEmpty();
+        return self.num_unfinished_tasks > 0;
     }
 
     fn getTaskInfo(self: *Self, id: TaskId) TaskInfo {
@@ -106,6 +99,8 @@ pub const WorkQueue = struct {
         comptime success_cb: fn (@TypeOf(ctx), TaskOutput(@TypeOf(task))) void,
         comptime failure_cb: fn (@TypeOf(ctx), anyerror) void,
     ) void {
+        self.num_unfinished_tasks += 1;
+
         const Task = @TypeOf(task);
         const task_dupe = self.alloc.create(Task) catch unreachable;
         task_dupe.* = task;
@@ -143,12 +138,6 @@ pub const WorkQueue = struct {
         const res_node = self.alloc.create(std.atomic.Queue(TaskResultInfo).Node) catch unreachable;
         res_node.data = res;
         self.done.put(res_node);
-
-        {
-            self.num_processing_mutex.lock();
-            defer self.num_processing_mutex.unlock();
-            self.num_processing -= 1;
-        }
 
         // Notify that we have done tasks.
         self.done_notify.set();
@@ -189,6 +178,8 @@ pub const WorkQueue = struct {
             self.tasks_mutex.lock();
             defer self.tasks_mutex.unlock();
             self.tasks.remove(task_id);
+
+            self.num_unfinished_tasks -= 1;
         }
     }
 
@@ -247,11 +238,6 @@ const Worker = struct {
     fn loop(self: *Self) void {
         while (true) {
             while (self.queue.ready.get()) |n| {
-                {
-                    self.queue.num_processing_mutex.lock();
-                    defer self.queue.num_processing_mutex.unlock();
-                    self.queue.num_processing += 1;
-                }
                 // log.debug("Worker on thread: {} received work", .{std.Thread.getCurrentId()});
                 const task_id = n.data;
                 self.queue.alloc.destroy(n);

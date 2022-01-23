@@ -1127,7 +1127,7 @@ fn getSrcPathDirAbs(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
 const api_init = @embedFile("snapshots/api_init.js");
 const test_init = @embedFile("snapshots/test_init.js");
 
-pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
+pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     // Measure total time.
     const timer = try std.time.Timer.start();
     defer {
@@ -1230,6 +1230,8 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     printFmt("Tests: {d}\n", .{rt.num_tests});
 
     shutdownRuntime(&rt);
+
+    return rt.num_tests_passed == rt.num_tests;
 }
 
 /// Shutdown other threads gracefully before starting deinit.
