@@ -1,17 +1,19 @@
-const eq = cs.asserts.eq
-const neq = cs.asserts.neq
-const contains = cs.asserts.contains
+const eq = cs.test.eq
+const neq = cs.test.neq
+const contains = cs.test.contains
 const fs = cs.files
-const throws = cs.asserts.throws
+const throws = cs.test.throws
+const test = cs.test.create
+const testIsolated = cs.test.createIsolated
 
-cs.test('cs.asserts', () => {
+test('cs.test asserts', () => {
     eq(1, 1)
     eq(0, 0)
     neq(0, false)
     neq(false, '')
 })
 
-cs.test('cs.files.read', () => {
+test('cs.files.read', () => {
     fs.write('foo.dat', Uint8Array.from([1, 2, 3]))
     try {
         eq(fs.read('foo.dat'), Uint8Array.from([1, 2, 3]))
@@ -21,7 +23,7 @@ cs.test('cs.files.read', () => {
     }
 })
 
-cs.test('cs.files.readText', () => {
+test('cs.files.readText', () => {
     fs.writeText('foo.txt', 'foo')
     try {
         eq(fs.readText('foo.txt'), 'foo')
@@ -31,7 +33,7 @@ cs.test('cs.files.readText', () => {
     }
 })
 
-cs.testIsolated('cs.files.readTextAsync', async () => {
+testIsolated('cs.files.readTextAsync', async () => {
     fs.writeText('foo.txt', 'foo')
     try {
         let content = await fs.readTextAsync('foo.txt')
@@ -43,7 +45,7 @@ cs.testIsolated('cs.files.readTextAsync', async () => {
     }
 })
 
-cs.test('cs.files.write', () => {
+test('cs.files.write', () => {
     eq(fs.write('foo.dat', Uint8Array.from([1, 2, 3])), true)
     try {
         eq(fs.read('foo.dat'), Uint8Array.from([1, 2, 3]))
@@ -55,7 +57,7 @@ cs.test('cs.files.write', () => {
     }
 })
 
-cs.test('cs.files.writeText', () => {
+test('cs.files.writeText', () => {
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('foo.txt'), 'foo')
@@ -67,7 +69,7 @@ cs.test('cs.files.writeText', () => {
     }
 })
 
-cs.testIsolated('cs.files.writeTextAsync', async () => {
+testIsolated('cs.files.writeTextAsync', async () => {
     eq(await fs.writeTextAsync('foo.txt', 'foo'), true);
     try {
         eq(fs.readText('foo.txt'), 'foo')
@@ -79,7 +81,7 @@ cs.testIsolated('cs.files.writeTextAsync', async () => {
     }
 })
 
-cs.test('cs.files.appendText', () => {
+test('cs.files.appendText', () => {
     eq(fs.appendText('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('foo.txt'), 'foo')
@@ -90,7 +92,7 @@ cs.test('cs.files.appendText', () => {
     }
 })
 
-cs.testIsolated('cs.files.appendTextAsync', async () => {
+testIsolated('cs.files.appendTextAsync', async () => {
     eq(await fs.appendTextAsync('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('foo.txt'), 'foo')
@@ -101,19 +103,19 @@ cs.testIsolated('cs.files.appendTextAsync', async () => {
     }
 })
 
-cs.test('cs.files.remove', () => {
+test('cs.files.remove', () => {
     eq(fs.remove('foo.txt'), false)
     fs.writeText('foo.txt', 'foo');
     eq(fs.remove('foo.txt'), true);
 })
 
-cs.testIsolated('cs.files.removeAsync', async () => {
+testIsolated('cs.files.removeAsync', async () => {
     eq(await fs.removeAsync('foo.txt'), false)
     fs.writeText('foo.txt', 'foo');
     eq(await fs.removeAsync('foo.txt'), true);
 })
 
-cs.test('cs.files.removeDir', () => {
+test('cs.files.removeDir', () => {
     eq(fs.pathExists('foo'), false)
     eq(fs.ensurePath('foo/bar', true), true)
     eq(fs.removeDir('foo', false), false)
@@ -122,7 +124,7 @@ cs.test('cs.files.removeDir', () => {
     eq(fs.removeDir('foo', true), true)
 })
 
-cs.testIsolated('cs.files.removeDirAsync', async () => {
+testIsolated('cs.files.removeDirAsync', async () => {
     eq(fs.pathExists('foo'), false)
     eq(fs.ensurePath('foo/bar', true), true)
     eq(await fs.removeDirAsync('foo', false), false)
@@ -131,7 +133,7 @@ cs.testIsolated('cs.files.removeDirAsync', async () => {
     eq(await fs.removeDirAsync('foo', true), true)
 })
 
-cs.test('cs.files.ensurePath, cs.files.pathExists', () => {
+test('cs.files.ensurePath, cs.files.pathExists', () => {
     eq(fs.pathExists('foo/bar'), false)
     eq(fs.ensurePath('foo/bar'), true)
     try {
@@ -141,7 +143,7 @@ cs.test('cs.files.ensurePath, cs.files.pathExists', () => {
     }
 })
 
-cs.testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () => {
+testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () => {
     eq(await fs.pathExistsAsync('foo/bar'), false)
     eq(await fs.ensurePathAsync('foo/bar'), true)
     try {
@@ -151,11 +153,11 @@ cs.testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () =
     }
 })
 
-cs.test('cs.files.resolvePath', () => {
+test('cs.files.resolvePath', () => {
     eq(fs.resolvePath('foo/../bar'), fs.resolvePath('bar'))
 })
 
-cs.test('cs.files.copy', () => {
+test('cs.files.copy', () => {
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('bar.txt'), null)
@@ -168,7 +170,7 @@ cs.test('cs.files.copy', () => {
     }
 })
 
-cs.testIsolated('cs.files.copyAsync', async () => {
+testIsolated('cs.files.copyAsync', async () => {
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('bar.txt'), null)
@@ -181,7 +183,7 @@ cs.testIsolated('cs.files.copyAsync', async () => {
     }
 })
 
-cs.test('cs.files.move', () => {
+test('cs.files.move', () => {
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('bar.txt'), null)
@@ -194,7 +196,7 @@ cs.test('cs.files.move', () => {
     }
 })
 
-cs.testIsolated('cs.files.moveAsync', async () => {
+testIsolated('cs.files.moveAsync', async () => {
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.readText('bar.txt'), null)
@@ -207,11 +209,11 @@ cs.testIsolated('cs.files.moveAsync', async () => {
     }
 })
 
-cs.test('cs.files.cwd', () => {
+test('cs.files.cwd', () => {
     eq(fs.cwd(), fs.resolvePath('.'));
 })
 
-cs.test('cs.files.getPathInfo', () => {
+test('cs.files.getPathInfo', () => {
     eq(fs.getPathInfo('foo.txt'), null)
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
@@ -221,7 +223,7 @@ cs.test('cs.files.getPathInfo', () => {
     }
 })
 
-cs.testIsolated('cs.files.getPathInfoAsync', async () => {
+testIsolated('cs.files.getPathInfoAsync', async () => {
     eq(await fs.getPathInfoAsync('foo.txt'), null)
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
@@ -231,7 +233,7 @@ cs.testIsolated('cs.files.getPathInfoAsync', async () => {
     }
 })
 
-cs.test('cs.files.listDir', () => {
+test('cs.files.listDir', () => {
     eq(fs.pathExists('foo/bar'), false)
     eq(fs.listDir('foo'), null)
     eq(fs.ensurePath('foo/bar'), true)
@@ -243,7 +245,7 @@ cs.test('cs.files.listDir', () => {
     }
 })
 
-cs.testIsolated('cs.files.listDirAsync', async () => {
+testIsolated('cs.files.listDirAsync', async () => {
     eq(fs.pathExists('foo/bar'), false)
     eq(await fs.listDir('foo'), null)
     eq(fs.ensurePath('foo/bar'), true)
@@ -255,7 +257,7 @@ cs.testIsolated('cs.files.listDirAsync', async () => {
     }
 })
 
-cs.test('cs.files.walkDir', () => {
+test('cs.files.walkDir', () => {
     eq(fs.pathExists('foo/bar'), false)
     eq(fs.walkDir('foo').next().done, true)
     eq(fs.ensurePath('foo/bar'), true)
@@ -276,7 +278,7 @@ cs.test('cs.files.walkDir', () => {
     }
 })
 
-cs.testIsolated('cs.files.walkDirAsync', async () => {
+testIsolated('cs.files.walkDirAsync', async () => {
     eq(fs.pathExists('foo/bar'), false)
     eq((await fs.walkDirAsync('foo').next()).done, true)
     eq(fs.ensurePath('foo/bar'), true)
@@ -297,7 +299,7 @@ cs.testIsolated('cs.files.walkDirAsync', async () => {
     }
 })
 
-cs.test('cs.http.get', () => {
+test('cs.http.get', () => {
     let resp = cs.http.get('https://127.0.0.1')
     eq(resp, null)
 
@@ -305,7 +307,7 @@ cs.test('cs.http.get', () => {
     contains(resp, 'Zig is a general-purpose programming language')
 })
 
-cs.test('cs.http.request', () => {
+test('cs.http.request', () => {
     throws(() => cs.http.request('https://127.0.0.1'), 'RequestFailed')
 
     const resp = cs.http.request('https://ziglang.org')
@@ -314,7 +316,7 @@ cs.test('cs.http.request', () => {
     contains(resp.text(), 'Zig is a general-purpose programming language')
 });
 
-cs.testIsolated('cs.http.serveHttp', async () => {
+testIsolated('cs.http.serveHttp', async () => {
     const s = cs.http.serveHttp('127.0.0.1', 3000)
     s.setHandler((req, resp) => {
         if (req.path == '/hello' && req.method == 'GET') {
@@ -348,7 +350,7 @@ cs.testIsolated('cs.http.serveHttp', async () => {
     // return new Promise(() => {})
 })
 
-cs.testIsolated('cs.http.serveHttps', async () => {
+testIsolated('cs.http.serveHttps', async () => {
     const s = cs.http.serveHttps('127.0.0.1', 3000, './deps/https/localhost.crt', './deps/https/localhost.key')
     s.setHandler((req, resp) => {
         if (req.path == '/hello' && req.method == 'GET') {

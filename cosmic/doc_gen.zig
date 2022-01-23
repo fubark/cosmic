@@ -26,6 +26,7 @@ const modules: []const ModuleId = &.{
     "cs_http",
     "cs_input",
     "cs_net",
+    "cs_test",
     "cs_window",
     "cs_worker",
 };
@@ -410,6 +411,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
         []const api.cs_files.FileEntry => "[]FileEntry",
         api.cs_files.FileEntry => "FileEntry",
 
+        v8.String,
         ds.Box([]const u8),
         []const u8 => "string",
 
@@ -421,8 +423,10 @@ fn getJsTypeName(comptime T: type) []const u8 {
         f32,
         u32,
         i16,
+        i32,
         u16 => "number",
 
+        v8.Value,
         *const anyopaque => "any",
 
         *const v8.C_FunctionCallbackInfo => "...any",

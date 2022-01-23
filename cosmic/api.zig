@@ -1234,6 +1234,125 @@ pub fn fromStdMouseMoveEvent(e: input.MouseMoveEvent) cs_input.MouseMoveEvent {
 pub const cs_net = struct {
 };
 
+/// @title Testing
+/// @name test
+/// @ns cs.test
+/// The testing API is only avaiable when using the test runner.
+pub const cs_test = struct {
+
+    /// Creates a test to be run. If the callback is async the test will be run concurrently.
+    /// @param name
+    /// @param callback
+    pub fn create(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
+        // FUTURE: Save test cases and execute them in parallel.
+        const iso = rt.isolate;
+        const ctx = rt.context;
+
+        // Dupe name since we will be invoking functions that could clear the transient string buffer.
+        const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
+        defer rt.alloc.free(name_dupe);
+
+        var hscope: v8.HandleScope = undefined;
+        hscope.init(iso);
+        defer hscope.deinit();
+
+        var try_catch: v8.TryCatch = undefined;
+        try_catch.init(iso);
+        defer try_catch.deinit();
+
+        rt.num_tests += 1;
+        if (cb.toValue().isAsyncFunction()) {
+            // Async test.
+            rt.num_async_tests += 1;
+            if (cb.call(ctx, rt.js_undefined, &.{})) |val| {
+                const promise = val.castTo(v8.Promise);
+
+                const data = iso.initExternal(rt);
+                const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passAsyncTest), data);
+
+                const tmpl = iso.initObjectTemplateDefault();
+                tmpl.setInternalFieldCount(2);
+                const extra_data = tmpl.initInstance(ctx);
+                extra_data.setInternalField(0, data);
+                extra_data.setInternalField(1, iso.initStringUtf8(name_dupe));
+                const on_rejected = v8.Function.initWithData(ctx, gen.genJsFunc(reportAsyncTestFailure, .{
+                    .asyncify = false,
+                    .is_data_rt = false,
+                }), extra_data);
+
+                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+            } else {
+                const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
+                defer rt.alloc.free(err_str);
+                printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+            }
+        } else {
+            // Sync test.
+            if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
+                rt.num_tests_passed += 1;
+            } else {
+                const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
+                defer rt.alloc.free(err_str);
+                printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+            }
+        }
+    }
+
+    /// Creates an isolated test to be run. An isolated test runs after all normal tests and are run one by one even if they are async.
+    /// @param name
+    /// @param callback
+    pub fn createIsolated(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
+        if (!cb.toValue().isAsyncFunction()) {
+            v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Test \"{s}\": Only async tests can use testIsolated.", .{name});
+            return;
+        }
+        rt.num_tests += 1;
+        // Store the function to be run later.
+        rt.isolated_tests.append(.{
+            .name = rt.alloc.dupe(u8, name) catch unreachable,
+            .js_fn = rt.isolate.initPersistent(v8.Function, cb),
+        }) catch unreachable;
+    }
+
+    /// Asserts that the actual value equals the expected value.
+    /// @param act
+    /// @param exp
+    pub fn eq(act: v8.Value, exp: v8.Value) void {
+        _ = act;
+        _ = exp;
+        // Js Func.
+    }
+
+    /// Asserts that the actual value does not equal the expected value.
+    /// @param act
+    /// @param exp
+    pub fn neq(act: v8.Value, exp: v8.Value) void {
+        _ = act;
+        _ = exp;
+        // Js Func.
+    }
+
+    /// Asserts that the actual value contains a sub value.
+    /// For a string, a sub value is a substring.
+    /// @param act
+    /// @param needle
+    pub fn contains(act: v8.Value, needle: v8.Value) void {
+        _ = act;
+        _ = needle;
+        // Js Func.
+    }
+
+    /// Asserts that the anonymous function throws an exception.
+    /// An optional substring can be provided to check against the exception message.
+    /// @param func
+    /// @param expErrorSubStr
+    pub fn throws(func: v8.Function, exp_str: ?v8.String) void {
+        _ = func;
+        _ = exp_str;
+        // Js Func.
+    }
+};
+
 /// @title Worker Threads
 /// @name worker
 /// @ns cs.worker
@@ -1244,75 +1363,6 @@ pub const cs_worker = struct {
 /// Path can be absolute or relative to the current executing script.
 fn resolveEnvPath(rt: *RuntimeContext, path: []const u8) []const u8 {
     return std.fs.path.resolve(rt.alloc, &.{ rt.cur_script_dir_abs, path }) catch unreachable;
-}
-
-// FUTURE: Save test cases and execute them in parallel.
-pub fn createTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
-    const iso = rt.isolate;
-    const ctx = rt.context;
-
-    // Dupe name since we will be invoking functions that could clear the transient string buffer.
-    const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
-    defer rt.alloc.free(name_dupe);
-
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(iso);
-    defer hscope.deinit();
-
-    var try_catch: v8.TryCatch = undefined;
-    try_catch.init(iso);
-    defer try_catch.deinit();
-
-    rt.num_tests += 1;
-    if (cb.toValue().isAsyncFunction()) {
-        // Async test.
-        rt.num_async_tests += 1;
-        if (cb.call(ctx, rt.js_undefined, &.{})) |val| {
-            const promise = val.castTo(v8.Promise);
-
-            const data = iso.initExternal(rt);
-            const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passAsyncTest), data);
-
-            const tmpl = iso.initObjectTemplateDefault();
-            tmpl.setInternalFieldCount(2);
-            const extra_data = tmpl.initInstance(ctx);
-            extra_data.setInternalField(0, data);
-            extra_data.setInternalField(1, iso.initStringUtf8(name_dupe));
-            const on_rejected = v8.Function.initWithData(ctx, gen.genJsFunc(reportAsyncTestFailure, .{
-                .asyncify = false,
-                .is_data_rt = false,
-            }), extra_data);
-
-            _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
-        } else {
-            const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
-            defer rt.alloc.free(err_str);
-            printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
-        }
-    } else {
-        // Sync test.
-        if (cb.call(ctx, rt.js_undefined, &.{})) |_| {
-            rt.num_tests_passed += 1;
-        } else {
-            const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
-            defer rt.alloc.free(err_str);
-            printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
-        }
-    }
-}
-
-/// Currently meant for async tests that need to be run sequentially after all sync tests have ran.
-pub fn createIsolatedTest(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
-    if (!cb.toValue().isAsyncFunction()) {
-        v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Test \"{s}\": Only async tests can use testIsolated.", .{name});
-        return;
-    }
-    rt.num_tests += 1;
-    // Store the function to be run later.
-    rt.isolated_tests.append(.{
-        .name = rt.alloc.dupe(u8, name) catch unreachable,
-        .js_fn = rt.isolate.initPersistent(v8.Function, cb),
-    }) catch unreachable;
 }
 
 fn reportAsyncTestFailure(data: Data, val: v8.Value) void {

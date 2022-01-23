@@ -1,20 +1,20 @@
 (function() {
 
-    cs.asserts.eq = function(act, exp) {
+    cs.test.eq = function(act, exp) {
         if (equal(act, exp)) {
             return
         }
         throw new Error(`\nActual:\n${format(act)}\nExpected:\n${format(exp)}`)
     }
 
-    cs.asserts.neq = function(act, exp) {
+    cs.test.neq = function(act, exp) {
         if (!equal(act, exp)) {
             return
         }
         throw new Error(`\nExpected not equal.\nActual: ${act}\nExpected: ${exp}`)
     }
 
-    cs.asserts.contains = function(act, needle) {
+    cs.test.contains = function(act, needle) {
         if (typeof act === 'string') {
             if (act.includes(needle)) {
                 return
@@ -26,13 +26,13 @@
         }
     }
 
-    cs.asserts.throws = function(fn, containsText) {
+    cs.test.throws = function(fn, containsText) {
         try {
             fn()
             throw new Error(`expected exception`)
         } catch (err) {
             if (containsText) {
-                cs.asserts.contains(err.message, containsText)
+                cs.test.contains(err.message, containsText)
             }
         }
     }

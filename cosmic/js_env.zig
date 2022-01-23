@@ -310,15 +310,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
     if (rt.is_test_env) {
         // cs.test
-        ctx.setConstFuncT(cs, "test", api.createTest);
+        const cs_test = iso.initObjectTemplateDefault();
 
-        // cs.testIsolated
-        ctx.setConstFuncT(cs, "testIsolated", api.createIsolatedTest);
+        ctx.setConstFuncT(cs_test, "create", api.cs_test.create);
+        ctx.setConstFuncT(cs_test, "createIsolated", api.cs_test.createIsolated);
 
-        // cs.asserts
-        const cs_asserts = iso.initObjectTemplateDefault();
-
-        ctx.setConstProp(cs, "asserts", cs_asserts);
+        // ctx.setConstProp(cs, "asserts", cs_asserts);
+        ctx.setConstProp(cs, "test", cs_test);
     }
 
     // cs.graphics

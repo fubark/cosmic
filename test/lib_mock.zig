@@ -316,3 +316,5 @@ export fn SDL_MinimizeWindow() void {}
 export fn SDL_MaximizeWindow() void {}
 export fn SDL_RestoreWindow() void {}
 export fn SDL_SetWindowFullscreen() void {}
+export fn SDL_SetWindowPosition() void {}
+export fn SDL_RaiseWindow() void {}
