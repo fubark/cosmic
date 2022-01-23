@@ -2,7 +2,7 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
 
-const UsePrebuiltOpenSSL = true;
+const UsePrebuiltOpenSSL = false;
 
 pub fn buildLinkCrypto(b: *Builder, step: *LibExeObjStep) !void {
     if (UsePrebuiltOpenSSL) {
