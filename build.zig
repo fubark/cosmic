@@ -9,8 +9,8 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1 Alpha";
-const DepsRevision = "ea46a2cd1af65d020c25b0a36cf66d59a6e5cb83";
-const V8_Revision = "9.9.7";
+const DepsRevision = "9b3f20507520d09d1534631cbc44cf634d3ba622";
+const V8_Revision = "9.9.115";
 
 const UsePrebuiltCurl = false;
 
