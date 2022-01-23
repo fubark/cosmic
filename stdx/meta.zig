@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const t = stdx.testing;
+const log = stdx.log.scoped(.meta);
 
 pub fn FunctionArgs(comptime Fn: type) []const std.builtin.TypeInfo.FnArg {
     return @typeInfo(Fn).Fn.args;
@@ -13,14 +14,16 @@ pub fn FunctionReturnType(comptime Fn: type) type {
 pub fn FieldType(comptime T: type, comptime Field: std.meta.FieldEnum(T)) type {
     return std.meta.fieldInfo(T, Field).field_type;
 }
- 
+
 /// Generate a unique type id.
+/// This should work in debug and release modes.
 pub fn TypeId(comptime T: type) usize {
-    _ = T;
     const S = struct {
-        const id: u8 = undefined;
+        fn Type(comptime _: type) type {
+            return struct { pub var uniq: u8 = 0; };
+        }
     };
-    return @ptrToInt(&S.id);
+    return @ptrToInt(&S.Type(T).uniq);
 }
 
 test "typeId" {

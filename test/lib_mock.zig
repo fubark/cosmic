@@ -318,3 +318,4 @@ export fn SDL_RestoreWindow() void {}
 export fn SDL_SetWindowFullscreen() void {}
 export fn SDL_SetWindowPosition() void {}
 export fn SDL_RaiseWindow() void {}
+export fn v8__Value__Int32Value() void {}
