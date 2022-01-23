@@ -27,6 +27,7 @@ pub fn build(b: *Builder) void {
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
     const target = b.standardTargetOptions(.{});
+    const deps_rev = b.option([]const u8, "deps-rev", "Override the deps revision.") orelse DepsRevision;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -46,7 +47,7 @@ pub fn build(b: *Builder) void {
         .build_options = build_options,
     };
 
-    const get_deps = GetDepsStep.create(b);
+    const get_deps = GetDepsStep.create(b, deps_rev);
     b.step("get-deps", "Clone/pull the required external dependencies into deps folder").dependOn(&get_deps.step);
 
     const get_v8_lib = createGetV8LibStep(b, target);
@@ -1427,11 +1428,13 @@ const GetDepsStep = struct {
 
     step: std.build.Step,
     b: *Builder,
+    deps_rev: []const u8,
 
-    fn create(b: *Builder) *Self {
+    fn create(b: *Builder, deps_rev: []const u8) *Self {
         const new = b.allocator.create(Self) catch unreachable;
         new.* = .{
             .step = std.build.Step.init(.custom, b.fmt("get_deps", .{}), b.allocator, make),
+            .deps_rev = deps_rev,
             .b = b,
         };
         return new;
@@ -1440,7 +1443,7 @@ const GetDepsStep = struct {
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
 
-        try syncRepo(self.b, step, "./deps", "https://github.com/fubark/cosmic-deps", DepsRevision, false);
+        try syncRepo(self.b, step, "./deps", "https://github.com/fubark/cosmic-deps", self.deps_rev, false);
 
         // zig-v8 is still changing frequently so pull the repo.
         try syncRepo(self.b, step, "./lib/zig-v8", "https://github.com/fubark/zig-v8", V8_Revision, true);
