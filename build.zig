@@ -118,6 +118,24 @@ pub fn build(b: *Builder) void {
         b.step("test-cosmic-js", "Test cosmic js").dependOn(&step.step);
     }
 
+    {
+        var _ctx = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_v8 = true,
+            .static_link = static_link,
+            .path = "cosmic/main.zig",
+            .filter = filter,
+            .mode = b.standardReleaseOptions(),
+            .target = target,
+            .build_options = build_options,
+        };
+        const step = _ctx.createBuildExeStep();
+        b.step("cosmic", "Build cosmic.").dependOn(&step.step);
+    }
+
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestStep();
     whitelist_test.setFilter("INCLUDE");
