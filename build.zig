@@ -703,6 +703,11 @@ const BuilderContext = struct {
             // "-DUSING_GENERATED_CONFIG_H",
         });
 
+        // This might fix -Dcpu=baseline for release-safe.
+        if (self.target.cpu_model == .baseline) {
+            try c_flags.append("-mcpu=baseline");
+        }
+
         // Look at CMakeLists.txt.
         var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
 
