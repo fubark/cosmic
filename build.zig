@@ -18,7 +18,7 @@ const UsePrebuiltSDL = false;
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *Builder) !void {
     // Options.
     const path = b.option([]const u8, "path", "Path to main file, for: build, run, test-file") orelse "";
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
@@ -315,8 +315,8 @@ const BuilderContext = struct {
         addH2O(step);
         addOpenSSL(step);
         if (self.link_net) {
-            openssl.buildLinkCrypto(self.builder, step) catch unreachable;
-            openssl.buildLinkSsl(self.builder, step);
+            openssl.buildLinkCrypto(self.builder, self.target, self.mode, step) catch unreachable;
+            openssl.buildLinkSsl(self.builder, self.target, self.mode, step);
             self.buildLinkCurl(step);
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
@@ -394,6 +394,8 @@ const BuilderContext = struct {
 
     fn buildLinkH2O(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("zlib", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
         lib.c_std = .C99;
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
@@ -588,7 +590,9 @@ const BuilderContext = struct {
     }
 
     fn buildLinkUv(self: *Self, step: *LibExeObjStep) !void {
-        const lib = self.builder.addStaticLibrary("zlib", null);
+        const lib = self.builder.addStaticLibrary("uv", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
 
         var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
         if (step.target.getOsTag() == .linux) {
@@ -694,6 +698,8 @@ const BuilderContext = struct {
         }
 
         const lib = self.builder.addStaticLibrary("SDL2", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
 
         // Use SDL_config_minimal.h instead of relying on configure or CMake
         // and add defines to make it work for most modern platforms.
@@ -702,11 +708,6 @@ const BuilderContext = struct {
             // This would use the generated config. Might be useful for debugging.
             // "-DUSING_GENERATED_CONFIG_H",
         });
-
-        // This might fix -Dcpu=baseline for release-safe.
-        if (self.target.cpu_model == .baseline) {
-            try c_flags.append("-mcpu=baseline");
-        }
 
         // Look at CMakeLists.txt.
         var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
@@ -936,6 +937,9 @@ const BuilderContext = struct {
 
     fn buildLinkZlib(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("zlib", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+
         const c_flags = &[_][]const u8{
         };
 
@@ -967,6 +971,8 @@ const BuilderContext = struct {
 
     fn buildLinkNghttp2(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("nghttp2", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
 
         const c_flags = &[_][]const u8{
             "-g",
@@ -1022,6 +1028,8 @@ const BuilderContext = struct {
         // const lib = self.builder.addSharedLibrary("curl", null, .unversioned);
 
         const lib = self.builder.addStaticLibrary("curl", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
 
         // cpu-machine-OS
         // eg. x86_64-pc-linux-gnu
@@ -1233,19 +1241,21 @@ const BuilderContext = struct {
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("stbtt", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
         const c_flags = &[_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
-        if (self.mode == .Debug) {
-            lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags ++ &[_][]const u8{"-g3"});
-        } else {
-            lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags);
-        }
+        lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags);
         step.linkLibrary(lib);
     }
 
     fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("stbi", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
 
@@ -1254,11 +1264,7 @@ const BuilderContext = struct {
             self.fromRoot("./lib/stbi/stb_image.c"),
             self.fromRoot("./lib/stbi/stb_image_write.c")
         };
-        if (self.mode == .Debug) {
-            lib.addCSourceFiles(src_files, c_flags ++ &[_][]const u8{"-g3"});
-        } else {
-            lib.addCSourceFiles(src_files, c_flags);
-        }
+        lib.addCSourceFiles(src_files, c_flags);
         step.linkLibrary(lib);
     }
 
