@@ -9,10 +9,12 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1 Alpha";
-const DepsRevision = "9b3f20507520d09d1534631cbc44cf634d3ba622";
+const DepsRevision = "d4f3542f841cd1e4829ba658d4d4c676922ec009";
 const V8_Revision = "9.9.115";
 
+// Useful in dev to see descrepancies between zig and normal builds.
 const UsePrebuiltCurl = false;
+const UsePrebuiltSDL = false;
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -327,7 +329,7 @@ const BuilderContext = struct {
         addLyon(step);
         addStbi(step);
         if (self.link_graphics) {
-            self.linkSDL(step);
+            self.buildLinkSDL2(step) catch unreachable;
             self.buildLinkStbtt(step);
             linkGL(step);
             self.linkLyon(step, self.target);
@@ -657,6 +659,276 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    fn buildLinkSDL2(self: *Self, step: *LibExeObjStep) !void {
+        if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
+            // "sdl2_config --static-libs" tells us what we need
+            step.addFrameworkDir("/System/Library/Frameworks");
+            step.linkFramework("Cocoa");
+            step.linkFramework("IOKit");
+            step.linkFramework("CoreAudio");
+            step.linkFramework("CoreVideo");
+            step.linkFramework("Carbon");
+            step.linkFramework("Metal");
+            step.linkFramework("ForceFeedback");
+            step.linkFramework("AudioToolbox");
+            step.linkFramework("CFNetwork");
+            step.linkSystemLibrary("iconv");
+            step.linkSystemLibrary("m");
+            if (UsePrebuiltSDL) {
+                step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
+                return;
+            }
+        } else if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
+            // Nop.
+        } else if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
+            if (UsePrebuiltSDL) {
+                const path = self.fromRoot("./deps/prebuilt/linux64/libSDL2.a");
+                step.addAssemblyFile(path);
+                return;
+            }
+        } else {
+            if (UsePrebuiltSDL) {
+                step.linkSystemLibrary("SDL2");
+                return;
+            }
+        }
+
+        const lib = self.builder.addStaticLibrary("SDL2", null);
+
+        // Use SDL_config_minimal.h instead of relying on configure or CMake
+        // and add defines to make it work for most modern platforms.
+        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
+        try c_flags.appendSlice(&.{
+            // This would use the generated config. Might be useful for debugging.
+            // "-DUSING_GENERATED_CONFIG_H",
+        });
+
+        // Look at CMakeLists.txt.
+        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
+
+        try c_files.appendSlice(&.{
+            // General source files.
+            "SDL_log.c",
+            "SDL_hints.c",
+            "SDL_error.c",
+            "SDL_dataqueue.c",
+            "SDL.c",
+            "SDL_assert.c",
+            "atomic/SDL_spinlock.c",
+            "atomic/SDL_atomic.c",
+            "audio/SDL_wave.c",
+            "audio/SDL_mixer.c",
+            "audio/SDL_audiotypecvt.c",
+            "audio/SDL_audiodev.c",
+            "audio/SDL_audiocvt.c",
+            "audio/SDL_audio.c",
+            "audio/disk/SDL_diskaudio.c",
+            "audio/dsp/SDL_dspaudio.c",
+            "audio/sndio/SDL_sndioaudio.c",
+            "cpuinfo/SDL_cpuinfo.c",
+            "dynapi/SDL_dynapi.c",
+            "events/SDL_windowevents.c",
+            "events/SDL_touch.c",
+            "events/SDL_quit.c",
+            "events/SDL_mouse.c",
+            "events/SDL_keyboard.c",
+            "events/SDL_gesture.c",
+            "events/SDL_events.c",
+            "events/SDL_dropevents.c",
+            "events/SDL_displayevents.c",
+            "events/SDL_clipboardevents.c",
+            "events/imKStoUCS.c",
+            "file/SDL_rwops.c",
+            "haptic/SDL_haptic.c",
+            "hidapi/SDL_hidapi.c",
+            "libm/s_tan.c",
+            "libm/s_sin.c",
+            "libm/s_scalbn.c",
+            "libm/s_floor.c",
+            "libm/s_fabs.c",
+            "libm/s_cos.c",
+            "libm/s_copysign.c",
+            "libm/s_atan.c",
+            "libm/k_tan.c",
+            "libm/k_rem_pio2.c",
+            "libm/k_cos.c",
+            "libm/e_sqrt.c",
+            "libm/e_rem_pio2.c",
+            "libm/e_pow.c",
+            "libm/e_log.c",
+            "libm/e_log10.c",
+            "libm/e_fmod.c",
+            "libm/e_exp.c",
+            "libm/e_atan2.c",
+            "libm/k_sin.c",
+            "locale/SDL_locale.c",
+            "misc/SDL_url.c",
+            "power/SDL_power.c",
+            "render/SDL_yuv_sw.c",
+            "render/SDL_render.c",
+            "render/SDL_d3dmath.c",
+            "render/vitagxm/SDL_render_vita_gxm_tools.c",
+            "render/vitagxm/SDL_render_vita_gxm_memory.c",
+            "render/vitagxm/SDL_render_vita_gxm.c",
+            "render/software/SDL_triangle.c",
+            "render/software/SDL_rotate.c",
+            "render/software/SDL_render_sw.c",
+            "render/software/SDL_drawpoint.c",
+            "render/software/SDL_drawline.c",
+            "render/software/SDL_blendpoint.c",
+            "render/software/SDL_blendline.c",
+            "render/software/SDL_blendfillrect.c",
+            "render/psp/SDL_render_psp.c",
+            "render/opengl/SDL_shaders_gl.c",
+            "render/opengles/SDL_render_gles.c",
+            "render/opengles2/SDL_shaders_gles2.c",
+            "render/opengles2/SDL_render_gles2.c",
+            "render/opengl/SDL_render_gl.c",
+            "render/direct3d/SDL_shaders_d3d.c",
+            "render/direct3d/SDL_render_d3d.c",
+            "render/direct3d11/SDL_shaders_d3d11.c",
+            "render/direct3d11/SDL_render_d3d11.c",
+            "sensor/SDL_sensor.c",
+            "stdlib/SDL_strtokr.c",
+            "stdlib/SDL_stdlib.c",
+            "stdlib/SDL_qsort.c",
+            "stdlib/SDL_malloc.c",
+            "stdlib/SDL_iconv.c",
+            "stdlib/SDL_getenv.c",
+            "stdlib/SDL_crc32.c",
+            "stdlib/SDL_string.c",
+            "thread/SDL_thread.c",
+            "timer/SDL_timer.c",
+            "video/SDL_yuv.c",
+            "video/SDL_vulkan_utils.c",
+            "video/SDL_surface.c",
+            "video/SDL_stretch.c",
+            "video/SDL_shape.c",
+            "video/SDL_RLEaccel.c",
+            "video/SDL_rect.c",
+            "video/SDL_pixels.c",
+            "video/SDL_video.c",
+            "video/SDL_fillrect.c",
+            "video/SDL_egl.c",
+            "video/SDL_bmp.c",
+            "video/SDL_clipboard.c",
+            "video/SDL_blit_slow.c",
+            "video/SDL_blit_N.c",
+            "video/SDL_blit_copy.c",
+            "video/SDL_blit_auto.c",
+            "video/SDL_blit_A.c",
+            "video/SDL_blit.c",
+            "video/SDL_blit_0.c",
+            "video/SDL_blit_1.c",
+            "video/yuv2rgb/yuv_rgb.c",
+
+            // SDL_JOYSTICK
+            "joystick/SDL_joystick.c",
+            "joystick/SDL_gamecontroller.c",
+
+            // Dummy
+            "audio/dummy/SDL_dummyaudio.c",
+            "sensor/dummy/SDL_dummysensor.c",
+            "haptic/dummy/SDL_syshaptic.c",
+            "joystick/dummy/SDL_sysjoystick.c",
+            "video/dummy/SDL_nullvideo.c",
+            "video/dummy/SDL_nullframebuffer.c",
+            "video/dummy/SDL_nullevents.c",
+
+            // Threads
+            "thread/pthread/SDL_systhread.c",
+            "thread/pthread/SDL_systls.c",
+            "thread/pthread/SDL_syssem.c",
+            "thread/pthread/SDL_sysmutex.c",
+            "thread/pthread/SDL_syscond.c",
+
+            // Steam
+            "joystick/steam/SDL_steamcontroller.c",
+
+            "joystick/hidapi/SDL_hidapi_rumble.c",
+            "joystick/hidapi/SDL_hidapijoystick.c",
+            "joystick/hidapi/SDL_hidapi_xbox360w.c",
+            "joystick/hidapi/SDL_hidapi_switch.c",
+            "joystick/hidapi/SDL_hidapi_steam.c",
+            "joystick/hidapi/SDL_hidapi_stadia.c",
+            "joystick/hidapi/SDL_hidapi_ps4.c",
+            "joystick/hidapi/SDL_hidapi_xboxone.c",
+            "joystick/hidapi/SDL_hidapi_xbox360.c",
+            "joystick/hidapi/SDL_hidapi_gamecube.c",
+            "joystick/hidapi/SDL_hidapi_ps5.c",
+            "joystick/hidapi/SDL_hidapi_luna.c",
+
+            "joystick/virtual/SDL_virtualjoystick.c",
+        });
+
+        if (self.target.getOsTag() == .linux) {
+            try c_files.appendSlice(&.{
+                "core/unix/SDL_poll.c",
+                "core/linux/SDL_evdev.c",
+                "core/linux/SDL_evdev_kbd.c",
+                "core/linux/SDL_dbus.c",
+                "core/linux/SDL_ime.c",
+                "core/linux/SDL_udev.c",
+                "core/linux/SDL_threadprio.c",
+                // "core/linux/SDL_fcitx.c",
+                "core/linux/SDL_ibus.c",
+                "core/linux/SDL_evdev_capabilities.c",
+
+                "power/linux/SDL_syspower.c",
+                "haptic/linux/SDL_syshaptic.c",
+
+                "misc/unix/SDL_sysurl.c",
+                "timer/unix/SDL_systimer.c",
+                "locale/unix/SDL_syslocale.c",
+
+                "loadso/dlopen/SDL_sysloadso.c",
+
+                "filesystem/unix/SDL_sysfilesystem.c",
+
+                "video/x11/SDL_x11opengles.c",
+                "video/x11/SDL_x11messagebox.c",
+                "video/x11/SDL_x11touch.c",
+                "video/x11/SDL_x11mouse.c",
+                "video/x11/SDL_x11keyboard.c",
+                "video/x11/SDL_x11video.c",
+                "video/x11/edid-parse.c",
+                "video/x11/SDL_x11dyn.c",
+                "video/x11/SDL_x11framebuffer.c",
+                "video/x11/SDL_x11opengl.c",
+                "video/x11/SDL_x11modes.c",
+                "video/x11/SDL_x11shape.c",
+                "video/x11/SDL_x11window.c",
+                "video/x11/SDL_x11vulkan.c",
+                "video/x11/SDL_x11xfixes.c",
+                "video/x11/SDL_x11clipboard.c",
+                "video/x11/SDL_x11events.c",
+                "video/x11/SDL_x11xinput2.c",
+
+                "audio/alsa/SDL_alsa_audio.c",
+                "audio/pulseaudio/SDL_pulseaudio.c",
+                "joystick/linux/SDL_sysjoystick.c",
+            });
+        }
+
+        for (c_files.items) |file| {
+            self.addCSourceFileFmt(lib, "./deps/SDL/src/{s}", .{file}, c_flags.items);
+        }
+
+        lib.linkLibC();
+        // Look for our custom SDL_config.h.
+        lib.addIncludeDir("./lib/sdl");
+        // For local CMake generated config.
+        // lib.addIncludeDir("./deps/SDL/build/include");
+        lib.addIncludeDir("./deps/SDL/include");
+        if (self.target.getOsTag() == .linux) {
+            lib.addIncludeDir("/usr/include");
+            lib.addIncludeDir("/usr/include/x86_64-linux-gnu");
+            lib.addIncludeDir("/usr/include/dbus-1.0");
+            lib.addIncludeDir("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
+        }
+        step.linkLibrary(lib);
+    }
+
     fn buildLinkZlib(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("zlib", null);
         const c_flags = &[_][]const u8{
@@ -955,21 +1227,33 @@ const BuilderContext = struct {
     }
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
+        const lib = self.builder.addStaticLibrary("stbtt", null);
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
-        const c_flags = [_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
-        lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), &c_flags);
+        const c_flags = &[_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
+        if (self.mode == .Debug) {
+            lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags ++ &[_][]const u8{"-g3"});
+        } else {
+            lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags);
+        }
         step.linkLibrary(lib);
     }
 
     fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"));
+        const lib = self.builder.addStaticLibrary("stbi", null);
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
 
-        const c_flags = [_][]const u8{ "-O3", "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
-        lib.addCSourceFiles(&.{ self.fromRoot("./lib/stbi/stb_image.c"), self.fromRoot("./lib/stbi/stb_image_write.c") }, &c_flags);
+        const c_flags = &[_][]const u8{ "-O3", "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
+        const src_files: []const []const u8 = &.{
+            self.fromRoot("./lib/stbi/stb_image.c"),
+            self.fromRoot("./lib/stbi/stb_image_write.c")
+        };
+        if (self.mode == .Debug) {
+            lib.addCSourceFiles(src_files, c_flags ++ &[_][]const u8{"-g3"});
+        } else {
+            lib.addCSourceFiles(src_files, c_flags);
+        }
         step.linkLibrary(lib);
     }
 
@@ -981,43 +1265,6 @@ const BuilderContext = struct {
             step.linkSystemLibrary("unwind");
         } else {
             @panic("Unsupported");
-        }
-    }
-
-    // TODO: We should probably build SDL locally instead of using a prebuilt version.
-    fn linkSDL(self: *Self, step: *LibExeObjStep) void {
-        if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
-            if (self.static_link) {
-                // "sdl2_config --static-libs" tells us what we need
-                step.addFrameworkDir("/System/Library/Frameworks");
-                step.linkFramework("Cocoa");
-                step.linkFramework("IOKit");
-                step.linkFramework("CoreAudio");
-                step.linkFramework("CoreVideo");
-                step.linkFramework("Carbon");
-                step.linkFramework("Metal");
-                step.linkFramework("ForceFeedback");
-                step.linkFramework("AudioToolbox");
-                step.linkFramework("CFNetwork");
-                step.linkSystemLibrary("iconv");
-                step.linkSystemLibrary("m");
-                step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
-            } else {
-                step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2-2.0.0.dylib");
-            }
-        } else if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
-            const path = self.fromRoot("./deps/prebuilt/win64/SDL2.dll");
-            step.addAssemblyFile(path);
-            if (step.output_dir) |out_dir| {
-                const mkpath = MakePathStep.create(self.builder, out_dir);
-                step.step.dependOn(&mkpath.step);
-
-                const dst = self.joinResolvePath(&.{ out_dir, "SDL2.dll" });
-                const cp = CopyFileStep.create(self.builder, path, dst);
-                step.step.dependOn(&cp.step);
-            }
-        } else {
-            step.linkSystemLibrary("SDL2");
         }
     }
 
@@ -1192,6 +1439,11 @@ fn linkGL(step: *LibExeObjStep) void {
         step.linkSystemLibrary("GL");
     } else if (builtin.os.tag == .windows) {
         step.linkSystemLibrary("opengl32");
+    } else if (builtin.os.tag == .linux) {
+        // Unable to find libraries if linux is provided in triple.
+        // https://github.com/ziglang/zig/issues/8103
+        step.addLibPath("/usr/lib/x86_64-linux-gnu");
+        step.linkSystemLibrary("GL");
     } else {
         step.linkSystemLibrary("GL");
     }
