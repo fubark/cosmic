@@ -955,14 +955,7 @@ const BuilderContext = struct {
     }
 
     fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
-        var lib: *LibExeObjStep = undefined;
-        // For windows-gnu adding a shared library would result in an almost empty stbtt.lib file leading to undefined symbols during linking.
-        // As a workaround we always static link for windows.
-        if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
-            lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
-        } else {
-            lib = self.builder.addSharedLibrary("stbtt", null, .unversioned);
-        }
+        const lib = self.builder.addStaticLibrary("stbtt", self.fromRoot("./lib/stbtt/stbtt.zig"));
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
         const c_flags = [_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
@@ -971,12 +964,7 @@ const BuilderContext = struct {
     }
 
     fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
-        var lib: *LibExeObjStep = undefined;
-        if (self.mode == .ReleaseSafe or self.static_link or self.target.getOsTag() == .windows) {
-            lib = self.builder.addStaticLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"));
-        } else {
-            lib = self.builder.addSharedLibrary("stbi", null, .unversioned);
-        }
+        const lib = self.builder.addStaticLibrary("stbi", self.fromRoot("./lib/stbi/stbi.zig"));
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
 
