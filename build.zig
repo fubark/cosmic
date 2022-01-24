@@ -1033,32 +1033,19 @@ const BuilderContext = struct {
         }
     }
 
+    /// Static link clyon.
     fn linkLyon(self: *Self, step: *LibExeObjStep, target: std.zig.CrossTarget) void {
-        if (self.static_link) {
-            // Currently static linking lyon requires you to build it yourself.
-            step.addAssemblyFile("./lib/clyon/target/release/libclyon.a");
-            // Currently clyon needs unwind. It would be nice to remove this dependency.
+        if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
+            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/linux64/libclyon.a"));
+            // Currently clyon needs unwind. How to remove?
             step.linkSystemLibrary("unwind");
+        } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
+            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/mac64/libclyon.a"));
+        } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
+            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/win64/clyon.lib"));
         } else {
-            if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
-                step.addAssemblyFile("./deps/prebuilt/linux64/libclyon.so");
-            } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
-                step.addAssemblyFile("./deps/prebuilt/mac64/libclyon.dylib");
-            } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
-                const path = self.fromRoot("./deps/prebuilt/win64/clyon.dll");
-                step.addAssemblyFile(path);
-                if (step.output_dir) |out_dir| {
-                    const mkpath = MakePathStep.create(self.builder, out_dir);
-                    step.step.dependOn(&mkpath.step);
-
-                    const dst = self.joinResolvePath(&.{ out_dir, "clyon.dll" });
-                    const cp = CopyFileStep.create(self.builder, path, dst);
-                    step.step.dependOn(&cp.step);
-                }
-            } else {
-                step.addLibPath("./lib/clyon/target/release");
-                step.linkSystemLibrary("clyon");
-            }
+            step.addLibPath("./lib/clyon/target/release");
+            step.linkSystemLibrary("clyon");
         }
     }
 
@@ -1329,10 +1316,10 @@ const BuildLyonStep = struct {
         _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--release", "--manifest-path", toml_path });
 
         if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.so");
-            const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.so");
+            const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.a");
+            const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.a");
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
-            _ = try self.builder.exec(&[_][]const u8{ "strip", to_path });
+            _ = try self.builder.exec(&[_][]const u8{ "strip", "--strip-debug", to_path });
         }
     }
 };
