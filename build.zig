@@ -1362,7 +1362,7 @@ const sdl_pkg = Pkg{
 fn addSDL(step: *LibExeObjStep) void {
     step.addPackage(sdl_pkg);
     step.linkLibC();
-    step.addIncludeDir("./deps");
+    step.addIncludeDir("./deps/SDL/include");
 }
 
 const openssl_pkg = Pkg{
