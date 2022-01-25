@@ -8,7 +8,7 @@ const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
-const VersionName = "v0.1 Alpha";
+const VersionName = "v0.1";
 const DepsRevision = "d4f3542f841cd1e4829ba658d4d4c676922ec009";
 const V8_Revision = "9.9.115";
 
@@ -30,10 +30,11 @@ pub fn build(b: *Builder) !void {
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
     const target = b.standardTargetOptions(.{});
     const deps_rev = b.option([]const u8, "deps-rev", "Override the deps revision.") orelse DepsRevision;
+    const is_official_build = b.option(bool, "is-official-build", "Whether the build should be an official build.") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
-    build_options.addOption([]const u8, "VersionName", VersionName);
+    build_options.addOption([]const u8, "VersionName", getVersionString(is_official_build));
 
     var ctx = BuilderContext{
         .builder = b,
@@ -76,6 +77,9 @@ pub fn build(b: *Builder) !void {
 
     const build_wasm = ctx.createBuildWasmBundleStep();
     b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+
+    const get_version = b.addLog("{s}", .{getVersionString(is_official_build)});
+    b.step("version", "Get the build version.").dependOn(&get_version.step);
 
     {
         const _build_options = b.addOptions();
@@ -1772,5 +1776,13 @@ fn statPath(path_abs: []const u8) !PathStat {
         .Directory => return .Directory,
         .File => return .File,
         else => return .Unknown,
+    }
+}
+
+fn getVersionString(is_official_build: bool) []const u8 {
+    if (is_official_build) {
+        return VersionName;
+    } else {
+        return VersionName ++ "-Dev";
     }
 }
