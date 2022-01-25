@@ -147,20 +147,27 @@ jobs:
               ref: 'tags/latest',
             });
             if (res.data.length > 0) {
-              await github.rest.git.deleteRef({
+              await github.rest.git.updateRef({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 ref: 'tags/latest',
                 sha: context.sha,
               });
+              /*await github.rest.git.deleteRef({
+                 owner: context.repo.owner,
+                 repo: context.repo.repo,
+                 ref: 'tags/latest',
+                 sha: context.sha,
+              });*/
+            } else {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                // Only create needs full path
+                ref: 'refs/tags/latest',
+                sha: context.sha,
+              });
             }
-            await github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              // Only create needs full path
-              ref: 'refs/tags/latest',
-              sha: context.sha,
-            });
 
       - name: Github Release.
         uses: softprops/action-gh-release@v0.1.14
@@ -177,23 +184,23 @@ jobs:
           files: ${{ env.BIN_ZIP }}
 
       # After the recreate tag hack, the old release might still be there but marked as draft. Find it and delete it.
-      - name: Clean up stale releases.
-        uses: actions/github-script@v5
-        with:
-          script: |
-            const res = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            if (res.data.length > 0) {
-              for (let i = 0; i < res.data.length; i++) {
-                const item = res.data[i];
-                if (item.tag_name == 'latest' && item.draft) {
-                  await github.rest.repos.deleteRelease({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    release_id: item.id,
-                  });
-                }
-              }
-            }
+      # - name: Clean up stale releases.
+      #   uses: actions/github-script@v5
+      #   with:
+      #     script: |
+      #       const res = await github.rest.repos.listReleases({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #       });
+      #       if (res.data.length > 0) {
+      #         for (let i = 0; i < res.data.length; i++) {
+      #           const item = res.data[i];
+      #           if (item.tag_name == 'latest' && item.draft) {
+      #             await github.rest.repos.deleteRelease({
+      #               owner: context.repo.owner,
+      #               repo: context.repo.repo,
+      #               release_id: item.id,
+      #             });
+      #           }
+      #         }
+      #       }
