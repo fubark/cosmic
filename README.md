@@ -1,3 +1,4 @@
+[![Latest Build](https://github.com/fubark/cosmic/actions/workflows/latest-build.yml/badge.svg)](https://github.com/fubark/cosmic/actions/workflows/latest-build.yml)
 # Cosmic
 
 Cosmic will be a simple and productive JavaScript/WASM runtime. It aims to have broad applications with a rich standard library. It also aims to streamline development tooling to provide everything you'll need to ship and maintain software.
