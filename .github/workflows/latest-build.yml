@@ -1,0 +1,199 @@
+name: Latest Build
+
+on: 
+  workflow_dispatch:
+    inputs:
+      deps_rev_override:
+        description: 'Deps Revision Override'
+        type: string
+        default: ''
+        required: false
+  push:
+    branches:
+      - master
+# Cancel previous job if it's running.
+# Normally softprops/turnstyle would be enough but waiting for the job to finish somehow acquires a lock preventing the original
+# job from recreating the "latest" tag which we need to do to refresh the release created date. See below.
+concurrency:
+  group: latest
+  cancel-in-progress: true
+jobs:  
+  build:
+    name: host=${{ matrix.config.host }} target=${{ matrix.config.target }} mode=${{ matrix.config.mode }}
+    runs-on: ${{ matrix.config.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - host: ubuntu-20.04
+            target: x86_64-linux-gnu
+            mode: release
+#          - host: macos-10.15
+#            target: x86_64-macos
+#            mode: release
+#          - host: windows-2019
+#            target: x86_64-windows-msvc
+#            mode: release
+#          - host: ubuntu-20.04
+#            target: aarch64-macos-gnu
+#            mode: release
+    env:
+      BIN_ZIP: >-
+        ${{ fromJson('{
+          "x86_64-windows-msvc": "x86_64-windows",
+          "x86_64-linux-gnu": "cosmic-linux-x64.zip",
+          "x86_64-macos": "x86_64-macos",
+          "aarch64-macos-gnu": "aarch64-macos",
+        }')[matrix.config.target] }}
+      ZIG_TARGET_FLAG: >-
+        ${{ fromJson('{
+          "x86_64-windows-msvc": "-Dtarget=x86_64-windows -Dcpu=baseline",
+          "x86_64-linux-gnu": "-Dtarget=x86_64-linux-gnu -Dcpu=baseline",
+          "x86_64-macos": "-Dtarget=x86_64-macos -Dcpu=native",
+          "aarch64-macos-gnu": "-Dtarget=aarch64-macos -Dcpu=native",
+        }')[matrix.config.target] }}
+      BUILD_TARGET: ${{ matrix.config.target }}
+      BUILD_MODE: ${{ matrix.config.mode }}
+      BIN_NAME: cosmic
+      BIN_EXT: ${{ contains(matrix.config.target, 'windows') && '.exe' || '' }}
+      ZIG_MODE_FLAG: ${{ (matrix.config.mode == 'release' && '-Drelease-safe') || '' }}
+    steps:
+      - name: Install Linux deps.
+        if: matrix.config.host == 'ubuntu-20.04' && env.BUILD_TARGET == 'x86_64-linux-gnu'
+        run: |
+          sudo add-apt-repository -y "deb http://archive.ubuntu.com/ubuntu `lsb_release -sc` main universe restricted multiverse"
+          sudo apt-get update -y -qq
+          sudo apt-get install libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libxxf86vm-dev libxss-dev libgl1-mesa-dev
+
+      - name: Clone repo.
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+          #submodules: recursive
+
+      - name: Install zig.
+        uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: 0.9.0
+
+      - name: Get version.
+        id: version
+        run: |
+          zig build version 2>> version
+          echo ::set-output name=version::`cat version`
+
+      - name: Cache.
+        uses: actions/cache@v2
+        with:
+          path: |-
+            ~/.cache/zig
+            zig-cache
+          key:
+            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}
+          restore-keys:
+            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}
+
+      - name: Get deps.
+        run: zig build get-deps ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
+
+      # For https request test.
+      - name: Install self signed certificate (Linux)
+        if: matrix.config.host == 'ubuntu-20.04'
+        run: |
+          sudo cp deps/https/localhost.crt /usr/local/share/ca-certificates
+          sudo update-ca-certificates
+
+      - name: Get prebuilt v8.
+        run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
+
+      # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
+      - name: Test core.
+        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+
+      - name: Build.
+        run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+
+      - name: Test js.
+        run: zig build test-cosmic-js ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+
+      # Remove when zig strip is fixed.
+      - name: Strip (Linux)
+        if: env.BUILD_TARGET == 'x86_64-linux-gnu' && env.BUILD_MODE == 'release'
+        run: |
+          strip zig-out/main/main
+
+      - name: Copy binary.
+        run: cp
+          zig-out/main/main${{ env.BIN_EXT }}
+          zig-out/main/cosmic${{ env.BIN_EXT }}
+
+      - uses: vimtor/action-zip@v1
+        with:
+          files: zig-out/main/cosmic${{ env.BIN_EXT }}
+          # This actually works the opposite the way it was documented. Set to true to not include the folder path.
+          # https://github.com/vimtor/action-zip/issues/8
+          recursive: true
+          dest: ${{ env.BIN_ZIP }}
+
+      # To update the release create date, we need to recreate the latest tag.
+      - name: Update latest tag.
+        uses: actions/github-script@v5
+        with:
+          script: |
+            const ref = 'tags/latest';
+            const res = await github.rest.git.listMatchingRefs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'tags/latest',
+            });
+            if (res.data.length > 0) {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'tags/latest',
+                sha: context.sha,
+              });
+            }
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              // Only create needs full path
+              ref: 'refs/tags/latest',
+              sha: context.sha,
+            });
+
+      - name: Github Release.
+        uses: softprops/action-gh-release@v0.1.14
+        # Github requires tags for releases.
+        #if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          body: Certified, latest development build.
+          name: ${{ steps.version.outputs.version }}
+          tag_name: latest
+          prerelease: false
+          draft: false
+          files: ${{ env.BIN_ZIP }}
+
+      # After the recreate tag hack, the old release might still be there but marked as draft. Find it and delete it.
+      - name: Clean up stale releases.
+        uses: actions/github-script@v5
+        with:
+          script: |
+            const res = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            if (res.data.length > 0) {
+              for (let i = 0; i < res.data.length; i++) {
+                const item = res.data[i];
+                if (item.tag_name == 'latest' && item.draft) {
+                  await github.rest.repos.deleteRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: item.id,
+                  });
+                }
+              }
+            }
