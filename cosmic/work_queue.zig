@@ -221,11 +221,14 @@ const Worker = struct {
 
     wakeup: std.Thread.ResetEvent,
 
+    close_flag: std.atomic.Atomic(bool),
+
     fn init(self: *Self, queue: *WorkQueue) void {
         self.* = .{
             .thread = undefined,
             .queue = queue,
             .wakeup = undefined,
+            .close_flag = std.atomic.Atomic(bool).init(false),
         };
         self.wakeup.init() catch unreachable;
     }
@@ -237,6 +240,10 @@ const Worker = struct {
 
     fn loop(self: *Self) void {
         while (true) {
+            if (self.close_flag.load(.Acquire)) {
+                break;
+            }
+
             while (self.queue.ready.get()) |n| {
                 // log.debug("Worker on thread: {} received work", .{std.Thread.getCurrentId()});
                 const task_id = n.data;
@@ -260,6 +267,9 @@ const Worker = struct {
             self.wakeup.wait();
             self.wakeup.reset();
         }
+
+        // Reuse flag to indicate the thread is done.
+        self.close_flag.store(false, .Release);
     }
 };
 

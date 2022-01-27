@@ -10,6 +10,7 @@ const h2o = @import("h2o");
 const v8 = @import("v8");
 const input = @import("input");
 const gl = @import("gl");
+const builtin = @import("builtin");
 
 const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
@@ -231,7 +232,7 @@ pub const RuntimeContext = struct {
             const act = std.os.Sigaction{
                 .handler = .{ .sigaction = SIG_IGN },
                 .mask = std.os.empty_sigset,
-               .flags = 0,
+                .flags = 0,
             };
             std.os.sigaction(std.os.SIG.PIPE, &act, null);
         }
@@ -1255,12 +1256,23 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
         _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_ONCE);
     }
 
-    // TODO: Shutdown worker threads.
+    // Request workers to close.
+    // On MacOS, it's especially important to make sure semaphores (eg. std.Thread.ResetEvent)
+    // are not in use (their counters should be reset to the original value) or we'll get an error from libdispatch.
+    for (rt.work_queue.workers.items) |worker| {
+        worker.close_flag.store(true, .Release);
+        worker.wakeup.set();
+    }
+
+    // Wait for workers to close.
+    for (rt.work_queue.workers.items) |worker| {
+        while (worker.close_flag.load(.Acquire)) {}
+    }
+
     // Wait for worker queue to finish.
     while (rt.work_queue.hasUnfinishedTasks()) {
         rt.main_wakeup.wait();
         rt.main_wakeup.reset();
-
         rt.work_queue.processDone();
     }
 
@@ -1282,6 +1294,8 @@ const IsolatedTest = struct {
 
 /// Returns whether there are pending events in libuv or the work queue.
 inline fn hasPendingEvents(rt: *RuntimeContext) bool {
+    // log.debug("hasPending {} {} {} {}", .{rt.uv_loop.active_handles, rt.uv_loop.active_reqs.count, rt.uv_loop.closing_handles !=null, rt.work_queue.hasUnfinishedTasks()});
+
     // There will at least be 1 active handle (the dummy async handle used to do interrupts from main thread).
     // uv handle checks is based on uv_loop_alive():
     return rt.uv_loop.active_handles > 1 or 
@@ -1348,11 +1362,10 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
 
     while (rt.num_isolated_tests_finished < rt.isolated_tests.items.len) {
         if (rt.num_isolated_tests_finished == next_test) {
-            // log.debug("run isolated: {} {}", .{next_test, rt.isolated_tests.items.len});
-
             // Start the next test.
             // Assume async test, should have already validated.
             const case = rt.isolated_tests.items[next_test];
+            log.debug("run isolated: {}/{} {s}", .{next_test, rt.isolated_tests.items.len, case.name});
             if (case.js_fn.inner.call(ctx, rt.js_undefined, &.{})) |val| {
                 const promise = val.castTo(v8.Promise);
 
