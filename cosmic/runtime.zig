@@ -225,14 +225,16 @@ pub const RuntimeContext = struct {
         iso.setCaptureStackTraceForUncaughtExceptions(true, 10);
         _ = iso.addMessageListenerWithErrorLevel(v8MessageCallback, v8.MessageErrorLevel.kMessageError, external);
 
-        // Ignore sigpipe for writes to sockets that have already closed and let it return as an error to callers.
-        const SIG_IGN = @intToPtr(fn(c_int, *const std.os.linux.siginfo_t, ?*const anyopaque) callconv(.C) void, 1);
-        const act = std.os.Sigaction{
-            .handler = .{ .sigaction = SIG_IGN },
-            .mask = std.os.empty_sigset,
-            .flags = 0,
-        };
-        std.os.sigaction(std.os.SIG.PIPE, &act, null);
+        if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
+            // Ignore sigpipe for writes to sockets that have already closed and let it return as an error to callers.
+            const SIG_IGN = @intToPtr(fn(c_int, *const std.os.siginfo_t, ?*const anyopaque) callconv(.C) void, 1);
+            const act = std.os.Sigaction{
+                .handler = .{ .sigaction = SIG_IGN },
+                .mask = std.os.empty_sigset,
+               .flags = 0,
+            };
+            std.os.sigaction(std.os.SIG.PIPE, &act, null);
+        }
     }
 
     fn deinit(self: *Self) void {
