@@ -17,8 +17,6 @@ const printFmt = runtime.printFmt;
 const errorFmt = runtime.errorFmt;
 const log = stdx.log.scoped(.main);
 
-const VersionText = "0.1 Alpha";
-
 // Cosmic main. Common entry point for cli and gui.
 pub fn main() !void {
     // Fast temporary memory allocator.
@@ -138,7 +136,7 @@ fn repl() void {
         \\Cosmic ({s})
         \\exit with Ctrl+D or "exit()"
         \\
-    , .{VersionText});
+    , .{build_options.VersionName});
 
     while (true) {
         printFmt("\n> ", .{});
