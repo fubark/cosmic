@@ -782,7 +782,9 @@ const BuilderContext = struct {
 
         if (self.target.getOsTag() == .macos) {
             try c_flags.appendSlice(&.{
-                "-Wno-error=deprecated-declarations"
+                // Try to fix the build on github instance:
+                "-Wno-deprecated-declarations",
+                "-Wno-unguarded-availability",
             });
         }
 
