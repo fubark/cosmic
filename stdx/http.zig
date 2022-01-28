@@ -19,7 +19,7 @@ const log = std.log.scoped(.http);
 // Dedicated curl handle for synchronous requests. Reuse for connection pool.
 var curl_h: Curl = undefined;
 
-// Async curl handle. curl_multi let's us set up async with uv.
+// Async curl handle. curl_multi_socket let's us set up async with uv.
 var share: CurlSH = undefined;
 var curlm: CurlM = undefined;
 pub var curlm_uvloop: *uv.uv_loop_t = undefined; // This is set later when uv loop is available.
@@ -148,6 +148,9 @@ pub const RequestOptions = struct {
     timeout: u32 = 30,
 
     headers: ?std.StringHashMap([]const u8) = null,
+
+    // If cert file is not provided, the default for the operating system will be used.
+    cert_file: ?[]const u8 = null,
 };
 
 const IndexSlice = struct {
@@ -638,12 +641,27 @@ fn setCurlOptions(alloc: std.mem.Allocator, ch: Curl, url: [:0]const u8, header_
     ch.mustSetOption(curl.CURLOPT_URL, url.ptr);
     ch.mustSetOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
     ch.mustSetOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
-    if (builtin.os.tag == .linux) {
-        ch.mustSetOption(curl.CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
-        ch.mustSetOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
-    } else if (builtin.os.tag == .macos) {
-        ch.mustSetOption(curl.CURLOPT_CAINFO, "/etc/ssl/cert.pem");
-        ch.mustSetOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
+    if (opts.cert_file) |cert_file| {
+        const c_str = try std.fmt.allocPrint(alloc, "{s}\u{0}", .{ cert_file });
+        defer alloc.free(c_str);
+        ch.mustSetOption(curl.CURLOPT_CAINFO, c_str.ptr);
+    } else {
+        switch (builtin.os.tag) {
+            .linux => {
+                ch.mustSetOption(curl.CURLOPT_CAINFO, "/etc/ssl/certs/ca-certificates.crt");
+            },
+            .macos => {
+                ch.mustSetOption(curl.CURLOPT_CAINFO, "/etc/ssl/cert.pem");
+            },
+            else => {},
+        }
+    }
+    switch (builtin.os.tag) {
+        .linux,
+        .macos => {
+            ch.mustSetOption(curl.CURLOPT_CAPATH, "/etc/ssl/certs");
+        },
+        else => {},
     }
     // TODO: Expose timeout as ms and use CURLOPT_TIMEOUT_MS
     ch.mustSetOption(curl.CURLOPT_TIMEOUT, @intCast(c_long, opts.timeout));
@@ -672,7 +690,7 @@ fn setCurlOptions(alloc: std.mem.Allocator, ch: Curl, url: [:0]const u8, header_
     if (opts.headers) |headers| {
         var iter = headers.iterator();
         while (iter.next()) |entry| {
-            const c_str = try std.fmt.allocPrint(alloc, "{s}: {s}\\0", .{ entry.key_ptr.*, entry.value_ptr.* });
+            const c_str = try std.fmt.allocPrint(alloc, "{s}: {s}\u{0}", .{ entry.key_ptr.*, entry.value_ptr.* });
             defer alloc.free(c_str);
             header_list.* = curl.curl_slist_append(header_list.*, c_str.ptr);
         }

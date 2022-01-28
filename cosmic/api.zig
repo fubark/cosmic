@@ -769,6 +769,7 @@ pub const cs_http = struct {
             .keep_connection = opts.keepConnection,
             .timeout = opts.timeout,
             .headers = opts.headers,
+            .cert_file = opts.certFile,
         };
         if (opts.contentType) |content_type| {
             res.content_type = std.meta.stringToEnum(stdx.http.ContentType, @tagName(content_type)).?;
@@ -850,6 +851,9 @@ pub const cs_http = struct {
         /// In seconds. 0 timeout = no timeout
         timeout: u32 = 30,
         headers: ?std.StringHashMap([]const u8) = null,
+
+        // For HTTPS, if no cert file is provided, the default from the current operating system is used.
+        certFile: ?[]const u8 = null,
     };
 
     /// The response object holds the data received from making a HTTP request.

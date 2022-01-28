@@ -382,15 +382,23 @@ testIsolated('cs.http.serveHttps', async () => {
         // However, async get should work.
         // Needs self-signed certificate localhost.crt installed in cainfo or capath and the request needs to hit
         // localhost and not 127.0.0.1 for ssl verify host step to work.
-        // TODO: Add request option to use specific ca certificate and option to turn off verify host.
-        eq(await cs.http.getAsync('https://localhost:3000'), 'not found')
-        const resp = await cs.http.requestAsync('https://localhost:3000/hello')
+        const opts = {
+            certFile: './deps/https/localhost.crt',
+        }
+        var resp = await cs.http.requestAsync('https://localhost:3000', opts)
+        eq(resp.text(), 'not found')
+        resp = await cs.http.requestAsync('https://localhost:3000/hello', opts)
         eq(resp.status, 200)
         eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
         eq(resp.text(), 'Hello from server!')
 
         // Post.
-        eq(await cs.http.postAsync('https://localhost:3000/hello', 'my message'), 'my message')
+        resp = await cs.http.requestAsync('https://localhost:3000/hello', {
+            method: 'post',
+            certFile: './deps/https/localhost.crt',
+            body: 'my message',
+        })
+        eq(resp.text(), 'my message')
     } finally {
         await s.closeAsync()
     }
