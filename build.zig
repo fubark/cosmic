@@ -782,7 +782,7 @@ const BuilderContext = struct {
 
         if (self.target.getOsTag() == .macos) {
             try c_flags.appendSlice(&.{
-                // Try to fix the build on github instance:
+                // Silence warnings that are errors by default in objc source files. Noticed this in github ci.
                 "-Wno-deprecated-declarations",
                 "-Wno-unguarded-availability",
             });
@@ -1012,7 +1012,6 @@ const BuilderContext = struct {
                 "video/cocoa/SDL_cocoamodes.m",
                 "video/cocoa/SDL_cocoaopengl.m",
                 "file/cocoa/SDL_rwopsbundlesupport.m",
-                "joystick/iphoneos/SDL_mfijoystick.m",
                 "render/metal/SDL_render_metal.m",
                 "filesystem/cocoa/SDL_sysfilesystem.m",
                 "audio/coreaudio/SDL_coreaudio.m",
@@ -1022,6 +1021,12 @@ const BuilderContext = struct {
                 "loadso/dlopen/SDL_sysloadso.c",
                 "misc/unix/SDL_sysurl.c",
                 "power/macosx/SDL_syspower.c",
+            });
+            lib.addCSourceFile("./deps/SDL/src/joystick/iphoneos/SDL_mfijoystick.m", &.{
+                "-Wno-deprecated-declarations",
+                "-Wno-unguarded-availability",
+                // For github ci, try to resolve: cannot create __weak reference in file using manual reference counting
+                "-fobjc-arc",
             });
         }
 
