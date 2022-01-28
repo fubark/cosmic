@@ -9,12 +9,22 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "d4f3542f841cd1e4829ba658d4d4c676922ec009";
+const DepsRevision = "8df77a47d8442be0efccb514a589bda241c27c6f";
 const V8_Revision = "9.9.115";
 
+// Debugging:
+// Set to true to show generated build-lib and other commands created from execFromStep.
+const PrintCommands = false;
+
 // Useful in dev to see descrepancies between zig and normal builds.
-const UsePrebuiltCurl = false;
 const UsePrebuiltSDL = false;
+const UsePrebuiltCurl: ?[]const u8 = null;
+// const UsePrebuiltCurl: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
+// const UsePrebuiltCurl: ?[]const u8 = "/home/fubar/repos/curl/lib/.libs/libcurl.a";
+const UsePrebuiltUv: ?[]const u8 = null;
+// const UsePrebuiltUv: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
+const UsePrebuiltH2O: ?[]const u8 = null;
+// const UsePrebuiltH2O: ?[]const u8 = "/Users/fubar/dev/h2o";
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -35,6 +45,16 @@ pub fn build(b: *Builder) !void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
     build_options.addOption([]const u8, "VersionName", getVersionString(is_official_build));
+
+    b.verbose = PrintCommands;
+
+    if (builtin.os.tag == .macos) {
+        // NOTE: builder.sysroot or --sysroot <path> should not be set for a native build.
+        // zig will use getDarwinSDK by default and not use it's own libc headers (meant for cross compilation)
+        // with one small caveat: the lib/exe must be linking with system library or framework. See Compilation.zig.
+        // There are lib.linkFramework("CoreServices") in places where we want to force it to use native headers.
+        // The target must be: <cpu>-native-gnu
+    }
 
     var ctx = BuilderContext{
         .builder = b,
@@ -187,7 +207,7 @@ const BuilderContext = struct {
         addStdx(step, build_options);
         addInput(step);
         addGraphics(step);
-        self.addDeps(step);
+        self.addDeps(step) catch unreachable;
 
         return step;
     }
@@ -212,7 +232,7 @@ const BuilderContext = struct {
 
         addStdx(step, build_options);
         addGraphics(step);
-        self.addDeps(step);
+        self.addDeps(step) catch unreachable;
         self.copyAssets(step, output_dir_rel);
 
         // index.html
@@ -258,7 +278,7 @@ const BuilderContext = struct {
         addStdx(step, build_options);
         addInput(step);
         addGraphics(step);
-        self.addDeps(step);
+        self.addDeps(step) catch unreachable;
         self.copyAssets(step, output_dir_rel);
         return step;
     }
@@ -296,7 +316,7 @@ const BuilderContext = struct {
         addInput(step);
 
         // Add external lib headers but link with mock lib.
-        self.addDeps(step);
+        self.addDeps(step) catch unreachable;
         self.buildLinkMock(step);
 
         step.addPackage(build_options);
@@ -313,18 +333,18 @@ const BuilderContext = struct {
         }
     }
 
-    fn addDeps(self: *Self, step: *LibExeObjStep) void {
+    fn addDeps(self: *Self, step: *LibExeObjStep) !void {
         addCurl(step);
         addUv(step);
         addH2O(step);
         addOpenSSL(step);
         if (self.link_net) {
-            openssl.buildLinkCrypto(self.builder, self.target, self.mode, step) catch unreachable;
+            try openssl.buildLinkCrypto(self.builder, self.target, self.mode, step);
             openssl.buildLinkSsl(self.builder, self.target, self.mode, step);
-            self.buildLinkCurl(step);
+            try self.buildLinkCurl(step);
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
-            self.buildLinkUv(step) catch unreachable;
+            try self.buildLinkUv(step);
             self.buildLinkH2O(step);
         }
         addSDL(step);
@@ -332,8 +352,11 @@ const BuilderContext = struct {
         addGL(step);
         addLyon(step);
         addStbi(step);
+        if (builtin.os.tag == .macos) {
+            self.buildLinkMacSys(step);
+        }
         if (self.link_graphics) {
-            self.buildLinkSDL2(step) catch unreachable;
+            try self.buildLinkSDL2(step);
             self.buildLinkStbtt(step);
             linkGL(step);
             self.linkLyon(step, self.target);
@@ -396,11 +419,32 @@ const BuilderContext = struct {
         // }
     }
 
+    fn buildLinkMacSys(self: *Self, step: *LibExeObjStep) void {
+        const lib = self.builder.addStaticLibrary("mac_sys", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+
+        lib.addCSourceFile("./lib/sys/mac_sys.c", &.{});
+        // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow references.
+        lib.linkFramework("CoreServices");
+        step.linkLibrary(lib);
+    }
+
     fn buildLinkH2O(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("zlib", null);
+        if (UsePrebuiltH2O) |path| {
+            step.addAssemblyFile(path);
+            return;
+        }
+        const lib = self.builder.addStaticLibrary("h2o", null);
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
         lib.c_std = .C99;
+
+        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
+            // Force using native headers or it won't find netinet/udp.h
+            lib.linkFramework("CoreServices");
+        }
+
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
         const c_flags = &[_][]const u8{
@@ -594,17 +638,16 @@ const BuilderContext = struct {
     }
 
     fn buildLinkUv(self: *Self, step: *LibExeObjStep) !void {
+        if (UsePrebuiltUv) |path| {
+            step.addAssemblyFile(path);
+            return;
+        }
+
         const lib = self.builder.addStaticLibrary("uv", null);
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
 
         var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-        if (step.target.getOsTag() == .linux) {
-            try c_flags.appendSlice(&.{
-                "-D_GNU_SOURCE",
-                "-D_POSIX_C_SOURCE=200112",
-            });
-        }
 
         // From CMakeLists.txt
         var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
@@ -621,7 +664,7 @@ const BuilderContext = struct {
             "src/uv-data-getter-setters.c",
             "src/version.c",
         });
-        if (step.target.getOsTag() == .linux) {
+        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
             try c_files.appendSlice(&.{
                 "src/unix/async.c",
                 "src/unix/core.c",
@@ -641,7 +684,11 @@ const BuilderContext = struct {
                 "src/unix/thread.c",
                 "src/unix/tty.c",
                 "src/unix/udp.c",
-
+                "src/unix/proctitle.c",
+            });
+        }
+        if (self.target.getOsTag() == .linux) {
+            try c_files.appendSlice(&.{
                 // sys
                 "src/unix/linux-core.c",
                 "src/unix/linux-inotify.c",
@@ -650,7 +697,25 @@ const BuilderContext = struct {
                 "src/unix/random-getrandom.c",
                 "src/unix/random-sysctl-linux.c",
                 "src/unix/epoll.c",
-                "src/unix/proctitle.c",
+            });
+            try c_flags.appendSlice(&.{
+                "-D_GNU_SOURCE",
+                "-D_POSIX_C_SOURCE=200112",
+            });
+        } else if (self.target.getOsTag() == .macos) {
+            try c_files.appendSlice(&.{
+                "src/unix/bsd-ifaddrs.c",
+                "src/unix/kqueue.c",
+                "src/unix/random-getentropy.c",
+                "src/unix/darwin-proctitle.c",
+                "src/unix/darwin.c",
+                "src/unix/fsevents.c",
+            });
+            try c_flags.appendSlice(&.{
+                "-D_DARWIN_UNLIMITED_SELECT=1",
+                "-D_DARWIN_USE_64_BIT_INODE=1",
+                "-D_FILE_OFFSET_BITS=64",
+                "-D_LARGEFILE_SOURCE",
             });
         }
 
@@ -664,13 +729,17 @@ const BuilderContext = struct {
         lib.linkLibC();
         lib.addIncludeDir("./deps/libuv/include");
         lib.addIncludeDir("./deps/libuv/src");
+        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
+            // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
+            // which doesn't exist in later mac libs.
+            lib.linkFramework("CoreServices");
+        }
         step.linkLibrary(lib);
     }
 
     fn buildLinkSDL2(self: *Self, step: *LibExeObjStep) !void {
         if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
             // "sdl2_config --static-libs" tells us what we need
-            step.addFrameworkDir("/System/Library/Frameworks");
             step.linkFramework("Cocoa");
             step.linkFramework("IOKit");
             step.linkFramework("CoreAudio");
@@ -679,9 +748,11 @@ const BuilderContext = struct {
             step.linkFramework("Metal");
             step.linkFramework("ForceFeedback");
             step.linkFramework("AudioToolbox");
+            step.linkFramework("GameController");
             step.linkFramework("CFNetwork");
             step.linkSystemLibrary("iconv");
             step.linkSystemLibrary("m");
+            // step.addLibPath("/usr/lib");
             if (UsePrebuiltSDL) {
                 step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
                 return;
@@ -918,6 +989,36 @@ const BuilderContext = struct {
                 "audio/pulseaudio/SDL_pulseaudio.c",
                 "joystick/linux/SDL_sysjoystick.c",
             });
+        } else if (self.target.getOsTag() == .macos) {
+            try c_files.appendSlice(&.{
+                "joystick/darwin/SDL_iokitjoystick.c",
+                "haptic/darwin/SDL_syshaptic.c",
+
+                "video/cocoa/SDL_cocoametalview.m",
+                "video/cocoa/SDL_cocoaclipboard.m",
+                "video/cocoa/SDL_cocoashape.m",
+                "video/cocoa/SDL_cocoakeyboard.m",
+                "video/cocoa/SDL_cocoamessagebox.m",
+                "video/cocoa/SDL_cocoaevents.m",
+                "video/cocoa/SDL_cocoamouse.m",
+                "video/cocoa/SDL_cocoavideo.m",
+                "video/cocoa/SDL_cocoawindow.m",
+                "video/cocoa/SDL_cocoavulkan.m",
+                "video/cocoa/SDL_cocoaopengles.m",
+                "video/cocoa/SDL_cocoamodes.m",
+                "video/cocoa/SDL_cocoaopengl.m",
+                "file/cocoa/SDL_rwopsbundlesupport.m",
+                "joystick/iphoneos/SDL_mfijoystick.m",
+                "render/metal/SDL_render_metal.m",
+                "filesystem/cocoa/SDL_sysfilesystem.m",
+                "audio/coreaudio/SDL_coreaudio.m",
+                "locale/macosx/SDL_syslocale.m",
+
+                "timer/unix/SDL_systimer.c",
+                "loadso/dlopen/SDL_sysloadso.c",
+                "misc/unix/SDL_sysurl.c",
+                "power/macosx/SDL_syspower.c",
+            });
         }
 
         for (c_files.items) |file| {
@@ -935,6 +1036,8 @@ const BuilderContext = struct {
             lib.addIncludeDir("/usr/include/x86_64-linux-gnu");
             lib.addIncludeDir("/usr/include/dbus-1.0");
             lib.addIncludeDir("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
+        } else if (self.target.getOsTag() == .macos) {
+            lib.linkFramework("CoreFoundation");
         }
         step.linkLibrary(lib);
     }
@@ -1020,9 +1123,12 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    fn buildLinkCurl(self: *Self, step: *LibExeObjStep) void {
-        if (UsePrebuiltCurl) {
-            step.addAssemblyFile("/home/fubar/repos/curl/lib/.libs/libcurl.a");
+    fn buildLinkCurl(self: *Self, step: *LibExeObjStep) !void {
+        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
+            step.linkFramework("SystemConfiguration");
+        }
+        if (UsePrebuiltCurl) |path| {
+            step.addAssemblyFile(path);
             return;
         }
 
@@ -1035,16 +1141,9 @@ const BuilderContext = struct {
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
 
-        // cpu-machine-OS
-        // eg. x86_64-pc-linux-gnu
-        const os_flag = std.fmt.allocPrint(self.builder.allocator, "-DOS=\"{s}-pc-{s}-{s}\"", .{
-            @tagName(self.target.getCpuArch()),
-            @tagName(self.target.getOsTag()),
-            @tagName(self.target.getAbi()),
-        }) catch unreachable;
-
         // See config.status or lib/curl_config.h for generated defines from configure.
-        const c_flags = &[_][]const u8{
+        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
+        try c_flags.appendSlice(&.{
             // Will make sources include curl_config.h in ./lib/curl
             "-DHAVE_CONFIG_H",
 
@@ -1054,18 +1153,31 @@ const BuilderContext = struct {
             // Hides libcurl internal symbols (hide all symbols that aren't officially external).
             "-DCURL_HIDDEN_SYMBOLS",
 
-            os_flag,
-
             // Optimize.
             "-O2",
 
             "-DCURL_STATICLIB",
 
-            "-pthread",
             "-Wno-system-headers",
-            "-Werror-implicit-function-declaration",
-            "-fvisibility=hidden",
-        };
+        });
+
+        if (self.target.getOsTag() == .linux) {
+            // cpu-machine-OS
+            // eg. x86_64-pc-linux-gnu
+            const os_flag = try std.fmt.allocPrint(self.builder.allocator, "-DOS=\"{s}-pc-{s}-{s}\"", .{
+                @tagName(self.target.getCpuArch()),
+                @tagName(self.target.getOsTag()),
+                @tagName(self.target.getAbi()),
+            });
+            try c_flags.appendSlice(&.{
+                "-DTARGET_LINUX",
+                "-pthread",
+                "-Werror-implicit-function-declaration",
+                "-fvisibility=hidden",
+                // Move to curl_config.
+                os_flag,
+            });
+        }
 
         const c_files = &[_][]const u8{
             // Copied from curl/lib/Makefile.inc (LIB_CFILES)
@@ -1223,7 +1335,7 @@ const BuilderContext = struct {
             "vtls/wolfssl.c",
         };
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/curl/lib/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/curl/lib/{s}", .{file}, c_flags.items);
         }
 
         // lib.disable_sanitize_c = true;
@@ -1231,10 +1343,19 @@ const BuilderContext = struct {
         lib.linkLibC();
         lib.addIncludeDir("./deps/curl/include");
         lib.addIncludeDir("./deps/curl/lib");
-        lib.addIncludeDir("./lib/curl");
+        // Use the same openssl config so curl knows what features it has.
+        lib.addIncludeDir("./lib/openssl/include");
+        if (self.target.getOsTag() == .linux) {
+            lib.addIncludeDir("./lib/curl/linux");
+        } else if (self.target.getOsTag() == .macos) {
+            lib.addIncludeDir("./lib/curl/macos");
+        }
         lib.addIncludeDir("./deps/openssl/include");
         lib.addIncludeDir("./deps/nghttp2/lib/includes");
         lib.addIncludeDir("./deps/zlib");
+        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
+            lib.linkFramework("SystemConfiguration");
+        }
         step.linkLibrary(lib);
     }
 
@@ -1274,12 +1395,10 @@ const BuilderContext = struct {
 
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
         const path = getV8_StaticLibPath(self.builder, step.target);
+        step.addAssemblyFile(path);
         if (self.target.getOsTag() == .linux) {
-            step.addAssemblyFile(path);
             step.linkLibCpp();
             step.linkSystemLibrary("unwind");
-        } else {
-            @panic("Unsupported");
         }
     }
 
@@ -1568,13 +1687,20 @@ const BuildLyonStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
 
         const toml_path = self.builder.pathFromRoot("./lib/clyon/Cargo.toml");
-        _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--release", "--manifest-path", toml_path });
 
-        if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
+        if (self.target.getOsTag() == .linux and self.target.getCpuArch() == .x86_64) {
+            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--release", "--manifest-path", toml_path });
             const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.a");
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.a");
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
             _ = try self.builder.exec(&[_][]const u8{ "strip", "--strip-debug", to_path });
+        } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .x86_64) {
+            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
+            const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.a");
+            const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac64/libclyon.a");
+            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
+            // This actually corrupts the lib and zig will fail to parse it after linking.
+            // _ = try self.builder.exec(&[_][]const u8{ "strip", "-S", to_path });
         }
     }
 };

@@ -73,11 +73,11 @@ const SockHandle = struct {
         uv.assertNoError(res);
     }
 
-    fn checkToDeinit(self: Self) void {
+    fn checkToDeinit(self: *Self) void {
         // Only start cleanup if sockfd was closed and there are no more active reqs.
         // Otherwise, let the last req trigger the cleanup.
         if (self.sockfd_closed and self.num_active_reqs == 0) {
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, &sock_h.poll), onUvClosePoll);
+            uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.poll), onUvClosePoll);
         }
     }
 };

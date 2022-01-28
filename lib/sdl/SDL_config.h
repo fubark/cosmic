@@ -7,6 +7,9 @@
 
 #include "SDL_platform.h"
 
+// Use GLES2 and EGL headers that come with SDL.
+#define SDL_USE_BUILTIN_OPENGL_DEFINITIONS 1
+
 /* Add any platform that doesn't build using the configure system. */
 #if defined(__WIN32__)
 #include "SDL_config_windows.h"
