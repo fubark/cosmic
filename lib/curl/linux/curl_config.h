@@ -182,6 +182,9 @@
 /* Location of default ca bundle */
 #define CURL_CA_BUNDLE "/etc/ssl/certs/ca-certificates.crt"
 
+/* Location of default ca path */
+#define CURL_CA_PATH "/etc/ssl/certs"
+
 /* Engine is deprecated in openssl 3.0, this implicitly disables openssl ui console usage  */
 #define OPENSSL_NO_ENGINE
 
