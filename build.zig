@@ -1017,16 +1017,18 @@ const BuilderContext = struct {
                 "audio/coreaudio/SDL_coreaudio.m",
                 "locale/macosx/SDL_syslocale.m",
 
+                // Currently, joystick support is disabled in SDL_config.h for macos since there were issues
+                // building in github ci and there is no cosmic joystick api atm.
+                // Once enabled, SDL_mfijoystick will have a compile error in github ci: cannot create __weak reference in file using manual reference counting
+                // This can be resolved by giving it "-fobjc-arc" cflag for just the one file.
+                // After that it turns out we'll need CoreHaptics but it's not always available and zig doesn't have a way to set weak frameworks yet:
+                // https://github.com/ziglang/zig/issues/10206
+                "joystick/iphoneos/SDL_mfijoystick.m",
+
                 "timer/unix/SDL_systimer.c",
                 "loadso/dlopen/SDL_sysloadso.c",
                 "misc/unix/SDL_sysurl.c",
                 "power/macosx/SDL_syspower.c",
-            });
-            lib.addCSourceFile("./deps/SDL/src/joystick/iphoneos/SDL_mfijoystick.m", &.{
-                "-Wno-deprecated-declarations",
-                "-Wno-unguarded-availability",
-                // For github ci, try to resolve: cannot create __weak reference in file using manual reference counting
-                "-fobjc-arc",
             });
         }
 
