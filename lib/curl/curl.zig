@@ -1,4 +1,6 @@
 const std = @import("std");
+const log = std.log.scoped(.curl);
+
 const c = @cImport({
     @cInclude("curl.h");
 });
@@ -67,6 +69,13 @@ pub const CurlM = struct {
         return c.curl_multi_info_read(self.handle, num_remaining_msgs);
     }
 
+    pub fn assertNoError(code: c.CURLMcode) void {
+        if (code != c.CURLM_OK) {
+            log.debug("curl_multi error: [{}] {s}", .{code, strerror(code)});
+            unreachable;
+        }
+    }
+
     pub fn strerror(code: c.CURLMcode) []const u8 {
         const str = c.curl_multi_strerror(code);
         const len = std.mem.len(str);
@@ -93,12 +102,24 @@ pub const Curl = struct {
         return c.curl_easy_setopt(self.handle, option, arg);
     }
 
+    pub fn mustSetOption(self: Self, option: c.CURLoption, arg: anytype) void {
+        const res = self.setOption(option, arg);
+        assertNoError(res);
+    }
+
     pub fn perform(self: Self) c.CURLcode {
         return c.curl_easy_perform(self.handle);
     }
 
     pub fn getInfo(self: Self, option: c.CURLINFO, ptr: anytype) c.CURLcode {
         return c.curl_easy_getinfo(self.handle, option, ptr);
+    }
+
+    pub fn assertNoError(code: c.CURLcode) void {
+        if (code != c.CURLE_OK) {
+            log.debug("curl_easy error: [{}] {s}", .{code, getStrError(code)});
+            unreachable;
+        }
     }
 
     pub fn getStrError(code: c.CURLcode) [*:0]const u8 {

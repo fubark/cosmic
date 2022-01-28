@@ -314,7 +314,7 @@ pub const HttpServer = struct {
     }
 
     fn onAccept(listener: *uv.uv_stream_t, status: c_int) callconv(.C) void {
-        // log.debug("accept", .{});
+        // log.debug("on accept", .{});
         if (status != 0) {
             return;
         }
