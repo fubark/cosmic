@@ -779,10 +779,12 @@ const BuilderContext = struct {
         // Use SDL_config_minimal.h instead of relying on configure or CMake
         // and add defines to make it work for most modern platforms.
         var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_flags.appendSlice(&.{
-            // This would use the generated config. Might be useful for debugging.
-            // "-DUSING_GENERATED_CONFIG_H",
-        });
+
+        if (self.target.getOsTag() == .macos) {
+            try c_flags.appendSlice(&.{
+                "-Wno-error=deprecated-declarations"
+            });
+        }
 
         // Look at CMakeLists.txt.
         var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
