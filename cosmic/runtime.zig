@@ -171,6 +171,9 @@ pub const RuntimeContext = struct {
 
         self.main_wakeup.init() catch unreachable;
 
+        // Ensure we're using the right headers and the linked uv has patches applied.
+        std.debug.assert(uv.uv_loop_size() == @sizeOf(uv.uv_loop_t));
+
         // Create libuv evloop instance.
         self.uv_loop = alloc.create(uv.uv_loop_t) catch unreachable;
         var res = uv.uv_loop_init(self.uv_loop);
@@ -1264,6 +1267,21 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
         worker.wakeup.set();
     }
 
+    uv.uv_stop(rt.uv_loop);
+    // Walk and close every handle.
+    const S = struct {
+        fn closeHandle(handle: [*c]uv.uv_handle_t, ctx: ?*anyopaque) callconv(.C) void {
+            _ = ctx;
+            uv.uv_close(@ptrCast(*uv.uv_handle_t, handle), null);
+        }
+    };
+    uv.uv_walk(rt.uv_loop, S.closeHandle, null);
+    while (uv.uv_run(rt.uv_loop, uv.UV_RUN_NOWAIT) > 0) {}
+    const res = uv.uv_loop_close(rt.uv_loop);
+    if (res == uv.UV_EBUSY) {
+        @panic("Did not expect more work.");
+    }
+
     // Wait for workers to close.
     for (rt.work_queue.workers.items) |worker| {
         while (worker.close_flag.load(.Acquire)) {}
@@ -1365,7 +1383,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
             // Start the next test.
             // Assume async test, should have already validated.
             const case = rt.isolated_tests.items[next_test];
-            log.debug("run isolated: {}/{} {s}", .{next_test, rt.isolated_tests.items.len, case.name});
+            // log.debug("run isolated: {}/{} {s}", .{next_test, rt.isolated_tests.items.len, case.name});
             if (case.js_fn.inner.call(ctx, rt.js_undefined, &.{})) |val| {
                 const promise = val.castTo(v8.Promise);
 
