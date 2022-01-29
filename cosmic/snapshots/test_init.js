@@ -15,14 +15,17 @@
     }
 
     cs.test.contains = function(act, needle) {
-        if (typeof act === 'string') {
+        if (typeof needle === 'string') {
+            if (typeof act !== 'string') {
+                throw new Error(`Expected string, got: ${act}`)
+            }
             if (act.includes(needle)) {
                 return
             } else {
                 throw new Error(`"${act}" does not include "${needle}"`)
             }
         } else {
-            throw new Error(`unsupported type: ${typeof act}`)
+            throw new Error(`unsupported type: ${typeof needle}`)
         }
     }
 
