@@ -1106,6 +1106,7 @@ const BuilderContext = struct {
                 lib.linkFramework("CoreFoundation");
             } else {
                 lib.addFrameworkDir("/System/Library/Frameworks");
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
         }
         step.linkLibrary(lib);
