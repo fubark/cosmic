@@ -60,7 +60,7 @@ pub fn build(b: *Builder) !void {
             // Set sysroot with sdk path and use these setups as needed for libs:
             // lib.addFrameworkDir("/System/Library/Frameworks");
             // lib.addSystemIncludeDir("/usr/include");
-            // Don't use zig's libc, since it will compile with ___darwin_check_fd_set_overflow which doesn't exist on newer macos.
+            // Don't use zig's libc, since it might not be up to date with the latest SDK which we need for frameworks.
             // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             if (std.zig.system.darwin.getDarwinSDK(b.allocator, builtin.target)) |sdk| {
                 b.sysroot = sdk.path;
