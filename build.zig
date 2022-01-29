@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "8df77a47d8442be0efccb514a589bda241c27c6f";
+const DepsRevision = "aa050320fc40a2bde4ccddd02c3533b4770a05e5";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -1473,6 +1473,8 @@ const BuilderContext = struct {
         if (self.target.getOsTag() == .linux) {
             step.linkLibCpp();
             step.linkSystemLibrary("unwind");
+        }  else if (self.target.getOsTag() == .macos) {
+            step.linkLibCpp();
         }
     }
 
@@ -1484,6 +1486,8 @@ const BuilderContext = struct {
             step.linkSystemLibrary("unwind");
         } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
             step.addAssemblyFile(self.fromRoot("./deps/prebuilt/mac64/libclyon.a"));
+        } else if (target.getOsTag() == .macos and target.getCpuArch() == .aarch64) {
+            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/mac-arm64/libclyon.a"));
         } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
             step.addAssemblyFile(self.fromRoot("./deps/prebuilt/win64/clyon.lib"));
         } else {
@@ -1804,11 +1808,16 @@ const BuildLyonStep = struct {
             _ = try self.builder.exec(&[_][]const u8{ "strip", "--strip-debug", to_path });
         } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .x86_64) {
             _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.a");
+            const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-apple-darwin/release/libclyon.a");
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac64/libclyon.a");
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
             // This actually corrupts the lib and zig will fail to parse it after linking.
             // _ = try self.builder.exec(&[_][]const u8{ "strip", "-S", to_path });
+        } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .aarch64) {
+            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=aarch64-apple-darwin", "--release", "--manifest-path", toml_path });
+            const out_file = self.builder.pathFromRoot("./lib/clyon/target/aarch64-apple-darwin/release/libclyon.a");
+            const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac-arm64/libclyon.a");
+            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
         }
     }
 };
@@ -1945,9 +1954,15 @@ fn createGetV8LibStep(b: *Builder, target: std.zig.CrossTarget) *std.build.LogSt
 fn getV8_StaticLibGithubUrl(alloc: std.mem.Allocator, tag: []const u8, target: std.zig.CrossTarget) []const u8 {
     const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
-    return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}_{s}_{s}.{s}", .{
-        tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
-    }) catch unreachable;
+    if (target.getCpuArch() == .aarch64 and target.getOsTag() == .macos) {
+        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}-gnu_{s}_{s}.{s}", .{
+            tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
+        }) catch unreachable;
+    } else {
+        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}_{s}_{s}.{s}", .{
+            tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
+        }) catch unreachable;
+    }
 }
 
 fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
