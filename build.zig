@@ -48,12 +48,24 @@ pub fn build(b: *Builder) !void {
 
     b.verbose = PrintCommands;
 
-    if (builtin.os.tag == .macos) {
-        // NOTE: builder.sysroot or --sysroot <path> should not be set for a native build.
-        // zig will use getDarwinSDK by default and not use it's own libc headers (meant for cross compilation)
-        // with one small caveat: the lib/exe must be linking with system library or framework. See Compilation.zig.
-        // There are lib.linkFramework("CoreServices") in places where we want to force it to use native headers.
-        // The target must be: <cpu>-native-gnu
+    if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
+        if (target.isNative()) {
+            // NOTE: builder.sysroot or --sysroot <path> should not be set for a native build;
+            // zig will use getDarwinSDK by default and not use it's own libc headers (meant for cross compilation)
+            // with one small caveat: the lib/exe must be linking with system library or framework. See Compilation.zig.
+            // There are lib.linkFramework("CoreServices") in places where we want to force it to use native headers.
+            // The target must be: <cpu>-native-gnu
+        } else {
+            // Targeting mac but not native. eg. targeting macos with a minimum version.
+            // Set sysroot with sdk path and use these setups as needed for libs:
+            // lib.addFrameworkDir("/System/Library/Frameworks");
+            // lib.addSystemIncludeDir("/usr/include");
+            // Don't use zig's libc, since it might not be up to date with the latest SDK which we need for frameworks.
+            // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            if (std.zig.system.darwin.getDarwinSDK(b.allocator, builtin.target)) |sdk| {
+                b.sysroot = sdk.path;
+            }
+        }
     }
 
     var ctx = BuilderContext{
@@ -79,8 +91,16 @@ pub fn build(b: *Builder) !void {
     const build_lyon = BuildLyonStep.create(b, ctx.target);
     b.step("lyon", "Builds rust lib with cargo and copies to deps/prebuilt").dependOn(&build_lyon.step);
 
-    const main_test = ctx.createTestStep();
-    b.step("test", "Run tests").dependOn(&main_test.step);
+    {
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const main_test = ctx.createTestStep();
+        step.step.dependOn(&main_test.step);
+        b.step("test", "Run tests").dependOn(&step.step);
+    }
 
     const test_file = ctx.createTestFileStep();
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
@@ -118,6 +138,7 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = _build_options,
         };
+
         const step = _ctx.createBuildExeStep();
         _ctx.buildLinkMock(step);
         const run = step.run();
@@ -139,12 +160,20 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = build_options,
         };
-        const step = _ctx.createBuildExeStep().run();
-        step.addArgs(&.{ "test", "test/js/test.js" });
-        // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const run = _ctx.createBuildExeStep().run();
+        run.addArgs(&.{ "test", "test/js/test.js" });
+        // run.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+        step.step.dependOn(&run.step);
+    
         b.step("test-cosmic-js", "Test cosmic js").dependOn(&step.step);
     }
 
+    var build_cosmic = b.addLog("", .{});
     {
         var _ctx = BuilderContext{
             .builder = b,
@@ -159,7 +188,12 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = build_options,
         };
-        const step = _ctx.createBuildExeStep();
+        const step = build_cosmic;
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        step.step.dependOn(&_ctx.createBuildExeStep().step);
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
     }
 
@@ -168,7 +202,7 @@ pub fn build(b: *Builder) !void {
     whitelist_test.setFilter("INCLUDE");
     b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.step);
 
-    b.default_step.dependOn(&main_test.step);
+    b.default_step.dependOn(&build_cosmic.step);
 }
 
 const BuilderContext = struct {
@@ -345,7 +379,7 @@ const BuilderContext = struct {
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
             try self.buildLinkUv(step);
-            self.buildLinkH2O(step);
+            try self.buildLinkH2O(step);
         }
         addSDL(step);
         addStbtt(step);
@@ -425,12 +459,18 @@ const BuilderContext = struct {
         lib.setBuildMode(self.mode);
 
         lib.addCSourceFile("./lib/sys/mac_sys.c", &.{});
-        // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow references.
-        lib.linkFramework("CoreServices");
+
+        if (self.target.isNativeOs()) {
+            // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow references.
+            lib.linkFramework("CoreServices");
+        } else {
+            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+        }
+
         step.linkLibrary(lib);
     }
 
-    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) void {
+    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) !void {
         if (UsePrebuiltH2O) |path| {
             step.addAssemblyFile(path);
             return;
@@ -440,14 +480,19 @@ const BuilderContext = struct {
         lib.setBuildMode(self.mode);
         lib.c_std = .C99;
 
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
-            // Force using native headers or it won't find netinet/udp.h
-            lib.linkFramework("CoreServices");
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                // Force using native headers or it won't find netinet/udp.h
+                lib.linkFramework("CoreServices");
+            } else {
+                lib.addSystemIncludeDir("/usr/include");
+            }
         }
 
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
-        const c_flags = &[_][]const u8{
+        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
+        try c_flags.appendSlice(&.{
             "-Wall",
             "-Wno-unused-value",
             "-Wno-nullability-completeness",
@@ -456,12 +501,14 @@ const BuilderContext = struct {
             "-Wno-unused-but-set-variable",
             "-Wno-unused-result",
             "-pthread",
-            "-O3",
-            "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
-            "-g3",
             "-DH2O_USE_LIBUV",
             "-DH2O_USE_ALPN",
-        };
+        });
+        if (self.target.getOsTag() == .linux) {
+            try c_flags.appendSlice(&.{
+                "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
+            });
+        }
 
         const c_files = &[_][]const u8{
             // deps
@@ -605,10 +652,10 @@ const BuilderContext = struct {
         };
 
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags.items);
         }
 
-        lib.addCSourceFile("./lib/h2o/utils.c", c_flags);
+        lib.addCSourceFile("./lib/h2o/utils.c", c_flags.items);
 
         // picohttpparser has intentional UB code in
         // findchar_fast when SSE4_2 is enabled: _mm_loadu_si128 can be given ranges pointer with less than 16 bytes.
@@ -729,17 +776,25 @@ const BuilderContext = struct {
         lib.linkLibC();
         lib.addIncludeDir("./deps/libuv/include");
         lib.addIncludeDir("./deps/libuv/src");
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
-            // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
-            // which doesn't exist in later mac libs.
-            lib.linkFramework("CoreServices");
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
+                // which doesn't exist in later mac libs.
+                lib.linkFramework("CoreServices");
+            } else {
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            }
         }
         step.linkLibrary(lib);
     }
 
     fn buildLinkSDL2(self: *Self, step: *LibExeObjStep) !void {
-        if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
             // "sdl2_config --static-libs" tells us what we need
+            if (!self.target.isNativeOs()) {
+                step.addFrameworkDir("/System/Library/Frameworks");
+                step.addLibPath("/usr/lib"); // To find libiconv.
+            }
             step.linkFramework("Cocoa");
             step.linkFramework("IOKit");
             step.linkFramework("CoreAudio");
@@ -752,8 +807,7 @@ const BuilderContext = struct {
             step.linkFramework("CFNetwork");
             step.linkSystemLibrary("iconv");
             step.linkSystemLibrary("m");
-            // step.addLibPath("/usr/lib");
-            if (UsePrebuiltSDL) {
+            if (UsePrebuiltSDL and self.target.getCpuArch() == .x86_64) {
                 step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
                 return;
             }
@@ -779,10 +833,14 @@ const BuilderContext = struct {
         // Use SDL_config_minimal.h instead of relying on configure or CMake
         // and add defines to make it work for most modern platforms.
         var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_flags.appendSlice(&.{
-            // This would use the generated config. Might be useful for debugging.
-            // "-DUSING_GENERATED_CONFIG_H",
-        });
+
+        if (self.target.getOsTag() == .macos) {
+            try c_flags.appendSlice(&.{
+                // Silence warnings that are errors by default in objc source files. Noticed this in github ci.
+                "-Wno-deprecated-declarations",
+                "-Wno-unguarded-availability",
+            });
+        }
 
         // Look at CMakeLists.txt.
         var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
@@ -1008,11 +1066,18 @@ const BuilderContext = struct {
                 "video/cocoa/SDL_cocoamodes.m",
                 "video/cocoa/SDL_cocoaopengl.m",
                 "file/cocoa/SDL_rwopsbundlesupport.m",
-                "joystick/iphoneos/SDL_mfijoystick.m",
                 "render/metal/SDL_render_metal.m",
                 "filesystem/cocoa/SDL_sysfilesystem.m",
                 "audio/coreaudio/SDL_coreaudio.m",
                 "locale/macosx/SDL_syslocale.m",
+
+                // Currently, joystick support is disabled in SDL_config.h for macos since there were issues
+                // building in github ci and there is no cosmic joystick api atm.
+                // Once enabled, SDL_mfijoystick will have a compile error in github ci: cannot create __weak reference in file using manual reference counting
+                // This can be resolved by giving it "-fobjc-arc" cflag for just the one file.
+                // After that it turns out we'll need CoreHaptics but it's not always available and zig doesn't have a way to set weak frameworks yet:
+                // https://github.com/ziglang/zig/issues/10206
+                "joystick/iphoneos/SDL_mfijoystick.m",
 
                 "timer/unix/SDL_systimer.c",
                 "loadso/dlopen/SDL_sysloadso.c",
@@ -1036,8 +1101,13 @@ const BuilderContext = struct {
             lib.addIncludeDir("/usr/include/x86_64-linux-gnu");
             lib.addIncludeDir("/usr/include/dbus-1.0");
             lib.addIncludeDir("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
-        } else if (self.target.getOsTag() == .macos) {
-            lib.linkFramework("CoreFoundation");
+        } else if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                lib.linkFramework("CoreFoundation");
+            } else {
+                lib.addFrameworkDir("/System/Library/Frameworks");
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            }
         }
         step.linkLibrary(lib);
     }
@@ -1353,7 +1423,11 @@ const BuilderContext = struct {
         lib.addIncludeDir("./deps/openssl/include");
         lib.addIncludeDir("./deps/nghttp2/lib/includes");
         lib.addIncludeDir("./deps/zlib");
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (!self.target.isNativeOs()) {
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+                lib.addFrameworkDir("/System/Library/Frameworks");
+            } 
             lib.linkFramework("SystemConfiguration");
         }
         step.linkLibrary(lib);
@@ -1665,6 +1739,40 @@ fn addParser(step: *std.build.LibExeObjStep) void {
     pkg.dependencies = &.{common_pkg};
     step.addPackage(pkg);
 }
+
+const GenMacLibCStep = struct {
+    const Self = @This();
+
+    step: std.build.Step,
+    b: *Builder,
+    target: std.zig.CrossTarget,
+
+    fn create(b: *Builder, target: std.zig.CrossTarget) *Self {
+        const new = b.allocator.create(Self) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("gen-mac-libc", .{}), b.allocator, make),
+            .b = b,
+            .target = target,
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(Self, "step", step);
+
+        const path = try std.fs.path.resolve(self.b.allocator, &.{ self.b.sysroot.?, "usr/include"});
+        const libc_file = self.b.fmt(
+            \\include_dir={s}
+            \\sys_include_dir={s}
+            \\crt_dir=
+            \\msvc_lib_dir=
+            \\kernel32_lib_dir=
+            \\gcc_dir=
+            , .{ path, path },
+        );
+        try std.fs.cwd().writeFile("./lib/macos.libc", libc_file);
+    }
+};
 
 const BuildLyonStep = struct {
     const Self = @This();

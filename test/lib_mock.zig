@@ -320,3 +320,7 @@ export fn SDL_SetWindowPosition() void {}
 export fn SDL_RaiseWindow() void {}
 export fn v8__Value__Int32Value() void {}
 export fn curl_easy_strerror() void {}
+export fn uv_walk() void {}
+export fn uv_stop() void {}
+export fn uv_loop_size() void {}
+export fn uv_loop_close() void {}

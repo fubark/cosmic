@@ -17,6 +17,10 @@
 #include "SDL_config_winrt.h"
 #elif defined(__MACOSX__)
 #include "SDL_config_macosx.h"
+// Custom defines.
+#define SDL_JOYSTICK_DISABLED 1
+#undef SDL_JOYSTICK_MFI
+// End custom defines.
 #elif defined(__IPHONEOS__)
 #include "SDL_config_iphoneos.h"
 #elif defined(__ANDROID__)
