@@ -91,8 +91,16 @@ pub fn build(b: *Builder) !void {
     const build_lyon = BuildLyonStep.create(b, ctx.target);
     b.step("lyon", "Builds rust lib with cargo and copies to deps/prebuilt").dependOn(&build_lyon.step);
 
-    const main_test = ctx.createTestStep();
-    b.step("test", "Run tests").dependOn(&main_test.step);
+    {
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const main_test = ctx.createTestStep();
+        step.step.dependOn(&main_test.step);
+        b.step("test", "Run tests").dependOn(&step.step);
+    }
 
     const test_file = ctx.createTestFileStep();
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
@@ -165,6 +173,7 @@ pub fn build(b: *Builder) !void {
         b.step("test-cosmic-js", "Test cosmic js").dependOn(&step.step);
     }
 
+    var build_cosmic = b.addLog("", .{});
     {
         var _ctx = BuilderContext{
             .builder = b,
@@ -179,7 +188,7 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = build_options,
         };
-        const step = b.addLog("", .{});
+        const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
@@ -193,7 +202,7 @@ pub fn build(b: *Builder) !void {
     whitelist_test.setFilter("INCLUDE");
     b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.step);
 
-    b.default_step.dependOn(&main_test.step);
+    b.default_step.dependOn(&build_cosmic.step);
 }
 
 const BuilderContext = struct {
