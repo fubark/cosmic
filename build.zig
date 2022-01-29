@@ -130,6 +130,7 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = _build_options,
         };
+
         const step = _ctx.createBuildExeStep();
         _ctx.buildLinkMock(step);
         const run = step.run();
@@ -151,9 +152,16 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = build_options,
         };
-        const step = _ctx.createBuildExeStep().run();
-        step.addArgs(&.{ "test", "test/js/test.js" });
-        // test_cosmic_js.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const run = _ctx.createBuildExeStep().run();
+        run.addArgs(&.{ "test", "test/js/test.js" });
+        // run.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
+        step.step.dependOn(&run.step);
+    
         b.step("test-cosmic-js", "Test cosmic js").dependOn(&step.step);
     }
 
@@ -171,7 +179,12 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .build_options = build_options,
         };
-        const step = _ctx.createBuildExeStep();
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        step.step.dependOn(&_ctx.createBuildExeStep().step);
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
     }
 
@@ -1716,6 +1729,40 @@ fn addParser(step: *std.build.LibExeObjStep) void {
     pkg.dependencies = &.{common_pkg};
     step.addPackage(pkg);
 }
+
+const GenMacLibCStep = struct {
+    const Self = @This();
+
+    step: std.build.Step,
+    b: *Builder,
+    target: std.zig.CrossTarget,
+
+    fn create(b: *Builder, target: std.zig.CrossTarget) *Self {
+        const new = b.allocator.create(Self) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("gen-mac-libc", .{}), b.allocator, make),
+            .b = b,
+            .target = target,
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(Self, "step", step);
+
+        const path = try std.fs.path.resolve(self.b.allocator, &.{ self.b.sysroot.?, "usr/include"});
+        const libc_file = self.b.fmt(
+            \\include_dir={s}
+            \\sys_include_dir={s}
+            \\crt_dir=
+            \\msvc_lib_dir=
+            \\kernel32_lib_dir=
+            \\gcc_dir=
+            , .{ path, path },
+        );
+        try std.fs.cwd().writeFile("./lib/macos.libc", libc_file);
+    }
+};
 
 const BuildLyonStep = struct {
     const Self = @This();

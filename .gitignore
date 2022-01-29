@@ -4,6 +4,7 @@
 /lib/clyon/target/
 /lib/clyon/Cargo.lock
 /lib/zig-v8
+/lib/macos.libc
 /deps
 /notes.md
 /todo.md
