@@ -48,12 +48,24 @@ pub fn build(b: *Builder) !void {
 
     b.verbose = PrintCommands;
 
-    if (builtin.os.tag == .macos) {
-        // NOTE: builder.sysroot or --sysroot <path> should not be set for a native build.
-        // zig will use getDarwinSDK by default and not use it's own libc headers (meant for cross compilation)
-        // with one small caveat: the lib/exe must be linking with system library or framework. See Compilation.zig.
-        // There are lib.linkFramework("CoreServices") in places where we want to force it to use native headers.
-        // The target must be: <cpu>-native-gnu
+    if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
+        if (target.isNative()) {
+            // NOTE: builder.sysroot or --sysroot <path> should not be set for a native build;
+            // zig will use getDarwinSDK by default and not use it's own libc headers (meant for cross compilation)
+            // with one small caveat: the lib/exe must be linking with system library or framework. See Compilation.zig.
+            // There are lib.linkFramework("CoreServices") in places where we want to force it to use native headers.
+            // The target must be: <cpu>-native-gnu
+        } else {
+            // Targeting mac but not native. eg. targeting macos with a minimum version.
+            // Set sysroot with sdk path and use these setups as needed for libs:
+            // lib.addFrameworkDir("/System/Library/Frameworks");
+            // lib.addSystemIncludeDir("/usr/include");
+            // Don't use zig's libc, since it will compile with ___darwin_check_fd_set_overflow which doesn't exist on newer macos.
+            // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            if (std.zig.system.darwin.getDarwinSDK(b.allocator, builtin.target)) |sdk| {
+                b.sysroot = sdk.path;
+            }
+        }
     }
 
     var ctx = BuilderContext{
@@ -345,7 +357,7 @@ const BuilderContext = struct {
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
             try self.buildLinkUv(step);
-            self.buildLinkH2O(step);
+            try self.buildLinkH2O(step);
         }
         addSDL(step);
         addStbtt(step);
@@ -425,12 +437,18 @@ const BuilderContext = struct {
         lib.setBuildMode(self.mode);
 
         lib.addCSourceFile("./lib/sys/mac_sys.c", &.{});
-        // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow references.
-        lib.linkFramework("CoreServices");
+
+        if (self.target.isNativeOs()) {
+            // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow references.
+            lib.linkFramework("CoreServices");
+        } else {
+            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+        }
+
         step.linkLibrary(lib);
     }
 
-    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) void {
+    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) !void {
         if (UsePrebuiltH2O) |path| {
             step.addAssemblyFile(path);
             return;
@@ -440,14 +458,19 @@ const BuilderContext = struct {
         lib.setBuildMode(self.mode);
         lib.c_std = .C99;
 
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
-            // Force using native headers or it won't find netinet/udp.h
-            lib.linkFramework("CoreServices");
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                // Force using native headers or it won't find netinet/udp.h
+                lib.linkFramework("CoreServices");
+            } else {
+                lib.addSystemIncludeDir("/usr/include");
+            }
         }
 
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
-        const c_flags = &[_][]const u8{
+        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
+        try c_flags.appendSlice(&.{
             "-Wall",
             "-Wno-unused-value",
             "-Wno-nullability-completeness",
@@ -456,12 +479,14 @@ const BuilderContext = struct {
             "-Wno-unused-but-set-variable",
             "-Wno-unused-result",
             "-pthread",
-            "-O3",
-            "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
-            "-g3",
             "-DH2O_USE_LIBUV",
             "-DH2O_USE_ALPN",
-        };
+        });
+        if (self.target.getOsTag() == .linux) {
+            try c_flags.appendSlice(&.{
+                "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
+            });
+        }
 
         const c_files = &[_][]const u8{
             // deps
@@ -605,10 +630,10 @@ const BuilderContext = struct {
         };
 
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags);
+            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags.items);
         }
 
-        lib.addCSourceFile("./lib/h2o/utils.c", c_flags);
+        lib.addCSourceFile("./lib/h2o/utils.c", c_flags.items);
 
         // picohttpparser has intentional UB code in
         // findchar_fast when SSE4_2 is enabled: _mm_loadu_si128 can be given ranges pointer with less than 16 bytes.
@@ -729,17 +754,25 @@ const BuilderContext = struct {
         lib.linkLibC();
         lib.addIncludeDir("./deps/libuv/include");
         lib.addIncludeDir("./deps/libuv/src");
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
-            // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
-            // which doesn't exist in later mac libs.
-            lib.linkFramework("CoreServices");
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
+                // which doesn't exist in later mac libs.
+                lib.linkFramework("CoreServices");
+            } else {
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            }
         }
         step.linkLibrary(lib);
     }
 
     fn buildLinkSDL2(self: *Self, step: *LibExeObjStep) !void {
-        if (builtin.os.tag == .macos and builtin.cpu.arch == .x86_64) {
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
             // "sdl2_config --static-libs" tells us what we need
+            if (!self.target.isNativeOs()) {
+                step.addFrameworkDir("/System/Library/Frameworks");
+                step.addLibPath("/usr/lib"); // To find libiconv.
+            }
             step.linkFramework("Cocoa");
             step.linkFramework("IOKit");
             step.linkFramework("CoreAudio");
@@ -752,8 +785,7 @@ const BuilderContext = struct {
             step.linkFramework("CFNetwork");
             step.linkSystemLibrary("iconv");
             step.linkSystemLibrary("m");
-            // step.addLibPath("/usr/lib");
-            if (UsePrebuiltSDL) {
+            if (UsePrebuiltSDL and self.target.getCpuArch() == .x86_64) {
                 step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
                 return;
             }
@@ -1047,8 +1079,12 @@ const BuilderContext = struct {
             lib.addIncludeDir("/usr/include/x86_64-linux-gnu");
             lib.addIncludeDir("/usr/include/dbus-1.0");
             lib.addIncludeDir("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
-        } else if (self.target.getOsTag() == .macos) {
-            lib.linkFramework("CoreFoundation");
+        } else if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                lib.linkFramework("CoreFoundation");
+            } else {
+                lib.addFrameworkDir("/System/Library/Frameworks");
+            }
         }
         step.linkLibrary(lib);
     }
@@ -1364,7 +1400,11 @@ const BuilderContext = struct {
         lib.addIncludeDir("./deps/openssl/include");
         lib.addIncludeDir("./deps/nghttp2/lib/includes");
         lib.addIncludeDir("./deps/zlib");
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (!self.target.isNativeOs()) {
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+                lib.addFrameworkDir("/System/Library/Frameworks");
+            } 
             lib.linkFramework("SystemConfiguration");
         }
         step.linkLibrary(lib);

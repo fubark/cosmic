@@ -1006,9 +1006,14 @@ pub fn buildLinkCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.built
     lib.addIncludeDir("./deps/openssl/providers/common/include");
     lib.addIncludeDir("./deps/openssl/include");
     lib.addIncludeDir("./deps/openssl");
-    if (builtin.os.tag == .macos and target.isNativeOs()) {
-        // Force use native headers since it wants to find CommonCrypto headers.
-        lib.linkFramework("CoreServices");
+    if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
+        if (target.isNativeOs()) {
+            // Force use native headers since it wants to find CommonCrypto headers.
+            lib.linkFramework("CoreServices");
+        } else {
+            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            lib.addSystemIncludeDir("/usr/include");
+        }
     }
     step.linkLibrary(lib);
 }

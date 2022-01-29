@@ -1,0 +1,6 @@
+include_dir=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include
+sys_include_dir=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include
+crt_dir=
+msvc_lib_dir=
+kernel32_lib_dir=
+gcc_dir=
