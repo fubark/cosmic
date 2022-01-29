@@ -28,9 +28,9 @@ jobs:
           - host: ubuntu-20.04
             target: x86_64-linux-gnu
             mode: release
-#          - host: macos-10.15
-#            target: x86_64-macos
-#            mode: release
+          - host: macos-11
+            target: x86_64-macos-gnu
+            mode: release
 #          - host: windows-2019
 #            target: x86_64-windows-msvc
 #            mode: release
@@ -42,16 +42,17 @@ jobs:
         ${{ fromJson('{
           "x86_64-windows-msvc": "x86_64-windows",
           "x86_64-linux-gnu": "cosmic-linux-x64.zip",
-          "x86_64-macos": "x86_64-macos",
+          "x86_64-macos-gnu": "cosmic-macos-x64.zip",
           "aarch64-macos-gnu": "aarch64-macos",
         }')[matrix.config.target] }}
       ZIG_TARGET_FLAG: >-
         ${{ fromJson('{
           "x86_64-windows-msvc": "-Dtarget=x86_64-windows -Dcpu=baseline",
           "x86_64-linux-gnu": "-Dtarget=x86_64-linux-gnu -Dcpu=baseline",
-          "x86_64-macos": "-Dtarget=x86_64-macos -Dcpu=native",
+          "x86_64-macos-gnu": "-Dtarget=x86_64-macos.10.13-gnu -Dcpu=baseline",
           "aarch64-macos-gnu": "-Dtarget=aarch64-macos -Dcpu=native",
         }')[matrix.config.target] }}
+      BUILD_HOST: ${{ matrix.config.host }}
       BUILD_TARGET: ${{ matrix.config.target }}
       BUILD_MODE: ${{ matrix.config.mode }}
       BIN_NAME: cosmic
@@ -96,13 +97,6 @@ jobs:
       - name: Get deps.
         run: zig build get-deps ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
 
-      # For https request test.
-      - name: Install self signed certificate (Linux)
-        if: matrix.config.host == 'ubuntu-20.04'
-        run: |
-          sudo cp deps/https/localhost.crt /usr/local/share/ca-certificates
-          sudo update-ca-certificates
-
       - name: Get prebuilt v8.
         run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
 
@@ -122,18 +116,26 @@ jobs:
         run: |
           strip zig-out/main/main
 
+      - name: Strip (macOS)
+        if: env.BUILD_TARGET == 'x86_64-macos-gnu' && env.BUILD_MODE == 'release'
+        run: |
+          strip zig-out/main/main
+
+      # Currently just ad hoc signing.
+      - name: Codesign (macOS)
+        if: env.BUILD_TARGET == 'x86_64-macos-gnu' && env.BUILD_MODE == 'release'
+        run: |
+          codesign --force --deep -s - zig-out/main/main
+
       - name: Copy binary.
         run: cp
           zig-out/main/main${{ env.BIN_EXT }}
           zig-out/main/cosmic${{ env.BIN_EXT }}
 
-      - uses: vimtor/action-zip@v1
-        with:
-          files: zig-out/main/cosmic${{ env.BIN_EXT }}
-          # This actually works the opposite the way it was documented. Set to true to not include the folder path.
-          # https://github.com/vimtor/action-zip/issues/8
-          recursive: true
-          dest: ${{ env.BIN_ZIP }}
+      - name: Zip. (linux/macos)
+        if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
+        run: |
+          (cd zig-out/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
 
       # To update the release create date, we need to recreate the latest tag.
       - name: Update latest tag.
@@ -169,6 +171,10 @@ jobs:
               });
             }
 
+      - name: Get current time.
+        uses: josStorer/get-current-time@v2
+        id: time
+
       - name: Github Release.
         uses: softprops/action-gh-release@v0.1.14
         # Github requires tags for releases.
@@ -176,7 +182,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          body: Certified, latest development build.
+          body: |
+            Certified, latest development build.
+
+            Last updated: ${{ steps.time.outputs.readableTime }}
           name: ${{ steps.version.outputs.version }}
           tag_name: latest
           prerelease: false
