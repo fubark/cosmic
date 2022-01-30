@@ -1316,10 +1316,17 @@ inline fn hasPendingEvents(rt: *RuntimeContext) bool {
 
     // There will at least be 1 active handle (the dummy async handle used to do interrupts from main thread).
     // uv handle checks is based on uv_loop_alive():
-    return rt.uv_loop.active_handles > 1 or 
-        rt.uv_loop.active_reqs.count > 0 or
-        rt.uv_loop.closing_handles != null or 
-        rt.work_queue.hasUnfinishedTasks();
+    if (builtin.os.tag == .windows) {
+        return rt.uv_loop.active_handles > 1 or 
+            rt.uv_loop.active_reqs.count > 0 or
+            rt.uv_loop.endgame_handles != null or 
+            rt.work_queue.hasUnfinishedTasks();
+    } else {
+        return rt.uv_loop.active_handles > 1 or 
+            rt.uv_loop.active_reqs.count > 0 or
+            rt.uv_loop.closing_handles != null or 
+            rt.work_queue.hasUnfinishedTasks();
+    }
 }
 
 /// Waits until there is work to process if there is work in progress.
