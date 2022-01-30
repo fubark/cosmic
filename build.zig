@@ -38,9 +38,10 @@ pub fn build(b: *Builder) !void {
     const net = b.option(bool, "net", "Link net libs") orelse false;
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
-    const target = b.standardTargetOptions(.{});
     const deps_rev = b.option([]const u8, "deps-rev", "Override the deps revision.") orelse DepsRevision;
     const is_official_build = b.option(bool, "is-official-build", "Whether the build should be an official build.") orelse false;
+    const target = b.standardTargetOptions(.{});
+    const mode = b.standardReleaseOptions();
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -77,7 +78,7 @@ pub fn build(b: *Builder) !void {
         .static_link = static_link,
         .path = path,
         .filter = filter,
-        .mode = b.standardReleaseOptions(),
+        .mode = mode,
         .target = target,
         .build_options = build_options,
     };
@@ -115,6 +116,14 @@ pub fn build(b: *Builder) !void {
     const build_lib = ctx.createBuildLibStep();
     b.step("lib", "Build lib with main file at -Dpath").dependOn(&build_lib.step);
 
+    {
+        const step = b.step("openssl", "Build openssl.");
+        const crypto = try openssl.buildCrypto(b, target, mode);
+        step.dependOn(&b.addInstallArtifact(crypto).step);
+        const ssl = try openssl.buildSsl(b, target, mode);
+        step.dependOn(&b.addInstallArtifact(ssl).step);
+    }
+
     const build_wasm = ctx.createBuildWasmBundleStep();
     b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
 
@@ -134,7 +143,7 @@ pub fn build(b: *Builder) !void {
             .static_link = static_link,
             .path = "cosmic/doc_gen.zig",
             .filter = filter,
-            .mode = b.standardReleaseOptions(),
+            .mode = mode,
             .target = target,
             .build_options = _build_options,
         };
@@ -156,7 +165,7 @@ pub fn build(b: *Builder) !void {
             .static_link = static_link,
             .path = "cosmic/main.zig",
             .filter = filter,
-            .mode = b.standardReleaseOptions(),
+            .mode = mode,
             .target = target,
             .build_options = build_options,
         };
@@ -184,7 +193,7 @@ pub fn build(b: *Builder) !void {
             .static_link = static_link,
             .path = "cosmic/main.zig",
             .filter = filter,
-            .mode = b.standardReleaseOptions(),
+            .mode = mode,
             .target = target,
             .build_options = build_options,
         };
@@ -202,7 +211,7 @@ pub fn build(b: *Builder) !void {
     whitelist_test.setFilter("INCLUDE");
     b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.step);
 
-    b.default_step.dependOn(&build_cosmic.step);
+    // b.default_step.dependOn(&build_cosmic.step);
 }
 
 const BuilderContext = struct {
@@ -224,6 +233,11 @@ const BuilderContext = struct {
         return self.builder.pathFromRoot(path);
     }
 
+    fn setOutputDir(self: *Self, obj: *LibExeObjStep, name: []const u8) void {
+        const output_dir = self.fromRoot(self.builder.fmt("zig-out/{s}", .{ name }));
+        obj.setOutputDir(output_dir);
+    }
+
     fn createBuildLibStep(self: *Self) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
@@ -233,10 +247,7 @@ const BuilderContext = struct {
         const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
         self.setBuildMode(step);
         self.setTarget(step);
-
-        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
-        const output_dir = self.fromRoot(output_dir_rel);
-        step.setOutputDir(output_dir);
+        self.setOutputDir(step, name);
 
         addStdx(step, build_options);
         addInput(step);
@@ -373,8 +384,10 @@ const BuilderContext = struct {
         addH2O(step);
         addOpenSSL(step);
         if (self.link_net) {
-            try openssl.buildLinkCrypto(self.builder, self.target, self.mode, step);
-            openssl.buildLinkSsl(self.builder, self.target, self.mode, step);
+            const crypto = try openssl.buildCrypto(self.builder, self.target, self.mode);
+            openssl.linkCrypto(step, crypto);
+            const ssl = try openssl.buildSsl(self.builder, self.target, self.mode);
+            openssl.linkSsl(step, ssl);
             try self.buildLinkCurl(step);
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
@@ -1813,6 +1826,11 @@ const BuildLyonStep = struct {
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.a");
             _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
             _ = try self.builder.exec(&[_][]const u8{ "strip", "--strip-debug", to_path });
+        } else if (self.target.getOsTag() == .windows and self.target.getCpuArch() == .x86_64 and self.target.getAbi() == .gnu) {
+            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=x86_64-pc-windows-gnu", "--release", "--manifest-path", toml_path });
+            const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-pc-windows-gnu/release/clyon.lib");
+            const to_path = self.builder.pathFromRoot("./deps/prebuilt/win64/clyon.lib");
+            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
         } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .x86_64) {
             _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
             const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-apple-darwin/release/libclyon.a");
