@@ -31,7 +31,7 @@ var timer_inited = false;
 
 // Use heap for handles since hashmap can grow.
 var galloc: std.mem.Allocator = undefined;
-var sock_handles: std.AutoHashMap(i32, *SockHandle) = undefined;
+var sock_handles: std.AutoHashMap(std.os.socket_t, *SockHandle) = undefined;
 
 const SockHandle = struct {
     const Self = @This();
@@ -41,7 +41,7 @@ const SockHandle = struct {
     polling_readable: bool,
     polling_writable: bool,
 
-    sockfd: curl.curl_socket_t,
+    sockfd: std.os.socket_t,
 
     // There is a bug (first noticed in MacOS) where CURL will call socketfunction
     // before opensocketfunction for internal use: https://github.com/curl/curl/issues/5747
@@ -59,7 +59,7 @@ const SockHandle = struct {
     // Once this becomes 0, start to close this handle.
     num_active_reqs: u32,
 
-    pub fn init(self: *Self, sockfd: curl.curl_socket_t) void {
+    pub fn init(self: *Self, sockfd: std.os.socket_t) void {
         self.* = .{
             .poll = undefined,
             .polling_readable = false,
@@ -69,7 +69,8 @@ const SockHandle = struct {
             .num_active_reqs = 0,
             .sockfd_closed = false,
         };
-        const res = uv.uv_poll_init_socket(curlm_uvloop, &self.poll, sockfd);
+        const c_sockfd = if (builtin.os.tag == .windows) @ptrToInt(sockfd) else sockfd;
+        const res = uv.uv_poll_init_socket(curlm_uvloop, &self.poll, c_sockfd);
         uv.assertNoError(res);
     }
 
@@ -102,7 +103,7 @@ pub fn init(alloc: std.mem.Allocator) void {
     _ = curlm.setOption(curl.CURLMOPT_TIMERFUNCTION, onCurlSetTimer);
     // _ = curlm.setOption(curl.CURLMOPT_PUSHFUNCTION, onCurlPush);
 
-    sock_handles = std.AutoHashMap(i32, *SockHandle).init(alloc);
+    sock_handles = std.AutoHashMap(std.os.socket_t, *SockHandle).init(alloc);
     galloc = alloc;
 }
 
@@ -199,7 +200,9 @@ fn onOpenSocket(client_ptr: ?*anyopaque, purpose: curl.curlsocktype, addr: *curl
     }
     // Mark as ready, any onSocket callback from now on is related to the request.
     entry.value_ptr.*.ready = true;
-    return sockfd;
+
+    const c_sockfd = if (builtin.os.tag == .windows) @ptrToInt(sockfd) else sockfd;
+    return c_sockfd;
 }
 
 fn onCloseSocket(client_ptr: ?*anyopaque, sockfd: curl.curl_socket_t) callconv(.C) c_int  {
@@ -207,8 +210,9 @@ fn onCloseSocket(client_ptr: ?*anyopaque, sockfd: curl.curl_socket_t) callconv(.
     // log.debug("onCloseSocket", .{});
 
     // Close the sockfd.
-    std.os.closeSocket(sockfd);
-    const sock_h = sock_handles.get(sockfd).?;
+    const cross_sockfd = if (builtin.os.tag == .windows) @intToPtr(std.os.socket_t, sockfd) else sockfd;
+    std.os.closeSocket(cross_sockfd);
+    const sock_h = sock_handles.get(cross_sockfd).?;
     sock_h.sockfd_closed = true;
     sock_h.checkToDeinit();
     return 0;
@@ -249,7 +253,7 @@ const AsyncRequestHandle = struct {
     ch: Curl,
 
     attached_to_sockfd: bool,
-    sock_fd: curl.curl_socket_t,
+    sock_fd: std.os.socket_t,
 
     status_code: u32,
     header_ctx: HeaderContext,
@@ -304,7 +308,8 @@ fn onUvPolled(ptr: [*c]uv.uv_poll_t, status: c_int, events: c_int) callconv(.C) 
  
     const sock_h = @ptrCast(*SockHandle, ptr);
     var running_handles: c_int = undefined;
-    const res = curlm.socketAction(sock_h.sockfd, flags, &running_handles);
+    const c_sockfd = if (builtin.os.tag == .windows) @ptrToInt(sock_h.sockfd) else sock_h.sockfd;
+    const res = curlm.socketAction(c_sockfd, flags, &running_handles);
     CurlM.assertNoError(res);
     checkDone();
 }
@@ -342,10 +347,11 @@ fn onSocket(_h: *curl.CURL, sock_fd: curl.curl_socket_t, action: c_int, user_ptr
     _ = user_ptr;
     _ = socket_ptr;
 
-    const entry = sock_handles.getOrPut(sock_fd) catch unreachable;
+    const cross_sockfd = if (builtin.os.tag == .windows) @intToPtr(std.os.socket_t, sock_fd) else sock_fd;
+    const entry = sock_handles.getOrPut(cross_sockfd) catch unreachable;
     if (!entry.found_existing) {
         entry.value_ptr.* = galloc.create(SockHandle) catch unreachable;
-        entry.value_ptr.*.init(sock_fd);
+        entry.value_ptr.*.init(cross_sockfd);
     } else {
         if (entry.value_ptr.*.sockfd_closed) {
             @panic("Did not expect to reuse closed sockfd");
