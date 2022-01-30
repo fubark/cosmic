@@ -71,12 +71,12 @@ pub const CurlM = struct {
 
     pub fn assertNoError(code: c.CURLMcode) void {
         if (code != c.CURLM_OK) {
-            log.debug("curl_multi error: [{}] {s}", .{code, strerror(code)});
+            log.debug("curl_multi error: [{}] {s}", .{code, getStrError(code)});
             unreachable;
         }
     }
 
-    pub fn strerror(code: c.CURLMcode) []const u8 {
+    pub fn getStrError(code: c.CURLMcode) []const u8 {
         const str = c.curl_multi_strerror(code);
         const len = std.mem.len(str);
         return str[0..len];
