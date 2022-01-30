@@ -1821,28 +1821,36 @@ const BuildLyonStep = struct {
         const toml_path = self.builder.pathFromRoot("./lib/clyon/Cargo.toml");
 
         if (self.target.getOsTag() == .linux and self.target.getCpuArch() == .x86_64) {
-            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--release", "--manifest-path", toml_path });
+            _ = try self.builder.exec(&.{ "cargo", "build", "--release", "--manifest-path", toml_path });
             const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.a");
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.a");
-            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
-            _ = try self.builder.exec(&[_][]const u8{ "strip", "--strip-debug", to_path });
+            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
+            _ = try self.builder.exec(&.{ "strip", "--strip-debug", to_path });
         } else if (self.target.getOsTag() == .windows and self.target.getCpuArch() == .x86_64 and self.target.getAbi() == .gnu) {
-            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=x86_64-pc-windows-gnu", "--release", "--manifest-path", toml_path });
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-pc-windows-gnu/release/clyon.lib");
+            var env_map = try self.builder.allocator.create(std.BufMap);
+            env_map.* = try std.process.getEnvMap(self.builder.allocator);
+            // Attempted to use zig cc like: https://github.com/ziglang/zig/issues/10336
+            // But ran into issues linking with -lgcc_eh
+            // try env_map.put("RUSTFLAGS", "-C linker=/Users/fubar/dev/cosmic/zig-cc");
+            try env_map.put("RUSTFLAGS", "-C linker=/usr/local/Cellar/mingw-w64/9.0.0_2/bin/x86_64-w64-mingw32-gcc");
+            try self.builder.spawnChildEnvMap(null, env_map, &.{
+                "cargo", "build", "--target=x86_64-pc-windows-gnu", "--release", "--manifest-path", toml_path,
+            });
+            const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-pc-windows-gnu/release/libclyon.a");
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/win64/clyon.lib");
-            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
+            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
         } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .x86_64) {
-            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
+            _ = try self.builder.exec(&.{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
             const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-apple-darwin/release/libclyon.a");
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac64/libclyon.a");
-            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
+            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
             // This actually corrupts the lib and zig will fail to parse it after linking.
             // _ = try self.builder.exec(&[_][]const u8{ "strip", "-S", to_path });
         } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .aarch64) {
-            _ = try self.builder.exec(&[_][]const u8{ "cargo", "build", "--target=aarch64-apple-darwin", "--release", "--manifest-path", toml_path });
+            _ = try self.builder.exec(&.{ "cargo", "build", "--target=aarch64-apple-darwin", "--release", "--manifest-path", toml_path });
             const out_file = self.builder.pathFromRoot("./lib/clyon/target/aarch64-apple-darwin/release/libclyon.a");
             const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac-arm64/libclyon.a");
-            _ = try self.builder.exec(&[_][]const u8{ "cp", out_file, to_path });
+            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
         }
     }
 };
