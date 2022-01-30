@@ -326,10 +326,10 @@ const BuilderContext = struct {
         const build_options = self.buildOptionsPkg();
         addStdx(step, build_options);
         addCommon(step);
-        if (self.link_graphics) {
-            addStbtt(step);
-            self.buildLinkStbtt(step);
-        }
+        addGraphics(step);
+        addInput(step);
+        self.addDeps(step) catch unreachable;
+        self.buildLinkMock(step);
 
         step.addPackage(build_options);
         self.postStep(step);
@@ -479,15 +479,6 @@ const BuilderContext = struct {
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
         lib.c_std = .C99;
-
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (self.target.isNativeOs()) {
-                // Force using native headers or it won't find netinet/udp.h
-                lib.linkFramework("CoreServices");
-            } else {
-                lib.addSystemIncludeDir("/usr/include");
-            }
-        }
 
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
@@ -663,6 +654,15 @@ const BuilderContext = struct {
         // For now, disable sanitize c for entire h2o lib.
         lib.disable_sanitize_c = true;
 
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (self.target.isNativeOs()) {
+                // Force using native headers or it won't find netinet/udp.h
+                lib.linkFramework("CoreServices");
+            } else {
+                lib.addSystemIncludeDir("/usr/include");
+            }
+        } 
+
         lib.linkLibC();
         lib.addIncludeDir("./deps/openssl/include");
         lib.addIncludeDir("./deps/libuv/include");
@@ -681,6 +681,10 @@ const BuilderContext = struct {
         lib.addIncludeDir("./deps/h2o/deps/libyrmcds");
         lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src/ext");
         lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
+        if (self.target.getOsTag() == .windows) {
+            // Since H2O source relies on posix only, provide an interface to windows API.
+            lib.addIncludeDir("./lib/sys/win_posix");
+        } 
         step.linkLibrary(lib);
     }
 
@@ -1497,7 +1501,7 @@ const BuilderContext = struct {
     }
 
     fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addSharedLibrary("mock", self.fromRoot("./test/lib_mock.zig"), .unversioned);
+        const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
         addGL(lib);
         step.linkLibrary(lib);
     }
@@ -1600,6 +1604,9 @@ fn addH2O(step: *LibExeObjStep) void {
     step.addIncludeDir("./deps/h2o/deps/picotls/include");
     step.addIncludeDir("./deps/h2o/deps/quicly/include");
     step.addIncludeDir("./deps/openssl/include");
+    if (step.target.getOsTag() == .windows) {
+        step.addIncludeDir("./lib/sys/win_posix");
+    }
 }
 
 const uv_pkg = Pkg{

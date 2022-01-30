@@ -458,7 +458,7 @@ const quicly_context = extern struct {
     /// called wen a NEW_TOKEN token is being received
     save_resumption_token: *c.quicly_save_resumption_token_t,
 
-    generate_resumption_token: *c.quicly_generate_resumption_token_t,
+    generate_resumption_token: *quicly_generate_resumption_token_t,
 
     /// crypto engine (offload API)
     crypto_engine: *c.quicly_crypto_engine_t,
@@ -468,6 +468,18 @@ const quicly_context = extern struct {
 
     /// optional refcount callback
     update_open_count: *c.quicly_update_open_count_t,
+};
+
+const quicly_generate_resumption_token_t = extern struct {
+    cb: ?fn ([*c]struct_st_quicly_generate_resumption_token_t, ?*c.quicly_conn_t, [*c]c.ptls_buffer_t, [*c]quicly_address_token_plaintext_t) callconv(.C) c_int,
+};
+
+pub const struct_st_quicly_generate_resumption_token_t = extern struct {
+    cb: ?fn ([*c]struct_st_quicly_generate_resumption_token_t, ?*c.quicly_conn_t, [*c]c.ptls_buffer_t, [*c]quicly_address_token_plaintext_t) callconv(.C) c_int,
+};
+
+const quicly_address_token_plaintext_t = extern struct {
+    stub: c_int,
 };
 
 /// Transport Parameters; the struct contains "configuration parameters", ODCID is managed separately
@@ -740,7 +752,11 @@ const h2o_quic_conn_callbacks = extern struct {
     destroy_connection: ?fn ([*c]h2o_quic_conn) callconv(.C) void,
 };
 
-const h2o_quic_accept_cb = ?fn ([*c]h2o_quic_ctx, [*c]c.quicly_address_t, [*c]c.quicly_address_t, [*c]quicly_decoded_packet) callconv(.C) [*c]h2o_quic_conn;
+const h2o_quic_accept_cb = ?fn ([*c]h2o_quic_ctx, [*c]quicly_address_t, [*c]quicly_address_t, [*c]quicly_decoded_packet) callconv(.C) [*c]h2o_quic_conn;
+
+const quicly_address_t = extern struct {
+    stub: c_int,
+};
 
 const quicly_decoded_packet = extern struct {
     octets: c.ptls_iovec_t,
@@ -780,8 +796,8 @@ const struct_unnamed_151 = extern struct {
 
 const enum_unnamed_152 = c_uint;
 
-const h2o_quic_forward_packets_cb = ?fn ([*c]h2o_quic_ctx, [*c]const u64, u32, [*c]c.quicly_address_t, [*c]c.quicly_address_t, u8, [*c]quicly_decoded_packet, usize) callconv(.C) c_int;
-const h2o_quic_preprocess_packet_cb = ?fn ([*c]h2o_quic_ctx, [*c]c.struct_msghdr, [*c]c.quicly_address_t, [*c]c.quicly_address_t, [*c]u8) callconv(.C) c_int;
+const h2o_quic_forward_packets_cb = ?fn ([*c]h2o_quic_ctx, [*c]const u64, u32, [*c]quicly_address_t, [*c]quicly_address_t, u8, [*c]quicly_decoded_packet, usize) callconv(.C) c_int;
+const h2o_quic_preprocess_packet_cb = ?fn ([*c]h2o_quic_ctx, [*c]c.struct_msghdr, [*c]quicly_address_t, [*c]quicly_address_t, [*c]u8) callconv(.C) c_int;
 
 const h2o_logger = extern struct {
     _config_slot: usize,
