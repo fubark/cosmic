@@ -14,6 +14,7 @@ pub const UvPoller = struct {
     inner: switch (builtin.os.tag) {
         .linux => UvPollerLinux,
         .macos => UvPollerMac,
+        .windows => UvPollerWindows,
         else => unreachable,
     },
 
@@ -121,3 +122,32 @@ const UvPollerMac = struct {
         }
     }
 };
+
+const UvPollerWindows = struct {
+    const Self = @This();
+
+    fn init(self: *Self, uv_loop: *uv.uv_loop_t) void {
+        _ = self;
+        _ = uv_loop;
+    }
+
+    fn poll(self: Self, uv_loop: *uv.uv_loop_t) void {
+        _ = self;
+
+        var bytes: u32 = undefined;
+        var key: usize = undefined;
+        var overlapped: ?*std.os.windows.OVERLAPPED = null;
+
+        const timeout = @intCast(u32, uv.uv_backend_timeout(uv_loop));
+
+        _ = std.os.windows.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, timeout);
+
+        // Give the event back so libuv can deal with it.
+        if (overlapped != null) {
+            std.os.windows.PostQueuedCompletionStatus(uv_loop.iocp.?, bytes, key, overlapped) catch |err| {
+                log.debug("PostQueuedCompletionStatus error: {}", .{err});
+            }; 
+        }
+    }
+};
+
