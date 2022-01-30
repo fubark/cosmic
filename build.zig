@@ -1943,7 +1943,8 @@ fn createGetV8LibStep(b: *Builder, target: std.zig.CrossTarget) *std.build.LogSt
     const lib_path = getV8_StaticLibPath(b, target);
 
     if (builtin.os.tag == .windows) {
-        std.debug.panic("TODO: Create powershell script.");
+        var sub_step = b.addSystemCommand(&.{ "powershell", "Invoke-WebRequest", "-Uri", url, "-OutFile", lib_path });
+        step.step.dependOn(&sub_step.step);
     } else {
         var sub_step = b.addSystemCommand(&.{ "curl", "-L", url, "-o", lib_path });
         step.step.dependOn(&sub_step.step);
@@ -1956,6 +1957,10 @@ fn getV8_StaticLibGithubUrl(alloc: std.mem.Allocator, tag: []const u8, target: s
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
     if (target.getCpuArch() == .aarch64 and target.getOsTag() == .macos) {
         return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}-gnu_{s}_{s}.{s}", .{
+            tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
+        }) catch unreachable;
+    } else if (target.getOsTag() == .windows) {
+        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}-msvc_{s}_{s}.{s}", .{
             tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
         }) catch unreachable;
     } else {
