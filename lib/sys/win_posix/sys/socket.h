@@ -1,14 +1,10 @@
-#include <winsock.h>
-#include <winsock2.h>
-#include <ws2ipdef.h>
-
 #ifndef SYS_SOCKET_H
 #define SYS_SOCKET_H
 
-struct iovec {
-    void* iov_base;
-    size_t iov_len;
-};
+#include <winsock.h>
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <sys/uio.h>
 
 struct msghdr {
     WSAMSG inner;

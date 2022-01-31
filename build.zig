@@ -503,13 +503,20 @@ const BuilderContext = struct {
             try c_flags.appendSlice(&.{
                 "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
             });
+        } else if (self.target.getOsTag() == .windows) {
+            try c_flags.appendSlice(&.{
+                "-D_WINDOWS=1",
+                // Need this when using C99.
+                "-D_POSIX_C_SOURCE=200809L",
+                "-D_POSIX",
+            });
         }
 
         var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
         try c_files.appendSlice(&.{
             // deps
             "deps/picohttpparser/picohttpparser.c",
-            "deps/cloexec/cloexec.c",
+            //"deps/cloexec/cloexec.c",
             //"deps/hiredis/async.c",
             //"deps/hiredis/hiredis.c",
             //"deps/hiredis/net.c",
@@ -555,18 +562,18 @@ const BuilderContext = struct {
 
             // common
             "lib/common/cache.c",
-            "lib/common/file.c",
+            // "lib/common/file.c",
             "lib/common/filecache.c",
             "lib/common/hostinfo.c",
             "lib/common/http1client.c",
             "lib/common/http2client.c",
             "lib/common/http3client.c",
             "lib/common/httpclient.c",
-            "lib/common/memcached.c",
+            // "lib/common/memcached.c",
             "lib/common/memory.c",
-            "lib/common/multithread.c",
-            "lib/common/redis.c",
-            "lib/common/serverutil.c",
+            // "lib/common/multithread.c",
+            // "lib/common/redis.c",
+            // "lib/common/serverutil.c",
             "lib/common/socket.c",
             "lib/common/socketpool.c",
             "lib/common/string.c",
@@ -583,18 +590,18 @@ const BuilderContext = struct {
             "lib/core/configurator.c",
             "lib/core/context.c",
             "lib/core/headers.c",
-            "lib/core/logconf.c",
+            // "lib/core/logconf.c",
             "lib/core/proxy.c",
             "lib/core/request.c",
             "lib/core/util.c",
 
-            "lib/handler/access_log.c",
+            // "lib/handler/access_log.c",
             "lib/handler/compress.c",
             "lib/handler/compress/gzip.c",
             "lib/handler/errordoc.c",
             "lib/handler/expires.c",
             "lib/handler/fastcgi.c",
-            "lib/handler/file.c",
+            // "lib/handler/file.c",
             "lib/handler/headers.c",
             "lib/handler/mimemap.c",
             "lib/handler/proxy.c",
@@ -615,7 +622,7 @@ const BuilderContext = struct {
             "lib/handler/configurator/compress.c",
             "lib/handler/configurator/errordoc.c",
             "lib/handler/configurator/expires.c",
-            "lib/handler/configurator/fastcgi.c",
+            // "lib/handler/configurator/fastcgi.c",
             "lib/handler/configurator/file.c",
             "lib/handler/configurator/headers.c",
             "lib/handler/configurator/proxy.c",
@@ -641,10 +648,10 @@ const BuilderContext = struct {
             "lib/http2/stream.c",
             "lib/http2/http2_debug_state.c",
 
-            "lib/http3/frame.c",
-            "lib/http3/qpack.c",
-            "lib/http3/common.c",
-            "lib/http3/server.c",
+            // "lib/http3/frame.c",
+            // "lib/http3/qpack.c",
+            // "lib/http3/common.c",
+            // "lib/http3/server.c",
         });
 
         for (c_files.items) |file| {
@@ -669,6 +676,10 @@ const BuilderContext = struct {
         } 
 
         lib.linkLibC();
+
+        // Load user_config.h here. include/h2o.h was patched to include user_config.h
+        lib.addIncludeDir("./lib/h2o");
+
         lib.addIncludeDir("./deps/openssl/include");
         lib.addIncludeDir("./deps/libuv/include");
         lib.addIncludeDir("./deps/h2o/include");
