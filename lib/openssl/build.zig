@@ -10,11 +10,21 @@ const UsePrebuiltSsl: ?[]const u8 = null;
 // const UsePrebuiltSsl: ?[]const u8 = "/home/linuxbrew/.linuxbrew/Cellar/openssl@3/3.0.1/lib/libssl.a";
 // const UsePrebuiltSsl: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
 
-pub fn linkCrypto(step: *LibExeObjStep, lib: *LibExeObjStep) void {
+pub fn buildLinkCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode, step: *LibExeObjStep) !void {
     if (UsePrebuiltCrypto) |path| {
         step.addAssemblyFile(path);
         return;
     }
+    if (builtin.os.tag == .windows) {
+        // Can't build, too many args in build-lib will break zig :)
+        step.addAssemblyFile("./deps/prebuilt/win64/crypto.lib");
+        return;
+    }
+    const lib = try buildCrypto(b, target, mode);
+    linkCrypto(step, lib);
+}
+
+pub fn linkCrypto(step: *LibExeObjStep, lib: *LibExeObjStep) void {
     step.linkLibrary(lib);
 }
 
@@ -1032,11 +1042,20 @@ pub fn buildCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.M
     return lib;
 }
 
-pub fn linkSsl(step: *LibExeObjStep, lib: *LibExeObjStep) void {
+pub fn buildLinkSsl(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode, step: *LibExeObjStep) !void {
     if (UsePrebuiltSsl) |path| {
         step.addAssemblyFile(path);
         return;
     }
+    if (builtin.os.tag == .windows) {
+        step.addAssemblyFile("./deps/prebuilt/win64/ssl.lib");
+        return;
+    }
+    const lib = try buildSsl(b, target, mode);
+    linkSsl(step, lib);
+}
+
+pub fn linkSsl(step: *LibExeObjStep, lib: *LibExeObjStep) void {
     step.linkLibrary(lib);
 }
 

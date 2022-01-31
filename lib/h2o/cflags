@@ -1,0 +1,10 @@
+-Wall
+-Wno-unused-value
+-Wno-nullability-completeness
+-Werror=implicit-function-declaration
+-Werror=incompatible-pointer-types
+-Wno-unused-but-set-variable
+-Wno-unused-result
+-pthread
+-DH2O_USE_LIBUV
+-DH2O_USE_ALPN

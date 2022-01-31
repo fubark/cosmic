@@ -384,10 +384,8 @@ const BuilderContext = struct {
         addH2O(step);
         addOpenSSL(step);
         if (self.link_net) {
-            const crypto = try openssl.buildCrypto(self.builder, self.target, self.mode);
-            openssl.linkCrypto(step, crypto);
-            const ssl = try openssl.buildSsl(self.builder, self.target, self.mode);
-            openssl.linkSsl(step, ssl);
+            try openssl.buildLinkCrypto(self.builder, self.target, self.mode, step);
+            try openssl.buildLinkSsl(self.builder, self.target, self.mode, step);
             try self.buildLinkCurl(step);
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
@@ -496,17 +494,10 @@ const BuilderContext = struct {
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
         var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
+
+        // Move args into response file to avoid cli limit.
         try c_flags.appendSlice(&.{
-            "-Wall",
-            "-Wno-unused-value",
-            "-Wno-nullability-completeness",
-            "-Werror=implicit-function-declaration",
-            "-Werror=incompatible-pointer-types",
-            "-Wno-unused-but-set-variable",
-            "-Wno-unused-result",
-            "-pthread",
-            "-DH2O_USE_LIBUV",
-            "-DH2O_USE_ALPN",
+            "@lib/h2o/cflags",
         });
         if (self.target.getOsTag() == .linux) {
             try c_flags.appendSlice(&.{
@@ -514,24 +505,25 @@ const BuilderContext = struct {
             });
         }
 
-        const c_files = &[_][]const u8{
+        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
+        try c_files.appendSlice(&.{
             // deps
             "deps/picohttpparser/picohttpparser.c",
             "deps/cloexec/cloexec.c",
-            "deps/hiredis/async.c",
-            "deps/hiredis/hiredis.c",
-            "deps/hiredis/net.c",
-            "deps/hiredis/read.c",
-            "deps/hiredis/sds.c",
+            //"deps/hiredis/async.c",
+            //"deps/hiredis/hiredis.c",
+            //"deps/hiredis/net.c",
+            //"deps/hiredis/read.c",
+            //"deps/hiredis/sds.c",
             "deps/libgkc/gkc.c",
-            "deps/libyrmcds/close.c",
-            "deps/libyrmcds/connect.c",
-            "deps/libyrmcds/recv.c",
-            "deps/libyrmcds/send.c",
-            "deps/libyrmcds/send_text.c",
-            "deps/libyrmcds/socket.c",
-            "deps/libyrmcds/strerror.c",
-            "deps/libyrmcds/text_mode.c",
+            //"deps/libyrmcds/close.c",
+            //"deps/libyrmcds/connect.c",
+            //"deps/libyrmcds/recv.c",
+            //"deps/libyrmcds/send.c",
+            //"deps/libyrmcds/send_text.c",
+            //"deps/libyrmcds/socket.c",
+            //"deps/libyrmcds/strerror.c",
+            //"deps/libyrmcds/text_mode.c",
             "deps/picotls/deps/cifra/src/blockwise.c",
             "deps/picotls/deps/cifra/src/chash.c",
             "deps/picotls/deps/cifra/src/curve25519.c",
@@ -653,9 +645,9 @@ const BuilderContext = struct {
             "lib/http3/qpack.c",
             "lib/http3/common.c",
             "lib/http3/server.c",
-        };
+        });
 
-        for (c_files) |file| {
+        for (c_files.items) |file| {
             self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags.items);
         }
 
@@ -1231,22 +1223,22 @@ const BuilderContext = struct {
         // See config.status or lib/curl_config.h for generated defines from configure.
         var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
         try c_flags.appendSlice(&.{
-            // Will make sources include curl_config.h in ./lib/curl
-            "-DHAVE_CONFIG_H",
-
             // Indicates that we're building the lib not the tools.
             "-DBUILDING_LIBCURL",
 
             // Hides libcurl internal symbols (hide all symbols that aren't officially external).
             "-DCURL_HIDDEN_SYMBOLS",
 
-            // Optimize.
-            "-O2",
-
             "-DCURL_STATICLIB",
 
             "-Wno-system-headers",
         });
+
+        // Currently only linux and mac have custom configs.
+        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
+            // Will make sources include curl_config.h in ./lib/curl
+            try c_flags.append("-DHAVE_CONFIG_H");
+        }
 
         if (self.target.getOsTag() == .linux) {
             // cpu-machine-OS
