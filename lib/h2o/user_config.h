@@ -5,14 +5,12 @@
 #include <sys/types.h>
 
 #ifdef _WINDOWS
-#define PROT_READ 1
-#define PROT_WRITE 1
-#define MAP_SHARED 1
-#define MAP_FAILED ((void *) -1)
 #define strerror_r(errno,buf,len) strerror_s(buf,len,errno)
+#define O_CLOEXEC 0
+typedef char setsockopt_name_t;
 int getpagesize(void);
-int munmap(void *addr, size_t length);
-void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+#else
+typedef int setsockopt_name_t;
 #endif
 
 #endif
