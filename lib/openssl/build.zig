@@ -11,6 +11,9 @@ const UsePrebuiltSsl: ?[]const u8 = null;
 // const UsePrebuiltSsl: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
 
 pub fn buildLinkCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode, step: *LibExeObjStep) !void {
+    if (target.getOsTag() == .windows and target.getAbi() == .gnu) {
+        step.linkSystemLibrary("ws2_32");
+    }
     if (UsePrebuiltCrypto) |path| {
         step.addAssemblyFile(path);
         return;
@@ -21,10 +24,6 @@ pub fn buildLinkCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.built
         return;
     }
     const lib = try buildCrypto(b, target, mode);
-    linkCrypto(step, lib);
-}
-
-pub fn linkCrypto(step: *LibExeObjStep, lib: *LibExeObjStep) void {
     step.linkLibrary(lib);
 }
 
