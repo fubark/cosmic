@@ -504,7 +504,7 @@ pub const PathParser = struct {
     }
 };
 
-const SvgPathDelimiters = " ,\n\t";
+const SvgPathDelimiters = " ,\r\n\t";
 
 pub fn parseSvgPath(alloc: std.mem.Allocator, str: []const u8) !SvgPath {
     var parser = PathParser.init(alloc);
@@ -560,8 +560,6 @@ test "parseSvgPath curveto polybezier" {
 }
 
 test "PathParser.parse" {
-    t.setLogLevel(.debug);
-
     // Just check length.
     const path =
         \\M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1
@@ -571,6 +569,20 @@ test "PathParser.parse" {
     const res = try parseSvgPath(t.alloc, path);
     defer res.deinit();
     try t.eq(res.cmds.len, 12);
+}
+
+test "PathParser.parse CR/LF" {
+    const path = "M394,106\r\nM100,100";
+    const res = try parseSvgPath(t.alloc, path);
+    defer res.deinit();
+}
+
+test "SvgParser.parse CR/LF" {
+    var parser = SvgParser.init(t.alloc);
+    defer parser.deinit();
+
+    const svg = "<svg><polygon points=\"10,10\r\n10,10\"/></svg>";
+    _ = try parser.parse(svg);
 }
 
 const SvgElement = enum {
@@ -705,6 +717,7 @@ pub const SvgParser = struct {
     }
 
     fn parsePath(self: *Self) !void {
+        // log.debug("parse path", .{});
         while (try self.parseAttribute()) |attr| {
             if (stdx.string.eq(attr.key, "d")) {
                 if (attr.value) |value| {
@@ -744,6 +757,7 @@ pub const SvgParser = struct {
     }
 
     fn parseRect(self: *Self) !void {
+        // log.debug("parse rect", .{});
         var req_fields: u4 = 0;
         var x: f32 = undefined;
         var y: f32 = undefined;
@@ -805,7 +819,7 @@ pub const SvgParser = struct {
             // log.debug("{s}: {s}", .{attr.key, attr.value});
             if (std.mem.eql(u8, attr.key, "points")) {
                 if (attr.value) |value| {
-                    var iter = std.mem.split(u8, value, " ");
+                    var iter = std.mem.tokenize(u8, value, "\r\n\t ");
                     var num_verts: u32 = 0;
                     const start_vert_id = @intCast(u32, self.extra_data.items.len);
                     while (iter.next()) |pair| {
@@ -1032,7 +1046,7 @@ pub const SvgParser = struct {
 
     // Returns whether an element was parsed.
     fn parseElement(self: *Self) anyerror!bool {
-        // log.debug("parse Element", .{});
+        // log.debug("parse element", .{});
         const ch = self.peekNext();
         if (std.ascii.isSpace(ch)) {
             self.consumeWhitespaces();
@@ -1041,9 +1055,12 @@ pub const SvgParser = struct {
         if (self.nextAtEnd()) {
             return false;
         }
-        if (self.peekNext() == '<' and self.hasLookahead(1, '/')) {
-            return false;
-        }
+        if (self.peekNext() == '<') {
+            // End of a parent element.
+            if (self.hasLookahead(1, '/')) {
+                return false;
+            }
+        } else return error.ParseError;
 
         try self.consume('<');
         if (self.peekNext() == '?') {
