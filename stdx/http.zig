@@ -545,8 +545,6 @@ pub fn requestAsync(alloc: std.mem.Allocator, url: []const u8, opts: RequestOpti
     // ch.mustSetOption(curl.CURLOPT_SHARE, &share);
     // ch.mustsetOption(curl.CURLOPT_NOSIGNAL, @intCast(c_long, 1));
 
-    // ch.mustSetOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
-
     // Loads the timer on demand.
     // Only one timer is needed for all requests.
     if (!timer_inited) {
@@ -623,8 +621,6 @@ pub fn request(alloc: std.mem.Allocator, url: []const u8, opts: RequestOptions) 
     curl_h.mustSetOption(curl.CURLOPT_WRITEDATA, &buf);
     curl_h.mustSetOption(curl.CURLOPT_HEADERFUNCTION, S.writeHeader);
     curl_h.mustSetOption(curl.CURLOPT_HEADERDATA, &header_ctx);
-
-    // _ = curl_h.setOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
     
     const res = curl_h.perform();
     if (res != curl.CURLE_OK) {
@@ -644,6 +640,7 @@ pub fn request(alloc: std.mem.Allocator, url: []const u8, opts: RequestOptions) 
 }
 
 fn setCurlOptions(alloc: std.mem.Allocator, ch: Curl, url: [:0]const u8, header_list: *?*curl.curl_slist, opts: RequestOptions) !void {
+    // ch.mustSetOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
     ch.mustSetOption(curl.CURLOPT_URL, url.ptr);
     ch.mustSetOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
     ch.mustSetOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));
@@ -658,6 +655,10 @@ fn setCurlOptions(alloc: std.mem.Allocator, ch: Curl, url: [:0]const u8, header_
             },
             .macos => {
                 ch.mustSetOption(curl.CURLOPT_CAINFO, "/etc/ssl/cert.pem");
+            },
+            .windows => {
+                const mask: c_long = curl.CURLSSLOPT_NATIVE_CA;
+                ch.mustSetOption(curl.CURLOPT_SSL_OPTIONS, mask);
             },
             else => {},
         }

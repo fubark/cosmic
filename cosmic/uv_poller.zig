@@ -141,9 +141,10 @@ const UvPollerWindows = struct {
         // Wait forever if -1 is returned.
         const timeout = uv.uv_backend_timeout(uv_loop);
         if (timeout == -1) {
-            _ = std.os.windows.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, std.os.windows.INFINITE);
+            // Call directly since zig's abstraction will panic on expected errors.
+            _ = std.os.windows.kernel32.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, std.os.windows.INFINITE);
         } else {
-            _ = std.os.windows.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, @intCast(u32, timeout));
+            _ = std.os.windows.kernel32.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, @intCast(u32, timeout));
         }
 
         // Give the event back so libuv can deal with it.

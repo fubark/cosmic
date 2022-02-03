@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "f1a0c36fb2bcf6dc2adc89059d15d33ee17d8d00";
+const DepsRevision = "20165f2f13b7a796426e044c4528954e83c30bc2";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -700,7 +700,7 @@ const BuilderContext = struct {
             "lib/handler/status/ssl.c",
             "lib/handler/http2_debug_state.c",
             "lib/handler/status/durations.c",
-            "lib/handler/configurator/access_log.c",
+            // "lib/handler/configurator/access_log.c",
             "lib/handler/configurator/compress.c",
             "lib/handler/configurator/errordoc.c",
             "lib/handler/configurator/expires.c",
@@ -1343,8 +1343,7 @@ const BuilderContext = struct {
         lib.setBuildMode(self.mode);
 
         const c_flags = &[_][]const u8{
-            "-g",
-            "-O2",
+            "-DNGHTTP2_STATICLIB=1",
         };
 
         const c_files = &[_][]const u8{
@@ -1387,6 +1386,8 @@ const BuilderContext = struct {
     fn buildLinkCurl(self: *Self, step: *LibExeObjStep) !void {
         if (builtin.os.tag == .macos and self.target.isNativeOs()) {
             step.linkFramework("SystemConfiguration");
+        } else if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
+            step.linkSystemLibrary("crypt32");
         }
         if (UsePrebuiltCurl) |path| {
             step.addAssemblyFile(path);
@@ -1412,6 +1413,8 @@ const BuilderContext = struct {
             "-DCURL_HIDDEN_SYMBOLS",
 
             "-DCURL_STATICLIB",
+
+            "-DNGHTTP2_STATICLIB=1",
 
             "-Wno-system-headers",
         });

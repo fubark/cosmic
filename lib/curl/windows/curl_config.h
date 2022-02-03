@@ -1,6 +1,10 @@
 // Copied from lib/config-win32.h. -DHAVE_CONFIG_H is used so curl uses this header instead of it's own config-win32.h See lib/curl_setup.h
 // Has the following changes:
 // 1. Disable LDAP
+// 2. Enable NGHTTP2
+// 3. Enable OpenSSL
+// 4. Disable NTLM
+// 5. Enable zlib
 
 #ifndef HEADER_CURL_CONFIG_WIN32_H
 #define HEADER_CURL_CONFIG_WIN32_H
@@ -39,6 +43,27 @@
 
 /* to disable LDAPS */
 #define CURL_DISABLE_LDAPS 1
+
+/* to diable NTLM support */
+#define CURL_DISABLE_NTLM 1
+
+/* to enable NGHTTP2  */
+#define USE_NGHTTP2 1
+
+/* if OpenSSL is in use */
+#define USE_OPENSSL 1
+
+/* Engine is deprecated in openssl 3.0, this implicitly disables openssl ui console usage  */
+#define OPENSSL_NO_ENGINE
+
+/* Don't use deprecated openssl code. */
+#define OPENSSL_NO_DEPRECATED
+
+/* if zlib is available */
+#define HAVE_LIBZ 1
+
+/* if you have the zlib.h header file */
+#define HAVE_ZLIB_H 1
 
 /* Define if you have the <arpa/inet.h> header file. */
 /* #define HAVE_ARPA_INET_H 1 */

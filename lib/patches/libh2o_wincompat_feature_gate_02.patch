@@ -85,6 +85,44 @@ index 2086b13..8a3279a 100644
          if (setsockopt(fd, ip, optname, &optvar, sizeof(optvar)) != 0) {                                                           \
              perror("failed to set the DF bit through setsockopt(" H2O_TO_STR(ip) ", " H2O_TO_STR(optname) ")");                    \
              return 0;                                                                                                              \
+diff --git a/h2o/lib/common/socket/uv-binding.c.h b/h2o/lib/common/socket/uv-binding.c.h
+index 6d7e9d8..4085393 100644
+--- a/h2o/lib/common/socket/uv-binding.c.h
++++ b/h2o/lib/common/socket/uv-binding.c.h
+@@ -48,7 +48,12 @@ static void alloc_inbuf(h2o_buffer_t **buf, uv_buf_t *_vec)
+      * "if NULL is assigned as the buffer’s base or 0 as its length, a UV_ENOBUFS error will be triggered in the uv_udp_recv_cb or
+      * the uv_read_cb callback."
+      */
++#ifdef __MINGW32__
++    _vec->len = vec.len;
++    _vec->base = vec.base;
++#else
+     memcpy(_vec, &vec, sizeof(vec));
++#endif
+ }
+ 
+ static void alloc_inbuf_tcp(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
+@@ -279,7 +284,20 @@ void do_write(h2o_socket_t *_sock, h2o_iovec_t *bufs, size_t bufcnt, h2o_socket_
+ 
+     if (sock->super.ssl == NULL) {
+         if (bufcnt > 0) {
++            #ifdef __MINGW32__
++            uv_buf_t temp_bufs[128];
++            if (bufcnt > 128) {
++                fprintf(stderr, "Did not expect so many buffers.\n");
++                exit(1);
++            }
++            for (int i = 0; i < bufcnt; i++) {
++                temp_bufs[i].len = bufs[i].len;
++                temp_bufs[i].base = bufs[i].base;
++            }
++            uv_write(&sock->stream._wreq, (uv_stream_t *)sock->handle, (uv_buf_t *)&temp_bufs[0], (int)bufcnt, on_do_write_complete);
++            #else
+             uv_write(&sock->stream._wreq, (uv_stream_t *)sock->handle, (uv_buf_t *)bufs, (int)bufcnt, on_do_write_complete);
++            #endif
+         } else {
+             call_write_complete_delayed(sock);
+         }
 diff --git a/h2o/lib/core/config.c b/h2o/lib/core/config.c
 index 8cc789e..89f041b 100644
 --- a/h2o/lib/core/config.c

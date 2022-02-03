@@ -191,7 +191,9 @@ pub const RuntimeContext = struct {
         // Once this is merged: https://github.com/libuv/libuv/pull/3308,
         // we can remove patches/libuv_on_watcher_queue_updated.patch and use the better method.
         self.uv_loop.data = self;
-        self.uv_loop.on_watcher_queue_updated = S.onWatcherQueueChanged;
+        if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
+            self.uv_loop.on_watcher_queue_updated = S.onWatcherQueueChanged;
+        }
 
         // Add dummy handle or UvPoller/uv_backend_timeout will think there is nothing to wait for.
         self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
