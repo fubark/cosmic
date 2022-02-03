@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "aa050320fc40a2bde4ccddd02c3533b4770a05e5";
+const DepsRevision = "f1a0c36fb2bcf6dc2adc89059d15d33ee17d8d00";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -75,6 +75,7 @@ pub fn build(b: *Builder) !void {
         .link_graphics = graphics,
         .link_v8 = v8,
         .link_net = net,
+        .link_mock = false,
         .static_link = static_link,
         .path = path,
         .filter = filter,
@@ -140,6 +141,7 @@ pub fn build(b: *Builder) !void {
             .link_net = false,
             .link_graphics = false,
             .link_v8 = false,
+            .link_mock = true,
             .static_link = static_link,
             .path = "cosmic/doc_gen.zig",
             .filter = filter,
@@ -162,6 +164,7 @@ pub fn build(b: *Builder) !void {
             .link_net = true,
             .link_graphics = true,
             .link_v8 = true,
+            .link_mock = false,
             .static_link = static_link,
             .path = "cosmic/main.zig",
             .filter = filter,
@@ -190,6 +193,7 @@ pub fn build(b: *Builder) !void {
             .link_net = true,
             .link_graphics = true,
             .link_v8 = true,
+            .link_mock = false,
             .static_link = static_link,
             .path = "cosmic/main.zig",
             .filter = filter,
@@ -202,7 +206,9 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        step.step.dependOn(&_ctx.createBuildExeStep().step);
+        const exe = _ctx.createBuildExeStep();
+        const exe_install = _ctx.addInstallArtifact(exe);
+        step.step.dependOn(&exe_install.step);
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
     }
 
@@ -224,6 +230,7 @@ const BuilderContext = struct {
     link_graphics: bool,
     link_v8: bool,
     link_net: bool,
+    link_mock: bool,
     static_link: bool,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
@@ -305,27 +312,42 @@ const BuilderContext = struct {
         return std.fs.path.join(self.builder.allocator, paths) catch unreachable;
     }
 
+    fn getSimpleTriple(b: *Builder, target: std.zig.CrossTarget) []const u8 {
+        return target.toTarget().linuxTriple(b.allocator) catch unreachable;
+    }
+
+    fn addInstallArtifact(self: *Self, artifact: *LibExeObjStep) *std.build.InstallArtifactStep {
+        const triple = getSimpleTriple(self.builder, artifact.target);
+        if (artifact.kind == .exe) {
+            const basename = std.fs.path.basename(artifact.root_src.?.path);
+            const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
+            const name = basename[0..i];
+            const path = self.builder.fmt("{s}/{s}", .{ triple, name });
+            artifact.override_dest_dir = .{ .custom = path };
+        }
+        return self.builder.addInstallArtifact(artifact);
+    }
+
     fn createBuildExeStep(self: *Self) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
         const build_options = self.buildOptionsPkg();
-        const step = self.builder.addExecutable(name, self.path);
-        self.setBuildMode(step);
-        self.setTarget(step);
+        const exe = self.builder.addExecutable(name, self.path);
+        self.setBuildMode(exe);
+        self.setTarget(exe);
 
-        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &[_][]const u8{ "zig-out/", name }) catch unreachable;
-        const output_dir = self.fromRoot(output_dir_rel);
-        step.setOutputDir(output_dir);
+        exe.addPackage(build_options);
+        addStdx(exe, build_options);
+        addInput(exe);
+        addGraphics(exe);
+        self.addDeps(exe) catch unreachable;
 
-        step.addPackage(build_options);
-        addStdx(step, build_options);
-        addInput(step);
-        addGraphics(step);
-        self.addDeps(step) catch unreachable;
-        self.copyAssets(step, output_dir_rel);
-        return step;
+        _ = self.addInstallArtifact(exe);
+        const install_dir = self.builder.fmt("zig-out/{s}", .{exe.install_step.?.dest_dir.custom });
+        self.copyAssets(exe, install_dir);
+        return exe;
     }
 
     fn createTestFileStep(self: *Self) *std.build.LibExeObjStep {
@@ -400,16 +422,24 @@ const BuilderContext = struct {
         if (builtin.os.tag == .macos) {
             self.buildLinkMacSys(step);
         }
+        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
+            self.buildMingwExtra(step);
+            self.buildLinkWinPosix(step);
+            self.buildLinkWinPthreads(step);
+        }
         if (self.link_graphics) {
             try self.buildLinkSDL2(step);
             self.buildLinkStbtt(step);
-            linkGL(step);
+            linkGL(step, self.target);
             self.linkLyon(step, self.target);
             self.buildLinkStbi(step);
         }
         addZigV8(step);
         if (self.link_v8) {
             self.linkZigV8(step);
+        }
+        if (self.link_mock) {
+            self.buildLinkMock(step);
         }
     }
 
@@ -464,6 +494,51 @@ const BuilderContext = struct {
         // }
     }
 
+    fn buildLinkWinPthreads(self: *Self, step: *LibExeObjStep) void {
+        const lib = self.builder.addStaticLibrary("winpthreads", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+        lib.linkLibC();
+        lib.addIncludeDir("./lib/mingw/winpthreads/include");
+
+        const c_files: []const []const u8 = &.{
+            "mutex.c",
+            "thread.c",
+            "spinlock.c",
+            "rwlock.c",
+            "cond.c",
+            "misc.c",
+            "sched.c",
+        };
+
+        for (c_files) |c_file| {
+            const path = self.builder.fmt("./lib/mingw/winpthreads/{s}", .{c_file});
+            lib.addCSourceFile(path, &.{});
+        }
+
+        step.linkLibrary(lib);
+    }
+
+    fn buildLinkWinPosix(self: *Self, step: *LibExeObjStep) void {
+        const lib = self.builder.addStaticLibrary("win_posix", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+        lib.linkLibC();
+        lib.addIncludeDir("./lib/mingw/win_posix/include");
+
+        const c_files: []const []const u8 = &.{
+            "wincompat.c",
+            "mman.c",
+        };
+
+        for (c_files) |c_file| {
+            const path = self.builder.fmt("./lib/mingw/win_posix/{s}", .{c_file});
+            lib.addCSourceFile(path, &.{});
+        }
+
+        step.linkLibrary(lib);
+    }
+
     fn buildLinkMacSys(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mac_sys", null);
         lib.setTarget(self.target);
@@ -481,6 +556,13 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    // Missing sources in zig's mingw distribution.
+    fn buildMingwExtra(self: *Self, step: *LibExeObjStep) void {
+        _ = self;
+        step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorA.c", &.{});
+        step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorW.c", &.{});
+    }
+
     fn buildLinkH2O(self: *Self, step: *LibExeObjStep) !void {
         if (UsePrebuiltH2O) |path| {
             step.addAssemblyFile(path);
@@ -489,7 +571,7 @@ const BuilderContext = struct {
         const lib = self.builder.addStaticLibrary("h2o", null);
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
-        lib.c_std = .C99;
+        // lib.c_std = .C99;
 
         // Unused defines:
         // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
@@ -518,10 +600,10 @@ const BuilderContext = struct {
             "deps/picohttpparser/picohttpparser.c",
             //"deps/cloexec/cloexec.c",
             //"deps/hiredis/async.c",
-            //"deps/hiredis/hiredis.c",
-            //"deps/hiredis/net.c",
-            //"deps/hiredis/read.c",
-            //"deps/hiredis/sds.c",
+            // "deps/hiredis/hiredis.c",
+            // "deps/hiredis/net.c",
+            // "deps/hiredis/read.c",
+            // "deps/hiredis/sds.c",
             "deps/libgkc/gkc.c",
             //"deps/libyrmcds/close.c",
             //"deps/libyrmcds/connect.c",
@@ -543,35 +625,35 @@ const BuilderContext = struct {
             "deps/picotls/lib/openssl.c",
             "deps/picotls/lib/cifra/random.c",
             "deps/picotls/lib/cifra/x25519.c",
-            "deps/quicly/lib/cc-cubic.c",
-            "deps/quicly/lib/cc-pico.c",
-            "deps/quicly/lib/cc-reno.c",
-            "deps/quicly/lib/defaults.c",
-            "deps/quicly/lib/frame.c",
-            "deps/quicly/lib/local_cid.c",
-            "deps/quicly/lib/loss.c",
-            "deps/quicly/lib/quicly.c",
-            "deps/quicly/lib/ranges.c",
-            "deps/quicly/lib/rate.c",
-            "deps/quicly/lib/recvstate.c",
-            "deps/quicly/lib/remote_cid.c",
-            "deps/quicly/lib/retire_cid.c",
-            "deps/quicly/lib/sendstate.c",
-            "deps/quicly/lib/sentmap.c",
-            "deps/quicly/lib/streambuf.c",
+            // "deps/quicly/lib/cc-cubic.c",
+            // "deps/quicly/lib/cc-pico.c",
+            // "deps/quicly/lib/cc-reno.c",
+            // "deps/quicly/lib/defaults.c",
+            // "deps/quicly/lib/frame.c",
+            // "deps/quicly/lib/local_cid.c",
+            // "deps/quicly/lib/loss.c",
+            // "deps/quicly/lib/quicly.c",
+            // "deps/quicly/lib/ranges.c",
+            // "deps/quicly/lib/rate.c",
+            // "deps/quicly/lib/recvstate.c",
+            // "deps/quicly/lib/remote_cid.c",
+            // "deps/quicly/lib/retire_cid.c",
+            // "deps/quicly/lib/sendstate.c",
+            // "deps/quicly/lib/sentmap.c",
+            // "deps/quicly/lib/streambuf.c",
 
             // common
             "lib/common/cache.c",
-            // "lib/common/file.c",
+            "lib/common/file.c",
             "lib/common/filecache.c",
             "lib/common/hostinfo.c",
-            "lib/common/http1client.c",
-            "lib/common/http2client.c",
-            "lib/common/http3client.c",
-            "lib/common/httpclient.c",
+            // "lib/common/http1client.c",
+            // "lib/common/http2client.c",
+            // "lib/common/http3client.c",
+            // "lib/common/httpclient.c",
             // "lib/common/memcached.c",
             "lib/common/memory.c",
-            // "lib/common/multithread.c",
+            "lib/common/multithread.c",
             // "lib/common/redis.c",
             // "lib/common/serverutil.c",
             "lib/common/socket.c",
@@ -591,7 +673,7 @@ const BuilderContext = struct {
             "lib/core/context.c",
             "lib/core/headers.c",
             // "lib/core/logconf.c",
-            "lib/core/proxy.c",
+            // "lib/core/proxy.c",
             "lib/core/request.c",
             "lib/core/util.c",
 
@@ -605,7 +687,7 @@ const BuilderContext = struct {
             "lib/handler/headers.c",
             "lib/handler/mimemap.c",
             "lib/handler/proxy.c",
-            "lib/handler/connect.c",
+            // "lib/handler/connect.c",
             "lib/handler/redirect.c",
             "lib/handler/reproxy.c",
             "lib/handler/throttle_resp.c",
@@ -697,14 +779,18 @@ const BuilderContext = struct {
         lib.addIncludeDir("./deps/h2o/deps/libyrmcds");
         lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src/ext");
         lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
-        if (self.target.getOsTag() == .windows) {
+        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
             // Since H2O source relies on posix only, provide an interface to windows API.
-            lib.addIncludeDir("./lib/sys/win_posix");
+            lib.addIncludeDir("./lib/mingw/win_posix/include");
+            lib.addIncludeDir("./lib/mingw/winpthreads/include");
         } 
         step.linkLibrary(lib);
     }
 
     fn buildLinkUv(self: *Self, step: *LibExeObjStep) !void {
+        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
+            step.linkSystemLibrary("iphlpapi");
+        }
         if (UsePrebuiltUv) |path| {
             step.addAssemblyFile(path);
             return;
@@ -784,6 +870,34 @@ const BuilderContext = struct {
                 "-D_FILE_OFFSET_BITS=64",
                 "-D_LARGEFILE_SOURCE",
             });
+        } else if (self.target.getOsTag() == .windows) {
+            try c_files.appendSlice(&.{
+                "src/win/loop-watcher.c",
+                "src/win/tcp.c",
+                "src/win/async.c",
+                "src/win/core.c",
+                "src/win/signal.c",
+                "src/win/snprintf.c",
+                "src/win/getnameinfo.c",
+                "src/win/fs.c",
+                "src/win/fs-event.c",
+                "src/win/getaddrinfo.c",
+                "src/win/handle.c",
+                "src/win/dl.c",
+                "src/win/udp.c",
+                "src/win/util.c",
+                "src/win/error.c",
+                "src/win/winapi.c",
+                "src/win/winsock.c",
+                "src/win/detect-wakeup.c",
+                "src/win/stream.c",
+                "src/win/tty.c",
+                "src/win/process-stdio.c",
+                "src/win/process.c",
+                "src/win/poll.c",
+                "src/win/thread.c",
+                "src/win/pipe.c",
+            });
         }
 
         for (c_files.items) |file| {
@@ -831,8 +945,13 @@ const BuilderContext = struct {
                 step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
                 return;
             }
-        } else if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
-            // Nop.
+        } else if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
+            step.linkSystemLibrary("setupapi");
+            step.linkSystemLibrary("ole32");
+            step.linkSystemLibrary("oleaut32");
+            step.linkSystemLibrary("gdi32");
+            step.linkSystemLibrary("imm32");
+            step.linkSystemLibrary("version");
         } else if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
             if (UsePrebuiltSDL) {
                 const path = self.fromRoot("./deps/prebuilt/linux64/libSDL2.a");
@@ -994,13 +1113,6 @@ const BuilderContext = struct {
             "video/dummy/SDL_nullframebuffer.c",
             "video/dummy/SDL_nullevents.c",
 
-            // Threads
-            "thread/pthread/SDL_systhread.c",
-            "thread/pthread/SDL_systls.c",
-            "thread/pthread/SDL_syssem.c",
-            "thread/pthread/SDL_sysmutex.c",
-            "thread/pthread/SDL_syscond.c",
-
             // Steam
             "joystick/steam/SDL_steamcontroller.c",
 
@@ -1019,6 +1131,17 @@ const BuilderContext = struct {
 
             "joystick/virtual/SDL_virtualjoystick.c",
         });
+
+        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
+            try c_files.appendSlice(&.{
+                // Threads
+                "thread/pthread/SDL_systhread.c",
+                "thread/pthread/SDL_systls.c",
+                "thread/pthread/SDL_syssem.c",
+                "thread/pthread/SDL_sysmutex.c",
+                "thread/pthread/SDL_syscond.c",
+            });
+        }
 
         if (self.target.getOsTag() == .linux) {
             try c_files.appendSlice(&.{
@@ -1103,6 +1226,54 @@ const BuilderContext = struct {
                 "loadso/dlopen/SDL_sysloadso.c",
                 "misc/unix/SDL_sysurl.c",
                 "power/macosx/SDL_syspower.c",
+            });
+        } else if (self.target.getOsTag() == .windows) {
+            try c_files.appendSlice(&.{
+                "core/windows/SDL_xinput.c",
+                "core/windows/SDL_windows.c",
+                "core/windows/SDL_hid.c",
+                "misc/windows/SDL_sysurl.c",
+                "locale/windows/SDL_syslocale.c",
+                "sensor/windows/SDL_windowssensor.c",
+                "power/windows/SDL_syspower.c",
+                "video/windows/SDL_windowsmodes.c",
+                "video/windows/SDL_windowsclipboard.c",
+                "video/windows/SDL_windowsopengles.c",
+                "video/windows/SDL_windowsevents.c",
+                "video/windows/SDL_windowsvideo.c",
+                "video/windows/SDL_windowskeyboard.c",
+                "video/windows/SDL_windowsshape.c",
+                "video/windows/SDL_windowswindow.c",
+                "video/windows/SDL_windowsvulkan.c",
+                "video/windows/SDL_windowsmouse.c",
+                "video/windows/SDL_windowsopengl.c",
+                "video/windows/SDL_windowsframebuffer.c",
+                "video/windows/SDL_windowsmessagebox.c",
+                "joystick/windows/SDL_rawinputjoystick.c",
+                "joystick/windows/SDL_dinputjoystick.c",
+                "joystick/windows/SDL_xinputjoystick.c",
+                "joystick/windows/SDL_windows_gaming_input.c",
+                "joystick/windows/SDL_windowsjoystick.c",
+                "haptic/windows/SDL_windowshaptic.c",
+                "haptic/windows/SDL_xinputhaptic.c",
+                "haptic/windows/SDL_dinputhaptic.c",
+                "audio/winmm/SDL_winmm.c",
+                "audio/directsound/SDL_directsound.c",
+                "audio/wasapi/SDL_wasapi.c",
+                "audio/wasapi/SDL_wasapi_win32.c",
+                "timer/windows/SDL_systimer.c",
+                "thread/windows/SDL_sysmutex.c",
+                "thread/windows/SDL_systhread.c",
+                "thread/windows/SDL_syssem.c",
+                "thread/windows/SDL_systls.c",
+                "thread/windows/SDL_syscond_cv.c",
+                "thread/generic/SDL_systls.c",
+                "thread/generic/SDL_syssem.c",
+                "thread/generic/SDL_sysmutex.c",
+                "thread/generic/SDL_systhread.c",
+                "thread/generic/SDL_syscond.c",
+                "loadso/windows/SDL_sysloadso.c",
+                "filesystem/windows/SDL_sysfilesystem.c",
             });
         }
 
@@ -1246,7 +1417,7 @@ const BuilderContext = struct {
         });
 
         // Currently only linux and mac have custom configs.
-        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
+        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos or self.target.getOsTag() == .windows) {
             // Will make sources include curl_config.h in ./lib/curl
             try c_flags.append("-DHAVE_CONFIG_H");
         }
@@ -1431,15 +1602,17 @@ const BuilderContext = struct {
         // lib.disable_sanitize_c = true;
 
         lib.linkLibC();
-        lib.addIncludeDir("./deps/curl/include");
-        lib.addIncludeDir("./deps/curl/lib");
-        // Use the same openssl config so curl knows what features it has.
-        lib.addIncludeDir("./lib/openssl/include");
         if (self.target.getOsTag() == .linux) {
             lib.addIncludeDir("./lib/curl/linux");
         } else if (self.target.getOsTag() == .macos) {
             lib.addIncludeDir("./lib/curl/macos");
+        } else if (self.target.getOsTag() == .windows) {
+            lib.addIncludeDir("./lib/curl/windows");
         }
+        lib.addIncludeDir("./deps/curl/include");
+        lib.addIncludeDir("./deps/curl/lib");
+        // Use the same openssl config so curl knows what features it has.
+        lib.addIncludeDir("./lib/openssl/include");
         lib.addIncludeDir("./deps/openssl/include");
         lib.addIncludeDir("./deps/nghttp2/lib/includes");
         lib.addIncludeDir("./deps/zlib");
@@ -1490,11 +1663,13 @@ const BuilderContext = struct {
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
         const path = getV8_StaticLibPath(self.builder, step.target);
         step.addAssemblyFile(path);
+        step.linkLibCpp();
+        step.linkLibC();
         if (self.target.getOsTag() == .linux) {
-            step.linkLibCpp();
             step.linkSystemLibrary("unwind");
-        }  else if (self.target.getOsTag() == .macos) {
-            step.linkLibCpp();
+        } else if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
+            step.linkSystemLibrary("winmm");
+            step.linkSystemLibrary("dbghelp");
         }
     }
 
@@ -1510,6 +1685,8 @@ const BuilderContext = struct {
             step.addAssemblyFile(self.fromRoot("./deps/prebuilt/mac-arm64/libclyon.a"));
         } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
             step.addAssemblyFile(self.fromRoot("./deps/prebuilt/win64/clyon.lib"));
+            step.linkSystemLibrary("bcrypt");
+            step.linkSystemLibrary("userenv");
         } else {
             step.addLibPath("./lib/clyon/target/release");
             step.linkSystemLibrary("clyon");
@@ -1616,12 +1793,14 @@ fn addH2O(step: *LibExeObjStep) void {
     var pkg = h2o_pkg;
     pkg.dependencies = &.{uv_pkg, openssl_pkg};
     step.addPackage(pkg);
+    step.addIncludeDir("./lib/h2o");
     step.addIncludeDir("./deps/h2o/include");
     step.addIncludeDir("./deps/h2o/deps/picotls/include");
     step.addIncludeDir("./deps/h2o/deps/quicly/include");
     step.addIncludeDir("./deps/openssl/include");
     if (step.target.getOsTag() == .windows) {
-        step.addIncludeDir("./lib/sys/win_posix");
+        step.addIncludeDir("./lib/mingw/win_posix/include");
+        step.addIncludeDir("./lib/mingw/winpthreads/include");
     }
 }
 
@@ -1666,21 +1845,29 @@ fn addGL(step: *LibExeObjStep) void {
     step.linkLibC();
 }
 
-fn linkGL(step: *LibExeObjStep) void {
-    if (builtin.os.tag == .macos) {
-        // TODO: See what this path returns $(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/OpenGL.framework/Headers
-        // https://github.com/ziglang/zig/issues/2208
-        step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
-        step.linkSystemLibrary("GL");
-    } else if (builtin.os.tag == .windows) {
-        step.linkSystemLibrary("opengl32");
-    } else if (builtin.os.tag == .linux) {
-        // Unable to find libraries if linux is provided in triple.
-        // https://github.com/ziglang/zig/issues/8103
-        step.addLibPath("/usr/lib/x86_64-linux-gnu");
-        step.linkSystemLibrary("GL");
-    } else {
-        step.linkSystemLibrary("GL");
+fn linkGL(step: *LibExeObjStep, target: std.zig.CrossTarget) void {
+    switch (target.getOsTag()) {
+        .macos => {
+            // TODO: Fix this, should be linkFramework instead.
+
+            // TODO: See what this path returns $(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/OpenGL.framework/Headers
+            // https://github.com/ziglang/zig/issues/2208
+            step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
+            step.linkSystemLibrary("GL");
+        },
+        .windows =>{
+            // Link with OpenGL 1.1 API. Higher API functions should be loaded at runtime through vendors.
+            step.linkSystemLibrary("opengl32");
+        },
+        .linux => {
+            // Unable to find libraries if linux is provided in triple.
+            // https://github.com/ziglang/zig/issues/8103
+            step.addLibPath("/usr/lib/x86_64-linux-gnu");
+            step.linkSystemLibrary("GL");
+        },
+        else => {
+            step.linkSystemLibrary("GL");
+        },
     }
 }
 
@@ -1996,17 +2183,18 @@ fn getV8_StaticLibGithubUrl(alloc: std.mem.Allocator, tag: []const u8, target: s
             tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
         }) catch unreachable;
     } else if (target.getOsTag() == .windows) {
-        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}-msvc_{s}_{s}.{s}", .{
+        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}-gnu_{s}_{s}.{s}", .{
             tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
         }) catch unreachable;
     } else {
-        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}_{s}_{s}.{s}", .{
+        return std.fmt.allocPrint(alloc, "https://github.com/fubark/zig-v8/releases/download/{s}/{s}_{s}-{s}-gnu_{s}_{s}.{s}", .{
             tag, lib_name, @tagName(target.getCpuArch()), @tagName(target.getOsTag()), "release", tag, lib_ext,
         }) catch unreachable;
     }
 }
 
 fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
+    // Keep for local dev.
     // const mode_str: []const u8 = if (self.mode == .Debug) "debug" else "release";
     // const path = std.fmt.allocPrint(self.builder.allocator, "lib/zig-v8/v8-out/{s}-{s}/{s}/ninja/obj/zig/libc_v8.a", .{
     //     @tagName(self.target.getCpuArch()),
@@ -2015,7 +2203,8 @@ fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
     // }) catch unreachable;
     const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
-    const path = std.fmt.allocPrint(b.allocator, "./lib/zig-v8/{s}.{s}", .{ lib_name, lib_ext }) catch unreachable;
+    const triple = BuilderContext.getSimpleTriple(b, target);
+    const path = std.fmt.allocPrint(b.allocator, "./lib/zig-v8/{s}-{s}.{s}", .{ lib_name, triple, lib_ext }) catch unreachable;
     return b.pathFromRoot(path);
 }
 
