@@ -177,15 +177,15 @@ pub const RuntimeContext = struct {
         // Create libuv evloop instance.
         self.uv_loop = alloc.create(uv.uv_loop_t) catch unreachable;
         var res = uv.uv_loop_init(self.uv_loop);
-        if (res != 0) {
-            stdx.panicFmt("uv_loop_init: {s}", .{ uv.uv_strerror(res) });
-        }
+        uv.assertNoError(res);
+
         const S = struct {
             fn onWatcherQueueChanged(_loop: [*c]uv.uv_loop_t) callconv(.C) void {
                 // log.debug("on queue changed", .{});
                 const loop = @ptrCast(*uv.uv_loop_t, _loop);
                 const rt = stdx.mem.ptrCastAlign(*RuntimeContext, loop.data.?);
-                _ = uv.uv_async_send(rt.uv_dummy_async);
+                const res_ = uv.uv_async_send(rt.uv_dummy_async);
+                uv.assertNoError(res_);
             }
         };
         // Once this is merged: https://github.com/libuv/libuv/pull/3308,
@@ -195,7 +195,8 @@ pub const RuntimeContext = struct {
 
         // Add dummy handle or UvPoller/uv_backend_timeout will think there is nothing to wait for.
         self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
-        _ = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
+        res = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
+        uv.assertNoError(res);
 
         stdx.http.curlm_uvloop = self.uv_loop;
         stdx.http.uv_interrupt = self.uv_dummy_async;
