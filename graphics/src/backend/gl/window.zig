@@ -22,12 +22,6 @@ pub fn ensureSdlInit() !void {
             log.err("SDL_InitSubSystem: {s}", .{sdl.SDL_GetError()});
             return error.FailedSdlInit;
         }
-
-        // TODO: This should be in an opengl init function.
-        if (builtin.os.tag == .windows) {
-            gl.initWinGL_Functions();
-        }
-
         inited_sdl = true;
     }
 }
@@ -214,6 +208,21 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
 fn initGL_Context(win: *Window) !void {
     if (sdl.SDL_GL_CreateContext(win.sdl_window)) |ctx| {
         win.gl_ctx = ctx;
+
+        // GL version on some platforms is only available after the context is created and made current.
+        // This also means it's better to start initing opengl functions (GetProcAddress) on windows after an opengl context is created.
+        var major: i32 = undefined;
+        var minor: i32 = undefined;
+        gl.glGetIntegerv(gl.GL_MAJOR_VERSION, &major);
+        gl.glGetIntegerv(gl.GL_MINOR_VERSION, &minor);
+        _ = minor;
+        if (major < 3) {
+            log.err("OpenGL Version Unsupported: {s}", .{gl.glGetString(gl.GL_VERSION)});
+            return error.OpenGLUnsupported;
+        }
+        if (builtin.os.tag == .windows) {
+            gl.initWinGL_Functions();
+        }
         log.debug("OpenGL: {s}", .{gl.glGetString(gl.GL_VERSION)});
     } else {
         log.err("Create GLContext: {s}", .{sdl.SDL_GetError()});

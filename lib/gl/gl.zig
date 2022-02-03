@@ -1,3 +1,4 @@
+const std = @import("std");
 const sdl = @import("sdl");
 const builtin = @import("builtin");
 const stdx = @import("stdx");
@@ -343,40 +344,53 @@ var winEnableVertexAttribArray: fn (index: c.GLuint) void = undefined;
 var winActiveTexture: fn (texture: c.GLenum) void = undefined;
 var winBindFramebuffer: fn (target: c.GLenum, framebuffer: c.GLuint) void = undefined;
 
+var initedWinGL = false;
+
 // opengl32.dll on Windows only supports 1.1 functions but it knows how to retrieve newer functions
 // from vendor implementations of OpenGL. This should be called once to load the function pointers we need.
 // If this becomes hard to maintain we might autogen this like: https://github.com/skaslev/gl3w
 pub fn initWinGL_Functions() void {
-    ptrCastTo(&winUseProgram, sdl.SDL_GL_GetProcAddress("glUseProgram").?);
-    ptrCastTo(&winCreateShader, sdl.SDL_GL_GetProcAddress("glCreateShader").?);
-    ptrCastTo(&winGetShaderInfoLog, sdl.SDL_GL_GetProcAddress("glGetShaderInfoLog").?);
-    ptrCastTo(&winDeleteShader, sdl.SDL_GL_GetProcAddress("glDeleteShader").?);
-    ptrCastTo(&winCreateProgram, sdl.SDL_GL_GetProcAddress("glCreateProgram").?);
-    ptrCastTo(&winAttachShader, sdl.SDL_GL_GetProcAddress("glAttachShader").?);
-    ptrCastTo(&winLinkProgram, sdl.SDL_GL_GetProcAddress("glLinkProgram").?);
-    ptrCastTo(&winGetProgramiv, sdl.SDL_GL_GetProcAddress("glGetProgramiv").?);
-    ptrCastTo(&winGetProgramInfoLog, sdl.SDL_GL_GetProcAddress("glGetProgramInfoLog").?);
-    ptrCastTo(&winDeleteProgram, sdl.SDL_GL_GetProcAddress("glDeleteProgram").?);
-    ptrCastTo(&winGenVertexArrays, sdl.SDL_GL_GetProcAddress("glGenVertexArrays").?);
-    ptrCastTo(&winShaderSource, sdl.SDL_GL_GetProcAddress("glShaderSource").?);
-    ptrCastTo(&winCompileShader, sdl.SDL_GL_GetProcAddress("glCompileShader").?);
-    ptrCastTo(&winGetShaderiv, sdl.SDL_GL_GetProcAddress("glGetShaderiv").?);
-    ptrCastTo(&winBindVertexArray, sdl.SDL_GL_GetProcAddress("glBindVertexArray").?);
-    ptrCastTo(&winBindBuffer, sdl.SDL_GL_GetProcAddress("glBindBuffer").?);
-    ptrCastTo(&winEnableVertexAttribArray, sdl.SDL_GL_GetProcAddress("glEnableVertexAttribArray").?);
-    ptrCastTo(&winActiveTexture, sdl.SDL_GL_GetProcAddress("glActiveTexture").?);
-    ptrCastTo(&winDetachShader, sdl.SDL_GL_GetProcAddress("glDetachShader").?);
-    ptrCastTo(&winGenFramebuffers, sdl.SDL_GL_GetProcAddress("glGenFramebuffers").?);
-    ptrCastTo(&winBindFramebuffer, sdl.SDL_GL_GetProcAddress("glBindFramebuffer").?);
-    ptrCastTo(&winTexImage2DMultisample, sdl.SDL_GL_GetProcAddress("glTexImage2DMultisample").?);
-    ptrCastTo(&winFramebufferTexture2D, sdl.SDL_GL_GetProcAddress("glFramebufferTexture2D").?);
-    ptrCastTo(&winVertexAttribPointer, sdl.SDL_GL_GetProcAddress("glVertexAttribPointer").?);
-    ptrCastTo(&winDeleteVertexArrays, sdl.SDL_GL_GetProcAddress("glDeleteVertexArrays").?);
-    ptrCastTo(&winGenBuffers, sdl.SDL_GL_GetProcAddress("glGenBuffers").?);
-    ptrCastTo(&winDeleteBuffers, sdl.SDL_GL_GetProcAddress("glDeleteBuffers").?);
-    ptrCastTo(&winBlitFramebuffer, sdl.SDL_GL_GetProcAddress("glBlitFramebuffer").?);
-    ptrCastTo(&winBlendEquation, sdl.SDL_GL_GetProcAddress("glBlendEquation").?);
-    ptrCastTo(&winUniformMatrix4fv, sdl.SDL_GL_GetProcAddress("glUniformMatrix4fv").?);
-    ptrCastTo(&winUniform1i, sdl.SDL_GL_GetProcAddress("glUniform1i").?);
-    ptrCastTo(&winBufferData, sdl.SDL_GL_GetProcAddress("glBufferData").?);
+    if (initedWinGL) { 
+        return;
+    }
+    loadGlFunc(&winUseProgram, "glUseProgram");
+    loadGlFunc(&winCreateShader, "glCreateShader");
+    loadGlFunc(&winGetShaderInfoLog, "glGetShaderInfoLog");
+    loadGlFunc(&winDeleteShader, "glDeleteShader");
+    loadGlFunc(&winCreateProgram, "glCreateProgram");
+    loadGlFunc(&winAttachShader, "glAttachShader");
+    loadGlFunc(&winLinkProgram, "glLinkProgram");
+    loadGlFunc(&winGetProgramiv, "glGetProgramiv");
+    loadGlFunc(&winGetProgramInfoLog, "glGetProgramInfoLog");
+    loadGlFunc(&winDeleteProgram, "glDeleteProgram");
+    loadGlFunc(&winGenVertexArrays, "glGenVertexArrays");
+    loadGlFunc(&winShaderSource, "glShaderSource");
+    loadGlFunc(&winCompileShader, "glCompileShader");
+    loadGlFunc(&winGetShaderiv, "glGetShaderiv");
+    loadGlFunc(&winBindVertexArray, "glBindVertexArray");
+    loadGlFunc(&winBindBuffer, "glBindBuffer");
+    loadGlFunc(&winEnableVertexAttribArray, "glEnableVertexAttribArray");
+    loadGlFunc(&winActiveTexture, "glActiveTexture");
+    loadGlFunc(&winDetachShader, "glDetachShader");
+    loadGlFunc(&winGenFramebuffers, "glGenFramebuffers");
+    loadGlFunc(&winBindFramebuffer, "glBindFramebuffer");
+    loadGlFunc(&winTexImage2DMultisample, "glTexImage2DMultisample");
+    loadGlFunc(&winFramebufferTexture2D, "glFramebufferTexture2D");
+    loadGlFunc(&winVertexAttribPointer, "glVertexAttribPointer");
+    loadGlFunc(&winDeleteVertexArrays, "glDeleteVertexArrays");
+    loadGlFunc(&winGenBuffers, "glGenBuffers");
+    loadGlFunc(&winDeleteBuffers, "glDeleteBuffers");
+    loadGlFunc(&winBlitFramebuffer, "glBlitFramebuffer");
+    loadGlFunc(&winBlendEquation, "glBlendEquation");
+    loadGlFunc(&winUniformMatrix4fv, "glUniformMatrix4fv");
+    loadGlFunc(&winUniform1i, "glUniform1i");
+    loadGlFunc(&winBufferData, "glBufferData");
+}
+
+fn loadGlFunc(ptr_to_local: anytype, name: [:0]const u8) void {
+    if (sdl.SDL_GL_GetProcAddress(name)) |ptr| {
+        ptrCastTo(ptr_to_local, ptr);
+    } else {
+        std.debug.panic("Failed to load: {s}", .{name});
+    }
 }
