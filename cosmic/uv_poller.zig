@@ -138,9 +138,13 @@ const UvPollerWindows = struct {
         var key: usize = undefined;
         var overlapped: ?*std.os.windows.OVERLAPPED = null;
 
-        const timeout = @intCast(u32, uv.uv_backend_timeout(uv_loop));
-
-        _ = std.os.windows.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, timeout);
+        // Wait forever if -1 is returned.
+        const timeout = uv.uv_backend_timeout(uv_loop);
+        if (timeout == -1) {
+            _ = std.os.windows.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, std.os.windows.INFINITE);
+        } else {
+            _ = std.os.windows.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, @intCast(u32, timeout));
+        }
 
         // Give the event back so libuv can deal with it.
         if (overlapped != null) {
