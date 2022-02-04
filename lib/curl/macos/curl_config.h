@@ -18,6 +18,12 @@
 /* Location of default ca path */
 #define CURL_CA_PATH "/etc/ssl/certs"
 
+/* Engine is deprecated in openssl 3.0, this implicitly disables openssl ui console usage  */
+#define OPENSSL_NO_ENGINE
+
+/* Don't use deprecated openssl code. */
+#define OPENSSL_NO_DEPRECATED
+
 /* when building libcurl itself */
 /* #undef BUILDING_LIBCURL */
 
