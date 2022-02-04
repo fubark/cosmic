@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const builtin = @import("builtin");
 const uv = @import("uv");
 const h2o = @import("h2o");
 const ssl = @import("openssl");
@@ -109,7 +110,12 @@ pub const HttpServer = struct {
         // Have not seen any need for this yet, so turn it off.
         self.config.http2.graceful_shutdown_timeout = 0;
 
-        self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init("default", "default".len), 65535);
+        // Zig in release-safe has trouble with string literals if they aren't used in zig code, eg. if they are just being passed into C functions.
+        // First noticed on windows build.
+        var buf: [100]u8 = undefined;
+        const default = std.fmt.bufPrint(&buf, "default", .{}) catch unreachable;
+
+        self.hostconf = h2o.h2o_config_register_host(&self.config, h2o.h2o_iovec_init(default), 65535);
         h2o.h2o_context_init(&self.ctx, self.rt.uv_loop, &self.config);
 
         self.accept_ctx = .{
@@ -393,6 +399,8 @@ pub const HttpServer = struct {
         }
 
         if (!self.closed_listen_handle) {
+            // NOTE: libuv does not start listeners with reuseaddr on windows since it behaves differently and isn't desirable.
+            // This means the listening port may still be in a TIME_WAIT state for some time after it was "shutdown". 
             uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.listen_handle), HttpServer.onCloseListenHandle);
         }
 

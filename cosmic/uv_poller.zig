@@ -41,7 +41,7 @@ pub const UvPoller = struct {
         return new;
     }
 
-    pub fn loop(self: *Self) void {
+    pub fn run(self: *Self) void {
         while (true) {
             if (self.close_flag.load(.Acquire)) {
                 break;

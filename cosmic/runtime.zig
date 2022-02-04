@@ -208,7 +208,7 @@ pub const RuntimeContext = struct {
 
         // Start uv poller thread.
         self.uv_poller = UvPoller.init(self.uv_loop, &self.main_wakeup);
-        _ = std.Thread.spawn(.{}, UvPoller.loop, .{&self.uv_poller}) catch unreachable;
+        _ = std.Thread.spawn(.{}, UvPoller.run, .{&self.uv_poller}) catch unreachable;
 
         self.work_queue = WorkQueue.init(alloc, self.uv_loop, &self.main_wakeup);
         self.work_queue.createAndRunWorker();
