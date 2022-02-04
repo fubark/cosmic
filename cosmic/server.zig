@@ -98,8 +98,6 @@ pub const HttpServer = struct {
             log.debug("uv_listen: {s}", .{uv.uv_strerror(r)});
             return error.ListenError;
         }
-
-        rt.num_uv_handles += 1;
     }
 
     /// Default H2O startup for both HTTP/HTTPS
@@ -368,7 +366,6 @@ pub const HttpServer = struct {
         if (!self.closed_listen_handle) {
             return;
         }
-        self.rt.num_uv_handles -= 1;
         self.closed = true;
     }
 

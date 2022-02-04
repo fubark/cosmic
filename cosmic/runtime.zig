@@ -108,10 +108,6 @@ pub const RuntimeContext = struct {
     uv_dummy_async: *uv.uv_async_t,
     uv_poller: UvPoller,
 
-    // Number of long lived uv handles.
-    // TODO: Check later to remove this. We are now using hasPendingEvents().
-    num_uv_handles: u32,
-
     received_uncaught_exception: bool,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
@@ -165,7 +161,6 @@ pub const RuntimeContext = struct {
             .uv_loop = undefined,
             .uv_dummy_async = undefined,
             .uv_poller = undefined,
-            .num_uv_handles = 0,
             .received_uncaught_exception = false,
         };
 
@@ -1255,12 +1250,6 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
 
     // Busy wait.
     while (rt.uv_poller.close_flag.load(.Acquire)) {}
-
-    // Block on uv loop until all uv handles are done.
-    while (rt.num_uv_handles > 0) {
-        // RUN_ONCE lets it return after running some events. RUN_DEFAULT keeps blocking since we have dummy async in the queue.
-        _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_ONCE);
-    }
 
     // Request workers to close.
     // On MacOS, it's especially important to make sure semaphores (eg. std.Thread.ResetEvent)
