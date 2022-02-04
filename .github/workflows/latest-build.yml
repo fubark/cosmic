@@ -34,23 +34,26 @@ jobs:
           - host: macos-11
             target: aarch64-macos-gnu
             mode: release
-#          - host: windows-2019
-#            target: x86_64-windows-msvc
-#            mode: release
+          - host: ubuntu-20.04
+            target: x86_64-windows-gnu
+            mode: release
+          # - host: windows-2019
+          #  target: x86_64-windows-msvc
+          #  mode: release
     env:
       BIN_ZIP: >-
         ${{ fromJson('{
-          "x86_64-windows-msvc": "x86_64-windows",
+          "x86_64-windows-gnu": "cosmic-windows-x64.zip",
           "x86_64-linux-gnu": "cosmic-linux-x64.zip",
           "x86_64-macos-gnu": "cosmic-macos-x64.zip",
           "aarch64-macos-gnu": "cosmic-macos-arm64.zip",
         }')[matrix.config.target] }}
       ZIG_TARGET_FLAG: >-
         ${{ fromJson('{
-          "x86_64-windows-msvc": "-Dtarget=x86_64-windows -Dcpu=baseline",
+          "x86_64-windows-gnu": "-Dtarget=x86_64-windows-gnu -Dcpu=baseline",
           "x86_64-linux-gnu": "-Dtarget=x86_64-linux-gnu -Dcpu=baseline",
           "x86_64-macos-gnu": "-Dtarget=x86_64-macos.10.13-gnu -Dcpu=baseline",
-          "aarch64-macos-gnu": "-Dtarget=aarch64-macos.11 -Dcpu=baseline",
+          "aarch64-macos-gnu": "-Dtarget=aarch64-macos.11-gnu -Dcpu=baseline",
         }')[matrix.config.target] }}
       BUILD_HOST: ${{ matrix.config.host }}
       BUILD_TARGET: ${{ matrix.config.target }}
@@ -80,7 +83,7 @@ jobs:
       - name: Get version.
         id: version
         run: |
-          zig build version 2>> version
+          zig build version > version 2>&1
           echo ::set-output name=version::`cat version`
 
       - name: Cache.
@@ -102,45 +105,45 @@ jobs:
 
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
-        if: env.BUILD_TARGET != 'aarch64-macos-gnu'
+        if: (env.BUILD_TARGET != 'aarch64-macos-gnu' && env.BUILD_TARGET != 'x86_64-windows-gnu')
         run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Build.
         run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Test js.
-        if: env.BUILD_TARGET != 'aarch64-macos-gnu'
+        if: (env.BUILD_TARGET != 'aarch64-macos-gnu' && env.BUILD_TARGET != 'x86_64-windows-gnu')
         run: zig build test-cosmic-js ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       # Remove when zig strip is fixed.
       - name: Strip (Linux)
         if: env.BUILD_TARGET == 'x86_64-linux-gnu' && env.BUILD_MODE == 'release'
         run: |
-          strip zig-out/main/main
+          strip zig-out/${{ env.BUILD_TARGET }}/main/main
 
       # Don't strip aarch64 since it was already code signed.
       # TODO: Look for way to make zig strip before doing the codesign.
       - name: Strip (macOS)
         if: env.BUILD_TARGET == 'x86_64-macos-gnu' && env.BUILD_MODE == 'release'
         run: |
-          strip zig-out/main/main
+          strip zig-out/${{ env.BUILD_TARGET }}/main/main
 
       # Currently just ad hoc signing.
       # aarch64 build is automatically signed by zig.
       - name: Codesign (macOS)
         if: env.BUILD_TARGET == 'x86_64-macos-gnu' && env.BUILD_MODE == 'release'
         run: |
-          codesign --force --deep -s - zig-out/main/main
+          codesign --force --deep -s - zig-out/${{ env.BUILD_TARGET }}/main/main
 
       - name: Copy binary.
         run: cp
-          zig-out/main/main${{ env.BIN_EXT }}
-          zig-out/main/cosmic${{ env.BIN_EXT }}
+          zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }}
+          zig-out/${{ env.BUILD_TARGET }}/main/cosmic${{ env.BIN_EXT }}
 
       - name: Zip. (linux/macos)
         if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
         run: |
-          (cd zig-out/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
+          (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
 
       # To update the release create date, we need to recreate the latest tag.
       - name: Update latest tag.
