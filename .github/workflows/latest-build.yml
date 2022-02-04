@@ -221,3 +221,21 @@ jobs:
       #           }
       #         }
       #       }
+
+  dispatch:
+    name: Dispatch doc gen.
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Dispatch doc gen workflow.
+        continue-on-error: true
+        uses: actions/github-script@v5
+        with:
+          github-token: ${{ secrets.PAT }}
+          script: |
+            await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+              owner: 'fubark',
+              repo: 'cosmic-site',
+              workflow_id: 'gen-docs.yml',
+              // workflow should just exist in master, one of the workflow steps will then checkout gh_pages.
+              ref: 'master'
+            })

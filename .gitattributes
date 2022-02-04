@@ -5,3 +5,6 @@
 *.c text eol=lf
 
 lib/mingw/** linguist-vendored
+docs/*.css linguist-vendored
+docs/*.html linguist-vendored
+docs/*.js linguist-vendored

@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "9f28b91ed214d1839a3ee23ac2c2b11fdd4c79b3";
+const DepsRevision = "7559a689756241c7ed6be4a6022138dffb003b1d";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -143,7 +143,7 @@ pub fn build(b: *Builder) !void {
             .link_v8 = false,
             .link_mock = true,
             .static_link = static_link,
-            .path = "cosmic/doc_gen.zig",
+            .path = "docs/doc_gen.zig",
             .filter = filter,
             .mode = mode,
             .target = target,
@@ -337,6 +337,7 @@ const BuilderContext = struct {
         const exe = self.builder.addExecutable(name, self.path);
         self.setBuildMode(exe);
         self.setTarget(exe);
+        exe.setMainPkgPath(".");
 
         exe.addPackage(build_options);
         addStdx(exe, build_options);
@@ -1704,6 +1705,9 @@ const BuilderContext = struct {
 
     fn copyAssets(self: *Self, step: *LibExeObjStep, output_dir_rel: []const u8) void {
         if (self.path.len == 0) {
+            return;
+        }
+        if (!std.mem.endsWith(u8, self.path, ".zig")) {
             return;
         }
         // Parses the main file for @buildCopy in doc comments

@@ -1,0 +1,130 @@
+@media (min-width: 992px) {
+    body > main {
+        --block-spacing-horizontal:calc(var(--spacing) * 1.75);
+        grid-column-gap: calc(var(--block-spacing-horizontal) * 2);
+        display: grid;
+        grid-template-columns: 200px auto 200px;
+    }
+}
+
+section.main-links li {
+	font-size: 16px;
+}
+
+aside.symbols > div {
+	height: calc(100% - 80px);
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+aside.symbols li {
+	font-size: 14px;
+}
+
+aside.symbols li.indent {
+	padding-left: 30px;
+}
+
+div.docs .indent {
+	padding-left: 50px;
+}
+
+pre {
+	border-left: 1px solid #cccccc;
+}
+
+aside select {
+	font-size: 16px;
+}
+
+@media (min-width: 992px) {
+	aside > div {
+		position: fixed;
+	}
+}
+
+.primary {
+	color: var(--primary);
+}
+
+.secondary {
+	color: var(--secondary);
+}
+
+div.docs .type {
+	padding-bottom: 10px;
+}
+
+div.docs .func {
+	padding-bottom: 10px;
+}
+
+div.docs .type a {
+	pointer-events: none;
+}
+
+div.docs .func a {
+	pointer-events: none;
+}
+
+div.docs .method {
+	margin-left: 15px;
+}
+
+div.docs li {
+	font-size: 16px;
+}
+
+div.docs p {
+	font-size: 16px;
+}
+
+div.docs .field {
+	font-size: 16px;
+}
+
+@media (min-width: 992px) {
+	div.docs p.func-desc {
+		margin-bottom: 50px;
+	}
+}
+
+div.docs small {
+	font-size: 14px;
+}
+
+div.docs .params {
+	font-size: 16px;
+}
+
+div.docs .return {
+	font-size: 16px;
+}
+
+mark.ns {
+	/*color: var(--primary);*/
+	font-size: 16px;
+}
+
+:root aside .category {
+	font-size: 16px;
+}
+
+:root aside section {
+	margin-bottom: 20px;
+}
+
+:root aside li {
+    padding-top: 0px;
+    padding-bottom: 0px;
+}
+
+:root aside li a {
+    margin: 0px;
+    padding: 0px;
+}
+
+:root > body {
+	--form-element-spacing-vertical: 0.25rem;
+	--form-element-spacing-horizontal: 0.5rem;
+}

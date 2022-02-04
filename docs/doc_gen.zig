@@ -6,12 +6,12 @@ const build_options = @import("build_options");
 const graphics = @import("graphics");
 const v8 = @import("v8");
 
-const runtime = @import("runtime.zig");
+const runtime = @import("../cosmic/runtime.zig");
 const printFmt = runtime.printFmt;
 const log = std.log.scoped(.doc_gen);
-const gen = @import("gen.zig");
-const api = @import("api.zig");
-const api_graphics = @import("api_graphics.zig");
+const gen = @import("../cosmic/gen.zig");
+const api = @import("../cosmic/api.zig");
+const api_graphics = @import("../cosmic/api_graphics.zig");
 const cs_graphics = api_graphics.cs_graphics;
 
 const doc_versions: []const DocVersion = &.{
@@ -49,11 +49,10 @@ pub fn main() !void {
     try std.fs.cwd().makePath(docs_path);
 
     // Copy over assets.
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/pico.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "pico.min.css"), .{});
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/docs.css"), std.fs.cwd(), fromPath(alloc, docs_path, "docs.css"), .{});
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/hljs-default.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-default.min.css"), .{});
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/hljs-vs.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-vs.min.css"), .{});
-    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "deps/docs/highlight.min.js"), std.fs.cwd(), fromPath(alloc, docs_path, "highlight.min.js"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/pico.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "pico.min.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/docs.css"), std.fs.cwd(), fromPath(alloc, docs_path, "docs.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/hljs-tomorrow.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-tomorrow.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/highlight.min.js"), std.fs.cwd(), fromPath(alloc, docs_path, "highlight.min.js"), .{});
 
     const api_model = try genApiModel(alloc);
 
@@ -602,8 +601,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         \\  <meta name="viewport" content="width=device-width, initial-scale=1">
         \\  <link rel="stylesheet" href="pico.min.css" />
         \\  <link rel="stylesheet" href="docs.css" />
-        \\  <link rel="stylesheet" href="hljs-default.min.css" />
-        \\  <link rel="stylesheet" href="hljs-vs.min.css" />
+        \\  <link rel="stylesheet" href="hljs-tomorrow.css" />
         \\  <title>Cosmic Docs | {s}</title>
         \\</head>
         \\<body>
@@ -792,7 +790,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
             }
         } else {
             // Render index.html
-            const content_path = fromBuildRoot(ctx.alloc, "cosmic/docs_main.html");
+            const content_path = fromBuildRoot(ctx.alloc, "docs/docs_main.html");
             const content = try std.fs.cwd().readFileAlloc(ctx.alloc, content_path, 10e6);
             defer ctx.alloc.free(content);
             ctx.write(content);
