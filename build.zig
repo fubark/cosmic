@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "20165f2f13b7a796426e044c4528954e83c30bc2";
+const DepsRevision = "9f28b91ed214d1839a3ee23ac2c2b11fdd4c79b3";
 const V8_Revision = "9.9.115";
 
 // Debugging:

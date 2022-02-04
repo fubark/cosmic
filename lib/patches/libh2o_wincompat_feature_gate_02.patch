@@ -86,7 +86,7 @@ index 2086b13..8a3279a 100644
              perror("failed to set the DF bit through setsockopt(" H2O_TO_STR(ip) ", " H2O_TO_STR(optname) ")");                    \
              return 0;                                                                                                              \
 diff --git a/h2o/lib/common/socket/uv-binding.c.h b/h2o/lib/common/socket/uv-binding.c.h
-index 6d7e9d8..4085393 100644
+index 6d7e9d8..dae354c 100644
 --- a/h2o/lib/common/socket/uv-binding.c.h
 +++ b/h2o/lib/common/socket/uv-binding.c.h
 @@ -48,7 +48,12 @@ static void alloc_inbuf(h2o_buffer_t **buf, uv_buf_t *_vec)
@@ -102,7 +102,19 @@ index 6d7e9d8..4085393 100644
  }
  
  static void alloc_inbuf_tcp(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
-@@ -279,7 +284,20 @@ void do_write(h2o_socket_t *_sock, h2o_iovec_t *bufs, size_t bufcnt, h2o_socket_
+@@ -262,7 +267,11 @@ void do_ssl_write(struct st_h2o_uv_socket_t *sock, int is_first_call, h2o_iovec_
+     }
+ 
+     /* Send pending TLS records. */
++#ifdef __MINGW32__
++    uv_buf_t uvbuf = {sock->super.ssl->output.buf.off, (char *)sock->super.ssl->output.buf.base};
++#else
+     uv_buf_t uvbuf = {(char *)sock->super.ssl->output.buf.base, sock->super.ssl->output.buf.off};
++#endif
+     int res = uv_write(&sock->stream._wreq, (uv_stream_t *)sock->handle, &uvbuf, 1, on_ssl_write_complete);
+     if (res != 0) {
+         on_ssl_write_complete(&sock->stream._wreq, res);
+@@ -279,7 +288,20 @@ void do_write(h2o_socket_t *_sock, h2o_iovec_t *bufs, size_t bufcnt, h2o_socket_
  
      if (sock->super.ssl == NULL) {
          if (bufcnt > 0) {
