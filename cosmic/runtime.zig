@@ -108,10 +108,6 @@ pub const RuntimeContext = struct {
     uv_dummy_async: *uv.uv_async_t,
     uv_poller: UvPoller,
 
-    // Number of long lived uv handles.
-    // TODO: Check later to remove this. We are now using hasPendingEvents().
-    num_uv_handles: u32,
-
     received_uncaught_exception: bool,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
@@ -165,7 +161,6 @@ pub const RuntimeContext = struct {
             .uv_loop = undefined,
             .uv_dummy_async = undefined,
             .uv_poller = undefined,
-            .num_uv_handles = 0,
             .received_uncaught_exception = false,
         };
 
@@ -177,25 +172,28 @@ pub const RuntimeContext = struct {
         // Create libuv evloop instance.
         self.uv_loop = alloc.create(uv.uv_loop_t) catch unreachable;
         var res = uv.uv_loop_init(self.uv_loop);
-        if (res != 0) {
-            stdx.panicFmt("uv_loop_init: {s}", .{ uv.uv_strerror(res) });
-        }
+        uv.assertNoError(res);
+
         const S = struct {
             fn onWatcherQueueChanged(_loop: [*c]uv.uv_loop_t) callconv(.C) void {
                 // log.debug("on queue changed", .{});
                 const loop = @ptrCast(*uv.uv_loop_t, _loop);
                 const rt = stdx.mem.ptrCastAlign(*RuntimeContext, loop.data.?);
-                _ = uv.uv_async_send(rt.uv_dummy_async);
+                const res_ = uv.uv_async_send(rt.uv_dummy_async);
+                uv.assertNoError(res_);
             }
         };
         // Once this is merged: https://github.com/libuv/libuv/pull/3308,
         // we can remove patches/libuv_on_watcher_queue_updated.patch and use the better method.
         self.uv_loop.data = self;
-        self.uv_loop.on_watcher_queue_updated = S.onWatcherQueueChanged;
+        if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
+            self.uv_loop.on_watcher_queue_updated = S.onWatcherQueueChanged;
+        }
 
         // Add dummy handle or UvPoller/uv_backend_timeout will think there is nothing to wait for.
         self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
-        _ = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
+        res = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
+        uv.assertNoError(res);
 
         stdx.http.curlm_uvloop = self.uv_loop;
         stdx.http.uv_interrupt = self.uv_dummy_async;
@@ -205,7 +203,7 @@ pub const RuntimeContext = struct {
 
         // Start uv poller thread.
         self.uv_poller = UvPoller.init(self.uv_loop, &self.main_wakeup);
-        _ = std.Thread.spawn(.{}, UvPoller.loop, .{&self.uv_poller}) catch unreachable;
+        _ = std.Thread.spawn(.{}, UvPoller.run, .{&self.uv_poller}) catch unreachable;
 
         self.work_queue = WorkQueue.init(alloc, self.uv_loop, &self.main_wakeup);
         self.work_queue.createAndRunWorker();
@@ -1253,12 +1251,6 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     // Busy wait.
     while (rt.uv_poller.close_flag.load(.Acquire)) {}
 
-    // Block on uv loop until all uv handles are done.
-    while (rt.num_uv_handles > 0) {
-        // RUN_ONCE lets it return after running some events. RUN_DEFAULT keeps blocking since we have dummy async in the queue.
-        _ = uv.uv_run(rt.uv_loop, uv.UV_RUN_ONCE);
-    }
-
     // Request workers to close.
     // On MacOS, it's especially important to make sure semaphores (eg. std.Thread.ResetEvent)
     // are not in use (their counters should be reset to the original value) or we'll get an error from libdispatch.
@@ -1316,10 +1308,17 @@ inline fn hasPendingEvents(rt: *RuntimeContext) bool {
 
     // There will at least be 1 active handle (the dummy async handle used to do interrupts from main thread).
     // uv handle checks is based on uv_loop_alive():
-    return rt.uv_loop.active_handles > 1 or 
-        rt.uv_loop.active_reqs.count > 0 or
-        rt.uv_loop.closing_handles != null or 
-        rt.work_queue.hasUnfinishedTasks();
+    if (builtin.os.tag == .windows) {
+        return rt.uv_loop.active_handles > 1 or 
+            rt.uv_loop.active_reqs.count > 0 or
+            rt.uv_loop.endgame_handles != null or 
+            rt.work_queue.hasUnfinishedTasks();
+    } else {
+        return rt.uv_loop.active_handles > 1 or 
+            rt.uv_loop.active_reqs.count > 0 or
+            rt.uv_loop.closing_handles != null or 
+            rt.work_queue.hasUnfinishedTasks();
+    }
 }
 
 /// Waits until there is work to process if there is work in progress.

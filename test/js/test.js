@@ -361,7 +361,8 @@ testIsolated('cs.http.serveHttp', async () => {
 })
 
 testIsolated('cs.http.serveHttps', async () => {
-    const s = cs.http.serveHttps('127.0.0.1', 3000, './deps/https/localhost.crt', './deps/https/localhost.key')
+    // Use a different port for each test since listening sockets can remain in TIME_WAIT and on Windows reuseaddr is not used.
+    const s = cs.http.serveHttps('127.0.0.1', 3001, './deps/https/localhost.crt', './deps/https/localhost.key')
     s.setHandler((req, resp) => {
         if (req.path == '/hello' && req.method == 'GET') {
             resp.setStatus(200)
@@ -385,15 +386,15 @@ testIsolated('cs.http.serveHttps', async () => {
         const opts = {
             certFile: './deps/https/localhost.crt',
         }
-        var resp = await cs.http.requestAsync('https://localhost:3000', opts)
+        var resp = await cs.http.requestAsync('https://localhost:3001', opts)
         eq(resp.text(), 'not found')
-        resp = await cs.http.requestAsync('https://localhost:3000/hello', opts)
+        resp = await cs.http.requestAsync('https://localhost:3001/hello', opts)
         eq(resp.status, 200)
         eq(resp.getHeader('content-type'), 'text/plain; charset=utf-8')
         eq(resp.text(), 'Hello from server!')
 
         // Post.
-        resp = await cs.http.requestAsync('https://localhost:3000/hello', {
+        resp = await cs.http.requestAsync('https://localhost:3001/hello', {
             method: 'post',
             certFile: './deps/https/localhost.crt',
             body: 'my message',

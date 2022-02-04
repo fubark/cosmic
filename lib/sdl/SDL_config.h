@@ -13,6 +13,8 @@
 /* Add any platform that doesn't build using the configure system. */
 #if defined(__WIN32__)
 #include "SDL_config_windows.h"
+#undef HAVE_WINDOWS_GAMING_INPUT_H
+#undef SDL_JOYSTICK_WGI
 #elif defined(__WINRT__)
 #include "SDL_config_winrt.h"
 #elif defined(__MACOSX__)

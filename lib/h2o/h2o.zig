@@ -14,7 +14,8 @@ const c = @cImport({
 const h2o_loop = uv.uv_loop_t;
 
 pub extern fn h2o_config_init(config: [*c]h2o_globalconf) void;
-pub extern fn h2o_config_register_host(config: *h2o_globalconf, host: c.h2o_iovec_t, port: u16) *h2o_hostconf;
+
+pub extern fn h2o_config_register_host(config: *h2o_globalconf, host: h2o_iovec_t, port: u16) *h2o_hostconf;
 pub extern fn h2o_config_register_path(hostconf: [*c]h2o_hostconf, path: [*c]const u8, flags: c_int) [*c]h2o_pathconf;
 pub extern fn h2o_create_handler(conf: [*c]h2o_pathconf, sz: usize) ?*h2o_handler;
 pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
@@ -25,10 +26,15 @@ pub extern fn h2o_add_header(pool: *c.h2o_mem_pool_t, headers: *h2o_headers, tok
 pub extern fn h2o_set_header(pool: *c.h2o_mem_pool_t, headers: *h2o_headers, token: *const h2o_token, value: [*c]const u8, value_len: usize, overwrite_if_exists: c_int) isize;
 pub extern fn h2o_set_header_by_str(pool: *c.h2o_mem_pool_t, headers: *h2o_headers, lowercase_name: [*c]const u8, lowercase_name_len: usize, maybe_token: c_int, value: [*c]const u8, value_len: usize, overwrite_if_exists: c_int) isize;
 pub extern fn h2o_start_response(req: ?*h2o_req, generator: [*c]c.h2o_generator_t) void;
-pub extern fn h2o_strdup(pool: *c.h2o_mem_pool_t, s: [*c]const u8, len: usize) h2o_iovec_t;
+pub extern fn h2o_strdup(pool: *c.h2o_mem_pool_t, s: [*c]const u8, len: usize) c.h2o_iovec_t;
 pub extern fn h2o_send(req: ?*h2o_req, bufs: [*c]c.h2o_iovec_t, bufcnt: usize, state: c.h2o_send_state_t) void;
 pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_close_cb) ?*h2o_socket;
 pub extern fn h2o_ssl_register_alpn_protocols(ctx: *ssl.SSL_CTX, protocols: [*c]const h2o_iovec_t) void;
+pub extern fn h2o_access_log_open_handle(path: [*c]const u8, fmt: [*c]const u8, escape: c_int) ?*c.h2o_access_log_filehandle_t;
+pub extern fn h2o_access_log_register(pathconf: [*c]h2o_pathconf, handle: ?*anyopaque) [*c]*anyopaque;
+
+pub const H2O_LOGCONF_ESCAPE_APACHE = c.H2O_LOGCONF_ESCAPE_APACHE;
+pub const H2O_LOGCONF_ESCAPE_JSON = c.H2O_LOGCONF_ESCAPE_JSON;
 
 // Includes just http2
 pub extern fn h2o_get_http2_alpn_protocols() [*c]const h2o_iovec_t;
@@ -64,7 +70,14 @@ pub const H2O_SEND_STATE_FINAL = c.H2O_SEND_STATE_FINAL; // Indicates eof.
 pub const H2O_SEND_STATE_ERROR = c.H2O_SEND_STATE_ERROR;
 
 pub const h2o_generator_t = c.h2o_generator_t;
-pub const h2o_iovec_init = c.h2o_iovec_init;
+
+pub fn h2o_iovec_init(slice: []const u8) h2o_iovec_t {
+    return .{
+        .base = @ptrToInt(slice.ptr),
+        .len = slice.len,
+    };
+}
+
 pub const h2o_iovec_t = c.h2o_iovec_t;
 pub const h2o_req_t = c.h2o_req_t;
 pub const uv_loop_t = c.uv_loop_t;
@@ -458,7 +471,7 @@ const quicly_context = extern struct {
     /// called wen a NEW_TOKEN token is being received
     save_resumption_token: *c.quicly_save_resumption_token_t,
 
-    generate_resumption_token: *c.quicly_generate_resumption_token_t,
+    generate_resumption_token: *quicly_generate_resumption_token_t,
 
     /// crypto engine (offload API)
     crypto_engine: *c.quicly_crypto_engine_t,
@@ -468,6 +481,18 @@ const quicly_context = extern struct {
 
     /// optional refcount callback
     update_open_count: *c.quicly_update_open_count_t,
+};
+
+const quicly_generate_resumption_token_t = extern struct {
+    cb: ?fn ([*c]struct_st_quicly_generate_resumption_token_t, ?*c.quicly_conn_t, [*c]c.ptls_buffer_t, [*c]quicly_address_token_plaintext_t) callconv(.C) c_int,
+};
+
+pub const struct_st_quicly_generate_resumption_token_t = extern struct {
+    cb: ?fn ([*c]struct_st_quicly_generate_resumption_token_t, ?*c.quicly_conn_t, [*c]c.ptls_buffer_t, [*c]quicly_address_token_plaintext_t) callconv(.C) c_int,
+};
+
+const quicly_address_token_plaintext_t = extern struct {
+    stub: c_int,
 };
 
 /// Transport Parameters; the struct contains "configuration parameters", ODCID is managed separately
@@ -740,7 +765,11 @@ const h2o_quic_conn_callbacks = extern struct {
     destroy_connection: ?fn ([*c]h2o_quic_conn) callconv(.C) void,
 };
 
-const h2o_quic_accept_cb = ?fn ([*c]h2o_quic_ctx, [*c]c.quicly_address_t, [*c]c.quicly_address_t, [*c]quicly_decoded_packet) callconv(.C) [*c]h2o_quic_conn;
+const h2o_quic_accept_cb = ?fn ([*c]h2o_quic_ctx, [*c]quicly_address_t, [*c]quicly_address_t, [*c]quicly_decoded_packet) callconv(.C) [*c]h2o_quic_conn;
+
+const quicly_address_t = extern struct {
+    stub: c_int,
+};
 
 const quicly_decoded_packet = extern struct {
     octets: c.ptls_iovec_t,
@@ -780,8 +809,8 @@ const struct_unnamed_151 = extern struct {
 
 const enum_unnamed_152 = c_uint;
 
-const h2o_quic_forward_packets_cb = ?fn ([*c]h2o_quic_ctx, [*c]const u64, u32, [*c]c.quicly_address_t, [*c]c.quicly_address_t, u8, [*c]quicly_decoded_packet, usize) callconv(.C) c_int;
-const h2o_quic_preprocess_packet_cb = ?fn ([*c]h2o_quic_ctx, [*c]c.struct_msghdr, [*c]c.quicly_address_t, [*c]c.quicly_address_t, [*c]u8) callconv(.C) c_int;
+const h2o_quic_forward_packets_cb = ?fn ([*c]h2o_quic_ctx, [*c]const u64, u32, [*c]quicly_address_t, [*c]quicly_address_t, u8, [*c]quicly_decoded_packet, usize) callconv(.C) c_int;
+const h2o_quic_preprocess_packet_cb = ?fn ([*c]h2o_quic_ctx, [*c]c.struct_msghdr, [*c]quicly_address_t, [*c]quicly_address_t, [*c]u8) callconv(.C) c_int;
 
 const h2o_logger = extern struct {
     _config_slot: usize,

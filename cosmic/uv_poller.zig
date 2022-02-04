@@ -14,6 +14,7 @@ pub const UvPoller = struct {
     inner: switch (builtin.os.tag) {
         .linux => UvPollerLinux,
         .macos => UvPollerMac,
+        .windows => UvPollerWindows,
         else => unreachable,
     },
 
@@ -40,7 +41,7 @@ pub const UvPoller = struct {
         return new;
     }
 
-    pub fn loop(self: *Self) void {
+    pub fn run(self: *Self) void {
         while (true) {
             if (self.close_flag.load(.Acquire)) {
                 break;
@@ -121,3 +122,37 @@ const UvPollerMac = struct {
         }
     }
 };
+
+const UvPollerWindows = struct {
+    const Self = @This();
+
+    fn init(self: *Self, uv_loop: *uv.uv_loop_t) void {
+        _ = self;
+        _ = uv_loop;
+    }
+
+    fn poll(self: Self, uv_loop: *uv.uv_loop_t) void {
+        _ = self;
+
+        var bytes: u32 = undefined;
+        var key: usize = undefined;
+        var overlapped: ?*std.os.windows.OVERLAPPED = null;
+
+        // Wait forever if -1 is returned.
+        const timeout = uv.uv_backend_timeout(uv_loop);
+        if (timeout == -1) {
+            // Call directly since zig's abstraction will panic on expected errors.
+            _ = std.os.windows.kernel32.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, std.os.windows.INFINITE);
+        } else {
+            _ = std.os.windows.kernel32.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, @intCast(u32, timeout));
+        }
+
+        // Give the event back so libuv can deal with it.
+        if (overlapped != null) {
+            std.os.windows.PostQueuedCompletionStatus(uv_loop.iocp.?, bytes, key, overlapped) catch |err| {
+                log.debug("PostQueuedCompletionStatus error: {}", .{err});
+            }; 
+        }
+    }
+};
+

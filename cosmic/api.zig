@@ -2,6 +2,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
+const builtin = @import("builtin");
 const ds = stdx.ds;
 const v8 = @import("v8");
 const input = @import("input");
@@ -511,8 +512,8 @@ pub const cs_files = struct {
 
     /// Returns the absolute path of the current working directory.
     pub fn cwd(rt: *RuntimeContext) ?ds.Box([]const u8) {
-        const _cwd = std.fs.cwd().realpathAlloc(rt.alloc, ".") catch return null;
-        return ds.Box([]const u8).init(rt.alloc, _cwd);
+        const cwd_ = std.process.getCwdAlloc(rt.alloc) catch return null;
+        return ds.Box([]const u8).init(rt.alloc, cwd_);
     }
 
     /// Returns info about a file, folder, or special object at a given path.
@@ -551,7 +552,8 @@ pub const cs_files = struct {
     /// List the files in a directory. This is not recursive.
     /// @param path
     pub fn listDir(rt: *RuntimeContext, path: []const u8) ?ManagedSlice(FileEntry) {
-        const dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+        var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+        defer dir.close();
 
         var iter = dir.iterate();
         var buf = std.ArrayList(FileEntry).init(rt.alloc);
@@ -636,9 +638,22 @@ pub const cs_files = struct {
     /// @param recursive
     pub fn removeDir(path: []const u8, recursive: bool) bool {
         if (recursive) {
-            std.fs.cwd().deleteTree(path) catch return false;
+            std.fs.cwd().deleteTree(path) catch |err| {
+                if (builtin.os.tag == .windows and err == error.FileBusy) {
+                    // If files were deleted, the root directory remains and returns FileBusy, so try again.
+                    std.fs.cwd().deleteDir(path) catch return false;
+                    return true;
+                }
+                return false;
+            };
         } else {
             std.fs.cwd().deleteDir(path) catch return false;
+            if (builtin.os.tag == .windows) {
+                // Underlying NtCreateFile call returns success when it ignores a recursive directory.
+                // For now, check that it doesn't exist.
+                const exists = stdx.fs.pathExists(path) catch return false;
+                return !exists;
+            }
         }
         return true;
     }

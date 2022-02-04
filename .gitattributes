@@ -1,3 +1,7 @@
 *.zig text eol=lf
 *.html text eol=lf
 *.md text eol=lf
+*.h text eol=lf
+*.c text eol=lf
+
+lib/mingw/** linguist-vendored
