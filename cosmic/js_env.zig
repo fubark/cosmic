@@ -78,6 +78,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setFuncT(proto, "createChild", api.cs_window.Window.createChild);
         ctx.setFuncT(proto, "position", api.cs_window.Window.position);
         ctx.setFuncT(proto, "focus", api.cs_window.Window.focus);
+        ctx.setFuncT(proto, "getWidth", api.cs_window.Window.getWidth);
+        ctx.setFuncT(proto, "getHeight", api.cs_window.Window.getHeight);
     }
     rt.window_class = window_class;
 

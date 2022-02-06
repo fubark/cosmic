@@ -61,8 +61,6 @@ pub const RuntimeContext = struct {
     // Window that has keyboard focus and will receive swap buffer.
     // Note: This is only safe if the allocation doesn't change.
     active_window: *CsWindow,
-    // Active graphics handle for receiving js draw calls.
-    active_graphics: *graphics.Graphics,
 
     platform: v8.Platform,
     isolate: v8.Isolate,
@@ -131,7 +129,6 @@ pub const RuntimeContext = struct {
             .window_resource_list_last = undefined,
             .num_windows = 0,
             .active_window = undefined,
-            .active_graphics = undefined,
             .platform = platform,
             .isolate = iso,
             .context = undefined,
@@ -209,7 +206,7 @@ pub const RuntimeContext = struct {
         self.work_queue.createAndRunWorker();
 
         // Insert dummy head so we can set last.
-        const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy };
+        const dummy: ResourceHandle = .{ .ptr = undefined, .tag = .Dummy, .external_handle = undefined, .deinited = true, .on_deinit_cb = null };
         self.window_resource_list = self.resources.addListWithHead(dummy) catch unreachable;
         self.window_resource_list_last = self.resources.getListHead(self.window_resource_list).?;
         self.generic_resource_list = self.resources.addListWithHead(dummy) catch unreachable;
@@ -255,8 +252,9 @@ pub const RuntimeContext = struct {
         }
         {
             var iter = self.resources.items.iterator();
-            while (iter.next()) |item| {
-                self.deinitResourceHandle(item.data);
+            while (iter.nextPtr()) |_| {
+                const res_id = iter.idx - 1;
+                self.destroyResourceHandle(res_id);
             }
             self.resources.deinit();
         }
@@ -282,22 +280,73 @@ pub const RuntimeContext = struct {
         self.alloc.destroy(self.uv_loop);
     }
 
-    /// Destroys the resource owned by the handle.
-    fn deinitResourceHandle(self: *Self, handle: ResourceHandle) void {
+    /// Destroys the resource owned by the handle and marks it as deinited.
+    /// If the resource can't be deinited immediately, the final deinitResourceHandle call will be deferred.
+    pub fn startDeinitResourceHandle(self: *Self, id: ResourceId) void {
+        const handle = self.resources.getPtr(id);
+        if (handle.deinited) {
+            log.err("Already deinited", .{});
+            unreachable;
+        }
         switch (handle.tag) {
             .CsWindow => {
                 // TODO: This should do cleanup like deleteCsWindowBySdlId
                 const window = stdx.mem.ptrCastAlign(*CsWindow, handle.ptr);
                 window.deinit(self);
-                self.alloc.destroy(window);
+
+                // Update current vars.
+                self.num_windows -= 1;
+                if (self.num_windows > 0) {
+                    if (self.active_window == stdx.mem.ptrCastAlign(*CsWindow, handle.ptr)) {
+                        // TODO: Revisit this. For now just pick the last available window.
+                        const list_id = self.getListId(handle.tag);
+                        if (self.resources.findInList(list_id, {}, findFirstActiveResource)) |res_id| {
+                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(res_id).ptr);
+                        }
+                    }
+                } else {
+                    self.active_window = undefined;
+                }
+                self.deinitResourceHandleInternal(id);
             },
             .CsHttpServer => {
                 const server = stdx.mem.ptrCastAlign(*HttpServer, handle.ptr);
-                server.requestShutdown();
-                server.deinitPreClosing();
-                self.alloc.destroy(server);
+                if (server.closed) {
+                    self.deinitResourceHandleInternal(id);
+                } else {
+                    const S = struct {
+                        fn onShutdown(ptr: *anyopaque, _: *HttpServer) void {
+                            const ctx = stdx.mem.ptrCastAlign(*ExternalResourceHandle, ptr);
+                            ctx.rt.deinitResourceHandleInternal(ctx.res_id);
+                        }
+                    };
+                    // TODO: Should set cb atomically with shutdown op.
+                    const cb = stdx.Callback(*anyopaque, *HttpServer).init(handle.external_handle, S.onShutdown);
+                    server.on_shutdown_cb = cb;
+                    server.requestShutdown();
+                    server.deinitPreClosing();
+                }
             },
             .Dummy => {},
+        }
+        handle.deinited = true;
+    }
+
+    // Internal func. Called when ready to actually free the handle
+    fn deinitResourceHandleInternal(self: *Self, id: ResourceId) void {
+        const handle = self.resources.get(id);
+        // Fire callback.
+        if (handle.on_deinit_cb) |cb| {
+            cb.call(id);
+        }
+        switch (handle.tag) {
+            .CsWindow => {
+                self.alloc.destroy(stdx.mem.ptrCastAlign(*CsWindow, handle.ptr));
+            },
+            .CsHttpServer => {
+                self.alloc.destroy(stdx.mem.ptrCastAlign(*HttpServer, handle.ptr));
+            },
+            else => unreachable,
         }
     }
 
@@ -346,10 +395,23 @@ pub const RuntimeContext = struct {
         self.generic_resource_list_last = self.resources.insertAfter(self.generic_resource_list_last, .{
             .ptr = ptr,
             .tag = .CsHttpServer,
+            .external_handle = undefined,
+            .deinited = false,
+            .on_deinit_cb = null,
         }) catch unreachable;
+
+        const res_id = self.generic_resource_list_last;
+        const external = self.alloc.create(ExternalResourceHandle) catch unreachable;
+        external.* = .{
+            .rt = self,
+            .res_id = res_id,
+        };
+        self.resources.getPtr(res_id).external_handle = external;
+
         return .{
             .ptr = ptr,
-            .id = self.generic_resource_list_last,
+            .id = res_id,
+            .external = external,
         };
     }
 
@@ -358,50 +420,78 @@ pub const RuntimeContext = struct {
         self.window_resource_list_last = self.resources.insertAfter(self.window_resource_list_last, .{
             .ptr = ptr,
             .tag = .CsWindow,
+            .external_handle = undefined,
+            .deinited = false,
+            .on_deinit_cb = null,
         }) catch unreachable;
+
+        const res_id = self.window_resource_list_last;
+        const external = self.alloc.create(ExternalResourceHandle) catch unreachable;
+        external.* = .{
+            .rt = self,
+            .res_id = res_id,
+        };
+        self.resources.getPtr(res_id).external_handle = external;
+
         self.num_windows += 1;
         return .{
             .ptr = ptr,
-            .id = self.window_resource_list_last,
+            .id = res_id,
+            .external = external,
         };
     }
 
-    /// Deinit the underlying resource and removes the handle from the runtime.
-    pub fn destroyResource(self: *Self, list_id: ResourceListId, res_id: ResourceId) void {
-        const S = struct {
-            fn findPrev(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-                if (buf.getNext(item_id)) |next| {
-                    return next == target;
-                } else return false;
-            }
-        };
-
-        if (self.resources.findInList(list_id, res_id, S.findPrev)) |prev_id| {
-            const id = self.resources.getNext(prev_id).?;
-            const res = self.resources.get(id);
-            self.deinitResourceHandle(res);
-
-            // Remove from resources.
-            self.resources.removeNext(prev_id);
-
-            if (res.tag == .CsWindow) {
-                if (self.window_resource_list_last == id) {
-                    self.window_resource_list_last = prev_id;
-                }
-                // Update current vars.
-                self.num_windows -= 1;
-                if (self.num_windows > 0) {
-                    if (self.active_window == stdx.mem.ptrCastAlign(*CsWindow, res.ptr)) {
-                        // TODO: Revisit this. For now just pick the last window.
-                        self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(prev_id).ptr);
-                        self.active_graphics = self.active_window.graphics;
-                    }
-                } else {
-                    self.active_window = undefined;
-                    self.active_graphics = undefined;
-                }
-            }
+    /// Destroys the ResourceHandle and removes it from the runtime. Doing so also frees the resource slot for reuse.
+    /// This is called when the js handle invokes the weak finalizer. At that point no js handle
+    /// still references the id so it is safe to remove the native handle.
+    pub fn destroyResourceHandle(self: *Self, res_id: ResourceId) void {
+        if (!self.resources.hasItem(res_id)) {
+            log.err("Expected resource id: {}", .{res_id});
+            unreachable;
         }
+        const res = self.resources.getPtr(res_id);
+        if (!res.deinited) {
+            self.startDeinitResourceHandle(res_id);
+        }
+
+        // The external handle is kept alive after deinit since it's needed by a finalizer callback.
+        if (res.tag != .Dummy) {
+            self.alloc.destroy(res.external_handle);
+
+            const list_id = self.getListId(res.tag);
+            if (self.resources.findInList(list_id, res_id, findPrevResource)) |prev_id| {
+                // Remove from resources.
+                self.resources.removeNext(prev_id);
+
+                if (res.tag == .CsWindow) {
+                    if (self.window_resource_list_last == res_id) {
+                        self.window_resource_list_last = prev_id;
+                    }
+                } else if (res.tag == .CsHttpServer) {
+                    if (self.generic_resource_list == res_id) {
+                        self.generic_resource_list = prev_id;
+                    }
+                } else unreachable;
+            } else unreachable;
+        }
+    }
+
+    fn getListId(self: *Self, tag: ResourceTag) ResourceListId {
+        switch (tag) {
+            .CsWindow => return self.window_resource_list,
+            .CsHttpServer => return self.generic_resource_list,
+            else => unreachable,
+        }
+    }
+
+    fn findFirstActiveResource(_: void, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
+        return !buf.get(item_id).deinited;
+    }
+
+    fn findPrevResource(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
+        if (buf.getNext(item_id)) |next| {
+            return next == target;
+        } else return false;
     }
 
     fn getCsWindowResourceBySdlId(self: *Self, sdl_win_id: u32) ?ResourceId {
@@ -803,14 +893,6 @@ pub fn ManagedStruct(comptime T: type) type {
     };
 }
 
-// Resolves to native ptr from resource id attached to js this.
-pub fn ThisResource(comptime Ptr: type) type {
-    return struct {
-        pub const ThisResource = true;
-        ptr: Ptr,
-    };
-}
-
 var galloc: std.mem.Allocator = undefined;
 var uncaught_promise_errors: std.AutoHashMap(c_int, []const u8) = undefined;
 
@@ -879,7 +961,7 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                     switch (event.window.event) {
                         sdl.SDL_WINDOWEVENT_CLOSE => {
                             if (rt.getCsWindowResourceBySdlId(event.window.windowID)) |res_id| {
-                                rt.destroyResource(rt.window_resource_list, res_id);
+                                rt.startDeinitResourceHandle(res_id);
                             }
                         },
                         else => {},
@@ -942,6 +1024,10 @@ fn updateMultipleWindows(rt: *RuntimeContext) void {
     cur_res = rt.resources.getNext(cur_res.?);
     while (cur_res) |res_id| {
         const res = rt.resources.get(res_id);
+        if (res.deinited) {
+            cur_res = rt.resources.getNext(res_id);
+            continue;
+        }
         const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
 
         win.window.makeCurrent();
@@ -1014,6 +1100,14 @@ const ResourceTag = enum {
     Dummy,
 };
 
+pub fn Resource(comptime Tag: ResourceTag) type {
+    switch (Tag) {
+        .CsWindow => return CsWindow,
+        .CsHttpServer => return HttpServer,
+        else => unreachable,
+    }
+}
+
 pub fn GetResourceTag(comptime T: type) ResourceTag {
     switch (T) {
         *HttpServer => return .CsHttpServer,
@@ -1024,12 +1118,22 @@ pub fn GetResourceTag(comptime T: type) ResourceTag {
 const ResourceHandle = struct {
     ptr: *anyopaque,
     tag: ResourceTag,
+
+    // Passed into a weak finalizer callback.
+    external_handle: *ExternalResourceHandle,
+
+    // Whether the underlying resource has been deinited.
+    // The handle can still remain until the js handle is no longer used.
+    deinited: bool,
+
+    on_deinit_cb: ?stdx.Callback(*anyopaque, ResourceId),
 };
 
 fn CreatedResource(comptime T: type) type {
     return struct {
         ptr: *T,
         id: ResourceId,
+        external: *ExternalResourceHandle,
     };
 }
 
@@ -1107,6 +1211,13 @@ pub const CsWindow = struct {
         self.js_graphics.deinit();
     }
 };
+
+pub fn onFreeResource(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
+    const info = v8.WeakCallbackInfo.initFromC(c_info);
+    const ptr = info.getParameter();
+    const external = stdx.mem.ptrCastAlign(*ExternalResourceHandle, ptr);
+    external.rt.destroyResourceHandle(external.res_id);
+}
 
 pub fn errorFmt(comptime format: []const u8, args: anytype) void {
     const stderr = std.io.getStdErr().writer();
@@ -1640,6 +1751,23 @@ pub fn RuntimeValue(comptime T: type) type {
     return struct {
         rt: *RuntimeContext,
         inner: T,
+    };
+}
+
+// Holds the rt and resource id for passing into a callback.
+const ExternalResourceHandle = struct {
+    rt: *RuntimeContext,
+    res_id: ResourceId,
+};
+
+// This is converted from a js object that has a resource id in their first internal field.
+pub fn ThisResource(comptime Tag: ResourceTag) type {
+    return struct {
+        pub const ThisResource = true;
+
+        res_id: ResourceId,
+        res: *Resource(Tag),
+        obj: v8.Object,
     };
 }
 

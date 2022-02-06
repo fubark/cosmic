@@ -15,6 +15,7 @@ const PromiseId = runtime.PromiseId;
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
+const log = stdx.log.scoped(.gen);
 
 pub fn genJsFuncSync(comptime native_fn: anytype) v8.FunctionCallback {
     return genJsFunc(native_fn, .{
@@ -110,12 +111,19 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 @field(native_args, field.name) = This{ .obj = info.getThis() };
             }
             if (ct_info.this_res_field) |field| {
-                const PtrType = stdx.meta.FieldType(field.field_type, .ptr);
+                const PtrType = stdx.meta.FieldType(field.field_type, .res);
                 const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
-                if (rt.getResourcePtr(PtrType, res_id)) |ptr| {
-                    @field(native_args, field.name) = ThisResource(PtrType){ .ptr = ptr };
+                const handle = rt.resources.get(res_id);
+                if (!handle.deinited) {
+                    @field(native_args, field.name) = field.field_type{
+                        .res = stdx.mem.ptrCastAlign(PtrType, handle.ptr),
+                        .res_id = res_id,
+                        .obj = info.getThis(),
+                    };
                 } else {
-                    v8x.throwErrorException(iso, "Native handle expired");
+                    // TODO: Set error code.
+                    const return_value = info.getReturnValue();
+                    return_value.setValueHandle(rt.js_null.handle);
                     return;
                 }
             }

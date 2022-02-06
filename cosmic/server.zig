@@ -42,6 +42,8 @@ pub const HttpServer = struct {
 
     https: bool,
 
+    on_shutdown_cb: ?stdx.Callback(*anyopaque, *Self),
+
     // The initial state is closed and nothing happens until we do startHttp/startHttps.
     pub fn init(self: *Self, rt: *RuntimeContext) void {
         self.* = .{
@@ -59,6 +61,7 @@ pub const HttpServer = struct {
             .socket_handles = 0,
             .closed_listen_handle = true,
             .https = false,
+            .on_shutdown_cb = null,
         };
     }
 
@@ -202,71 +205,6 @@ pub const HttpServer = struct {
         self.updateClosed();
     }
 
-    pub fn setHandler(res: ThisResource(*Self), handler: v8.Function) void {
-        const self = res.ptr;
-        self.js_handler = self.rt.isolate.initPersistent(v8.Function, handler);
-    }
-
-    pub fn requestClose(res: ThisResource(*Self)) void {
-        const self = res.ptr;
-        self.requestShutdown();
-    }
-
-    // The aim is to provide a clean way to shutdown in a promise which resolves when closed and freed.
-    // Requests shutdown and adds a task that continually watches the closed variable.
-    pub fn closeAsync(res: ThisResource(*Self)) v8.Promise {
-        const self = res.ptr;
-        self.requestShutdown();
-
-        const rt = self.rt;
-        const iso = rt.isolate;
-
-        const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
-        const promise = resolver.inner.getPromise();
-        const promise_id = rt.promises.add(resolver) catch unreachable;
-
-        const S = struct {
-            const ServerCloseTimer = struct {
-                super: uv.uv_timer_t,
-                promise_id: PromiseId,
-                resource_id: ResourceId,
-            };
-
-            fn onCheckServerClose(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
-                const timer = @ptrCast(*ServerCloseTimer, ptr);
-                const server = stdx.mem.ptrCastAlign(*Self, timer.super.data.?);
-                if (!server.closed) {
-                    return;
-                }
-                uv.uv_close(@ptrCast(*uv.uv_handle_t, ptr), onCloseTimer);
-            }
-
-            fn onCloseTimer(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
-                const timer = @ptrCast(*ServerCloseTimer, ptr);
-                const server = stdx.mem.ptrCastAlign(*Self, timer.super.data);
-
-                // Save rt before we free server.
-                const _rt = server.rt;
-
-                // At this point there should be nothing that references HttpServer, so destroy the resource.
-                _rt.destroyResource(_rt.generic_resource_list, timer.resource_id);
-
-                runtime.resolvePromise(_rt, timer.promise_id, _rt.js_true);
-
-                _rt.alloc.destroy(timer);
-            }
-        };
-
-        const timer = rt.alloc.create(S.ServerCloseTimer) catch unreachable;
-        timer.super.data = self;
-        timer.promise_id = promise_id;
-        _ = uv.uv_timer_init(self.rt.uv_loop, &timer.super);
-        // Check every 200ms.
-        _ = uv.uv_timer_start(&timer.super, S.onCheckServerClose, 200, 200);
-
-        return promise;
-    }
-
     fn registerHandler(self: *Self, path: [:0]const u8, onRequest: fn (handler: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int) *h2o.h2o_pathconf {
         const pathconf = h2o.h2o_config_register_path(self.hostconf, path, 0);
         var handler = @ptrCast(*H2oServerHandler, h2o.h2o_create_handler(pathconf, @sizeOf(H2oServerHandler)).?);
@@ -367,6 +305,9 @@ pub const HttpServer = struct {
             return;
         }
         self.closed = true;
+        if (self.on_shutdown_cb) |cb| {
+            cb.call(self);
+        }
     }
 
     fn onUvHandleClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {

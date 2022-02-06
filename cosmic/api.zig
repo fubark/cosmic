@@ -16,8 +16,10 @@ const TaskOutput = work_queue.TaskOutput;
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const RuntimeValue = runtime.RuntimeValue;
+const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
 const ThisResource = runtime.ThisResource;
+const onFreeResource = runtime.onFreeResource;
 const This = runtime.This;
 const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
@@ -67,7 +69,8 @@ pub const cs_window = struct {
         res.ptr.init(rt, win, res.id);
 
         rt.active_window = res.ptr;
-        rt.active_graphics = rt.active_window.graphics;
+
+        res.ptr.js_window.setWeakFinalizer(res.external, onFreeResource, v8.WeakCallbackType.kParameter);
 
         return res.ptr.js_window.castToObject();
     }
@@ -76,18 +79,8 @@ pub const cs_window = struct {
     pub const Window = struct {
 
         /// Returns the graphics context attached to this window.
-        pub fn getGraphics(rt: *RuntimeContext, this: This) *const anyopaque {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return @ptrCast(*const anyopaque, win.js_graphics.inner.handle);
-            } else {
-                v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Window no longer exists for id {}", .{window_id});
-                return @ptrCast(*const anyopaque, rt.js_undefined.handle);
-            }
+        pub fn getGraphics(this: ThisResource(.CsWindow)) *const anyopaque {
+            return @ptrCast(*const anyopaque, this.res.js_graphics.inner.handle);
         }
 
         /// Provide the handler for the window's frame updates.
@@ -96,280 +89,141 @@ pub const cs_window = struct {
         /// The frequency of frame updates is limited by an FPS counter.
         /// Eventually, this frequency will be configurable.
         /// @param callback
-        pub fn onUpdate(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
-            const iso = rt.isolate;
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_update_cb, mb_cb);
-            }
+        pub fn onUpdate(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_update_cb, mb_cb);
         }
 
         /// Provide the handler for receiving mouse down events when this window is active.
         /// Provide a null value to disable these events.
         /// @param callback
-        pub fn onMouseDown(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
-            const iso = rt.isolate;
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_down_cb, mb_cb);
-            }
+        pub fn onMouseDown(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_mouse_down_cb, mb_cb);
         }
 
         /// Provide the handler for receiving mouse up events when this window is active.
         /// Provide a null value to disable these events.
         /// @param callback
-        pub fn onMouseUp(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
-            const iso = rt.isolate;
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_up_cb, mb_cb);
-            }
+        pub fn onMouseUp(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_mouse_up_cb, mb_cb);
         }
 
         /// Provide the handler for receiving mouse move events when this window is active.
         /// Provide a null value to disable these events.
         /// @param callback
-        pub fn onMouseMove(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
-            const iso = rt.isolate;
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_mouse_move_cb, mb_cb);
-            }
+        pub fn onMouseMove(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_mouse_move_cb, mb_cb);
         }
 
         /// Provide the handler for receiving key down events when this window is active.
         /// Provide a null value to disable these events.
         /// @param callback
-        pub fn onKeyDown(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
-            const iso = rt.isolate;
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_key_down_cb, mb_cb);
-            }
+        pub fn onKeyDown(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_key_down_cb, mb_cb);
         }
 
         /// Provide the handler for receiving key up events when this window is active.
         /// Provide a null value to disable these events.
         /// @param callback
-        pub fn onKeyUp(rt: *RuntimeContext, this: This, mb_cb: ?v8.Function) void {
-            const iso = rt.isolate;
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                v8x.updateOptionalPersistent(v8.Function, iso, &win.on_key_up_cb, mb_cb);
-            }
+        pub fn onKeyUp(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_key_up_cb, mb_cb);
         }
 
         /// Returns how long the last frame took in microseconds. This includes the onUpdate call and the delay to achieve the target FPS.
         /// This is useful for animation or physics for calculating the next position of an object.
-        pub fn getLastFrameDuration(rt: *RuntimeContext, this: This) ?u32 {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return @intCast(u32, win.fps_limiter.getLastFrameDelta());
-            }
-            return null;
+        pub fn getLastFrameDuration(this: ThisResource(.CsWindow)) u32 {
+            return @intCast(u32, this.res.fps_limiter.getLastFrameDelta());
         }
 
         /// Returns how long the last frame took to perform onUpdate in microseconds. 
         /// This is useful to measure the performance of your onUpdate logic.
-        pub fn getLastUpdateDuration(rt: *RuntimeContext, this: This) ?u32 {
+        pub fn getLastUpdateDuration(this: ThisResource(.CsWindow)) u32 {
             // TODO: Provide config for more accurate measurement with glFinish.
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return @intCast(u32, win.fps_limiter.getLastUpdateDelta());
-            }
-            return null;
+            return @intCast(u32, this.res.fps_limiter.getLastUpdateDelta());
         }
 
         /// Returns the average frames per second.
-        pub fn getFps(rt: *RuntimeContext, this: This) ?u32 {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return @intCast(u32, win.fps_limiter.getFps());
-            }
-            return null;
+        pub fn getFps(this: ThisResource(.CsWindow)) u32 {
+            return @intCast(u32, this.res.fps_limiter.getFps());
         }
 
-        /// Closes the window and frees the handle. Returns true if successful.
-        pub fn close(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                rt.destroyResource(rt.window_resource_list, window_id);
-                return true;
-            }
-            return false;
+        /// Closes the window and frees the handle.
+        pub fn close(rt: *RuntimeContext, this: ThisResource(.CsWindow)) void {
+            rt.startDeinitResourceHandle(this.res_id);
         }
 
-        /// Minimizes the window. Returns true if successful.
-        pub fn minimize(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.minimize();
-                return true;
-            }
-            return false;
+        /// Minimizes the window.
+        pub fn minimize(this: ThisResource(.CsWindow)) void {
+            this.res.window.minimize();
         }
 
-        /// Maximizes the window. The window must be resizable. Returns true if successful.
-        pub fn maximize(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.maximize();
-                return true;
-            }
-            return false;
+        /// Maximizes the window. The window must be resizable. 
+        pub fn maximize(this: ThisResource(.CsWindow)) void {
+            this.res.window.maximize();
         }
 
-        /// Restores the window to the size before it was minimized or maximized. Returns true if successful.
-        pub fn restore(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.restore();
-                return true;
-            }
-            return false;
+        /// Restores the window to the size before it was minimized or maximized. 
+        pub fn restore(this: ThisResource(.CsWindow)) void {
+            this.res.window.restore();
         }
 
-        /// Set to fullscreen mode with a videomode change. Returns true if successful.
-        pub fn setFullscreenMode(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.setMode(.Fullscreen);
-                return true;
-            }
-            return false;
+        /// Set to fullscreen mode with a videomode change.
+        pub fn setFullscreenMode(this: ThisResource(.CsWindow)) void {
+            this.res.window.setMode(.Fullscreen);
         }
 
-        /// Set to pseudo fullscreen mode which takes up the entire screen but does not change the videomode. Returns true if successful.
-        pub fn setPseudoFullscreenMode(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.setMode(.PseudoFullscreen);
-                return true;
-            }
-            return false;
+        /// Set to pseudo fullscreen mode which takes up the entire screen but does not change the videomode. 
+        pub fn setPseudoFullscreenMode(this: ThisResource(.CsWindow)) void {
+            this.res.window.setMode(.PseudoFullscreen);
         }
 
-        /// Set to windowed mode. Returns true if successful.
-        pub fn setWindowedMode(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.setMode(.Windowed);
-                return true;
-            }
-            return false;
+        /// Set to windowed mode.
+        pub fn setWindowedMode(this: ThisResource(.CsWindow)) void {
+            this.res.window.setMode(.Windowed);
         }
 
         /// Creates a child window attached to this window. Returns the new child window handle.
         /// @param title
         /// @param width
         /// @param height
-        pub fn createChild(rt: *RuntimeContext, this: This, title: []const u8, width: u32, height: u32) ?v8.Object {
+        pub fn createChild(rt: *RuntimeContext, this: ThisResource(.CsWindow), title: []const u8, width: u32, height: u32) v8.Object {
             // TODO: Make child windows behave different than creating a new window.
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                const new_res = rt.createCsWindowResource();
+            const new_res = rt.createCsWindowResource();
 
-                const new_win = graphics.Window.initWithSharedContext(rt.alloc, .{
-                    .width = width,
-                    .height = height,
-                    .title = title,
-                    .resizable = true,
-                    .mode = .Windowed,
-                }, win.window) catch unreachable;
-                new_res.ptr.init(rt, new_win, new_res.id);
+            const new_win = graphics.Window.initWithSharedContext(rt.alloc, .{
+                .width = width,
+                .height = height,
+                .title = title,
+                .resizable = true,
+                .mode = .Windowed,
+            }, this.res.window) catch unreachable;
+            new_res.ptr.init(rt, new_win, new_res.id);
 
-                // rt.active_window = new_res.ptr;
-                // rt.active_graphics = rt.active_window.graphics;
+            // rt.active_window = new_res.ptr;
 
-                return new_res.ptr.js_window.castToObject();
-            }
-            return null;
+            return new_res.ptr.js_window.castToObject();
         }
 
         /// Sets the window position on the screen.
         /// @param x
         /// @param y
-        pub fn position(rt: *RuntimeContext, this: This, x: i32, y: i32) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.setPosition(x, y);
-                return true;
-            }
-            return false;
+        pub fn position(this: ThisResource(.CsWindow), x: i32, y: i32) void {
+            this.res.window.setPosition(x, y);
         }
 
         /// Raises the window above other windows and acquires the input focus.
-        pub fn focus(rt: *RuntimeContext, this: This) bool {
-            const ctx = rt.context;
-            const window_id = this.obj.getInternalField(0).toU32(ctx);
-            const res = rt.resources.get(window_id);
-            if (res.tag == .CsWindow) {
-                const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                win.window.focus();
-                return true;
-            }
-            return false;
+        pub fn focus(this: ThisResource(.CsWindow)) void {
+            this.res.window.focus();
         }
 
+        /// Returns the width of the window in logical pixel units.
+        pub fn getWidth(this: ThisResource(.CsWindow)) u32 {
+            return this.res.window.getWidth();
+        }
+
+        /// Returns the height of the window in logical pixel units.
+        pub fn getHeight(this: ThisResource(.CsWindow)) u32 {
+            return this.res.window.getWidth();
+        }
     };
 };
 
@@ -917,18 +771,44 @@ pub const cs_http = struct {
 
         /// Sets the handler for receiving requests.
         /// @param callback
-        pub fn setHandler(res: ThisResource(*HttpServer), handler: v8.Function) void {
-            HttpServer.setHandler(res, handler);
+        pub fn setHandler(rt: *RuntimeContext, this: ThisResource(.CsHttpServer), handler: v8.Function) void {
+            this.res.js_handler = rt.isolate.initPersistent(v8.Function, handler);
         }
 
         /// Request the server to close. It will gracefully shutdown in the background.
-        pub fn requestClose(res: ThisResource(*HttpServer)) void {
-            HttpServer.requestClose(res);
+        pub fn requestClose(rt: *RuntimeContext, this: ThisResource(.CsHttpServer)) void {
+            rt.startDeinitResourceHandle(this.res_id);
         }
 
         /// Requests the server to close. The promise will resolve when it's done.
-        pub fn closeAsync(res: ThisResource(*HttpServer)) v8.Promise {
-            return HttpServer.closeAsync(res);
+        pub fn closeAsync(rt: *RuntimeContext, this: ThisResource(.CsHttpServer)) v8.Promise {
+            const iso = rt.isolate;
+            const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+            const promise = resolver.inner.getPromise();
+            const promise_id = rt.promises.add(resolver) catch unreachable;
+
+            const S = struct {
+                const Context = struct {
+                    rt: *RuntimeContext,
+                    promise_id: PromiseId,
+                };
+                fn onDeinit(ptr: *anyopaque, _: ResourceId) void {
+                    const ctx = stdx.mem.ptrCastAlign(*Context, ptr);
+                    runtime.resolvePromise(ctx.rt, ctx.promise_id, ctx.rt.js_true);
+                    ctx.rt.alloc.destroy(ctx);
+                }
+            };
+
+            const ctx = rt.alloc.create(S.Context) catch unreachable;
+            ctx.* = .{
+                .rt = rt,
+                .promise_id = promise_id,
+            };
+            const cb = stdx.Callback(*anyopaque, ResourceId).init(ctx, S.onDeinit);
+
+            rt.resources.getPtr(this.res_id).on_deinit_cb = cb;
+            rt.startDeinitResourceHandle(this.res_id);
+            return promise;
         }
     };
 
