@@ -5,6 +5,9 @@
     Our approach is to start with V8 (the fastest script engine) and design a rich API and tools around it.
     To get a gauge of what Cosmic can do now, check out the docs for each API module as well as the <a href="#tools">Tools</a> section.
 </p>
+<p>
+    NOTE: Although the docs and public showcase present everything to be working, Cosmic is still considered experimental software since it's still in its infancy.
+</p>
 <h6>Native API</h6>
 <p>
     One of the goals of Cosmic is to provide a cross platform Js/Wasm API to do all the neat things your computer can do.
@@ -12,9 +15,9 @@
     On top of these basic layers, Cosmic will also provide higher level constructs like a UI framework, an animation API, and more.
 </p>
 <p>
-    Supporting the Web/Node API is a non goal, but we do want to enable similar capabilities. For example, we have implemented "fetch"
-    as making http requests from the <a href="http.html">cs.http</a> module.
-    Once the Cosmic API is fleshed out more, it shouldn't be hard for one to create a Web polyfill in pure JS. 
+    Supporting the Web/Node API is a non goal, but Cosmic will have similar features. For example, "fetch"
+    is implemented as making http requests from the <a href="http.html">cs.http</a> module.
+    Once the Cosmic API is fleshed out more, it shouldn't be hard for one to create a Web polyfill in pure JS.
 </p>
 <h6>Conventions</h6>
 <p>
@@ -22,7 +25,7 @@
 </p>
 <ul>
     <li>
-        <b>Importing:</b> We want to support ES modules as the way to import code from local and the web. This is currently not implemented but it is a priority.
+        <b>Importing:</b> Code/dependencies will be imported as ES modules from local and the web. This is currently not implemented but it is a priority.
         Support for node npm packages is a non goal and will only be considered depending on demand.
     </li>
     <li>
@@ -34,12 +37,12 @@
     <li>
         <b>Errors:</b> Synchronous functions will never throw an exception.
         null will be returned instead and a follow up errCode() or errString() will get you info about the error.
-        Exceptions are evil and is an example of hidden control flow we wish to avoid in Cosmic.
+        Exceptions are evil and is an example of hidden control flow that should be avoided.
         Async promises will be rejected with the error info. errCode and errString are not currently implemented but they are priority features.
     </li>
 </ul>
 <p>
-    We are aiming to make coding accessible, unrestrictive, productive, fast, and fun! Like what you see? Join our <a href="#community">community</a> and voice your opinions!
+    Cosmic is aiming to make coding accessible, unrestrictive, productive, fast, and fun! Like what you see? Join our <a href="#community">community</a> and voice your opinions!
 </p>
 
 <h3></h3>
@@ -48,7 +51,9 @@
 <a href="#" id="install"></a>
 <h3>Install</h3>
 <p>
-    Download links are served from the home page: <a href="https://cosmic-js.com">cosmic-js.com</a>.
+    Download links can be found here: <a href="https://github.com/fubark/cosmic/releases">Downloads</a>.
+</p>
+<p>
     One liner cli install commands will make it here eventually.
 </p>
 
