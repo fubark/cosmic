@@ -335,7 +335,7 @@ testIsolated('cs.http.serveHttp', async () => {
             resp.send('Hello from server!')
             return true
         } else if (req.path == '/hello' && req.method == 'POST') {
-            var str = cs.util.bufferToUtf8(req.body)
+            var str = bufferToUtf8(req.body)
             resp.setStatus(200)
             resp.setHeader('content-type', 'text/plain; charset=utf-8')
             resp.send(str)
@@ -370,7 +370,7 @@ testIsolated('cs.http.serveHttps', async () => {
             resp.send('Hello from server!')
             return true
         } else if (req.path == '/hello' && req.method == 'POST') {
-            var str = cs.util.bufferToUtf8(req.body)
+            var str = bufferToUtf8(req.body)
             resp.setStatus(200)
             resp.setHeader('content-type', 'text/plain; charset=utf-8')
             resp.send(str)
