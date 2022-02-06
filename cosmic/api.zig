@@ -876,7 +876,7 @@ pub const cs_core = struct {
 
     /// Prints any number of variables as strings separated by " ". Wraps to the next line.
     /// @param args
-    pub fn printLine(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+    pub fn puts(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         print(raw_info);
         printFmt("\n", .{});
     }

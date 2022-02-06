@@ -330,26 +330,21 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstProp(cs, "graphics", mod);
     }
 
-    // cs.util
-    const cs_util = v8.ObjectTemplate.initDefault(iso);
-
-    // cs.util.bufferToUtf8
-    ctx.setConstFuncT(cs_util, "bufferToUtf8", api.cs_core.bufferToUtf8);
-    ctx.setConstProp(cs, "util", cs_util);
-
     const rt_data = iso.initExternal(rt);
 
     // cs.core
     const cs_core = v8.ObjectTemplate.initDefault(iso);
     ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
-    ctx.setConstProp(cs_core, "printLine", iso.initFunctionTemplateCallbackData(api.cs_core.printLine, rt_data));
+    ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
+    ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
     ctx.setConstProp(cs, "core", cs_core);
 
     ctx.setConstProp(global, "cs", cs);
 
     // cs.core is duplicated into global scope.
     ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
-    ctx.setConstProp(global, "printLine", iso.initFunctionTemplateCallbackData(api.cs_core.printLine, rt_data));
+    ctx.setConstProp(global, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
+    ctx.setConstFuncT(global, "bufferToUtf8", api.cs_core.bufferToUtf8);
 
     // cs.input
     const cs_input = iso.initObjectTemplateDefault();

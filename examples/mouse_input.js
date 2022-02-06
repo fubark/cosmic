@@ -4,17 +4,17 @@ const w = cs.window.create('Demo', 1200, 720)
 
 w.onMouseDown(e => {
     if (e.button == Button.left) {
-        printLine('pressed left', e.clicks)
+        puts('pressed left', e.clicks)
     } else if (e.button == Button.right) {
-        printLine('pressed right', e.clicks)
+        puts('pressed right', e.clicks)
     }
-    printLine(e.button, e.x, e.y)
+    puts(e.button, e.x, e.y)
 })
 
 w.onMouseUp(e => {
-    printLine('mouse up', e.button, e.x, e.y, e.clicks)
+    puts('mouse up', e.button, e.x, e.y, e.clicks)
 })
 
 w.onMouseMove(e => {
-    printLine(`mouse move ${e.x}, ${e.y}`)
+    puts(`mouse move ${e.x}, ${e.y}`)
 })

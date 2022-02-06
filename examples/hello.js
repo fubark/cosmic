@@ -1,6 +1,6 @@
 const Color = cs.graphics.Color;
 
-printLine('Hello World!')
+puts('Hello World!')
 
 const w = cs.window.create('Demo', 1200, 720)
 w.onUpdate(g => {
