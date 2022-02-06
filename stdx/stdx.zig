@@ -14,6 +14,11 @@ pub const unicode = @import("unicode.zig");
 pub const fs = @import("fs.zig");
 pub const http = @import("http.zig");
 
+const closure = @import("closure.zig");
+pub const Closure = closure.Closure;
+const callback = @import("callback.zig");
+pub const Callback = callback.Callback;
+
 // Common utils.
 pub const panic = debug.panic;
 pub const panicFmt = debug.panicFmt;
