@@ -13,7 +13,7 @@ pub const Color = struct {
         a: u8,
     },
 
-    // Prettier default colors from raylib.
+    // Prettier default colors from raylib + extras.
     pub const LightGray = init(200, 200, 200, 255);
     pub const Gray = init(130, 130, 130, 255);
     pub const DarkGray = init(80, 80, 80, 255);
@@ -28,6 +28,7 @@ pub const Color = struct {
     pub const DarkGreen = init(0, 117, 44, 255);
     pub const SkyBlue = init(102, 191, 255, 255);
     pub const Blue = init(0, 121, 241, 255);
+    pub const RoyalBlue = init(65, 105, 225, 255);
     pub const DarkBlue = init(0, 82, 172, 255);
     pub const Purple = init(200, 122, 255, 255);
     pub const Violet = init(135, 60, 190, 255);
@@ -109,6 +110,38 @@ pub const Color = struct {
             },
             else => return error.UnknownFormat,
         }
+    }
+
+    /// hue is in degrees [0,360]
+    /// sat/val are provided normalized: [0,1]
+    pub fn fromHsv(hue: f32, sat: f32, val: f32) Self {
+        var res = Color.init(0, 0, 0, 255);
+
+        // red
+        var k = std.math.mod(f32, 5 + hue/60.0, 6) catch unreachable;
+        var t_ = 4.0 - k;
+        k = if (t_ < k) t_ else k;
+        k = if (k < 1) k else 1;
+        k = if (k > 0) k else 0;
+        res.channels.r = @floatToInt(u8, (val - val*sat*k)*255.0);
+
+        // green
+        k = std.math.mod(f32, 3.0 + hue/60.0, 6) catch unreachable;
+        t_ = 4.0 - k;
+        k = if (t_ < k) t_ else k;
+        k = if (k < 1) k else 1;
+        k = if (k > 0) k else 0;
+        res.channels.g = @floatToInt(u8, (val - val*sat*k)*255.0);
+
+        // blue
+        k = std.math.mod(f32, 1.0 + hue/60.0, 6) catch unreachable;
+        t_ = 4.0 - k;
+        k = if (t_ < k) t_ else k;
+        k = if (k < 1) k else 1;
+        k = if (k > 0) k else 0;
+        res.channels.b = @floatToInt(u8, (val - val*sat*k)*255.0);
+
+        return res;
     }
 
     pub fn fromU32(c: u32) Color {

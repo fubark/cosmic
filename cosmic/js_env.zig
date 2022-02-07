@@ -190,6 +190,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         .{ "darkGreen", Color.darkGreen },
         .{ "skyBlue", Color.skyBlue },
         .{ "blue", Color.blue },
+        .{ "royalBlue", Color.royalBlue },
         .{ "darkBlue", Color.darkBlue },
         .{ "purple", Color.purple },
         .{ "violet", Color.violet },
@@ -327,6 +328,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
         // cs.graphics.Color
         ctx.setConstProp(mod, "Color", color_class);
+        ctx.setConstFuncT(mod, "hsvToRgb", cs_graphics.hsvToRgb);
         ctx.setConstProp(cs, "graphics", mod);
     }
 

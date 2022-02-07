@@ -478,6 +478,7 @@ pub const cs_graphics = struct {
         pub const darkGreen = fromStdColor(StdColor.DarkGreen);
         pub const skyBlue = fromStdColor(StdColor.SkyBlue);
         pub const blue = fromStdColor(StdColor.Blue);
+        pub const royalBlue = fromStdColor(StdColor.RoyalBlue);
         pub const darkBlue = fromStdColor(StdColor.DarkBlue);
         pub const purple = fromStdColor(StdColor.Purple);
         pub const violet = fromStdColor(StdColor.Violet);
@@ -507,6 +508,14 @@ pub const cs_graphics = struct {
         }
     };
 
+    /// Converts HSV to RGB. Hue is in degrees [0,100] and saturation/value are [0,1].
+    /// @param hue
+    /// @param sat
+    /// @param val
+    pub fn hsvToRgb(hue: f32, sat: f32, val: f32) cs_graphics.Color {
+        const color = StdColor.fromHsv(hue, sat, val);
+        return fromStdColor(color);
+    }
 };
 
 fn fromStdColor(color: StdColor) cs_graphics.Color {

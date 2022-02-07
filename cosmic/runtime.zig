@@ -689,22 +689,6 @@ pub const RuntimeContext = struct {
                 }
                 return null;
             },
-            graphics.Color => {
-                if (val.isObject()) {
-                    const iso = self.isolate;
-                    const obj = val.castTo(v8.Object);
-                    const r = obj.getValue(ctx, iso.initStringUtf8("r")).toU32(ctx);
-                    const g = obj.getValue(ctx, iso.initStringUtf8("g")).toU32(ctx);
-                    const b = obj.getValue(ctx, iso.initStringUtf8("b")).toU32(ctx);
-                    const a = obj.getValue(ctx, iso.initStringUtf8("a")).toU32(ctx);
-                    return graphics.Color.init(
-                        @intCast(u8, r),
-                        @intCast(u8, g),
-                        @intCast(u8, b),
-                        @intCast(u8, a),
-                    );
-                } else return null;
-            },
             Uint8Array => {
                 if (val.isUint8Array()) {
                     var shared_store = val.castTo(v8.ArrayBufferView).getBuffer().getBackingStore();
