@@ -1,6 +1,6 @@
 [data-theme="light"], :root:not([data-theme="dark"]) {
 	--h1-color: #2176FF;
-	--primary: #2176FF;
+	--primary: #4169e1;
 }
 
 @media (min-width: 992px) {
