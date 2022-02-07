@@ -28,6 +28,7 @@ const ManagedSlice = runtime.ManagedSlice;
 const Uint8Array = runtime.Uint8Array;
 const CsWindow = runtime.CsWindow;
 const printFmt = runtime.printFmt;
+const errorFmt = runtime.errorFmt;
 const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
@@ -910,6 +911,35 @@ pub const cs_core = struct {
     /// This is useful if you have additional source or assets that depends on the location of your main script.
     pub fn getMainScriptDir(rt: *RuntimeContext) []const u8 {
         return std.fs.path.dirname(rt.main_script_path) orelse unreachable;
+    }
+
+    /// Prints the current stack trace and exits the program with an error code.
+    /// This is useful to short circuit your program.
+    /// @param msg
+    pub fn panic(rt: *RuntimeContext, msg: ?[]const u8) void {
+        const trace = v8.StackTrace.getCurrentStackTrace(rt.isolate, 10);
+
+        var buf = std.ArrayList(u8).init(rt.alloc);
+        const writer = buf.writer();
+
+        // Exception message.
+        writer.writeAll("\n") catch unreachable;
+        if (msg) |msg_| {
+            writer.print("Panic: {s}", .{msg_}) catch unreachable;
+        } else {
+            writer.writeAll("Panic") catch unreachable;
+        }
+        writer.writeAll("\n") catch unreachable;
+        
+        v8x.appendStackTraceString(&buf, rt.isolate, trace);
+        errorFmt("{s}", .{buf.items});
+        std.os.exit(1);
+    }
+
+    /// Terminate the program with a code. Use code=0 for a successful exit and a positive value for an error exit.
+    /// @param code
+    pub fn exit(code: u8) void {
+        std.os.exit(code);
     }
 
     /// Returns the last error code. API calls that return null will set their error code to be queried by errCode() and errString().

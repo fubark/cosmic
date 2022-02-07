@@ -60,7 +60,9 @@ pub fn executeString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context,
     }
 }
 
-pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, message: v8.Message, exception_msg: []const u8) []const u8 {
+pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, message: v8.Message, default_msg: []const u8) []const u8 {
+    // TODO: Use default message if getMessage is null.
+    _ = default_msg;
     var buf = std.ArrayList(u8).init(alloc);
     const writer = buf.writer();
 
@@ -86,25 +88,31 @@ pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ct
 
     // Exception message.
     writer.writeAll("\n") catch unreachable;
-    writer.writeAll(exception_msg) catch unreachable;
+    appendStringAsUtf8(&buf, iso, message.getMessage());
     writer.writeAll("\n") catch unreachable;
 
     if (message.getStackTrace()) |trace| {
-        const num_frames = trace.getFrameCount();
-        i = 0;
-        while (i < num_frames) : (i += 1) {
-            const frame = trace.getFrame(iso, i);
-            writer.writeAll("    at ") catch unreachable;
-            if (frame.getFunctionName()) |name| {
-                appendStringAsUtf8(&buf, iso, name);
-                writer.writeAll(" ") catch unreachable;
-            }
-            appendStringAsUtf8(&buf, iso, frame.getScriptNameOrSourceUrl());
-            writer.print(":{}:{}", .{frame.getLineNumber(), frame.getColumn()}) catch unreachable;
-            writer.writeAll("\n") catch unreachable;
-        }
+        appendStackTraceString(&buf, iso, trace);
     }
     return buf.toOwnedSlice();
+}
+
+pub fn appendStackTraceString(buf: *std.ArrayList(u8), iso: v8.Isolate, trace: v8.StackTrace) void {
+    const writer = buf.writer();
+    const num_frames = trace.getFrameCount();
+    var i: u32 = 0;
+    while (i < num_frames) : (i += 1) {
+        const frame = trace.getFrame(iso, i);
+        writer.writeAll("    at ") catch unreachable;
+        if (frame.getFunctionName()) |name| {
+            appendStringAsUtf8(buf, iso, name);
+            writer.writeAll(" ") catch unreachable;
+        }
+        appendStringAsUtf8(buf, iso, frame.getScriptNameOrSourceUrl());
+        // Subtract line number by one since we prepend all scripts with "use strict".
+        writer.print(":{}:{}", .{frame.getLineNumber()-1, frame.getColumn()}) catch unreachable;
+        writer.writeAll("\n") catch unreachable;
+    }
 }
 
 pub fn allocPrintTryCatchStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, try_catch: v8.TryCatch) ?[]const u8 {
