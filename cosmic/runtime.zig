@@ -65,7 +65,9 @@ pub const RuntimeContext = struct {
     platform: v8.Platform,
     isolate: v8.Isolate,
     context: v8.Context,
-    cur_script_dir_abs: []const u8,
+
+    // Absolute path of the main script.
+    main_script_path: []const u8,
 
     // This is used to store native string slices copied from v8.String for use in the immediate native callback functions.
     // It will automatically clear at the pre callback step if the current size is too large.
@@ -110,7 +112,7 @@ pub const RuntimeContext = struct {
 
     received_uncaught_exception: bool,
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, src_path: []const u8) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, main_script_path: []const u8) void {
         self.* = .{
             .alloc = alloc,
             .str_buf = std.ArrayList(u8).init(alloc),
@@ -134,7 +136,7 @@ pub const RuntimeContext = struct {
             .platform = platform,
             .isolate = iso,
             .context = undefined,
-            .cur_script_dir_abs = getSrcPathDirAbs(alloc, src_path) catch unreachable,
+            .main_script_path = alloc.dupe(u8, main_script_path) catch unreachable,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
             .cb_f32_buf = std.ArrayList(f32).init(alloc),
             .vec2_buf = std.ArrayList(Vec2).init(alloc),
@@ -240,7 +242,6 @@ pub const RuntimeContext = struct {
     }
 
     fn deinit(self: *Self) void {
-        self.alloc.free(self.cur_script_dir_abs);
         self.str_buf.deinit();
         self.cb_str_buf.deinit();
         self.cb_f32_buf.deinit();
@@ -281,6 +282,8 @@ pub const RuntimeContext = struct {
 
         self.alloc.destroy(self.uv_dummy_async);
         self.alloc.destroy(self.uv_loop);
+
+        self.alloc.free(self.main_script_path);
     }
 
     /// Destroys the resource owned by the handle and marks it as deinited.
@@ -1232,16 +1235,6 @@ pub fn printFmt(comptime format: []const u8, args: anytype) void {
     stdout.print(format, args) catch unreachable;
 }
 
-fn getSrcPathDirAbs(alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
-    if (std.fs.path.dirname(path)) |dir| {
-        return try std.fs.path.resolve(alloc, &.{dir});
-    } else {
-        const cwd = try std.process.getCwdAlloc(alloc);
-        defer alloc.free(cwd);
-        return try std.fs.path.resolve(alloc, &.{cwd});
-    }
-}
-
 const api_init = @embedFile("snapshots/api_init.js");
 const test_init = @embedFile("snapshots/test_init.js");
 
@@ -1289,8 +1282,11 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     initGlobal(alloc);
     defer deinitGlobal();
 
+    const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
+    defer alloc.free(abs_path);
+
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, iso, src_path);
+    rt.init(alloc, platform, iso, abs_path);
     defer rt.deinit();
 
     rt.is_test_env = true;
@@ -1589,9 +1585,15 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     initGlobal(alloc);
     defer deinitGlobal();
 
+    const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
+    defer alloc.free(abs_path);
+
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, iso, src_path);
-    defer rt.deinit();
+    rt.init(alloc, platform, iso, abs_path);
+    defer {
+        shutdownRuntime(&rt);
+        rt.deinit();
+    }
 
     var ctx = js_env.initContext(&rt, iso);
     rt.context = ctx;
@@ -1625,8 +1627,6 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
             continue;
         } else break;
     }
-
-    shutdownRuntime(&rt);
 }
 
 const WeakHandle = struct {

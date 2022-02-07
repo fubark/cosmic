@@ -901,6 +901,17 @@ pub const cs_core = struct {
         } else return "";
     }
 
+    /// Returns the absolute path of the main script.
+    pub fn getMainScriptPath(rt: *RuntimeContext) []const u8 {
+        return rt.main_script_path;
+    }
+
+    /// Returns the absolute path of the main script's directory. Does not include an ending slash.
+    /// This is useful if you have additional source or assets that depends on the location of your main script.
+    pub fn getMainScriptDir(rt: *RuntimeContext) []const u8 {
+        return std.fs.path.dirname(rt.main_script_path) orelse unreachable;
+    }
+
     /// Returns the last error code. API calls that return null will set their error code to be queried by errCode() and errString().
     pub fn errCode(rt: *RuntimeContext) u32 {
         return @enumToInt(std.meta.stringToEnum(Error, @errorName(rt.last_err)).?);
@@ -1287,11 +1298,6 @@ pub const cs_test = struct {
 /// There are plans to implement worker threads for Javascript similar to Web Workers.
 pub const cs_worker = struct {
 };
-
-/// Path can be absolute or relative to the current executing script.
-fn resolveEnvPath(rt: *RuntimeContext, path: []const u8) []const u8 {
-    return std.fs.path.resolve(rt.alloc, &.{ rt.cur_script_dir_abs, path }) catch unreachable;
-}
 
 fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);

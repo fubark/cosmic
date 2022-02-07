@@ -339,6 +339,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
     ctx.setConstFuncT(cs_core, "errCode", api.cs_core.errCode);
     ctx.setConstFuncT(cs_core, "errString", api.cs_core.errString);
+    ctx.setConstFuncT(cs_core, "getMainScriptPath", api.cs_core.getMainScriptPath);
+    ctx.setConstFuncT(cs_core, "getMainScriptDir", api.cs_core.getMainScriptDir);
     ctx.setConstProp(cs, "core", cs_core);
 
     ctx.setConstProp(global, "cs", cs);
@@ -349,6 +351,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(global, "bufferToUtf8", api.cs_core.bufferToUtf8);
     ctx.setConstFuncT(global, "errCode", api.cs_core.errCode);
     ctx.setConstFuncT(global, "errString", api.cs_core.errString);
+    ctx.setConstFuncT(global, "getMainScriptPath", api.cs_core.getMainScriptPath);
+    ctx.setConstFuncT(global, "getMainScriptDir", api.cs_core.getMainScriptDir);
 
     // cs.input
     const cs_input = iso.initObjectTemplateDefault();
