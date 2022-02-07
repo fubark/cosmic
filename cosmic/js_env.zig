@@ -349,17 +349,6 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
     ctx.setConstProp(global, "cs", cs);
 
-    // cs.core is duplicated into global scope.
-    ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
-    ctx.setConstProp(global, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
-    ctx.setConstFuncT(global, "bufferToUtf8", api.cs_core.bufferToUtf8);
-    ctx.setConstFuncT(global, "errCode", api.cs_core.errCode);
-    ctx.setConstFuncT(global, "errString", api.cs_core.errString);
-    ctx.setConstFuncT(global, "getMainScriptPath", api.cs_core.getMainScriptPath);
-    ctx.setConstFuncT(global, "getMainScriptDir", api.cs_core.getMainScriptDir);
-    ctx.setConstFuncT(global, "panic", api.cs_core.panic);
-    ctx.setConstFuncT(global, "exit", api.cs_core.exit);
-
     // cs.input
     const cs_input = iso.initObjectTemplateDefault();
 

@@ -1287,6 +1287,10 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "api_init.js");
         v8x.executeString(alloc, iso, ctx, api_init, origin, &res);
+        if (!res.success) {
+            errorFmt("{s}", .{res.err.?});
+            return error.InitScriptError;
+        }
     }
 
     {
@@ -1295,6 +1299,10 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "test_init.js");
         v8x.executeString(alloc, iso, ctx, test_init, origin, &res);
+        if (!res.success) {
+            errorFmt("{s}", .{res.err.?});
+            return error.TestInitScriptError;
+        }
     }
 
     const origin = v8.String.initUtf8(iso, src_path);
@@ -1306,7 +1314,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     processV8EventLoop(&rt);
 
     if (!res.success) {
-        printFmt("{s}", .{res.err.?});
+        errorFmt("{s}", .{res.err.?});
         return error.MainScriptError;
     }
 
@@ -1584,6 +1592,18 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
 
     ctx.enter();
     defer ctx.exit();
+
+    {
+        // Run api_init.js
+        var res: v8x.ExecuteResult = undefined;
+        defer res.deinit();
+        const origin = v8.String.initUtf8(iso, "api_init.js");
+        v8x.executeString(alloc, iso, ctx, api_init, origin, &res);
+        if (!res.success) {
+            errorFmt("{s}", .{res.err.?});
+            return error.InitScriptError;
+        }
+    }
 
     const origin = v8.String.initUtf8(iso, src_path);
 

@@ -74,4 +74,6 @@
         return JSON.parse(this.body);
     }
 
+    // cs.core is duplicated into global scope.
+    Object.assign(globalThis, cs.core)
 })();
