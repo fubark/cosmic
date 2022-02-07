@@ -18,7 +18,7 @@ const v8x = @import("v8x.zig");
 /// Provides a cross platform API to draw lines, shapes, text, images, and other graphics onto a window or buffer.
 /// By default, the coordinate system assumes the origin is at the top-left corner (0, 0). Positive x values go right and positive y values go down.
 /// Angle units like radians and degrees start at 0 and positive values go clockwise.
-/// In a future release, there will be a direct API to the OpenGL 3 context, and support for WebGPU to target modern graphics hardware.
+/// The backend uses OpenGL 3 on desktop and Canvas/WebGL for web. Support for WebGPU is planned.
 /// Currently, the API is focused on 2D graphics, but there are plans to add 3D graphics utilities.
 pub const cs_graphics = struct {
 

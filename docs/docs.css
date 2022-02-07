@@ -1,3 +1,8 @@
+[data-theme="light"], :root:not([data-theme="dark"]) {
+	--h1-color: #2176FF;
+	--primary: #2176FF;
+}
+
 @media (min-width: 992px) {
     body > main {
         --block-spacing-horizontal:calc(var(--spacing) * 1.75);

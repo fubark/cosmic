@@ -223,6 +223,7 @@ jobs:
       #       }
 
   dispatch:
+    needs: build
     name: Dispatch doc gen.
     runs-on: ubuntu-20.04
     steps:
