@@ -13,6 +13,15 @@ test('cs.test asserts', () => {
     neq(false, '')
 })
 
+test('errCode and errString', () => {
+    clearError()
+    eq(errCode(), CsError.NoError)
+    eq(errString(), 'No error.')
+    eq(fs.read('does_not_exist.dat'), null)
+    eq(errCode(), CsError.FileNotFound)
+    eq(errString(), 'FileNotFound')
+})
+
 test('cs.files.read', () => {
     fs.write('foo.dat', Uint8Array.from([1, 2, 3]))
     try {

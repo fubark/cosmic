@@ -341,10 +341,18 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
     ctx.setConstFuncT(cs_core, "errCode", api.cs_core.errCode);
     ctx.setConstFuncT(cs_core, "errString", api.cs_core.errString);
+    ctx.setConstFuncT(cs_core, "clearError", api.cs_core.clearError);
     ctx.setConstFuncT(cs_core, "getMainScriptPath", api.cs_core.getMainScriptPath);
     ctx.setConstFuncT(cs_core, "getMainScriptDir", api.cs_core.getMainScriptDir);
     ctx.setConstFuncT(cs_core, "panic", api.cs_core.panic);
     ctx.setConstFuncT(cs_core, "exit", api.cs_core.exit);
+    {
+        const cs_err = iso.initObjectTemplateDefault();
+        ctx.setProp(cs_err, "NoError", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.NoError)));
+        ctx.setProp(cs_err, "FileNotFound", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.FileNotFound)));
+        ctx.setProp(cs_err, "IsDir", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.IsDir)));
+        ctx.setConstProp(cs_core, "CsError", cs_err);
+    }
     ctx.setConstProp(cs, "core", cs_core);
 
     ctx.setConstProp(global, "cs", cs);
