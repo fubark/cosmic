@@ -101,6 +101,8 @@ pub const RuntimeContext = struct {
 
     promises: ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)),
 
+    last_err: CsError,
+
     // uv_loop_t is quite large, so allocate on heap.
     uv_loop: *uv.uv_loop_t,
     uv_dummy_async: *uv.uv_async_t,
@@ -159,6 +161,7 @@ pub const RuntimeContext = struct {
             .uv_dummy_async = undefined,
             .uv_poller = undefined,
             .received_uncaught_exception = false,
+            .last_err = error.NoError,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -357,7 +360,7 @@ pub const RuntimeContext = struct {
         // Only interested in the first uncaught exception.
         if (!rt.received_uncaught_exception) {
             // Print the stack trace immediately.
-            const js_msg = v8.Message{.handle = message.?};
+            const js_msg = v8.Message{ .handle = message.? };
             const err_str = v8x.allocPrintMessageStackTrace(rt.alloc, rt.isolate, rt.context, js_msg, "Uncaught Exception");
             defer rt.alloc.free(err_str);
             errorFmt("\n{s}", .{err_str});
@@ -1834,3 +1837,9 @@ pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.me
 
     return promise;
 }
+
+pub const CsError = error {
+    NoError,
+    FileNotFound,
+    IsDir,
+};

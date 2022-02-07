@@ -35,9 +35,9 @@
         One should feel that they can accomplish anything synchronously and only reach for async when they are ready to or planned to.
     </li>
     <li>
-        <b>Errors:</b> Synchronous functions will never throw an exception.
+        <b>Errors:</b> Synchronous API functions won't throw exceptions for expected errors.
         null will be returned instead and a follow up errCode() or errString() will get you info about the error.
-        Exceptions are evil and is an example of hidden control flow that should be avoided.
+        Exceptions are evil and should be avoided when possible.
         Async promises will be rejected with the error info. errCode and errString are not currently implemented but they are priority features.
     </li>
 </ul>

@@ -337,6 +337,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
     ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
+    ctx.setConstFuncT(cs_core, "errCode", api.cs_core.errCode);
+    ctx.setConstFuncT(cs_core, "errString", api.cs_core.errString);
     ctx.setConstProp(cs, "core", cs_core);
 
     ctx.setConstProp(global, "cs", cs);
@@ -345,6 +347,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(global, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
     ctx.setConstProp(global, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
     ctx.setConstFuncT(global, "bufferToUtf8", api.cs_core.bufferToUtf8);
+    ctx.setConstFuncT(global, "errCode", api.cs_core.errCode);
+    ctx.setConstFuncT(global, "errString", api.cs_core.errString);
 
     // cs.input
     const cs_input = iso.initObjectTemplateDefault();

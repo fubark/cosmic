@@ -19,6 +19,7 @@ const RuntimeValue = runtime.RuntimeValue;
 const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
 const ThisResource = runtime.ThisResource;
+const CsError = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
 const This = runtime.This;
 const Data = runtime.Data;
@@ -237,11 +238,14 @@ pub const cs_files = struct {
     /// Reads a file as raw bytes.
     /// Returns the contents on success or null.
     /// @param path
-    pub fn read(rt: *RuntimeContext, path: []const u8) ?ManagedStruct(Uint8Array) {
+    pub fn read(rt: *RuntimeContext, path: []const u8) CsError!ManagedStruct(Uint8Array) {
         const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
-            // Whitelist errors to silence.
-            error.FileNotFound => return null,
-            else => unreachable,
+            error.FileNotFound => return error.FileNotFound,
+            error.IsDir => return error.IsDir,
+            else => {
+                log.debug("unknown error: {}", .{err});
+                unreachable;
+            }
         };
         return ManagedStruct(Uint8Array).init(rt.alloc, Uint8Array{ .buf = res });
     }
@@ -895,6 +899,31 @@ pub const cs_core = struct {
                 return ptr[0..len];
             } else return null;
         } else return "";
+    }
+
+    /// Returns the last error code. API calls that return null will set their error code to be queried by errCode() and errString().
+    pub fn errCode(rt: *RuntimeContext) u32 {
+        return @enumToInt(std.meta.stringToEnum(Error, @errorName(rt.last_err)).?);
+    }
+
+    /// Returns the last error message.
+    pub fn errString(rt: *RuntimeContext) []const u8 {
+        return switch (rt.last_err) {
+            CsError.NoError => "No error.",
+            else => @errorName(rt.last_err),
+        };
+    }
+
+    pub const Error = enum {
+        NoError,
+        FileNotFound,
+        IsDir,
+    };
+
+    test "every CsError maps to core.Error" {
+        inline for (@typeInfo(CsError).ErrorSet.?) |err| {
+            _ = std.meta.stringToEnum(cs_core.Error, err.name) orelse std.debug.panic("Missing {s}", .{err.name});
+        }
     }
 };
 

@@ -10,6 +10,7 @@ const SizedJsString = runtime.SizedJsString;
 const This = runtime.This;
 const ThisResource = runtime.ThisResource;
 const Data = runtime.Data;
+const CsError = runtime.CsError;
 const RuntimeValue = runtime.RuntimeValue;
 const PromiseId = runtime.PromiseId;
 const tasks = @import("tasks.zig");
@@ -29,6 +30,11 @@ pub fn genJsFuncAsync(comptime native_fn: anytype) v8.FunctionCallback {
         .asyncify = true,
         .is_data_rt = true,
     });
+}
+
+fn setErrorAndReturn(rt: *RuntimeContext, info: v8.FunctionCallbackInfo, err: CsError) void {
+    rt.last_err = err;
+    info.getReturnValue().setValueHandle(rt.js_null.handle);
 }
 
 /// Calling v8.throwErrorException inside a native callback function will trigger in v8 when the callback returns.
@@ -121,9 +127,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         .obj = info.getThis(),
                     };
                 } else {
-                    // TODO: Set error code.
-                    const return_value = info.getReturnValue();
-                    return_value.setValueHandle(rt.js_null.handle);
+                    v8x.throwErrorException(iso, "Resource handle is already deinitialized.");
                     return;
                 }
             }
@@ -182,7 +186,9 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                     }
                 }
             }
-            if (!has_args) return;
+            if (!has_args) {
+                return;
+            }
 
             if (asyncify) {
                 const ClosureTask = tasks.ClosureTask(native_fn);
@@ -221,8 +227,13 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         return_value.setValueHandle(js_val);
                         freeNativeValue(rt.alloc, native_val);
                     } else |err| {
-                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Error: {s}", .{@errorName(err)});
-                        return;
+                        if (@typeInfo(ReturnType).ErrorUnion.error_set == CsError) {
+                            setErrorAndReturn(rt, info, err);
+                            return;
+                        } else {
+                            v8x.throwErrorExceptionFmt(rt.alloc, iso, "Unexpected error: {s}", .{@errorName(err)});
+                            return;
+                        }
                     }
                 } else {
                     const native_val = @call(.{}, native_fn, native_args);
