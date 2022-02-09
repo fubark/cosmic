@@ -69,6 +69,7 @@ pub extern fn uv_timer_stop(handle: *uv_timer_t) c_int;
 pub extern fn uv_poll_init_socket(loop: *uv_loop_t, handle: *uv_poll_t, socket: c.uv_os_sock_t) c_int;
 pub extern fn uv_poll_start(handle: *uv_poll_t, events: c_int, cb: c.uv_poll_cb) c_int;
 pub extern fn uv_poll_stop(handle: *uv_poll_t) c_int;
+pub extern fn uv_is_closing(handle: *const uv_handle_t) c_int;
 
 pub fn assertNoError(code: c_int) void {
     if (code != 0) {

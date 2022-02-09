@@ -13,12 +13,12 @@ const c = @cImport({
 
 const h2o_loop = uv.uv_loop_t;
 
-pub extern fn h2o_config_init(config: [*c]h2o_globalconf) void;
-
+pub extern fn h2o_config_init(config: *h2o_globalconf) void;
+pub extern fn h2o_config_dispose(config: *h2o_globalconf) void;
 pub extern fn h2o_config_register_host(config: *h2o_globalconf, host: h2o_iovec_t, port: u16) *h2o_hostconf;
 pub extern fn h2o_config_register_path(hostconf: [*c]h2o_hostconf, path: [*c]const u8, flags: c_int) [*c]h2o_pathconf;
 pub extern fn h2o_create_handler(conf: [*c]h2o_pathconf, sz: usize) ?*h2o_handler;
-pub extern fn h2o_context_init(context: [*c]h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
+pub extern fn h2o_context_init(context: *h2o_context, loop: *h2o_loop, config: [*c]h2o_globalconf) void;
 pub extern fn h2o_context_dispose(context: *h2o_context) void;
 pub extern fn h2o_context_request_shutdown(context: *h2o_context) void;
 pub extern fn h2o_accept(ctx: [*c]h2o_accept_ctx, sock: *h2o_socket) void; 
@@ -32,6 +32,7 @@ pub extern fn h2o_uv_socket_create(handle: *uv.uv_handle_t, close_cb: uv.uv_clos
 pub extern fn h2o_ssl_register_alpn_protocols(ctx: *ssl.SSL_CTX, protocols: [*c]const h2o_iovec_t) void;
 pub extern fn h2o_access_log_open_handle(path: [*c]const u8, fmt: [*c]const u8, escape: c_int) ?*c.h2o_access_log_filehandle_t;
 pub extern fn h2o_access_log_register(pathconf: [*c]h2o_pathconf, handle: ?*anyopaque) [*c]*anyopaque;
+pub extern fn h2o_timer_unlink(timer: *c.h2o_timer_t) void;
 
 pub const H2O_LOGCONF_ESCAPE_APACHE = c.H2O_LOGCONF_ESCAPE_APACHE;
 pub const H2O_LOGCONF_ESCAPE_JSON = c.H2O_LOGCONF_ESCAPE_JSON;
@@ -210,7 +211,7 @@ const h2o_filter = extern struct {
 
 pub const h2o_context = extern struct {
     loop: *h2o_loop,
-    globalconf: [*c]h2o_globalconf,
+    globalconf: *h2o_globalconf,
     queue: ?*c.h2o_multithread_queue_t,
     receivers: struct_unnamed_194,
     filecache: ?*c.h2o_filecache_t,

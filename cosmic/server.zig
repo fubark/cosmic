@@ -305,19 +305,21 @@ pub const HttpServer = struct {
             return;
         }
         self.closed = true;
+        // Even though there aren't any more connections or a listening port,
+        // h2o's graceful timeout might still be active.
+        // Make sure to close that since being in a closed state means this memory could be freed,
+        // and the timeout could fire later and reference undefined memory.
+        if (self.ctx.globalconf.http2.callbacks.request_shutdown != null) {
+            if (self.ctx.http2._graceful_shutdown_timeout.is_linked == 1) {
+                h2o.h2o_timer_unlink(&self.ctx.http2._graceful_shutdown_timeout);
+            }
+        }
+        // h2o context and config also need to be deinited.
+        h2o.h2o_context_dispose(&self.ctx);
+        h2o.h2o_config_dispose(&self.config);
+
         if (self.on_shutdown_cb) |cb| {
             cb.call(self);
-        }
-    }
-
-    fn onUvHandleClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
-        const kind = uv.uv_handle_get_type(ptr);
-        if (kind == uv.UV_TCP) {
-            const handle = @ptrCast(*uv.uv_tcp_t, ptr);
-            const self = stdx.mem.ptrCastAlign(*HttpServer, handle.data);
-            self.rt.alloc.destroy(handle);
-        } else {
-            unreachable;
         }
     }
 
