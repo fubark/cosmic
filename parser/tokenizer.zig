@@ -26,6 +26,7 @@ const TokenMatchOp = grammar.TokenMatchOp;
 const TokenTag = grammar.TokenTag;
 const LiteralTokenTag = grammar.LiteralTokenTag;
 const NullLiteralTokenTag = grammar.NullLiteralTokenTag;
+const NullToken = stdx.ds.CompactNull(TokenId);
 
 pub const Tokenizer = struct {
     const Self = @This();
@@ -553,9 +554,9 @@ fn LineSourceState(comptime Incremental: bool) type {
         inc_offset: i32,
         stop_line_loc: document.LineLocation,
         stop_ch_idx: u32,
-        stop_token_id: ?TokenId,
+        stop_token_id: TokenId,
         // Detached token sublist that needs to be reconciled with updated list once we're done with the current line.
-        cur_detached_token: ?TokenId,
+        cur_detached_token: TokenId,
 
         fn init(self: *Self, doc: *Document, buf: *LineTokenBuffer) void {
             const leaf_id = doc.getFirstLeaf();
@@ -617,7 +618,7 @@ fn LineSourceState(comptime Incremental: bool) type {
 
             // Find stop first before the token list is segmented.
             self.seekStopToFirstTokenFromLine(loc);
-            if (std.meta.eql(self.stop_line_loc, loc) and self.stop_token_id != null) {
+            if (std.meta.eql(self.stop_line_loc, loc) and self.stop_token_id != NullToken) {
                 // For inserts, change end is where the change starts.
                 // For deletes, change end is where the change starts + deleted characters.
                 const change_end_col = if (change_size > 0) col_idx else col_idx + std.math.absCast(change_size);
@@ -627,24 +628,24 @@ fn LineSourceState(comptime Incremental: bool) type {
             const mb_prev_id = self.seekToFirstTokenBeforePos(col_idx);
             if (mb_prev_id) |prev_id| {
                 self.cur_token_list_last = prev_id;
-                self.cur_detached_token = self.buf.tokens.detachAfter(prev_id);
+                self.cur_detached_token = self.buf.tokens.detachAfter(prev_id) catch unreachable;
             } else {
                 self.cur_token_list_last = self.buf.temp_head_id;
-                self.cur_detached_token = null;
+                self.cur_detached_token = NullToken;
             }
         }
 
         usingnamespace if (Incremental) struct {
-            pub fn reconcileCurrentTokenList(self: *Self, comptime Debug: bool, debug: anytype, reuse_token_id: ?TokenId) void {
+            pub fn reconcileCurrentTokenList(self: *Self, comptime Debug: bool, debug: anytype, reuse_token_id: TokenId) void {
                 // log.warn("reuse: {}", .{reuse_token_id});
                 // log.warn("detached: {}", .{self.cur_detached_token});
                 // log.warn("last: {}", .{self.cur_token_list_last});
 
                 // Removes tokens from detached end sublist that are not reused.
                 var cur_token_id = self.cur_detached_token;
-                while (!std.meta.eql(cur_token_id, reuse_token_id)) {
-                    const next = self.buf.tokens.getNext(cur_token_id.?);
-                    self.buf.tokens.removeDetached(cur_token_id.?);
+                while (cur_token_id != reuse_token_id) {
+                    const next = self.buf.tokens.getNodeAssumeExists(cur_token_id).next;
+                    self.buf.tokens.removeDetached(cur_token_id);
                     cur_token_id = next;
                     if (Debug) {
                         debug.stats.inc_tokens_removed += 1;
@@ -653,29 +654,29 @@ fn LineSourceState(comptime Incremental: bool) type {
 
                 // Update reusable sublist with pos offset.
                 cur_token_id = reuse_token_id;
-                while (cur_token_id != null) {
-                    const cur = self.buf.tokens.getItemPtr(cur_token_id.?);
+                while (cur_token_id != NullToken) {
+                    const cur = self.buf.tokens.getNodePtrAssumeExists(cur_token_id);
                     cur.data.loc.start +%= @bitCast(u32, self.inc_offset);
                     cur.data.loc.end +%= @bitCast(u32, self.inc_offset);
                     cur_token_id = cur.next;
                 }
 
                 // Reattach resusable end sublist.
-                if (reuse_token_id != null) {
-                    self.buf.tokens.setDetachedToEnd(self.cur_token_list_last, reuse_token_id.?);
+                if (reuse_token_id != NullToken) {
+                    self.buf.tokens.setDetachedToEnd(self.cur_token_list_last, reuse_token_id);
                 }
             }
 
             // Assumes stop_token_id already refers to a token on the same line.
             pub fn seekStopToFirstTokenAtAfterChangeEndCol(self: *Self, col_idx: u32) void {
                 while (true) {
-                    const token = self.buf.tokens.get(self.stop_token_id.?);
+                    const token = self.buf.tokens.get(self.stop_token_id).?;
                     if (token.loc.start >= col_idx) {
                         self.stop_ch_idx = token.loc.start +% @bitCast(u32, self.inc_offset);
                         return;
                     }
-                    self.stop_token_id = self.buf.tokens.getNext(self.stop_token_id.?);
-                    if (self.stop_token_id == null) {
+                    self.stop_token_id = self.buf.tokens.getNext(self.stop_token_id).?;
+                    if (self.stop_token_id == NullToken) {
                         const line_id = self.doc.getLineIdByLoc(self.stop_line_loc);
                         const line = self.doc.getLineById(line_id);
                         self.stop_ch_idx = @intCast(u32, line.len) +% @bitCast(u32, self.inc_offset);
@@ -686,13 +687,13 @@ fn LineSourceState(comptime Incremental: bool) type {
 
             pub fn seekStopToNextToken(self: *Self) void {
                 while (true) {
-                    const token = self.buf.tokens.get(self.stop_token_id.?);
+                    const token = self.buf.tokens.get(self.stop_token_id).?;
                     if (token.loc.start +% @bitCast(u32, self.inc_offset) >= self.next_ch_idx) {
                         self.stop_ch_idx = token.loc.start +% @bitCast(u32, self.inc_offset);
                         return;
                     }
-                    self.stop_token_id = self.buf.tokens.getNext(self.stop_token_id.?);
-                    if (self.stop_token_id == null) {
+                    self.stop_token_id = self.buf.tokens.getNext(self.stop_token_id).?;
+                    if (self.stop_token_id == NullToken) {
                         const line_id = self.doc.getLineIdByLoc(self.stop_line_loc);
                         const line = self.doc.getLineById(line_id);
                         self.stop_ch_idx = @intCast(u32, line.len);
@@ -708,11 +709,11 @@ fn LineSourceState(comptime Incremental: bool) type {
                     const line_id = chunk[self.stop_line_loc.chunk_line_idx];
                     if (self.buf.lines.items[line_id]) |list_id| {
                         self.stop_token_id = self.buf.tokens.getListHead(list_id).?;
-                        self.stop_ch_idx = self.buf.tokens.get(self.stop_token_id.?).loc.start;
+                        self.stop_ch_idx = self.buf.tokens.getAssumeExists(self.stop_token_id).loc.start;
                         return;
                     }
                     if (self.stop_line_loc.leaf_id == self.last_leaf_id and self.stop_line_loc.chunk_line_idx == self.last_chunk_size) {
-                        self.stop_token_id = null;
+                        self.stop_token_id = NullToken;
                         self.stop_ch_idx = @intCast(u32, self.doc.getLine(line_id).len);
                     }
                     self.stop_line_loc.chunk_line_idx += 1;
@@ -733,17 +734,17 @@ fn LineSourceState(comptime Incremental: bool) type {
                     const head = self.buf.tokens.getListHead(list_id);
                     var prev: ?TokenId = null;
                     var cur_token_id = head.?;
-                    var cur_item = self.buf.tokens.getItem(cur_token_id);
+                    var cur_item = self.buf.tokens.getNodeAssumeExists(cur_token_id);
                     if (cur_item.data.loc.start < col_idx) {
                         // First token is before col_idx.
-                        while (cur_item.next != null) {
-                            const next = self.buf.tokens.getItem(cur_item.next.?);
+                        while (cur_item.next != NullToken) {
+                            const next = self.buf.tokens.getNodeAssumeExists(cur_item.next);
                             if (next.data.loc.start >= col_idx) {
                                 // Found starting point.
                                 break;
                             }
                             prev = cur_token_id;
-                            cur_token_id = cur_item.next.?;
+                            cur_token_id = cur_item.next;
                             cur_item = next;
                         }
                         self.next_ch_idx = cur_item.data.loc.start;
@@ -853,7 +854,7 @@ fn LineSourceState(comptime Incremental: bool) type {
                     const list_id = self.buf.tokens.addListWithDetachedHead(head) catch unreachable;
                     const line_id = self.doc.getLineIdByLoc(.{ .leaf_id = self.leaf_id, .chunk_line_idx = self.chunk_line_idx });
                     self.buf.lines.items[line_id] = list_id;
-                    _ = self.buf.tokens.detachAfter(self.buf.temp_head_id);
+                    _ = self.buf.tokens.detachAfter(self.buf.temp_head_id) catch unreachable;
                     self.cur_token_list_last = self.buf.temp_head_id;
                     // log.warn("set token list to line {} {} {}", .{line_id, self.leaf_id, self.chunk_line_idx});
                 }

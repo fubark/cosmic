@@ -82,7 +82,7 @@ pub const WorkQueue = struct {
     fn getTaskInfo(self: *Self, id: TaskId) TaskInfo {
         self.tasks_mutex.lock();
         defer self.tasks_mutex.unlock();
-        return self.tasks.get(id);
+        return self.tasks.getAssumeExists(id);
     }
 
     pub fn createAndRunWorker(self: *Self) void {
@@ -150,7 +150,7 @@ pub const WorkQueue = struct {
             const task_id = n.data.task_id;
 
             // We don't need to acquire the tasks lock here since only the main thread (same thread) can modify it.
-            const task_info = self.tasks.get(task_id);
+            const task_info = self.tasks.getAssumeExists(task_id);
             switch (n.data.result) {
                 .Success => {
                     if (task_info.has_cb) {

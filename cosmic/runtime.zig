@@ -255,7 +255,7 @@ pub const RuntimeContext = struct {
             self.weak_handles.deinit();
         }
         {
-            var iter = self.resources.items.iterator();
+            var iter = self.resources.nodes.iterator();
             while (iter.nextPtr()) |_| {
                 const res_id = iter.idx - 1;
                 self.destroyResourceHandle(res_id);
@@ -289,7 +289,7 @@ pub const RuntimeContext = struct {
     /// Destroys the resource owned by the handle and marks it as deinited.
     /// If the resource can't be deinited immediately, the final deinitResourceHandle call will be deferred.
     pub fn startDeinitResourceHandle(self: *Self, id: ResourceId) void {
-        const handle = self.resources.getPtr(id);
+        const handle = self.resources.getPtrAssumeExists(id);
         if (handle.deinited) {
             log.err("Already deinited", .{});
             unreachable;
@@ -307,7 +307,7 @@ pub const RuntimeContext = struct {
                         // TODO: Revisit this. For now just pick the last available window.
                         const list_id = self.getListId(handle.tag);
                         if (self.resources.findInList(list_id, {}, findFirstActiveResource)) |res_id| {
-                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.get(res_id).ptr);
+                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getAssumeExists(res_id).ptr);
                         }
                     }
                 } else {
@@ -340,7 +340,7 @@ pub const RuntimeContext = struct {
 
     // Internal func. Called when ready to actually free the handle
     fn deinitResourceHandleInternal(self: *Self, id: ResourceId) void {
-        const handle = self.resources.get(id);
+        const handle = self.resources.getAssumeExists(id);
         // Fire callback.
         if (handle.on_deinit_cb) |cb| {
             cb.call(id);
@@ -385,8 +385,7 @@ pub const RuntimeContext = struct {
     pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
         var id: u32 = 0;
         while (id < self.weak_handles.data.items.len) : (id += 1) {
-            if (self.weak_handles.hasItem(id)) {
-                var handle = self.weak_handles.get(id);
+            if (self.weak_handles.getPtr(id)) |handle| {
                 if (handle.ptr == ptr) {
                     handle.deinit(self);
                     self.weak_handles.remove(id);
@@ -412,7 +411,7 @@ pub const RuntimeContext = struct {
             .rt = self,
             .res_id = res_id,
         };
-        self.resources.getPtr(res_id).external_handle = external;
+        self.resources.getPtrAssumeExists(res_id).external_handle = external;
 
         return .{
             .ptr = ptr,
@@ -437,7 +436,7 @@ pub const RuntimeContext = struct {
             .rt = self,
             .res_id = res_id,
         };
-        self.resources.getPtr(res_id).external_handle = external;
+        self.resources.getPtrAssumeExists(res_id).external_handle = external;
 
         self.num_windows += 1;
         return .{
@@ -451,11 +450,11 @@ pub const RuntimeContext = struct {
     /// This is called when the js handle invokes the weak finalizer. At that point no js handle
     /// still references the id so it is safe to remove the native handle.
     pub fn destroyResourceHandle(self: *Self, res_id: ResourceId) void {
-        if (!self.resources.hasItem(res_id)) {
+        if (!self.resources.has(res_id)) {
             log.err("Expected resource id: {}", .{res_id});
             unreachable;
         }
-        const res = self.resources.getPtr(res_id);
+        const res = self.resources.getPtrAssumeExists(res_id);
         if (!res.deinited) {
             self.startDeinitResourceHandle(res_id);
         }
@@ -467,7 +466,7 @@ pub const RuntimeContext = struct {
             const list_id = self.getListId(res.tag);
             if (self.resources.findInList(list_id, res_id, findPrevResource)) |prev_id| {
                 // Remove from resources.
-                self.resources.removeNext(prev_id);
+                _ = self.resources.removeNext(prev_id) catch unreachable;
 
                 if (res.tag == .CsWindow) {
                     if (self.window_resource_list_last == res_id) {
@@ -491,7 +490,7 @@ pub const RuntimeContext = struct {
     }
 
     fn findFirstActiveResource(_: void, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-        return !buf.get(item_id).deinited;
+        return !buf.getAssumeExists(item_id).deinited;
     }
 
     fn findPrevResource(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
@@ -506,7 +505,7 @@ pub const RuntimeContext = struct {
         }
         const S = struct {
             fn pred(_sdl_win_id: u32, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-                const res = buf.get(item_id);
+                const res = buf.getAssumeExists(item_id);
                 // Skip dummy head.
                 if (res.tag == .Dummy) {
                     return false;
@@ -1013,7 +1012,7 @@ fn updateMultipleWindows(rt: *RuntimeContext) void {
     var cur_res = rt.resources.getListHead(rt.window_resource_list);
     cur_res = rt.resources.getNext(cur_res.?);
     while (cur_res) |res_id| {
-        const res = rt.resources.get(res_id);
+        const res = rt.resources.getAssumeExists(res_id);
         if (res.deinited) {
             cur_res = rt.resources.getNext(res_id);
             continue;
@@ -1743,13 +1742,13 @@ pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate
 
 pub fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
     const js_val_ptr = rt.getJsValuePtr(native_val);
-    const resolver = rt.promises.get(promise_id);
+    const resolver = rt.promises.getAssumeExists(promise_id);
     _ = resolver.inner.reject(rt.context, .{ .handle = js_val_ptr });
 }
 
 pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
     const js_val_ptr = rt.getJsValuePtr(native_val);
-    const resolver = rt.promises.get(promise_id);
+    const resolver = rt.promises.getAssumeExists(promise_id);
     _ = resolver.inner.resolve(rt.context, .{ .handle = js_val_ptr });
 }
 

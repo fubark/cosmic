@@ -26,6 +26,7 @@ const TokenId = _ast.TokenId;
 const TokenListId = _ast.TokenListId;
 const Token = _ast.Token;
 const LineTokenBuffer = _ast.LineTokenBuffer;
+const NullToken = stdx.ds.CompactNull(TokenId);
 
 // Creates a runtime parser from a PEG based config grammar.
 // Parses in linear time with respect to source size using a memoization cache. Two cache implementations depending on token list size.
@@ -357,7 +358,7 @@ pub const Parser = struct {
                 if (inner.tag == next.tag) {
                     const token_ctx = ctx.state.getTokenContext();
                     defer _ = ctx.state.consumeNext(Context.useCacheMap);
-                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertedNextTokenId(), inner.capture);
+                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertNextTokenId(), inner.capture);
                 }
             },
             .MatchLiteral => |m| {
@@ -369,7 +370,7 @@ pub const Parser = struct {
                 if (m.computed_literal_tag == next.literal_tag) {
                     const token_ctx = ctx.state.getTokenContext();
                     defer _ = ctx.state.consumeNext(Context.useCacheMap);
-                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertedNextTokenId(), m.capture);
+                    return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertNextTokenId(), m.capture);
                 }
             },
             .MatchTokenText => |inner| {
@@ -384,7 +385,7 @@ pub const Parser = struct {
                     const inner_str = self.grammar.getString(inner.str);
                     if (stdx.string.eq(inner_str, str)) {
                         defer _ = ctx.state.consumeNext(Context.useCacheMap);
-                        return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertedNextTokenId(), inner.capture);
+                        return self.createMatchedNodeTokenResult(token_ctx, ctx.state.getAssertNextTokenId(), inner.capture);
                     }
                 }
             },
@@ -768,7 +769,7 @@ pub const Parser = struct {
             if (cache_state == .Match) {
                 if (Context.State == TokenState) {
                     const mark = TokenState.Mark{
-                        .next_tok_id = cache_res.next_token_id.?,
+                        .next_tok_id = cache_res.next_token_id,
                         .rule_stack_start = cache_res.rule_stack_start,
                     };
                     ctx.state.restoreMark(&mark);
@@ -1076,7 +1077,7 @@ const TokenState = struct {
         return self.tokens.items[self.next_tok_id];
     }
 
-    inline fn getAssertedNextTokenId(self: *Self) TokenId {
+    inline fn getAssertNextTokenId(self: *Self) TokenId {
         return self.next_tok_id;
     }
 
@@ -1126,7 +1127,7 @@ const LineTokenState = struct {
         rule_stack_start: u32,
         leaf_id: document.NodeId,
         chunk_line_idx: u32,
-        next_tok_id: ?TokenId,
+        next_tok_id: TokenId,
     };
 
     rule_stack_start: *u32,
@@ -1137,7 +1138,7 @@ const LineTokenState = struct {
     buf: *LineTokenBuffer,
 
     // Current line data.
-    next_tok_id: ?TokenId,
+    next_tok_id: TokenId,
     leaf_id: document.NodeId,
     chunk: []document.LineId,
     chunk_line_idx: u32,
@@ -1213,15 +1214,15 @@ const LineTokenState = struct {
     }
 
     inline fn nextAtEnd(self: *Self) bool {
-        return self.next_tok_id == null;
+        return self.next_tok_id == NullToken;
     }
 
     inline fn peekNext(self: *Self) Token {
-        return self.buf.tokens.get(self.next_tok_id.?);
+        return self.buf.tokens.getAssumeExists(self.next_tok_id);
     }
 
-    inline fn getAssertedNextTokenId(self: *Self) TokenId {
-        return self.next_tok_id.?;
+    inline fn getAssertNextTokenId(self: *Self) TokenId {
+        return if (self.next_tok_id != NullToken) self.next_tok_id else unreachable;
     }
 
     // Find the first next_tok_id and set line context.
@@ -1231,7 +1232,7 @@ const LineTokenState = struct {
 
         while (true) {
             if (self.leaf_id == self.last_leaf_id and self.chunk_line_idx == self.last_chunk_size) {
-                self.next_tok_id = null;
+                self.next_tok_id = NullToken;
                 return;
             }
 
@@ -1255,8 +1256,8 @@ const LineTokenState = struct {
 
     // Called by consumeNext, so it assumes there is a next token.
     fn seekToNextToken(self: *Self) void {
-        self.next_tok_id = self.buf.tokens.getNext(self.next_tok_id.?);
-        if (self.next_tok_id != null) {
+        self.next_tok_id = self.buf.tokens.getNext(self.next_tok_id).?;
+        if (self.next_tok_id != NullToken) {
             // It's the next node in the list.
             return;
         }
@@ -1264,7 +1265,7 @@ const LineTokenState = struct {
         while (true) {
             self.chunk_line_idx += 1;
             if (self.leaf_id == self.last_leaf_id and self.chunk_line_idx == self.last_chunk_size) {
-                self.next_tok_id = null;
+                self.next_tok_id = NullToken;
                 return;
             }
             if (self.chunk_line_idx == self.chunk.len) {
@@ -1287,7 +1288,7 @@ const LineTokenState = struct {
     // Assumes there is a next token. Shouldn't be called without checking nextAtEnd first.
     fn consumeNext(self: *Self, comptime UseCacheMap: bool) Token {
         // log.warn("parser consume next {}", .{self.next_tok_id});
-        const item = self.buf.tokens.getItemPtr(self.next_tok_id.?);
+        const item = self.buf.tokens.getNodePtrAssumeExists(self.next_tok_id);
         self.seekToNextToken();
 
         // Push new set since we advanced the parser pos.
@@ -1434,7 +1435,7 @@ const CacheItem = struct {
     // Only defined when state == .Matched
     node_ptr: ?NodePtr = undefined,
     next_token_ctx: LineTokenContext = undefined,
-    next_token_id: ?TokenId = undefined,
+    next_token_id: TokenId = undefined,
     rule_stack_start: u32 = undefined,
 };
 

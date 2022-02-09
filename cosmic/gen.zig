@@ -119,7 +119,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
             if (ct_info.this_res_field) |field| {
                 const PtrType = stdx.meta.FieldType(field.field_type, .res);
                 const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
-                const handle = rt.resources.get(res_id);
+                const handle = rt.resources.getAssumeExists(res_id);
                 if (!handle.deinited) {
                     @field(native_args, field.name) = field.field_type{
                         .res = stdx.mem.ptrCastAlign(PtrType, handle.ptr),

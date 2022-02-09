@@ -13,6 +13,8 @@ const builder = @import("builder.zig");
 const grammars = @import("grammars.zig");
 const document = @import("common").document;
 const Document = document.Document;
+const TokenId = @import("ast.zig").TokenId;
+const NullToken = stdx.ds.CompactNull(TokenId);
 
 test "Parser is_incremental=true" {
     const src =
@@ -68,7 +70,7 @@ test "Parser is_incremental=true" {
     token_id = tokens.getNext(token_id.?);
     try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), ";");
     token_id = tokens.getNext(token_id.?);
-    try t.eq(token_id, null);
+    try t.eq(token_id, NullToken);
 
     // Empty line so no token list.
     try t.eq(lines.items[doc.getLineId(1)], null);
@@ -90,13 +92,13 @@ test "Parser is_incremental=true" {
     token_id = tokens.getNext(token_id.?);
     try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "{");
     token_id = tokens.getNext(token_id.?);
-    try t.eq(token_id, null);
+    try t.eq(token_id, NullToken);
 
     // Skip to end.
     token_id = tokens.getListHead(lines.items[doc.getLineId(5)].?);
     try t.eqStr(ast.getTokenString(&doc, 5, token_id.?), "}");
     token_id = tokens.getNext(token_id.?);
-    try t.eq(token_id, null);
+    try t.eq(token_id, NullToken);
 
     // str_buf.clearRetainingCapacity();
     // ast.formatTree(str_buf.writer());
@@ -161,7 +163,7 @@ test "Insert text" {
         try t.eq(debug.stats.inc_tokens_added, 2);
         try t.eq(debug.stats.inc_tokens_removed, 2);
         const list_id = ast.getTokenList(&doc, 2);
-        const token_id = ast.tokens.tokens.getAt(list_id, 2);
+        const token_id = ast.tokens.tokens.getIdAt(list_id, 2);
         try t.eqStr(ast.getTokenString(&doc, 2, token_id), "_insert_main");
         try t.eqStr(ast.getTokenName(token_id), "IdentifierToken");
     }
@@ -178,7 +180,7 @@ test "Insert text" {
         try t.eq(debug.stats.inc_tokens_added, 1);
         try t.eq(debug.stats.inc_tokens_removed, 1);
         const list_id = ast.getTokenList(&doc, 2);
-        const token_id = ast.tokens.tokens.getAt(list_id, 2);
+        const token_id = ast.tokens.tokens.getIdAt(list_id, 2);
         try t.eqStr(ast.getTokenString(&doc, 2, token_id), "m_insert_ain");
         try t.eqStr(ast.getTokenName(token_id), "IdentifierToken");
     }
@@ -195,7 +197,7 @@ test "Insert text" {
         try t.eq(debug.stats.inc_tokens_added, 1);
         try t.eq(debug.stats.inc_tokens_removed, 1);
         const list_id = ast.getTokenList(&doc, 2);
-        const token_id = ast.tokens.tokens.getAt(list_id, 2);
+        const token_id = ast.tokens.tokens.getIdAt(list_id, 2);
         try t.eqStr(ast.getTokenString(&doc, 2, token_id), "main_insert_");
         try t.eqStr(ast.getTokenName(token_id), "IdentifierToken");
     }
@@ -246,7 +248,7 @@ test "Delete text" {
         try t.eq(debug.stats.inc_tokens_added, 2);
         try t.eq(debug.stats.inc_tokens_removed, 2);
         const list_id = ast.getTokenList(&doc, 2);
-        const token_id = ast.tokens.tokens.getAt(list_id, 2);
+        const token_id = ast.tokens.tokens.getIdAt(list_id, 2);
         try t.eqStr(ast.getTokenString(&doc, 2, token_id), "in");
         try t.eqStr(ast.getTokenName(token_id), "IdentifierToken");
     }
@@ -263,7 +265,7 @@ test "Delete text" {
         try t.eq(debug.stats.inc_tokens_added, 1);
         try t.eq(debug.stats.inc_tokens_removed, 1);
         const list_id = ast.getTokenList(&doc, 2);
-        const token_id = ast.tokens.tokens.getAt(list_id, 2);
+        const token_id = ast.tokens.tokens.getIdAt(list_id, 2);
         try t.eqStr(ast.getTokenString(&doc, 2, token_id), "mn");
         try t.eqStr(ast.getTokenName(token_id), "IdentifierToken");
     }
@@ -280,7 +282,7 @@ test "Delete text" {
         try t.eq(debug.stats.inc_tokens_added, 1);
         try t.eq(debug.stats.inc_tokens_removed, 1);
         const list_id = ast.getTokenList(&doc, 2);
-        const token_id = ast.tokens.tokens.getAt(list_id, 2);
+        const token_id = ast.tokens.tokens.getIdAt(list_id, 2);
         try t.eqStr(ast.getTokenString(&doc, 2, token_id), "ma");
         try t.eqStr(ast.getTokenName(token_id), "IdentifierToken");
     }

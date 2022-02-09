@@ -2,13 +2,14 @@ const std = @import("std");
 const stdx = @import("../stdx.zig");
 const t = stdx.testing;
 const ds = stdx.ds;
+const log = stdx.log.scoped(.compact);
 
-// Useful for keeping a list buffer together in memory when you're using a bunch of insert/delete, while keeping realloc to a minimum.
-// Backed by std.ArrayList.
-// Item ids are reused once removed.
-// Items are assigned an id and have O(1) access time by id.
-// TODO: Iterating can be just as fast as a dense array if CompactIdGenerator kept a sorted list of freed id ranges.
-//       Although that also means delete ops would need to be O(logn).
+/// Useful for keeping a list buffer together in memory when you're using a bunch of insert/delete, while keeping realloc to a minimum.
+/// Backed by std.ArrayList.
+/// Item ids are reused once removed.
+/// Items are assigned an id and have O(1) access time by id.
+/// TODO: Iterating can be just as fast as a dense array if CompactIdGenerator kept a sorted list of freed id ranges.
+///       Although that also means delete ops would need to be O(logn).
 pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
     return struct {
         const Self = @This();
@@ -61,9 +62,12 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
         };
 
         id_gen: CompactIdGenerator(Id),
+
+        // TODO: Rename to buf.
         data: std.ArrayList(T),
 
         // Keep track of whether an item exists at id in order to perform iteration.
+        // TODO: Rename to exists.
         data_exists: ds.BitArrayList,
 
         pub fn init(alloc: std.mem.Allocator) @This() {
@@ -114,19 +118,31 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             self.data.clearRetainingCapacity();
         }
 
-        pub fn get(self: *const Self, id: Id) T {
+        pub fn get(self: Self, id: Id) ?T {
+            if (self.has(id)) {
+                return self.data.items[id];
+            } else return null;
+        }
+
+        pub fn getAssumeExists(self: Self, id: Id) T {
             return self.data.items[id];
         }
 
-        pub fn getPtr(self: *const Self, id: Id) *T {
+        pub fn getPtr(self: *const Self, id: Id) ?*T {
+            if (self.has(id)) {
+                return &self.data.items[id];
+            } else return null;
+        }
+
+        pub fn getPtrAssumeExists(self: Self, id: Id) *T {
             return &self.data.items[id];
         }
 
-        pub fn hasItem(self: *const Self, id: Id) bool {
+        pub fn has(self: Self, id: Id) bool {
             return self.data_exists.isSet(id);
         }
 
-        pub fn size(self: *const Self) usize {
+        pub fn size(self: Self) usize {
             return self.data.items.len - self.id_gen.next_ids.count;
         }
     };
@@ -165,55 +181,66 @@ test "CompactUnorderedList" {
     }
 }
 
-// Buffer is a CompactUnorderedList.
+/// Buffer is a CompactUnorderedList.
 pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
+    const Null = CompactNull(Id);
+    const Node = CompactSinglyLinkedListNode(Id, T);
     return struct {
         const Self = @This();
 
-        const Item = struct {
-            next: ?Id,
-            data: T,
-        };
-
-        first: ?Id,
-        items: CompactUnorderedList(Id, Item),
+        first: Id,
+        nodes: CompactUnorderedList(Id, Node),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
-                .first = null,
-                .items = CompactUnorderedList(Id, Item).init(alloc),
+                .first = Null,
+                .nodes = CompactUnorderedList(Id, Node).init(alloc),
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.nodes.deinit();
         }
 
         pub fn insertAfter(self: *Self, id: Id, data: T) !Id {
-            const new = try self.items.add(.{
-                .next = self.getNext(id),
-                .data = data,
-            });
-            self.items.getPtr(id).next = new;
-            return new;
+            if (self.nodes.has(id)) {
+                const new = try self.nodes.add(.{
+                    .next = self.nodes.getAssumeExists(id).next,
+                    .data = data,
+                });
+                self.nodes.getPtrAssumeExists(id).next = new;
+                return new;
+            } else return error.NoElement;
         }
 
-        pub fn removeNext(self: *Self, id: Id) void {
-            const at = self.items.getPtr(id);
-            if (at.next != null) {
-                const next = at.next.?;
-                const next_item = self.items.getPtr(next);
-                at.next = next_item.next;
-                self.items.remove(next);
-            }
+        pub fn removeNext(self: *Self, id: Id) !bool {
+            if (self.nodes.has(id)) {
+                const at = self.nodes.getPtrAssumeExists(id);
+                if (at.next != Null) {
+                    const next = at.next;
+                    at.next = self.nodes.getAssumeExists(next).next;
+                    self.nodes.remove(next);
+                    return true;
+                } else return false;
+            } else return error.NoElement;
         }
 
-        pub fn getItem(self: *const Self, id: Id) Item {
-            return self.items.get(id);
+        pub fn getNode(self: *const Self, id: Id) ?Node {
+            return self.nodes.get(id);
         }
 
-        pub fn get(self: *const Self, id: Id) T {
-            return self.items.getPtr(id).data;
+        pub fn getNodeAssumeExists(self: *const Self, id: Id) Node {
+            return self.nodes.getAssumeExists(id);
+        }
+
+        pub fn get(self: *const Self, id: Id) ?T {
+            if (self.nodes.has(id)) {
+                return self.nodes.getAssumeExists(id).data;
+            } else return null;
+        }
+
+        pub fn getAssumeExists(self: *const Self, id: Id) T {
+            return self.nodes.getAssumeExists(id).data;
         }
 
         pub fn getAt(self: *const Self, idx: usize) Id {
@@ -225,37 +252,38 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
             return cur;
         }
 
-        pub fn getFirst(self: *const Self) ?Id {
+        pub fn getFirst(self: *const Self) Id {
             return self.first;
         }
 
-        pub fn getNext(self: *const Self, id: Id) ?Id {
-            return self.items.get(id).next;
+        pub fn getNext(self: Self, id: Id) ?Id {
+            if (self.nodes.has(id)) {
+                return self.nodes.getAssumeExists(id).next;
+            } else return null;
         }
 
         pub fn prepend(self: *Self, data: T) !Id {
-            const item = Item{
+            const node = Node{
                 .next = self.first,
                 .data = data,
             };
-            self.first = try self.items.add(item);
-            return self.first.?;
+            self.first = try self.nodes.add(node);
+            return self.first;
         }
 
         pub fn removeFirst(self: *Self) bool {
-            if (self.first == null) {
-                return false;
-            } else {
-                const next = self.getNext(self.first.?);
-                self.items.remove(self.first.?);
+            if (self.first != Null) {
+                const next = self.getNodeAssumeExists(self.first).next;
+                self.nodes.remove(self.first);
                 self.first = next;
                 return true;
-            }
+            } else return false;
         }
     };
 }
 
 test "CompactSinglyLinkedList" {
+    const Null = CompactNull(u32);
     {
         // General test.
         var list = CompactSinglyLinkedList(u32, u8).init(t.alloc);
@@ -266,78 +294,89 @@ test "CompactSinglyLinkedList" {
         last = try list.insertAfter(last, 2);
         last = try list.insertAfter(last, 3);
         // Test remove next.
-        list.removeNext(first);
+        _ = try list.removeNext(first);
         // Test remove first.
         _ = list.removeFirst();
 
         var id = list.getFirst();
-        try t.eq(list.get(id.?), 3);
-        id = list.getNext(id.?);
-        try t.eq(id, null);
+        try t.eq(list.get(id), 3);
+        id = list.getNext(id).?;
+        try t.eq(id, Null);
     }
     {
         // Empty test.
         var list = CompactSinglyLinkedList(u32, u8).init(t.alloc);
         defer list.deinit();
-        try t.eq(list.getFirst(), null);
+        try t.eq(list.getFirst(), Null);
     }
 }
 
-// Stores multiple linked lists together in memory.
-pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type, comptime T: type) type {
+/// Index should be an unsigned integer type.
+/// Max value of Index is used to indicate null. (An optional would increase the struct size.)
+pub fn CompactSinglyLinkedListNode(comptime Index: type, comptime T: type) type {
+    return struct {
+        next: Index,
+        data: T,
+    };
+}
+
+pub fn CompactNull(comptime Index: type) Index {
+    return comptime std.math.maxInt(Index);
+}
+
+/// Stores multiple linked lists together in memory.
+pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, comptime T: type) type {
+    const Node = CompactSinglyLinkedListNode(Index, T);
+    const Null = CompactNull(Index);
     return struct {
         const Self = @This();
 
-        const Item = struct {
-            next: ?ItemId,
-            data: T,
-        };
-
         const List = struct {
-            head: ?ItemId,
+            head: ?Index,
         };
 
-        items: CompactUnorderedList(ItemId, Item),
+        nodes: CompactUnorderedList(Index, Node),
         lists: CompactUnorderedList(ListId, List),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
-                .items = CompactUnorderedList(ItemId, Item).init(alloc),
+                .nodes = CompactUnorderedList(Index, Node).init(alloc),
                 .lists = CompactUnorderedList(ListId, List).init(alloc),
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.items.deinit();
+            self.nodes.deinit();
             self.lists.deinit();
         }
 
         // Returns detached item.
-        pub fn detachAfter(self: *Self, id: ItemId) ?ItemId {
-            const item = self.getItemPtr(id);
-            const detached = item.next;
-            item.next = null;
-            return detached;
+        pub fn detachAfter(self: *Self, id: Index) !Index {
+            if (self.nodes.has(id)) {
+                const item = self.getNodePtrAssumeExists(id);
+                const detached = item.next;
+                item.next = Null;
+                return detached;
+            } else return error.NoElement;
         }
 
-        pub fn insertAfter(self: *Self, id: ItemId, data: T) !ItemId {
-            const new = try self.items.add(.{
-                .next = self.getNext(id),
-                .data = data,
-            });
-            self.items.getPtr(id).next = new;
-            return new;
+        pub fn insertAfter(self: *Self, id: Index, data: T) !Index {
+            if (self.nodes.has(id)) {
+                const new = try self.nodes.add(.{
+                    .next = self.nodes.getAssumeExists(id).next,
+                    .data = data,
+                });
+                self.nodes.getPtrAssumeExists(id).next = new;
+                return new;
+            } else return error.NoElement;
         }
 
-        pub fn setDetachedToEnd(self: *Self, id: ItemId, detached_id: ItemId) void {
-            const item = self.items.getPtr(id);
-            if (item.next != null) {
-                unreachable;
-            }
+        pub fn setDetachedToEnd(self: *Self, id: Index, detached_id: Index) void {
+            const item = self.nodes.getPtr(id).?;
             item.next = detached_id;
         }
 
-        pub fn addListWithDetachedHead(self: *Self, id: ItemId) !ListId {
+        pub fn addListWithDetachedHead(self: *Self, id: Index) !ListId {
             return self.lists.add(.{ .head = id });
         }
 
@@ -347,23 +386,23 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
         }
 
         pub fn addEmptyList(self: *Self) !ListId {
-            return self.lists.add(.{ .head = null });
+            return self.lists.add(.{ .head = Null });
         }
 
-        pub fn addDetachedItem(self: *Self, data: T) !ItemId {
-            return try self.items.add(.{
-                .next = null,
+        pub fn addDetachedItem(self: *Self, data: T) !Index {
+            return try self.nodes.add(.{
+                .next = Null,
                 .data = data,
             });
         }
 
-        pub fn prepend(self: *Self, list_id: ListId, data: T) !ItemId {
+        pub fn prepend(self: *Self, list_id: ListId, data: T) !Index {
             const list = self.getList(list_id);
-            const item = Item{
+            const item = Node{
                 .next = list.first,
                 .data = data,
             };
-            list.first = try self.items.add(item);
+            list.first = try self.nodes.add(item);
             return list.first.?;
         }
 
@@ -373,35 +412,39 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
                 return false;
             } else {
                 const next = self.getNext(list.first.?);
-                self.items.remove(list.first.?);
+                self.nodes.remove(list.first.?);
                 list.first = next;
                 return true;
             }
         }
 
-        pub fn removeNext(self: *Self, id: ItemId) void {
-            const at = self.items.getPtr(id);
-            if (at.next != null) {
-                const next = at.next.?;
-                const next_item = self.items.getPtr(next);
-                at.next = next_item.next;
-                self.items.remove(next);
-            }
+        pub fn removeNext(self: *Self, id: Index) !bool {
+            if (self.nodes.has(id)) {
+                const at = self.nodes.getPtrAssumeExists(id);
+                if (at.next != Null) {
+                    const next = at.next;
+                    at.next = self.nodes.getAssumeExists(next).next;
+                    self.nodes.remove(next);
+                    return true;
+                } else return false;
+            } else return error.NoElement;
         }
 
-        pub fn removeDetached(self: *Self, id: ItemId) void {
-            self.items.remove(id);
+        pub fn removeDetached(self: *Self, id: Index) void {
+            self.nodes.remove(id);
         }
 
         pub fn getListPtr(self: *const Self, id: ListId) *List {
             return self.lists.getPtr(id);
         }
 
-        pub fn getListHead(self: *const Self, id: ListId) ?ItemId {
-            return self.lists.getPtr(id).head;
+        pub fn getListHead(self: *const Self, id: ListId) ?Index {
+            if (self.lists.has(id)) {
+                return self.lists.getAssumeExists(id).head;
+            } else return null;
         }
 
-        pub fn findInList(self: Self, list_id: ListId, ctx: anytype, pred: fn (ctx: @TypeOf(ctx), buf: Self, item_id: ItemId) bool) ?ItemId {
+        pub fn findInList(self: Self, list_id: ListId, ctx: anytype, pred: fn (ctx: @TypeOf(ctx), buf: Self, item_id: Index) bool) ?Index {
             var mb_id = self.getListHead(list_id);
             while (mb_id) |id| {
                 if (pred(ctx, self, id)) {
@@ -412,46 +455,68 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
             return null;
         }
 
-        pub fn hasItem(self: Self, id: ItemId) bool {
-            return self.items.data_exists.isSet(id);
+        pub fn has(self: Self, id: Index) bool {
+            return self.nodes.has(id);
         }
 
-        pub fn getItem(self: Self, id: ItemId) Item {
-            return self.items.get(id);
+        pub fn getNode(self: Self, id: Index) ?Node {
+            return self.nodes.get(id);
         }
 
-        pub fn getItemPtr(self: *const Self, id: ItemId) *Item {
-            return self.items.getPtr(id);
+        pub fn getNodeAssumeExists(self: Self, id: Index) Node {
+            return self.nodes.getAssumeExists(id);
         }
 
-        pub fn get(self: Self, id: ItemId) T {
-            return self.items.getPtr(id).data;
+        pub fn getNodePtr(self: Self, id: Index) ?*Node {
+            return self.nodes.getPtr(id);
         }
 
-        pub fn getAt(self: *const Self, list_id: ListId, idx: usize) ItemId {
+        pub fn getNodePtrAssumeExists(self: Self, id: Index) *Node {
+            return self.nodes.getPtrAssumeExists(id);
+        }
+
+        pub fn get(self: Self, id: Index) ?T {
+            if (self.nodes.has(id)) {
+                return self.nodes.getAssumeExists(id).data;
+            } else return null;
+        }
+
+        pub fn getAssumeExists(self: Self, id: Index) T {
+            return self.nodes.getAssumeExists(id).data;
+        }
+
+        pub fn getIdAt(self: Self, list_id: ListId, idx: usize) Index {
             var i: u32 = 0;
-            var cur: ItemId = self.getListHead(list_id).?;
+            var cur: Index = self.getListHead(list_id).?;
             while (i != idx) : (i += 1) {
                 cur = self.getNext(cur).?;
             }
             return cur;
         }
 
-        pub fn getPtr(self: *const Self, id: ItemId) *T {
-            return &self.items.getPtr(id).data;
-        }
-
-        pub fn getNext(self: *const Self, id: ItemId) ?ItemId {
-            return self.items.get(id).next;
-        }
-
-        pub fn getNextItem(self: *const Self, id: ItemId) ?Item {
-            if (self.getNext(id)) |next| {
-                return self.getItem(next);
+        pub fn getPtr(self: Self, id: Index) ?*T {
+            if (self.nodes.has(id)) {
+                return &self.nodes.getPtrAssumeExists(id).data;
             } else return null;
         }
 
-        pub fn getNextData(self: *const Self, id: ItemId) ?T {
+        pub fn getPtrAssumeExists(self: Self, id: Index) *T {
+            return &self.nodes.getPtrAssumeExists(id).data;
+        }
+
+        pub fn getNext(self: Self, id: Index) ?Index {
+            if (self.nodes.get(id)) |node| {
+                return node.next;
+            } else return null;
+        }
+
+        pub fn getNextNode(self: Self, id: Index) ?Node {
+            if (self.getNext(id)) |next| {
+                return self.getNode(next);
+            } else return null;
+        }
+
+        pub fn getNextData(self: *const Self, id: Index) ?T {
             if (self.getNext(id)) |next| {
                 return self.get(next);
             } else return null;
@@ -460,6 +525,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime ItemId: type,
 }
 
 test "CompactManySinglyLinkedList" {
+    const Null = CompactNull(u32);
     var lists = CompactManySinglyLinkedList(u32, u32, u32).init(t.alloc);
     defer lists.deinit();
 
@@ -470,11 +536,11 @@ test "CompactManySinglyLinkedList" {
     const after = try lists.insertAfter(head, 20);
     try t.eq(lists.getNext(head), after);
     try t.eq(lists.detachAfter(head), after);
-    try t.eq(lists.getNext(head), null);
+    try t.eq(lists.getNext(head), Null);
 }
 
-// Reuses deleted ids.
-// Uses a fifo id buffer to get the next id if not empty, otherwise it uses the next id counter.
+/// Reuses deleted ids.
+/// Uses a fifo id buffer to get the next id if not empty, otherwise it uses the next id counter.
 pub fn CompactIdGenerator(comptime T: type) type {
     return struct {
         const Self = @This();

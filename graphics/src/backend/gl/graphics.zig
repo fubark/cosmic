@@ -364,7 +364,7 @@ pub const Graphics = struct {
     }
 
     pub fn removeImage(self: *Self, id: ImageId) void {
-        const image = self.images.get(id);
+        const image = self.images.getAssumeExists(id);
         self.deinitImage(image);
         _ = self.images.remove(id);
     }
@@ -1106,7 +1106,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
-        const image = self.images.get(image_id);
+        const image = self.images.getAssumeExists(image_id);
         self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
@@ -1296,7 +1296,7 @@ pub const Graphics = struct {
     pub fn flushDraw(self: *Self) void {
         // Custom logic to run before flushing batcher.
         // log.debug("tex {}", .{self.batcher.cur_tex_id});
-        const image = self.images.getPtr(self.batcher.cur_tex_image.image_id);
+        const image = self.images.getPtrAssumeExists(self.batcher.cur_tex_image.image_id);
         if (image.needs_update) {
             image.update();
             image.needs_update = false;
