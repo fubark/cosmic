@@ -1363,9 +1363,13 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     uv.uv_stop(rt.uv_loop);
     // Walk and close every handle.
     const S = struct {
-        fn closeHandle(handle: [*c]uv.uv_handle_t, ctx: ?*anyopaque) callconv(.C) void {
+        fn closeHandle(ptr: [*c]uv.uv_handle_t, ctx: ?*anyopaque) callconv(.C) void {
             _ = ctx;
-            uv.uv_close(@ptrCast(*uv.uv_handle_t, handle), null);
+            const handle = @ptrCast(*uv.uv_handle_t, ptr);
+            // Don't close if it's already in a closing state.
+            if (uv.uv_is_closing(handle) == 0) {
+                uv.uv_close(handle, null);
+            }
         }
     };
     uv.uv_walk(rt.uv_loop, S.closeHandle, null);
