@@ -968,7 +968,7 @@ pub const cs_core = struct {
 
     test "every CsError maps to core.CsError" {
         inline for (@typeInfo(Error).ErrorSet.?) |err| {
-            _ = std.meta.stringToEnum(cs_core.Error, err.name) orelse std.debug.panic("Missing {s}", .{err.name});
+            _ = std.meta.stringToEnum(cs_core.CsError, err.name) orelse std.debug.panic("Missing {s}", .{err.name});
         }
     }
 };

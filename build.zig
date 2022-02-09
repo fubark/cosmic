@@ -1642,7 +1642,7 @@ const BuilderContext = struct {
 
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
-        const c_flags = &[_][]const u8{ "-O3", "-DSTB_TRUETYPE_IMPLEMENTATION" };
+        const c_flags = &[_][]const u8{ "-DSTB_TRUETYPE_IMPLEMENTATION" };
         lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags);
         step.linkLibrary(lib);
     }
@@ -1655,7 +1655,7 @@ const BuilderContext = struct {
         lib.addIncludeDir(self.fromRoot("./deps/stb"));
         lib.linkLibC();
 
-        const c_flags = &[_][]const u8{ "-O3", "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
+        const c_flags = &[_][]const u8{ "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
         const src_files: []const []const u8 = &.{
             self.fromRoot("./lib/stbi/stb_image.c"),
             self.fromRoot("./lib/stbi/stb_image_write.c")
