@@ -591,3 +591,86 @@ test "CompactIdGenerator" {
     try t.eq(gen.getNextId(), 1);
     try t.eq(gen.getNextId(), 3);
 }
+
+/// Holds linked lists in a compact buffer. Does not keep track of list heads.
+/// This might replace CompactManySinglyLinkedList.
+pub fn CompactSinglyLinkedListBuffer(comptime Index: type, comptime T: type) type {
+    const Null = comptime CompactNull(Index);
+    const Node = CompactSinglyLinkedListNode(Index, T);
+    return struct {
+        const Self = @This();
+
+        nodes: CompactUnorderedList(Index, Node),
+
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return .{
+                .nodes = CompactUnorderedList(Index, Node).init(alloc),
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.nodes.deinit();
+        }
+
+        pub fn getNode(self: Self, idx: Index) ?Node {
+            return self.nodes.get(idx);
+        }
+
+        pub fn getNodeAssumeExists(self: Self, idx: Index) Node {
+            return self.nodes.getAssumeExists(idx);
+        }
+
+        pub fn get(self: Self, id: Index) ?T {
+            if (self.nodes.has(id)) {
+                return self.nodes.getAssumeExists(id).data;
+            } else return null;
+        }
+
+        pub fn getAssumeExists(self: Self, idx: Index) T {
+            return self.nodes.getAssumeExists(idx).data;
+        }
+
+        /// Adds a new head node.
+        pub fn add(self: *Self, data: T) !Index {
+            return try self.nodes.add(.{
+                .next = Null,
+                .data = data,
+            });
+        }
+
+        pub fn insertAfter(self: *Self, id: Index, data: T) !Index {
+            if (self.nodes.has(id)) {
+                const new = try self.nodes.add(.{
+                    .next = self.nodes.getAssumeExists(id).next,
+                    .data = data,
+                });
+                self.nodes.getPtrAssumeExists(id).next = new;
+                return new;
+            } else return error.NoElement;
+        }
+
+        pub fn removeAssumeNoPrev(self: *Self, id: Index) !void {
+            if (self.nodes.has(id)) {
+                self.nodes.remove(id);
+            } else return error.NoElement;
+        }
+    };
+}
+
+test "CompactSinglyLinkedListBuffer" {
+    var buf = CompactSinglyLinkedListBuffer(u32, u32).init(t.alloc);
+    defer buf.deinit();
+
+    const head = try buf.add(1);
+    try t.eq(buf.get(head).?, 1);
+    try t.eq(buf.getAssumeExists(head), 1);
+    try t.eq(buf.getNode(head).?.data, 1);
+    try t.eq(buf.getNodeAssumeExists(head).data, 1);
+
+    const second = try buf.insertAfter(head, 2);
+    try t.eq(buf.getNodeAssumeExists(head).next, second);
+    try t.eq(buf.getAssumeExists(second), 2);
+
+    try buf.removeAssumeNoPrev(head);
+    try t.eq(buf.get(head), null);
+}

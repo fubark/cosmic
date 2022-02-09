@@ -6,6 +6,7 @@ const t = stdx.testing;
 const compact = @import("compact.zig");
 pub const CompactSinglyLinkedListNode = compact.CompactSinglyLinkedListNode;
 pub const CompactNull = compact.CompactNull;
+pub const CompactSinglyLinkedListBuffer = compact.CompactSinglyLinkedListBuffer;
 pub const CompactUnorderedList = compact.CompactUnorderedList;
 pub const CompactSinglyLinkedList = compact.CompactSinglyLinkedList;
 pub const CompactManySinglyLinkedList = compact.CompactManySinglyLinkedList;
