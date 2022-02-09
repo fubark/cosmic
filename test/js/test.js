@@ -414,3 +414,23 @@ testIsolated('cs.http.serveHttps', async () => {
     }
     // return new Promise(() => {})
 })
+
+testIsolated('setTimeout', async () => {
+    let resolve
+    const p = new Promise(r => {
+        resolve = r
+    })
+    const res = []
+    setTimeout(0, () => res.push(1))
+    setTimeout(0, () => res.push(2))
+    setTimeout(20, () => res.push(4))
+    setTimeout(10, () => {
+        res.push(3)
+        setTimeout(20, () => {
+            res.push(5)
+            resolve()
+        })
+    })
+    await p
+    eq(res, [1, 2, 3, 4, 5])
+})

@@ -339,6 +339,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
     ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
+    ctx.setConstFuncT(cs_core, "setTimeout", api.cs_core.setTimeout);
     ctx.setConstFuncT(cs_core, "errCode", api.cs_core.errCode);
     ctx.setConstFuncT(cs_core, "errString", api.cs_core.errString);
     ctx.setConstFuncT(cs_core, "clearError", api.cs_core.clearError);

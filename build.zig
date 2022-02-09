@@ -1700,6 +1700,8 @@ const BuilderContext = struct {
     fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
         addGL(lib);
+        addUv(lib);
+        addZigV8(lib);
         step.linkLibrary(lib);
     }
 

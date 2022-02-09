@@ -1,3 +1,4 @@
+const uv = @import("uv");
 const gl = @import("gl");
 const GLint = gl.GLint;
 const GLsizei = gl.GLsizei;
@@ -81,8 +82,15 @@ export fn v8__WeakCallbackInfo__GetParameter() void {}
 export fn curl_slist_free_all() void {}
 export fn v8__Promise__Resolver__New() void {}
 export fn v8__Promise__Resolver__GetPromise() void {}
-export fn uv_timer_init() void {}
-export fn uv_async_send() void {}
+export fn uv_timer_init(loop: *uv.uv_loop_t, timer: *uv.uv_timer_t) c_int {
+    _ = loop;
+    _ = timer;
+    return 0;
+}
+export fn uv_async_send(async_: *uv.uv_async_t) c_int {
+    _ = async_;
+    return 0;
+}
 export fn TLS_server_method() void {}
 export fn SSL_CTX_new() void {}
 export fn OPENSSL_init_ssl() void {}
@@ -245,7 +253,10 @@ export fn h2o_httpclient_ctx_size() void {}
 export fn h2o_context_size() void {}
 export fn h2o_accept_ctx_size() void {}
 export fn h2o_socket_size() void {}
-export fn uv_loop_init() void {}
+export fn uv_loop_init(loop: *uv.uv_loop_t) c_int {
+    _ = loop;
+    return 0;
+}
 export fn uv_async_init() void {}
 export fn uv_run() void {}
 export fn curl_global_cleanup() void {}

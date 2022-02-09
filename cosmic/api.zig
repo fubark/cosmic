@@ -902,6 +902,12 @@ pub const cs_core = struct {
         } else return "";
     }
 
+    /// Invoke a callback after a timeout in milliseconds.
+    pub fn setTimeout(rt: *RuntimeContext, timeout: u32, cb: v8.Function) u32 {
+        const p_cb = rt.isolate.initPersistent(v8.Function, cb);
+        return rt.timer.setTimeout(timeout, p_cb) catch unreachable;
+    }
+
     /// Returns the absolute path of the main script.
     pub fn getMainScriptPath(rt: *RuntimeContext) []const u8 {
         return rt.main_script_path;

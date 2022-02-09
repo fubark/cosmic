@@ -25,6 +25,7 @@ const tasks = @import("tasks.zig");
 const WorkQueue = work_queue.WorkQueue;
 const UvPoller = @import("uv_poller.zig").UvPoller;
 const HttpServer = @import("server.zig").HttpServer;
+const Timer = @import("timer.zig").Timer;
 
 pub const PromiseId = u32;
 
@@ -112,7 +113,11 @@ pub const RuntimeContext = struct {
 
     received_uncaught_exception: bool,
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate, main_script_path: []const u8) void {
+    timer: Timer,
+
+    pub fn init(self: *Self,
+        alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate,
+        main_script_path: []const u8, is_test_env: bool) void {
         self.* = .{
             .alloc = alloc,
             .str_buf = std.ArrayList(u8).init(alloc),
@@ -147,7 +152,7 @@ pub const RuntimeContext = struct {
             .js_false = iso.initFalse(),
             .js_true = iso.initTrue(),
 
-            .is_test_env = false,
+            .is_test_env = is_test_env,
             .num_tests = 0,
             .num_tests_passed = 0,
             .num_async_tests = 0,
@@ -164,6 +169,7 @@ pub const RuntimeContext = struct {
             .uv_poller = undefined,
             .received_uncaught_exception = false,
             .last_err = error.NoError,
+            .timer = undefined,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -239,9 +245,19 @@ pub const RuntimeContext = struct {
             };
             std.os.sigaction(std.os.SIG.PIPE, &act, null);
         }
+
+        self.context = js_env.initContext(self, iso);
+
+        // Set up timer. Needs v8 context.
+        self.timer.init(self) catch unreachable;
+
+        self.context.enter();
     }
 
+    // uv related handles like timer are deinited in shutdownRuntime.
     fn deinit(self: *Self) void {
+        self.context.exit();
+
         self.str_buf.deinit();
         self.cb_str_buf.deinit();
         self.cb_f32_buf.deinit();
@@ -284,6 +300,8 @@ pub const RuntimeContext = struct {
         self.alloc.destroy(self.uv_loop);
 
         self.alloc.free(self.main_script_path);
+
+        self.timer.deinit();
     }
 
     /// Destroys the resource owned by the handle and marks it as deinited.
@@ -1269,23 +1287,15 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, iso, abs_path);
+    rt.init(alloc, platform, iso, abs_path, true);
     defer rt.deinit();
-
-    rt.is_test_env = true;
-
-    var ctx = js_env.initContext(&rt, iso);
-    rt.context = ctx;
-
-    ctx.enter();
-    defer ctx.exit();
 
     {
         // Run api_init.js
         var res: v8x.ExecuteResult = undefined;
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "api_init.js");
-        v8x.executeString(alloc, iso, ctx, api_init, origin, &res);
+        v8x.executeString(alloc, iso, rt.context, api_init, origin, &res);
         if (!res.success) {
             errorFmt("{s}", .{res.err.?});
             return error.InitScriptError;
@@ -1297,7 +1307,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
         var res: v8x.ExecuteResult = undefined;
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "test_init.js");
-        v8x.executeString(alloc, iso, ctx, test_init, origin, &res);
+        v8x.executeString(alloc, iso, rt.context, test_init, origin, &res);
         if (!res.success) {
             errorFmt("{s}", .{res.err.?});
             return error.TestInitScriptError;
@@ -1308,7 +1318,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
 
     var res: v8x.ExecuteResult = undefined;
     defer res.deinit();
-    v8x.executeString(alloc, iso, ctx, src, origin, &res);
+    v8x.executeString(alloc, iso, rt.context, src, origin, &res);
 
     processV8EventLoop(&rt);
 
@@ -1341,6 +1351,8 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
 
 /// Shutdown other threads gracefully before starting deinit.
 fn shutdownRuntime(rt: *RuntimeContext) void {
+    rt.timer.close();
+
     rt.uv_poller.close_flag.store(true, .Release);
 
     // Make uv poller wake up with dummy update.
@@ -1584,24 +1596,18 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, iso, abs_path);
+    rt.init(alloc, platform, iso, abs_path, false);
     defer {
         shutdownRuntime(&rt);
         rt.deinit();
     }
-
-    var ctx = js_env.initContext(&rt, iso);
-    rt.context = ctx;
-
-    ctx.enter();
-    defer ctx.exit();
 
     {
         // Run api_init.js
         var res: v8x.ExecuteResult = undefined;
         defer res.deinit();
         const origin = v8.String.initUtf8(iso, "api_init.js");
-        v8x.executeString(alloc, iso, ctx, api_init, origin, &res);
+        v8x.executeString(alloc, iso, rt.context, api_init, origin, &res);
         if (!res.success) {
             errorFmt("{s}", .{res.err.?});
             return error.InitScriptError;
@@ -1612,7 +1618,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
 
     var res: v8x.ExecuteResult = undefined;
     defer res.deinit();
-    v8x.executeString(alloc, iso, ctx, src, origin, &res);
+    v8x.executeString(alloc, iso, rt.context, src, origin, &res);
 
     processV8EventLoop(&rt);
 
