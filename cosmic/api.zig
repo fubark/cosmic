@@ -928,6 +928,13 @@ pub const cs_core = struct {
         return std.fs.path.dirname(rt.main_script_path) orelse unreachable;
     }
 
+    /// Given an app name, returns the platform's app directory to read/write files to.
+    /// This does not ensure that the directory exists. See ensurePath.
+    pub fn getAppDir(rt: *RuntimeContext, app_name: []const u8) ?ds.Box([]const u8) {
+        const dir = std.fs.getAppDataDir(rt.alloc, app_name) catch return null;
+        return ds.Box([]const u8).init(rt.alloc, dir);
+    }
+
     /// Prints the current stack trace and exits the program with an error code.
     /// This is useful to short circuit your program.
     /// @param msg
