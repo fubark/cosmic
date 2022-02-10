@@ -26,6 +26,7 @@ const WorkQueue = work_queue.WorkQueue;
 const UvPoller = @import("uv_poller.zig").UvPoller;
 const HttpServer = @import("server.zig").HttpServer;
 const Timer = @import("timer.zig").Timer;
+const EventDispatcher = @import("events.zig").EventDispatcher;
 
 pub const PromiseId = u32;
 
@@ -115,6 +116,8 @@ pub const RuntimeContext = struct {
 
     timer: Timer,
 
+    event_dispatcher: EventDispatcher,
+
     pub fn init(self: *Self,
         alloc: std.mem.Allocator, platform: v8.Platform, iso: v8.Isolate,
         main_script_path: []const u8, is_test_env: bool) void {
@@ -170,6 +173,7 @@ pub const RuntimeContext = struct {
             .received_uncaught_exception = false,
             .last_err = error.NoError,
             .timer = undefined,
+            .event_dispatcher = undefined,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -202,6 +206,7 @@ pub const RuntimeContext = struct {
         self.uv_dummy_async = alloc.create(uv.uv_async_t) catch unreachable;
         res = uv.uv_async_init(self.uv_loop, self.uv_dummy_async, null);
         uv.assertNoError(res);
+        self.event_dispatcher = EventDispatcher.init(self.uv_dummy_async);
 
         stdx.http.curlm_uvloop = self.uv_loop;
         stdx.http.uv_interrupt = self.uv_dummy_async;
@@ -1438,7 +1443,7 @@ inline fn hasPendingEvents(rt: *RuntimeContext) bool {
     }
 }
 
-/// Waits until there is work to process if there is work in progress.
+/// Waits until there is work to process.
 /// If true, a follow up processMainEventLoop should be called to do the work and reset the poller.
 /// If false, there are no more pending tasks, and the caller should exit the loop.
 fn pollMainEventLoop(rt: *RuntimeContext) bool {

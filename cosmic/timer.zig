@@ -5,6 +5,7 @@ const v8 = @import("v8");
 const t = stdx.testing;
 const Null = stdx.ds.CompactNull(u32);
 const RuntimeContext = @import("runtime.zig").RuntimeContext;
+const EventDispatcher = @import("events.zig").EventDispatcher;
 
 const log = stdx.log.scoped(.timer);
 
@@ -33,15 +34,13 @@ pub const Timer = struct {
 
     ctx: v8.Context,
     receiver: v8.Value,
+    dispatcher: EventDispatcher,
 
     /// RuntimeContext must already have inited uv_loop.
     pub fn init(self: *Self, rt: *RuntimeContext) !void {
         const alloc = rt.alloc;
         const timer = alloc.create(uv.uv_timer_t) catch unreachable;
         var res = uv.uv_timer_init(rt.uv_loop, timer);
-        uv.assertNoError(res);
-        // On unix, we need to interrupt the poller when creating a new timer.
-        res = uv.uv_async_send(rt.uv_dummy_async);
         uv.assertNoError(res);
         timer.data = self;
         self.* = .{
@@ -54,6 +53,7 @@ pub const Timer = struct {
             .active_timeout = std.math.maxInt(u32),
             .ctx = rt.context,
             .receiver = v8.Value{ .handle = rt.js_null.handle },
+            .dispatcher = rt.event_dispatcher,
         };
     }
 
@@ -95,8 +95,7 @@ pub const Timer = struct {
 
             // Check if we need to start the uv timer.
             if (abs_ms < self.active_timeout) {
-                const res = uv.uv_timer_start(self.timer, onTimeout, timeout_ms, 0);
-                uv.assertNoError(res);
+                self.dispatcher.startTimer(self.timer, timeout_ms, onTimeout);
                 self.active_timeout = abs_ms;
             }
 
@@ -145,8 +144,8 @@ pub const Timer = struct {
             } else {
                 rel_timeout = next_timeout - now;
             }
-            const res = uv.uv_timer_start(self.timer, onTimeout, rel_timeout, 0);
-            uv.assertNoError(res);
+
+            self.dispatcher.startTimer(self.timer, rel_timeout, onTimeout);
             self.active_timeout = next_timeout;
         } else {
             self.active_timeout = std.math.maxInt(u32);

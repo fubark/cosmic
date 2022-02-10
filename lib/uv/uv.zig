@@ -16,6 +16,7 @@ pub const uv_close_cb = c.uv_close_cb;
 pub const uv_async_t = c.uv_async_t;
 pub const uv_timer_t = c.uv_timer_t;
 pub const uv_poll_t = c.uv_poll_t;
+pub const uv_timer_cb = c.uv_timer_cb;
 
 pub const UV_EBUSY = c.UV_EBUSY;
 
@@ -70,6 +71,7 @@ pub extern fn uv_poll_init_socket(loop: *uv_loop_t, handle: *uv_poll_t, socket: 
 pub extern fn uv_poll_start(handle: *uv_poll_t, events: c_int, cb: c.uv_poll_cb) c_int;
 pub extern fn uv_poll_stop(handle: *uv_poll_t) c_int;
 pub extern fn uv_is_closing(handle: *const uv_handle_t) c_int;
+pub extern fn uv_update_time(*uv_loop_t) void;
 
 pub fn assertNoError(code: c_int) void {
     if (code != 0) {
