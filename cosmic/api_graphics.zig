@@ -1,4 +1,6 @@
+const std = @import("std");
 const stdx = @import("stdx");
+const t = stdx.testing;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
 const FontId = graphics.font.FontId;
@@ -513,8 +515,16 @@ pub const cs_graphics = struct {
     /// @param sat
     /// @param val
     pub fn hsvToRgb(hue: f32, sat: f32, val: f32) cs_graphics.Color {
-        const color = StdColor.fromHsv(hue, sat, val);
+        // Make sure sat/val are clamped.
+        const color = StdColor.fromHsv(hue,
+            std.math.clamp(sat, 0, 1),
+            std.math.clamp(val, 0, 1));
         return fromStdColor(color);
+    }
+
+    test "hsvToRgb" {
+        // Test sat/val clamping.
+        try t.eq(hsvToRgb(180, 1.2, -300), hsvToRgb(180, 1, 0));
     }
 };
 

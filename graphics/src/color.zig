@@ -113,7 +113,7 @@ pub const Color = struct {
     }
 
     /// hue is in degrees [0,360]
-    /// sat/val are provided normalized: [0,1]
+    /// assumes sat/val are clamped to: [0,1]
     pub fn fromHsv(hue: f32, sat: f32, val: f32) Self {
         var res = Color.init(0, 0, 0, 255);
 
@@ -142,6 +142,10 @@ pub const Color = struct {
         res.channels.b = @floatToInt(u8, (val - val*sat*k)*255.0);
 
         return res;
+    }
+
+    test "hsv to rgb" {
+        try t.eq(Color.fromHsv(270, 0.6, 0.7), Color.init(124, 71, 178, 255));
     }
 
     pub fn fromU32(c: u32) Color {
