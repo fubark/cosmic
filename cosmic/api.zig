@@ -260,11 +260,15 @@ pub const cs_files = struct {
     /// Reads a file as a UTF-8 string.
     /// Returns the contents on success or null.
     /// @param path
-    pub fn readText(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
+    pub fn readText(rt: *RuntimeContext, path: []const u8) Error!ds.Box([]const u8) {
         const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
             // Whitelist errors to silence.
-            error.FileNotFound => return null,
-            else => unreachable,
+            error.FileNotFound => return error.FileNotFound,
+            error.IsDir => return error.IsDir,
+            else => {
+                log.debug("unknown error: {}", .{err});
+                unreachable;
+            }
         };
         return ds.Box([]const u8).init(rt.alloc, res);
     }
