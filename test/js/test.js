@@ -417,9 +417,7 @@ testIsolated('cs.http.serveHttps', async () => {
 
 testIsolated('setTimeout', async () => {
     let resolve
-    const p = new Promise(r => {
-        resolve = r
-    })
+    const p = new Promise(r => resolve = r)
     const res = []
     setTimeout(0, () => res.push(1))
     setTimeout(0, () => res.push(2))
@@ -433,4 +431,14 @@ testIsolated('setTimeout', async () => {
     })
     await p
     eq(res, [1, 2, 3, 4, 5])
+})
+
+testIsolated('setTimeout: pass arg', async () => {
+    let resolve
+    const p = new Promise(r => resolve = r)
+    setTimeout(0, (arg) => {
+        eq(arg, 123)
+        resolve()
+    }, 123)
+    await p
 })

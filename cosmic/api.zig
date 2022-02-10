@@ -903,9 +903,14 @@ pub const cs_core = struct {
     }
 
     /// Invoke a callback after a timeout in milliseconds.
-    pub fn setTimeout(rt: *RuntimeContext, timeout: u32, cb: v8.Function) u32 {
+    pub fn setTimeout(rt: *RuntimeContext, timeout: u32, cb: v8.Function, cb_arg: ?v8.Value) u32 {
         const p_cb = rt.isolate.initPersistent(v8.Function, cb);
-        return rt.timer.setTimeout(timeout, p_cb) catch unreachable;
+        if (cb_arg) |cb_arg_| {
+            const p_cb_arg = rt.isolate.initPersistent(v8.Value, cb_arg_);
+            return rt.timer.setTimeout(timeout, p_cb, p_cb_arg) catch unreachable;
+        } else {
+            return rt.timer.setTimeout(timeout, p_cb, null) catch unreachable;
+        }
     }
 
     /// Returns the absolute path of the main script.

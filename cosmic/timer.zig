@@ -77,7 +77,7 @@ pub const Timer = struct {
         self.processNext(self.ctx, self.receiver);
     }
 
-    pub fn setTimeout(self: *Self, timeout_ms: u32, cb: v8.Persistent(v8.Function)) !u32 {
+    pub fn setTimeout(self: *Self, timeout_ms: u32, cb: v8.Persistent(v8.Function), cb_arg: ?v8.Persistent(v8.Value)) !u32 {
         const now = @floatToInt(u32, @intToFloat(f32, self.watch.read()) / 1e6);
         const abs_ms = now + timeout_ms;
 
@@ -85,6 +85,7 @@ pub const Timer = struct {
         if (!entry.found_existing) {
             const head = try self.ll_buf.add(.{
                 .cb = cb,
+                .cb_arg = cb_arg,
             });
             entry.value_ptr.* = .{
                 .timeout = abs_ms,
@@ -104,6 +105,7 @@ pub const Timer = struct {
             // Append to the last node in the list.
             const new = try self.ll_buf.insertAfter(entry.value_ptr.last, .{
                 .cb = cb,
+                .cb_arg = cb_arg,
             });
             entry.value_ptr.last = new;
             return new;
@@ -123,7 +125,12 @@ pub const Timer = struct {
         var cur = group.head;
         while (cur != Null) {
             var node = self.ll_buf.getNodeAssumeExists(cur);
-            _ = node.data.cb.inner.call(ctx, js_receiver, &.{});
+            if (node.data.cb_arg) |*cb_arg| {
+                _ = node.data.cb.inner.call(ctx, js_receiver, &.{ cb_arg.inner });
+                cb_arg.deinit();
+            } else {
+                _ = node.data.cb.inner.call(ctx, js_receiver, &.{});
+            }
             node.data.cb.deinit();
             self.ll_buf.removeAssumeNoPrev(cur) catch unreachable;
             cur = node.next;
@@ -204,4 +211,5 @@ const GroupNode = struct {
 
 const Node = struct {
     cb: v8.Persistent(v8.Function),
+    cb_arg: ?v8.Persistent(v8.Value),
 };
