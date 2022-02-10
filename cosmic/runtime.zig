@@ -67,6 +67,7 @@ pub const RuntimeContext = struct {
     platform: v8.Platform,
     isolate: v8.Isolate,
     context: v8.Context,
+    global: v8.Object,
 
     // Absolute path of the main script.
     main_script_path: []const u8,
@@ -144,6 +145,7 @@ pub const RuntimeContext = struct {
             .platform = platform,
             .isolate = iso,
             .context = undefined,
+            .global = undefined,
             .main_script_path = alloc.dupe(u8, main_script_path) catch unreachable,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
             .cb_f32_buf = std.ArrayList(f32).init(alloc),
@@ -252,6 +254,8 @@ pub const RuntimeContext = struct {
         }
 
         self.context = js_env.initContext(self, iso);
+
+        self.global = self.context.getGlobal();
 
         // Set up timer. Needs v8 context.
         self.timer.init(self) catch unreachable;
@@ -1015,13 +1019,13 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
             return;
         }
 
-        rt.work_queue.processDone();
-
         if (rt.num_windows == 1) {
             updateSingleWindow(rt);
         } else {
             updateMultipleWindows(rt);
         }
+
+        processMainEventLoop(rt);
     }
 }
 

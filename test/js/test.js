@@ -442,3 +442,22 @@ testIsolated('setTimeout: pass arg', async () => {
     }, 123)
     await p
 })
+
+testIsolated('setTimeout: callback this is global by default', async () => {
+    let resolve
+    const p = new Promise(r => resolve = r)
+    class Foo {
+        constructor() {
+            this.foo = 123
+        }
+        start() {
+            setTimeout(0, this.timeout)
+        }
+        timeout() {
+            eq(this, globalThis)
+            resolve()
+        }
+    }
+    new Foo().start()
+    await p
+})

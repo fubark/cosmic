@@ -339,3 +339,8 @@ export fn v8__Message__Get() void {}
 export fn v8__Isolate__TerminateExecution() void {}
 export fn v8__Isolate__IsExecutionTerminating() void {}
 export fn v8__StackTrace__CurrentStackTrace__STATIC() void {}
+export fn h2o_timer_unlink() void {}
+export fn h2o_config_dispose() void {}
+export fn v8__Context__Global() void {}
+export fn h2o_context_dispose() void {}
+export fn uv_is_closing() void {}

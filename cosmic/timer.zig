@@ -52,7 +52,7 @@ pub const Timer = struct {
             .ll_buf = stdx.ds.CompactSinglyLinkedListBuffer(u32, Node).init(alloc),
             .active_timeout = std.math.maxInt(u32),
             .ctx = rt.context,
-            .receiver = v8.Value{ .handle = rt.js_null.handle },
+            .receiver = rt.global.toValue(),
             .dispatcher = rt.event_dispatcher,
         };
     }
@@ -74,7 +74,7 @@ pub const Timer = struct {
     fn onTimeout(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
         const timer = @ptrCast(*uv.uv_timer_t, ptr);
         const self = stdx.mem.ptrCastAlign(*Self, timer.data);
-        self.processNext(self.ctx, self.receiver);
+        self.processNext(self.ctx);
     }
 
     pub fn setTimeout(self: *Self, timeout_ms: u32, cb: v8.Persistent(v8.Function), cb_arg: ?v8.Persistent(v8.Value)) !u32 {
@@ -116,7 +116,7 @@ pub const Timer = struct {
         return self.heap.peek();
     }
 
-    pub fn processNext(self: *Self, ctx: v8.Context, js_receiver: anytype) void {
+    pub fn processNext(self: *Self, ctx: v8.Context) void {
         // Pop the next timeout.
         const timeout = self.heap.remove();
         const group = self.map.get(timeout).?;
@@ -126,10 +126,10 @@ pub const Timer = struct {
         while (cur != Null) {
             var node = self.ll_buf.getNodeAssumeExists(cur);
             if (node.data.cb_arg) |*cb_arg| {
-                _ = node.data.cb.inner.call(ctx, js_receiver, &.{ cb_arg.inner });
+                _ = node.data.cb.inner.call(ctx, self.receiver, &.{ cb_arg.inner });
                 cb_arg.deinit();
             } else {
-                _ = node.data.cb.inner.call(ctx, js_receiver, &.{});
+                _ = node.data.cb.inner.call(ctx, self.receiver, &.{});
             }
             node.data.cb.deinit();
             self.ll_buf.removeAssumeNoPrev(cur) catch unreachable;
@@ -171,25 +171,24 @@ test "Timer" {
     defer timer.deinit();
 
     const cb: v8.Persistent(v8.Function) = undefined;
-    _ = try timer.setTimeout(100, cb);
-    _ = try timer.setTimeout(200, cb);
-    _ = try timer.setTimeout(0, cb);
-    _ = try timer.setTimeout(0, cb);
-    _ = try timer.setTimeout(300, cb);
-    _ = try timer.setTimeout(300, cb);
+    _ = try timer.setTimeout(100, cb, null);
+    _ = try timer.setTimeout(200, cb, null);
+    _ = try timer.setTimeout(0, cb, null);
+    _ = try timer.setTimeout(0, cb, null);
+    _ = try timer.setTimeout(300, cb, null);
+    _ = try timer.setTimeout(300, cb, null);
 
     const ctx: v8.Context = undefined;
-    const this: v8.Object = undefined;
 
     const timeout = timer.peekNext().?;
     try t.eq(timeout, 0);
-    timer.processNext(ctx, this);
+    timer.processNext(ctx);
     try t.eq(timer.peekNext().?, 100);
-    timer.processNext(ctx, this);
+    timer.processNext(ctx);
     try t.eq(timer.peekNext().?, 200);
-    timer.processNext(ctx, this);
+    timer.processNext(ctx);
     try t.eq(timer.peekNext().?, 300);
-    timer.processNext(ctx, this);
+    timer.processNext(ctx);
     try t.eq(timer.peekNext(), null);
 }
 
