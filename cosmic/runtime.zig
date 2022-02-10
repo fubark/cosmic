@@ -1363,9 +1363,6 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     // Make uv poller wake up with dummy update.
     _ = uv.uv_async_send(rt.uv_dummy_async);
 
-    // uv poller might be waiting for wakeup.
-    rt.uv_poller.wakeup.set();
-
     // Busy wait.
     while (rt.uv_poller.close_flag.load(.Acquire)) {}
 
@@ -1474,9 +1471,6 @@ fn processMainEventLoop(rt: *RuntimeContext) void {
 
     // After callbacks and js executions are done, process V8 event loop.
     processV8EventLoop(rt);
-
-    // Notify poller to continue.
-    rt.uv_poller.wakeup.set();
 }
 
 /// If there are too many promises to execute for a js execution, v8 will defer the rest into it's event loop.

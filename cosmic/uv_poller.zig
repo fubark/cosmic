@@ -10,7 +10,6 @@ pub const UvPoller = struct {
     const Self = @This();
 
     uv_loop: *uv.uv_loop_t,
-    wakeup: std.Thread.ResetEvent,
     inner: switch (builtin.os.tag) {
         .linux => UvPollerLinux,
         .macos => UvPollerMac,
@@ -24,16 +23,9 @@ pub const UvPoller = struct {
     close_flag: std.atomic.Atomic(bool),
 
     pub fn init(uv_loop: *uv.uv_loop_t, notify: *std.Thread.ResetEvent) Self {
-        var wakeup: std.Thread.ResetEvent = undefined;
-        wakeup.init() catch unreachable;
-
-        // Polling should happen before event loop processing so this is set initially to start polling when thread is spawned.
-        wakeup.set();
-
         var new = Self{
             .uv_loop = uv_loop,
             .inner = undefined,
-            .wakeup = wakeup,
             .notify = notify,
             .close_flag = std.atomic.Atomic(bool).init(false),
         };
@@ -46,10 +38,6 @@ pub const UvPoller = struct {
             if (self.close_flag.load(.Acquire)) {
                 break;
             }
-
-            // Only start polling when uv is done processing.
-            self.wakeup.wait();
-            self.wakeup.reset();
 
             // log.debug("uv poller wait", .{});
             self.inner.poll(self.uv_loop);
