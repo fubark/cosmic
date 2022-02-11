@@ -125,7 +125,7 @@ class Game {
         this.BRICKS_HEIGHT = 0
     }
 
-    init(width, height) {
+    initSize(width, height) {
         Game.PWIDTH = width
         Game.PHEIGHT = height
         Game.BRICKS_HEIGHT = Game.PHEIGHT / 30
@@ -135,9 +135,6 @@ class Game {
 
         Game.BACKUP_PADDLE_Y = Game.PHEIGHT - 180
         Game.ROOM_BOTTOM_Y = Game.PHEIGHT - 100
-        // Game.sound.init(4);
-        Game.sound.load();
-        this.gameState = Game.MAINMENU
 
         var buttonX = 20
         this.playButton = createButton('Play', buttonX, 230, Game.PWIDTH - 40, 70)
@@ -152,6 +149,14 @@ class Game {
 
         const miniMapScale = 2
         this.collectionPlayButton = createButton('Play', Game.PWIDTH/2 - 40, Game.MINI_STAGE_Y + Game.PHEIGHT / miniMapScale + 60, Game.PWIDTH / miniMapScale, 70);
+    }
+
+    init(width, height) {
+        this.initSize(width, height)
+
+        // Game.sound.init(4);
+        Game.sound.load();
+        this.gameState = Game.MAINMENU
 
         this.transitions = new Transitions(this)
 
@@ -689,7 +694,7 @@ class Game {
 
         var line;
         var i;
-        while (line = lines.shift()) {
+        while ((line = lines.shift()) !== undefined) {
             row++;
             for (i = 0; i < line.length; i++) {
                 ch = line.charAt(i);
@@ -719,7 +724,7 @@ class Game {
         brickCount = 0; // this time used for the indice of the brick array
         ballCount = 0; // this time used for the indice of the ball array
         row = 0;
-        while (line = lines.shift()) {
+        while ((line = lines.shift()) !== undefined) {
             row++;
             for (i = 0; i < line.length; i++) {
                 ch = line.charAt(i);
@@ -769,7 +774,7 @@ class Game {
             var lineCount = 0;
             var ch;
             var line;
-            while (line = lines.shift()) {
+            while ((line = lines.shift()) !== undefined) {
                 for (var i = 0; i < line.length; i++) {
                     ch = line.charAt(i);
                     if (ch == 'B') {
@@ -1923,6 +1928,10 @@ game.init(500, 850)
 game.startLoop()
 
 const w = cs.window.create('PaddleBall', game.width, game.height)
+
+w.onResize(e => {
+    game.initSize(e.width, e.height)
+})
 
 w.onUpdate(g => {
     if (game.done) {
