@@ -991,6 +991,47 @@ pub const cs_core = struct {
         rt.last_err = error.NoError;
     }
 
+    pub fn getOs() Os {
+        switch (builtin.os.tag) {
+            .linux => return .linux,
+            .macos => return .macos,
+            .windows => return .windows,
+            else => unreachable,
+        }
+    }
+
+    pub fn getOsVersion(rt: *RuntimeContext) ds.Box([]const u8) {
+        const info = std.zig.system.NativeTargetInfo.detect(rt.alloc, std.zig.CrossTarget{}) catch unreachable;
+        const range = info.target.os.getVersionRange();
+        var str: []const u8 = undefined;
+        switch (range) {
+            .none => {},
+            .semver => {
+                str = std.fmt.allocPrint(rt.alloc, "{s} {}", .{@tagName(info.target.os.tag), range.semver.min}) catch unreachable;
+            },
+            .linux => {
+                str = std.fmt.allocPrint(rt.alloc, "{s} {}", .{@tagName(info.target.os.tag), range.linux.range.min}) catch unreachable;
+            },
+            .windows => {
+                str = std.fmt.allocPrint(rt.alloc, "{s} {}", .{@tagName(info.target.os.tag), range.windows}) catch unreachable;
+            },
+        }
+        return ds.Box([]const u8).init(rt.alloc, str);
+    }
+
+    pub fn getCpu(rt: *RuntimeContext) ds.Box([]const u8) {
+        const info = std.zig.system.NativeTargetInfo.detect(rt.alloc, std.zig.CrossTarget{}) catch unreachable;
+        const str = std.fmt.allocPrint(rt.alloc, "{} {s}", .{info.target.cpu.arch, info.target.cpu.model.name}) catch unreachable;
+        return ds.Box([]const u8).init(rt.alloc, str);
+    }
+
+    pub const Os = enum {
+        linux,
+        macos,
+        windows,
+        web,
+    };
+
     pub const CsError = enum {
         pub const Default = .NotAnError;
         NoError,

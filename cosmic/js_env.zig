@@ -367,6 +367,17 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_core, "getAppDir", api.cs_core.getAppDir);
     ctx.setConstFuncT(cs_core, "panic", api.cs_core.panic);
     ctx.setConstFuncT(cs_core, "exit", api.cs_core.exit);
+    ctx.setConstFuncT(cs_core, "getOs", api.cs_core.getOs);
+    ctx.setConstFuncT(cs_core, "getOsVersion", api.cs_core.getOsVersion);
+    ctx.setConstFuncT(cs_core, "getCpu", api.cs_core.getCpu);
+    {
+        const cs_os = iso.initObjectTemplateDefault();
+        ctx.setProp(cs_os, "linux", iso.initIntegerU32(@enumToInt(api.cs_core.Os.linux)));
+        ctx.setProp(cs_os, "macos", iso.initIntegerU32(@enumToInt(api.cs_core.Os.macos)));
+        ctx.setProp(cs_os, "windows", iso.initIntegerU32(@enumToInt(api.cs_core.Os.windows)));
+        ctx.setProp(cs_os, "web", iso.initIntegerU32(@enumToInt(api.cs_core.Os.web)));
+        ctx.setConstProp(cs_core, "Os", cs_os);
+    }
     {
         const cs_err = iso.initObjectTemplateDefault();
         ctx.setProp(cs_err, "NoError", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.NoError)));
