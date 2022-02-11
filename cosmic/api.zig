@@ -970,10 +970,10 @@ pub const cs_core = struct {
     }
 
     /// Returns an error message for an error code.
-    pub fn errString(err_code: u32) []const u8 {
-        const err = std.meta.intToEnum(CsError, err_code) catch return "Not an error.";
+    pub fn errString(err: CsError) []const u8 {
         return switch (err) {
             .NoError => "No error.",
+            .NotAnError => "Not an error.",
             else => @tagName(err),
         };
     }
@@ -984,9 +984,11 @@ pub const cs_core = struct {
     }
 
     pub const CsError = enum {
+        pub const Default = .NotAnError;
         NoError,
         FileNotFound,
         IsDir,
+        NotAnError,
     };
 
     test "every CsError maps to core.CsError" {

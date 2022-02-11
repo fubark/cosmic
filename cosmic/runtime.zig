@@ -1856,7 +1856,7 @@ pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.me
             const _promise_id = ctx_.inner;
             if (std.meta.stringToEnum(api.cs_core.CsError, @errorName(err_))) |cs_err| {
                 const iso_ = ctx_.rt.isolate;
-                const err_msg = api.cs_core.errString(@enumToInt(cs_err));
+                const err_msg = api.cs_core.errString(cs_err);
                 const js_err = v8.Exception.initError(iso_.initStringUtf8(err_msg));
                 _ = js_err.castTo(v8.Object).setValue(ctx_.rt.context, iso_.initStringUtf8("code"), v8.Integer.initU32(iso_, @enumToInt(cs_err)));
                 rejectPromise(ctx_.rt, _promise_id, js_err);
