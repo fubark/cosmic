@@ -3,6 +3,7 @@
 *.md text eol=lf
 *.h text eol=lf
 *.c text eol=lf
+*.txt text eol=lf
 
 lib/mingw/** linguist-vendored
 docs/*.css linguist-vendored

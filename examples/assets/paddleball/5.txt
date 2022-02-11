@@ -1,0 +1,14 @@
+11
+B         B
+B         B
+   BBBBB
+   MBBBM
+     B
+
+BBB     BBB
+BB       BB
+B  BBBBB  B
+   BMBMB
+B    O    B
+BB       BB
+BB       BB

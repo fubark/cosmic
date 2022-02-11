@@ -1,0 +1,15 @@
+11
+BBBB   BBBB
+BBBB   BBBB
+BBBB   BBBB
+BBBB   BBBB
+BBBB   BBBB
+BBB  O  BBB
+BBB     BBB
+BBB     BBB
+BBB     BBB
+BBB  M  BBB
+BB   O   BB
+BB       BB
+BB       BB
+MM       MM

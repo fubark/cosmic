@@ -1,0 +1,9 @@
+11
+
+ BBBBBBBBB
+  BBBBBBB
+   BBBBB
+M   BBB   M
+BB   B   BB
+BBB     BBB
+     O

@@ -1,0 +1,11 @@
+11
+B    M    B
+
+   BBBBB
+   BBBBB 
+  BBBBBBB
+BBBB M BBBB
+  BBBBBBB
+   BBBBB
+   BBMBB
+   B O B
