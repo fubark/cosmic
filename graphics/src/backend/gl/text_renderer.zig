@@ -235,7 +235,7 @@ inline fn computeKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: 
     return 0;
 }
 
-const RenderTextContext = struct {
+pub const RenderTextContext = struct {
     // Not managed.
     str: []const u8,
     // cur top left position for next codepoint to be drawn.

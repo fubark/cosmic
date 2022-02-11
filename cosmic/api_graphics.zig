@@ -13,6 +13,7 @@ const RuntimeContext = runtime.RuntimeContext;
 const This = runtime.This;
 const RuntimeValue = runtime.RuntimeValue;
 const v8x = @import("v8x.zig");
+const log = stdx.log.scoped(.api_graphics);
 
 /// @title Graphics
 /// @name graphics
@@ -177,6 +178,13 @@ pub const cs_graphics = struct {
         /// @param size
         pub inline fn fontSize(self: *Graphics, font_size: f32) void {
             self.setFontSize(font_size);
+        }
+
+        /// Sets the current text align.
+        /// @param align
+        pub inline fn textAlign(self: *Graphics, align_: TextAlign) void {
+            const std_align = toStdTextAlign(align_);
+            return self.setTextAlign(std_align);
         }
 
         /// Paints text with the current fill color.
@@ -459,6 +467,13 @@ pub const cs_graphics = struct {
         }
     };
 
+    pub const TextAlign = enum {
+        pub const Default = .left;
+        left,
+        center,
+        right,
+    };
+
     pub const Color = struct {
 
         r: u8,
@@ -534,4 +549,12 @@ fn fromStdColor(color: StdColor) cs_graphics.Color {
 
 fn toStdColor(color: cs_graphics.Color) StdColor {
     return .{ .channels = .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a } };
+}
+
+fn toStdTextAlign(align_: cs_graphics.TextAlign) graphics.TextAlign {
+    return switch (align_) {
+        .left => .Left,
+        .center => .Center,
+        .right => .Right,
+    };
 }

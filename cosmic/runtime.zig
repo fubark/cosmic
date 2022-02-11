@@ -789,15 +789,26 @@ pub const RuntimeContext = struct {
                         return native_val;
                     } else return null;
                 } else if (@typeInfo(T) == .Enum) {
-                    // Compare with lower case.
-                    const lower = v8x.appendValueAsUtf8Lower(&self.cb_str_buf, self.isolate, ctx, val);
-                    const Fields = @typeInfo(T).Enum.fields;
-                    inline for (Fields) |Field| {
-                        if (std.mem.eql(u8, lower, comptime ctLower(Field.name))) {
-                            return @intToEnum(T, Field.value);
+                    if (@hasDecl(T, "IsStringSumType")) {
+                        // String to enum conversion.
+                        const lower = v8x.appendValueAsUtf8Lower(&self.cb_str_buf, self.isolate, ctx, val);
+                        const Fields = @typeInfo(T).Enum.fields;
+                        inline for (Fields) |Field| {
+                            // Compare with lower case.
+                            if (std.mem.eql(u8, lower, comptime ctLower(Field.name))) {
+                                return @intToEnum(T, Field.value);
+                            }
                         }
+                        return null;
+                    } else {
+                        // Integer to enum conversion.
+                        const ival = val.toU32(ctx);
+                        return std.meta.intToEnum(T, ival) catch {
+                            if (@hasDecl(T, "Default")) {
+                                return T.Default;
+                            } else return null;
+                        };
                     }
-                    return null;
                 } else {
                     comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(T) }));
                 }

@@ -595,6 +595,15 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setTextAlign(self: *Self, align_: TextAlign) void {
+        switch (Backend) {
+            .OpenGL =>  {
+                gl.Graphics.setTextAlign(&self.g, align_);
+            },
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn fillText(self: *Self, x: f32, y: f32, text: []const u8) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.fillText(&self.g, x, y, text),
@@ -839,3 +848,9 @@ pub fn delay(us: u64) void {
         // stdx.time.sleep(self.target_ms_per_frame - render_time_ms);
     }
 }
+
+pub const TextAlign = enum {
+    Left,
+    Center,
+    Right,
+};

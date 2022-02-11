@@ -26,6 +26,7 @@ pub const font_cache = @import("font_cache.zig");
 pub const FontCache = font_cache.FontCache;
 pub const MeasureTextIterator = font_cache.MeasureTextIterator;
 const ImageId = graphics.ImageId;
+const TextAlign = graphics.TextAlign;
 const FontId = graphics.font.FontId;
 const FontGroupId = graphics.font.FontGroupId;
 const log = std.log.scoped(.graphics_gl);
@@ -35,6 +36,7 @@ const TexShaderVertex = mesh.TexShaderVertex;
 const Shader = @import("shader.zig").Shader;
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
+const RenderTextContext = text_renderer.RenderTextContext;
 const svg = graphics.svg;
 
 const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
@@ -60,6 +62,7 @@ pub const Graphics = struct {
     default_font_id: FontId,
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
+    cur_text_align: TextAlign,
 
     cur_fill_color: Color,
     cur_stroke_color: Color,
@@ -99,6 +102,7 @@ pub const Graphics = struct {
             .state_stack = std.ArrayList(DrawState).init(alloc),
             .cur_clip_rect = undefined,
             .cur_scissors = undefined,
+            .cur_text_align = .Left,
         };
 
         const max_total_textures = gl.getMaxTotalTextures();
@@ -291,6 +295,10 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setTextAlign(self: *Self, align_: TextAlign) void {
+        self.cur_text_align = align_;
+    }
+
     pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool, props: anytype) void {
         _ = self;
         image.* = .{
@@ -382,7 +390,7 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        self.font_cache.measureText(self, self.font_gid, self.cur_font_size, str, res);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, str, res);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
@@ -401,7 +409,23 @@ pub const Graphics = struct {
         var quad: text_renderer.TextureQuad = undefined;
         var vdata: VertexData(4, 6) = undefined;
 
-        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x, y, str);
+        var ctx: RenderTextContext = undefined;
+        switch (self.cur_text_align) {
+            .Left => {
+                ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x, y, str);
+            },
+            .Right => {
+                var metrics: TextMetrics = undefined;
+                self.measureText(str, &metrics);
+                ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x-metrics.width, y, str);
+            },
+            .Center => {
+                var metrics: TextMetrics = undefined;
+                self.measureText(str, &metrics);
+                ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x-metrics.width/2, y, str);
+            }
+        }
+
         while (text_renderer.renderNextCodepoint(&ctx, &quad)) {
             self.setCurrentTexture(quad.image);
 

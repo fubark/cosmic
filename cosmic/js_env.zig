@@ -119,6 +119,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "addFallbackFont", Context.addFallbackFont);
         ctx.setConstFuncT(proto, "font", Context.font);
         ctx.setConstFuncT(proto, "fontSize", Context.fontSize);
+        ctx.setConstFuncT(proto, "textAlign", Context.textAlign);
         ctx.setConstFuncT(proto, "text", Context.text);
         ctx.setConstFuncT(proto, "circle", Context.circle);
         ctx.setConstFuncT(proto, "circleSector", Context.circleSector);
@@ -328,6 +329,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
         // cs.graphics.Color
         ctx.setConstProp(mod, "Color", color_class);
+
+        // cs.graphics.TextAlign
+        const text_align = iso.initObjectTemplateDefault();
+        ctx.setProp(text_align, "left", iso.initIntegerU32(@enumToInt(cs_graphics.TextAlign.left)));
+        ctx.setProp(text_align, "center", iso.initIntegerU32(@enumToInt(cs_graphics.TextAlign.center)));
+        ctx.setProp(text_align, "right", iso.initIntegerU32(@enumToInt(cs_graphics.TextAlign.right)));
+        ctx.setConstProp(mod, "TextAlign", text_align);
+
         ctx.setConstFuncT(mod, "hsvToRgb", cs_graphics.hsvToRgb);
         ctx.setConstProp(cs, "graphics", mod);
     }
