@@ -398,12 +398,11 @@ pub const RuntimeContext = struct {
         }
     }
 
-    pub fn getResourcePtr(self: *Self, comptime Ptr: type, res_id: ResourceId) ?Ptr {
-        const Tag = GetResourceTag(Ptr);
-        if (self.resources.hasItem(res_id)) {
-            const item = self.resources.get(res_id);
+    pub fn getResourcePtr(self: *Self, comptime Tag: ResourceTag, res_id: ResourceId) ?*Resource(Tag) {
+        if (self.resources.has(res_id)) {
+            const item = self.resources.getAssumeExists(res_id);
             if (item.tag == Tag) {
-                return stdx.mem.ptrCastAlign(Ptr, item.ptr);
+                return stdx.mem.ptrCastAlign(*Resource(Tag), item.ptr);
             }
         }
         return null;
@@ -855,6 +854,16 @@ pub const RuntimeContext = struct {
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
+
+    fn handleResizeEvent(self: *Self, res_id: ResourceId, e: api.cs_input.ResizeEvent) void {
+        if (self.getResourcePtr(.CsWindow, res_id)) |win| {
+            const ctx = self.context;
+            if (win.on_resize_cb) |cb| {
+                const js_event = self.getJsValue(e);
+                _ = cb.inner.call(ctx, win.js_window, &.{ js_event });
+            }
+        }
+    }
 };
 
 fn hasAllOptionalFields(comptime T: type) bool {
@@ -990,6 +999,14 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
                         sdl.SDL_WINDOWEVENT_CLOSE => {
                             if (rt.getCsWindowResourceBySdlId(event.window.windowID)) |res_id| {
                                 rt.startDeinitResourceHandle(res_id);
+                            }
+                        },
+                        sdl.SDL_WINDOWEVENT_RESIZED => {
+                            if (rt.getCsWindowResourceBySdlId(event.window.windowID)) |res_id| {
+                                rt.handleResizeEvent(res_id, .{
+                                    .width = @intCast(u32, event.window.data1),
+                                    .height = @intCast(u32, event.window.data2),
+                                });
                             }
                         },
                         else => {},
@@ -1175,6 +1192,7 @@ pub const CsWindow = struct {
     on_mouse_move_cb: ?v8.Persistent(v8.Function),
     on_key_up_cb: ?v8.Persistent(v8.Function),
     on_key_down_cb: ?v8.Persistent(v8.Function),
+    on_resize_cb: ?v8.Persistent(v8.Function),
     js_window: v8.Persistent(v8.Object),
 
     // Managed by window handle.
@@ -1202,6 +1220,7 @@ pub const CsWindow = struct {
             .on_mouse_move_cb = null,
             .on_key_up_cb = null,
             .on_key_down_cb = null,
+            .on_resize_cb = null,
             .js_window = iso.initPersistent(v8.Object, js_window),
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
@@ -1228,6 +1247,9 @@ pub const CsWindow = struct {
             cb.deinit();
         }
         if (self.on_key_down_cb) |*cb| {
+            cb.deinit();
+        }
+        if (self.on_resize_cb) |*cb| {
             cb.deinit();
         }
 

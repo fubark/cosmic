@@ -130,6 +130,14 @@ pub const cs_window = struct {
             v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_key_up_cb, mb_cb);
         }
 
+        /// Provide the handler for the window's resize event.
+        /// Provide a null value to disable these events.
+        /// A window can be resized by the user or the platform's window manager.
+        /// @param callback
+        pub fn onResize(rt: *RuntimeContext, this: ThisResource(.CsWindow), mb_cb: ?v8.Function) void {
+            v8x.updateOptionalPersistent(v8.Function, rt.isolate, &this.res.on_resize_cb, mb_cb);
+        }
+
         /// Returns how long the last frame took in microseconds. This includes the onUpdate call and the delay to achieve the target FPS.
         /// This is useful for animation or physics for calculating the next position of an object.
         pub fn getLastFrameDuration(this: ThisResource(.CsWindow)) u32 {
@@ -1030,6 +1038,11 @@ pub const cs_input = struct {
     pub const MouseMoveEvent = struct {
         x: i16,
         y: i16,
+    };
+
+    pub const ResizeEvent = struct {
+        width: u32,
+        height: u32,
     };
 
     pub const KeyDownEvent = struct {

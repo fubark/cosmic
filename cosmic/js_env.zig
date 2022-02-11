@@ -64,6 +64,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setFuncT(proto, "onMouseMove", api.cs_window.Window.onMouseMove);
         ctx.setFuncT(proto, "onKeyDown", api.cs_window.Window.onKeyDown);
         ctx.setFuncT(proto, "onKeyUp", api.cs_window.Window.onKeyUp);
+        ctx.setFuncT(proto, "onResize", api.cs_window.Window.onResize);
         ctx.setFuncT(proto, "getGraphics", api.cs_window.Window.getGraphics);
         ctx.setFuncT(proto, "getLastFrameDuration", api.cs_window.Window.getLastFrameDuration);
         ctx.setFuncT(proto, "getLastUpdateDuration", api.cs_window.Window.getLastUpdateDuration);
