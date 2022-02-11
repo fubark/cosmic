@@ -1,6 +1,7 @@
-const eq = cs.test.eq
-const neq = cs.test.neq
-const contains = cs.test.contains
+const t = cs.test
+const eq = t.eq
+const neq = t.neq
+const contains = t.contains
 const fs = cs.files
 const throws = cs.test.throws
 const test = cs.test.create
@@ -15,11 +16,23 @@ test('cs.test asserts', () => {
 
 test('errCode and errString', () => {
     clearError()
-    eq(errCode(), CsError.NoError)
-    eq(errString(), 'No error.')
+    var err = errCode()
+    eq(err, CsError.NoError)
+    eq(errString(err), 'No error.')
     eq(fs.read('does_not_exist.dat'), null)
-    eq(errCode(), CsError.FileNotFound)
-    eq(errString(), 'FileNotFound')
+    err = errCode()
+    eq(err, CsError.FileNotFound)
+    eq(errString(err), 'FileNotFound')
+})
+
+testIsolated('async errCode and errString', async () => {
+    try {
+        await fs.readAsync('does_not_exist.dat')
+        t.fail('Expected error.')
+    } catch (err) {
+        eq(err.code, CsError.FileNotFound)
+        eq(err.message, 'FileNotFound')
+    }
 })
 
 test('cs.files.read', () => {
@@ -45,10 +58,12 @@ test('cs.files.readText', () => {
 testIsolated('cs.files.readTextAsync', async () => {
     fs.writeText('foo.txt', 'foo')
     try {
-        let content = await fs.readTextAsync('foo.txt')
-        eq(content, 'foo');
-        content = await fs.readTextAsync('bar.txt')
-        eq(content, null);
+        let content = await fs.readTextAsync('foo.txt').catch(t.fail)
+        eq(content, 'foo')
+        await fs.readTextAsync('bar.txt').then(t.fail).catch(err => {
+            eq(err.code, CsError.FileNotFound)
+            eq(err.message, 'FileNotFound')
+        })
     } finally {
         fs.remove('foo.txt')
     }

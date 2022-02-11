@@ -610,8 +610,9 @@ pub const RuntimeContext = struct {
                 const js_uint8arr = v8.Uint8Array.init(array_buffer, 0, native_val.buf.len);
                 return js_uint8arr.handle;
             },
-            v8.Boolean => return native_val.handle,
-            v8.Object => return native_val.handle,
+            v8.Value,
+            v8.Boolean,
+            v8.Object,
             v8.Promise => return native_val.handle,
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
@@ -1840,9 +1841,17 @@ pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.me
             const _promise_id = _ctx.inner;
             resolvePromise(_ctx.rt, _promise_id, _res);
         }
-        fn onFailure(_ctx: RuntimeValue(PromiseId), _err: anyerror) void {
-            const _promise_id = _ctx.inner;
-            rejectPromise(_ctx.rt, _promise_id, _err);
+        fn onFailure(ctx_: RuntimeValue(PromiseId), err_: anyerror) void {
+            const _promise_id = ctx_.inner;
+            if (std.meta.stringToEnum(api.cs_core.CsError, @errorName(err_))) |cs_err| {
+                const iso_ = ctx_.rt.isolate;
+                const err_msg = api.cs_core.errString(@enumToInt(cs_err));
+                const js_err = v8.Exception.initError(iso_.initStringUtf8(err_msg));
+                _ = js_err.castTo(v8.Object).setValue(ctx_.rt.context, iso_.initStringUtf8("code"), v8.Integer.initU32(iso_, @enumToInt(cs_err)));
+                rejectPromise(ctx_.rt, _promise_id, js_err);
+            } else {
+                rejectPromise(ctx_.rt, _promise_id, err_);
+            }
         }
     };
     const task_ctx = RuntimeValue(PromiseId){

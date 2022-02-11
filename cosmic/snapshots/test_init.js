@@ -40,6 +40,10 @@
         }
     }
 
+    cs.test.fail = function(msg) {
+        throw new Error(msg || 'Fail.')
+    }
+
     function equal(act, exp) {
         if (Object.is(act, exp)) {
             return true

@@ -4,6 +4,7 @@ const ds = stdx.ds;
 const log = stdx.log.scoped(.work_queue);
 const builtin = @import("builtin");
 const uv = @import("uv");
+const CsError = @import("runtime.zig").CsError;
 
 pub const WorkQueue = struct {
     const Self = @This();

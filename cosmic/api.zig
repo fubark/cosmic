@@ -969,11 +969,12 @@ pub const cs_core = struct {
         return @enumToInt(std.meta.stringToEnum(CsError, @errorName(rt.last_err)).?);
     }
 
-    /// Returns the last error message.
-    pub fn errString(rt: *RuntimeContext) []const u8 {
-        return switch (rt.last_err) {
-            error.NoError => "No error.",
-            else => @errorName(rt.last_err),
+    /// Returns an error message for an error code.
+    pub fn errString(err_code: u32) []const u8 {
+        const err = std.meta.intToEnum(CsError, err_code) catch return "Not an error.";
+        return switch (err) {
+            .NoError => "No error.",
+            else => @tagName(err),
         };
     }
 
