@@ -333,6 +333,8 @@ fn parseConstantInfo(comptime VarDecl: std.builtin.TypeInfo.Declaration, alloc: 
     _ = container_node;
     if (std.mem.eql(u8, VarDecl.name, "IsStringSumType")) {
         return null;
+    } else if (std.mem.eql(u8, VarDecl.name, "Default")) {
+        return null;
     }
     // For now, just return the name.
     return VarDecl.name;
@@ -457,7 +459,11 @@ fn getJsTypeName(comptime T: type) []const u8 {
                     return getJsTypeName(std.meta.fieldInfo(T, .val).field_type);
                 } else if (@hasDecl(T, "ManagedSlice")) {
                     return getJsTypeName(std.meta.fieldInfo(T, .slice).field_type);
+                } else {
+                    return @typeName(T);
                 }
+            } else if (@typeInfo(T) == .Enum) {
+                return @typeName(T);
             }
             std.debug.panic("Can't convert to js type name: {s}", .{ @typeName(T) });
         }
