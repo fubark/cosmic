@@ -27,6 +27,7 @@ pub const FontCache = font_cache.FontCache;
 pub const MeasureTextIterator = font_cache.MeasureTextIterator;
 const ImageId = graphics.ImageId;
 const TextAlign = graphics.TextAlign;
+const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.font.FontId;
 const FontGroupId = graphics.font.FontGroupId;
 const log = std.log.scoped(.graphics_gl);
@@ -63,6 +64,7 @@ pub const Graphics = struct {
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
     cur_text_align: TextAlign,
+    cur_text_baseline: TextBaseline,
 
     cur_fill_color: Color,
     cur_stroke_color: Color,
@@ -103,6 +105,7 @@ pub const Graphics = struct {
             .cur_clip_rect = undefined,
             .cur_scissors = undefined,
             .cur_text_align = .Left,
+            .cur_text_baseline = .Top,
         };
 
         const max_total_textures = gl.getMaxTotalTextures();
@@ -299,6 +302,10 @@ pub const Graphics = struct {
         self.cur_text_align = align_;
     }
 
+    pub fn setTextBaseline(self: *Self, baseline: TextBaseline) void {
+        self.cur_text_baseline = baseline;
+    }
+
     pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool, props: anytype) void {
         _ = self;
         image.* = .{
@@ -409,22 +416,28 @@ pub const Graphics = struct {
         var quad: text_renderer.TextureQuad = undefined;
         var vdata: VertexData(4, 6) = undefined;
 
-        var ctx: RenderTextContext = undefined;
-        switch (self.cur_text_align) {
-            .Left => {
-                ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x, y, str);
-            },
-            .Right => {
-                var metrics: TextMetrics = undefined;
-                self.measureText(str, &metrics);
-                ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x-metrics.width, y, str);
-            },
-            .Center => {
-                var metrics: TextMetrics = undefined;
-                self.measureText(str, &metrics);
-                ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, x-metrics.width/2, y, str);
+        var start_x = x;
+        var start_y = y;
+
+        if (self.cur_text_align != .Left) {
+            var metrics: TextMetrics = undefined;
+            self.measureText(str, &metrics);
+            switch (self.cur_text_align) {
+                .Left => {},
+                .Right => start_x = x-metrics.width,
+                .Center => start_x = x-metrics.width/2,
             }
         }
+        if (self.cur_text_baseline != .Top) {
+            const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.cur_font_gid, self.cur_font_size);
+            switch (self.cur_text_baseline) {
+                .Top => {},
+                .Middle => start_y = y - vmetrics.height / 2,
+                .Alphabetic => start_y = y - vmetrics.ascender,
+                .Bottom => start_y = y - vmetrics.height,
+            }
+        }
+        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, start_x, start_y, str);
 
         while (text_renderer.renderNextCodepoint(&ctx, &quad)) {
             self.setCurrentTexture(quad.image);

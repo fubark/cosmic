@@ -187,6 +187,13 @@ pub const cs_graphics = struct {
             return self.setTextAlign(std_align);
         }
 
+        /// Sets the current text baseline.
+        /// @param baseline
+        pub inline fn textBaseline(self: *Graphics, baseline: TextBaseline) void {
+            const std_baseline = toStdTextBaseline(baseline);
+            return self.setTextBaseline(std_baseline);
+        }
+
         /// Paints text with the current fill color.
         /// @param x
         /// @param y
@@ -474,6 +481,14 @@ pub const cs_graphics = struct {
         right,
     };
 
+    pub const TextBaseline = enum {
+        pub const Default = .top;
+        top,
+        middle,
+        alphabetic,
+        bottom,
+    };
+
     pub const Color = struct {
 
         r: u8,
@@ -556,5 +571,14 @@ fn toStdTextAlign(align_: cs_graphics.TextAlign) graphics.TextAlign {
         .left => .Left,
         .center => .Center,
         .right => .Right,
+    };
+}
+
+fn toStdTextBaseline(align_: cs_graphics.TextBaseline) graphics.TextBaseline {
+    return switch (align_) {
+        .top => .Top,
+        .middle => .Middle,
+        .alphabetic => .Alphabetic,
+        .bottom => .Bottom,
     };
 }

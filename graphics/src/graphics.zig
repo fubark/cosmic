@@ -604,6 +604,15 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setTextBaseline(self: *Self, baseline: TextBaseline) void {
+        switch (Backend) {
+            .OpenGL =>  {
+                gl.Graphics.setTextBaseline(&self.g, baseline);
+            },
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn fillText(self: *Self, x: f32, y: f32, text: []const u8) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.fillText(&self.g, x, y, text),
@@ -853,4 +862,11 @@ pub const TextAlign = enum {
     Left,
     Center,
     Right,
+};
+
+pub const TextBaseline = enum {
+    Top,
+    Middle,
+    Alphabetic,
+    Bottom,
 };

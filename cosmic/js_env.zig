@@ -120,6 +120,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "font", Context.font);
         ctx.setConstFuncT(proto, "fontSize", Context.fontSize);
         ctx.setConstFuncT(proto, "textAlign", Context.textAlign);
+        ctx.setConstFuncT(proto, "textBaseline", Context.textBaseline);
         ctx.setConstFuncT(proto, "text", Context.text);
         ctx.setConstFuncT(proto, "circle", Context.circle);
         ctx.setConstFuncT(proto, "circleSector", Context.circleSector);
@@ -336,6 +337,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setProp(text_align, "center", iso.initIntegerU32(@enumToInt(cs_graphics.TextAlign.center)));
         ctx.setProp(text_align, "right", iso.initIntegerU32(@enumToInt(cs_graphics.TextAlign.right)));
         ctx.setConstProp(mod, "TextAlign", text_align);
+
+        // cs.graphics.TextBaseline
+        const text_baseline = iso.initObjectTemplateDefault();
+        ctx.setProp(text_baseline, "top", iso.initIntegerU32(@enumToInt(cs_graphics.TextBaseline.top)));
+        ctx.setProp(text_baseline, "middle", iso.initIntegerU32(@enumToInt(cs_graphics.TextBaseline.middle)));
+        ctx.setProp(text_baseline, "alphabetic", iso.initIntegerU32(@enumToInt(cs_graphics.TextBaseline.alphabetic)));
+        ctx.setProp(text_baseline, "bottom", iso.initIntegerU32(@enumToInt(cs_graphics.TextBaseline.bottom)));
+        ctx.setConstProp(mod, "TextBaseline", text_baseline);
 
         ctx.setConstFuncT(mod, "hsvToRgb", cs_graphics.hsvToRgb);
         ctx.setConstProp(cs, "graphics", mod);
