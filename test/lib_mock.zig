@@ -104,7 +104,13 @@ export fn h2o_get_alpn_protocols() void {}
 export fn h2o_ssl_register_alpn_protocols() void {}
 export fn v8__FunctionTemplate__GetFunction() void {}
 export fn v8__Function__NewInstance() void {}
-export fn uv_timer_start() void {}
+export fn uv_timer_start(handle: *uv.uv_timer_t, cb: uv.uv_timer_cb, timeout: u64, repeat: u64) c_int {
+    _ = handle;
+    _ = cb;
+    _ = timeout;
+    _ = repeat;
+    return 0;
+}
 export fn h2o_strdup() void {}
 export fn h2o_set_header_by_str() void {}
 export fn h2o_start_response() void {}
