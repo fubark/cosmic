@@ -99,9 +99,14 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        const main_test = ctx.createTestStep();
-        step.step.dependOn(&main_test.step);
-        b.step("test", "Run tests").dependOn(&step.step);
+        const test_exe = ctx.createTestExeStep();
+        step.step.dependOn(&test_exe.step);
+        const test_install = ctx.addInstallArtifact(test_exe);
+        step.step.dependOn(&test_install.step);
+        b.step("test-exe", "Creates the test exe.").dependOn(&step.step);
+
+        const run_test = test_exe.run();
+        b.step("test", "Run tests").dependOn(&run_test.step);
     }
 
     const test_file = ctx.createTestFileStep();
@@ -213,9 +218,9 @@ pub fn build(b: *Builder) !void {
     }
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
-    const whitelist_test = ctx.createTestStep();
+    const whitelist_test = ctx.createTestExeStep();
     whitelist_test.setFilter("INCLUDE");
-    b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.step);
+    b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.run().step);
 
     // b.default_step.dependOn(&build_cosmic.step);
 }
@@ -318,7 +323,7 @@ const BuilderContext = struct {
 
     fn addInstallArtifact(self: *Self, artifact: *LibExeObjStep) *std.build.InstallArtifactStep {
         const triple = getSimpleTriple(self.builder, artifact.target);
-        if (artifact.kind == .exe) {
+        if (artifact.kind == .exe or artifact.kind == .test_exe) {
             const basename = std.fs.path.basename(artifact.root_src.?.path);
             const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
             const name = basename[0..i];
@@ -370,8 +375,8 @@ const BuilderContext = struct {
         return step;
     }
 
-    fn createTestStep(self: *Self) *std.build.LibExeObjStep {
-        const step = self.builder.addTest("./test/main_test.zig");
+    fn createTestExeStep(self: *Self) *std.build.LibExeObjStep {
+        const step = self.builder.addTestExe("main_test", "./test/main_test.zig");
         self.setBuildMode(step);
         self.setTarget(step);
         // This fixes test files that import above, eg. @import("../foo")
