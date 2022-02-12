@@ -104,9 +104,18 @@ pub fn build(b: *Builder) !void {
         const test_install = ctx.addInstallArtifact(test_exe);
         step.step.dependOn(&test_install.step);
         b.step("test-exe", "Creates the test exe.").dependOn(&step.step);
+    }
 
+    {
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const test_exe = ctx.createTestExeStep();
         const run_test = test_exe.run();
-        b.step("test", "Run tests").dependOn(&run_test.step);
+        step.step.dependOn(&run_test.step);
+        b.step("test", "Run tests").dependOn(&step.step);
     }
 
     const test_file = ctx.createTestFileStep();
