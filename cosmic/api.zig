@@ -1035,14 +1035,28 @@ pub const cs_core = struct {
     /// Returns the resource usage of the current process.
     pub fn getResourceUsage() ResourceUsage {
         const RUSAGE_SELF: i32 = 0;
-        const rusage = std.os.getrusage(RUSAGE_SELF);
-        return .{
-            .user_time_secs = @intCast(u32, rusage.utime.tv_sec),
-            .user_time_usecs = @intCast(u32, rusage.utime.tv_usec),
-            .sys_time_secs = @intCast(u32, rusage.stime.tv_sec),
-            .sys_time_usecs = @intCast(u32, rusage.stime.tv_usec),
-            .memory = @intCast(F64SafeUint, rusage.maxrss),
-        };
+        if (builtin.os.tag == .linux) {
+            var usage: std.os.linux.rusage = undefined;
+            if (std.os.linux.getrusage(std.os.linux.rusage.SELF, &usage) != 0) {
+                unreachable;
+            }
+            return .{
+                .user_time_secs = @intCast(u32, usage.utime.tv_sec),
+                .user_time_usecs = @intCast(u32, usage.utime.tv_usec),
+                .sys_time_secs = @intCast(u32, usage.stime.tv_sec),
+                .sys_time_usecs = @intCast(u32, usage.stime.tv_usec),
+                .memory = @intCast(F64SafeUint, usage.maxrss),
+            };
+        } else {
+            const usage = std.os.getrusage(RUSAGE_SELF);
+            return .{
+                .user_time_secs = @intCast(u32, usage.utime.tv_sec),
+                .user_time_usecs = @intCast(u32, usage.utime.tv_usec),
+                .sys_time_secs = @intCast(u32, usage.stime.tv_sec),
+                .sys_time_usecs = @intCast(u32, usage.stime.tv_usec),
+                .memory = @intCast(F64SafeUint, usage.maxrss),
+            };
+        }
     }
 
     pub const ResourceUsage = struct {
