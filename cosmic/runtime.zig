@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const t = stdx.testing;
 const Vec2 = stdx.math.Vec2;
 const ds = stdx.ds;
 const graphics = @import("graphics");
@@ -558,6 +559,7 @@ pub const RuntimeContext = struct {
             i16 => return iso.initIntegerI32(native_val).handle,
             u8 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
+            F64SafeUint => return iso.initNumber(@intToFloat(f64, native_val)).handle,
             f32 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
             stdx.http.Response => {
@@ -1901,3 +1903,17 @@ pub const CsError = error {
     FileNotFound,
     IsDir,
 };
+
+/// Double precision can represent a 53 bit significand. 
+pub const F64SafeUint = u53;
+pub const F64SafeInt = i54;
+
+test "F64SafeUint, F64SafeInt" {
+    const uint: F64SafeUint = std.math.maxInt(F64SafeUint);
+    var double = @intToFloat(f64, uint);
+    try t.eq(@floatToInt(F64SafeUint, double), uint);
+
+    const int: F64SafeInt = std.math.maxInt(F64SafeInt);
+    double = @intToFloat(f64, int);
+    try t.eq(@floatToInt(F64SafeInt, double), int);
+}

@@ -18,6 +18,7 @@ const RuntimeContext = runtime.RuntimeContext;
 const RuntimeValue = runtime.RuntimeValue;
 const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
+const F64SafeUint = runtime.F64SafeUint;
 const ThisResource = runtime.ThisResource;
 const Error = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
@@ -915,6 +916,9 @@ pub const cs_core = struct {
     }
 
     /// Invoke a callback after a timeout in milliseconds.
+    /// @param timeout
+    /// @param callback
+    /// @param callbackArg
     pub fn setTimeout(rt: *RuntimeContext, timeout: u32, cb: v8.Function, cb_arg: ?v8.Value) u32 {
         const p_cb = rt.isolate.initPersistent(v8.Function, cb);
         if (cb_arg) |cb_arg_| {
@@ -991,6 +995,7 @@ pub const cs_core = struct {
         rt.last_err = error.NoError;
     }
 
+    /// Returns the host operating system.
     pub fn getOs() Os {
         switch (builtin.os.tag) {
             .linux => return .linux,
@@ -1000,6 +1005,7 @@ pub const cs_core = struct {
         }
     }
 
+    /// Returns the host operating system and version number as a string.
     pub fn getOsVersion(rt: *RuntimeContext) ds.Box([]const u8) {
         const info = std.zig.system.NativeTargetInfo.detect(rt.alloc, std.zig.CrossTarget{}) catch unreachable;
         const range = info.target.os.getVersionRange();
@@ -1019,11 +1025,38 @@ pub const cs_core = struct {
         return ds.Box([]const u8).init(rt.alloc, str);
     }
 
+    /// Returns the host cpu arch and model as a string.
     pub fn getCpu(rt: *RuntimeContext) ds.Box([]const u8) {
         const info = std.zig.system.NativeTargetInfo.detect(rt.alloc, std.zig.CrossTarget{}) catch unreachable;
         const str = std.fmt.allocPrint(rt.alloc, "{} {s}", .{info.target.cpu.arch, info.target.cpu.model.name}) catch unreachable;
         return ds.Box([]const u8).init(rt.alloc, str);
     }
+
+    /// Returns the resource usage of the current process.
+    pub fn getResourceUsage() ResourceUsage {
+        const RUSAGE_SELF: i32 = 0;
+        const rusage = std.os.getrusage(RUSAGE_SELF);
+        return .{
+            .user_time_secs = @intCast(u32, rusage.utime.tv_sec),
+            .user_time_usecs = @intCast(u32, rusage.utime.tv_usec),
+            .sys_time_secs = @intCast(u32, rusage.stime.tv_sec),
+            .sys_time_usecs = @intCast(u32, rusage.stime.tv_usec),
+            .memory = @intCast(F64SafeUint, rusage.maxrss),
+        };
+    }
+
+    pub const ResourceUsage = struct {
+        // User cpu time seconds.
+        user_time_secs: u32,
+        // User cpu time microseconds.
+        user_time_usecs: u32,
+        // System cpu time seconds.
+        sys_time_secs: u32,
+        // System cpu time microseconds.
+        sys_time_usecs: u32,
+        // Total memory allocated.
+        memory: F64SafeUint,
+    };
 
     pub const Os = enum {
         linux,

@@ -1,4 +1,5 @@
 const t = cs.test
+const assert = t.assert
 const eq = t.eq
 const neq = t.neq
 const contains = t.contains
@@ -475,4 +476,32 @@ testIsolated('setTimeout: callback this is global by default', async () => {
     }
     new Foo().start()
     await p
+})
+
+if (getOs() == Os.macos) {
+    test('getOsVersion', () => {
+        assert(getOsVersion().startsWith('macos'), 'Os version prefix')
+    })
+}
+
+if (getOs() == Os.linux) {
+    test('getOsVersion', () => {
+        assert(getOsVersion().startsWith('linux'), 'Os version prefix')
+    })
+}
+
+if (getOs() == Os.windows) {
+    test('getOsVersion', () => {
+        assert(getOsVersion().startsWith('windows'), 'Os version prefix')
+    })
+}
+
+test('getResourceUsage', () => {
+    const usage = getResourceUsage()
+    // Just testing that the call succeeds and returns the correct properties.
+    assert(typeof usage.user_time_secs == 'number' && usage.user_time_secs >= 0)
+    assert(typeof usage.user_time_usecs == 'number' && usage.user_time_usecs >= 0)
+    assert(typeof usage.sys_time_secs == 'number' && usage.sys_time_secs >= 0)
+    assert(typeof usage.sys_time_usecs == 'number' && usage.sys_time_usecs >= 0)
+    assert(typeof usage.memory == 'number' && usage.memory >= 0)
 })
