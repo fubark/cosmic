@@ -42,6 +42,7 @@ pub fn build(b: *Builder) !void {
     const is_official_build = b.option(bool, "is-official-build", "Whether the build should be an official build.") orelse false;
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
+    const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -82,6 +83,7 @@ pub fn build(b: *Builder) !void {
         .mode = mode,
         .target = target,
         .build_options = build_options,
+        .wsl = wsl,
     };
 
     const get_deps = GetDepsStep.create(b, deps_rev);
@@ -162,6 +164,7 @@ pub fn build(b: *Builder) !void {
             .mode = mode,
             .target = target,
             .build_options = _build_options,
+            .wsl = wsl,
         };
 
         const step = _ctx.createBuildExeStep();
@@ -185,6 +188,7 @@ pub fn build(b: *Builder) !void {
             .mode = mode,
             .target = target,
             .build_options = build_options,
+            .wsl = wsl,
         };
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
@@ -214,6 +218,7 @@ pub fn build(b: *Builder) !void {
             .mode = mode,
             .target = target,
             .build_options = build_options,
+            .wsl = wsl,
         };
         const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
@@ -249,6 +254,8 @@ const BuilderContext = struct {
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
     build_options: *std.build.OptionsStep,
+    // This is only used to detect running a linux binary in WSL.
+    wsl: bool = false,
 
     fn fromRoot(self: *Self, path: []const u8) []const u8 {
         return self.builder.pathFromRoot(path);
@@ -797,7 +804,7 @@ const BuilderContext = struct {
         if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
             // Since H2O source relies on posix only, provide an interface to windows API.
             lib.addSystemIncludeDir("./lib/mingw/win_posix/include");
-            if ((builtin.os.tag == .linux and builtin.subsystem != null) or builtin.os.tag == .macos) {
+            if ((builtin.os.tag == .linux and !self.wsl) or builtin.os.tag == .macos) {
                 lib.addSystemIncludeDir("./lib/mingw/win_posix/include-posix");
             }
             lib.addSystemIncludeDir("./lib/mingw/winpthreads/include");
