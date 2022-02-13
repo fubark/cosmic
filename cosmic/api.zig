@@ -1047,6 +1047,31 @@ pub const cs_core = struct {
                 .sys_time_usecs = @intCast(u32, usage.stime.tv_usec),
                 .memory = @intCast(F64SafeUint, usage.maxrss),
             };
+        } else if (builtin.os.tag == .windows) {
+            var creation_time: std.os.windows.FILETIME = undefined;
+            var exit_time: std.os.windows.FILETIME = undefined;
+            var kernel_time: std.os.windows.FILETIME = undefined;
+            var user_time: std.os.windows.FILETIME = undefined;
+            var pmc: std.os.windows.PROCESS_MEMORY_COUNTERS = undefined;
+            const process = std.os.windows.kernel32.GetCurrentProcess();
+            if (!GetProcessTimes(process, &creation_time, &exit_time, &kernel_time, &user_time)) {
+                log.debug("Failed to get process times.", .{});
+                unreachable;
+            }
+            if (std.os.windows.kernel32.K32GetProcessMemoryInfo(process, &pmc, @sizeOf(std.os.windows.PROCESS_MEMORY_COUNTERS)) == 1) {
+                log.debug("Failed to get process memory info.", .{});
+                unreachable;
+            }
+            // In 100ns
+            const user_time_u64 = twoToU64(user_time.dwLowDateTime, user_time.dwHighDateTime);
+            const kernel_time_u64 = twoToU64(kernel_time.dwLowDateTime, kernel_time.dwHighDateTime);
+            return .{
+                .user_time_secs = @intCast(u32, user_time_u64 / 10000000),
+                .user_time_usecs = @intCast(u32, (user_time_u64 % 10000000) / 10),
+                .sys_time_secs = @intCast(u32, kernel_time_u64 / 10000000),
+                .sys_time_usecs = @intCast(u32, (kernel_time_u64 % 10000000) / 10),
+                .memory = @intCast(F64SafeUint, pmc.PeakWorkingSetSize / 1024),
+            };
         } else {
             const usage = std.os.getrusage(RUSAGE_SELF);
             return .{
@@ -1093,6 +1118,41 @@ pub const cs_core = struct {
         }
     }
 };
+
+fn twoToU64(lower: u32, higher: u32) u64 {
+    if (builtin.cpu.arch.endian() == .Little) {
+        var val: [2]u32 = .{lower, higher};
+        return @bitCast(u64, val);
+    } else {
+        var val: [2]u32 = .{higher, lower};
+        return @bitCast(u64, val);
+    }
+}
+
+test "twoToU64" {
+    var num: u64 = std.math.maxInt(u64) - 1;
+    if (builtin.cpu.arch.endian() == .Little) {
+        const lower = @ptrCast([*]u32, &num)[0];
+        try t.eq(lower, std.math.maxInt(u32)-1);
+        const higher = @ptrCast([*]u32, &num)[1];
+        try t.eq(higher, std.math.maxInt(u32));
+        try t.eq(twoToU64(lower, higher), num);
+    } else {
+        const lower = @ptrCast([*]u32, &num)[1];
+        try t.eq(lower, std.math.maxInt(u32));
+        const higher = @ptrCast([*]u32, &num)[0];
+        try t.eq(higher, std.math.maxInt(u32)-1);
+        try t.eq(twoToU64(lower, higher), num);
+    }
+}
+
+pub extern "kernel32" fn GetProcessTimes(
+    process: std.os.windows.HANDLE,
+    creation_time: *std.os.windows.FILETIME,
+    exit_time: *std.os.windows.FILETIME,
+    kernel_time: *std.os.windows.FILETIME,
+    user_time: *std.os.windows.FILETIME,
+) bool;
 
 /// @title User Input
 /// @name input
