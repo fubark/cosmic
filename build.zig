@@ -434,7 +434,7 @@ const BuilderContext = struct {
         addGL(step);
         addLyon(step);
         addStbi(step);
-        if (builtin.os.tag == .macos) {
+        if (self.target.getOsTag() == .macos) {
             self.buildLinkMacSys(step);
         }
         if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
@@ -796,8 +796,11 @@ const BuilderContext = struct {
         lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
         if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
             // Since H2O source relies on posix only, provide an interface to windows API.
-            lib.addIncludeDir("./lib/mingw/win_posix/include");
-            lib.addIncludeDir("./lib/mingw/winpthreads/include");
+            lib.addSystemIncludeDir("./lib/mingw/win_posix/include");
+            if ((builtin.os.tag == .linux and builtin.subsystem != null) or builtin.os.tag == .macos) {
+                lib.addSystemIncludeDir("./lib/mingw/win_posix/include-posix");
+            }
+            lib.addSystemIncludeDir("./lib/mingw/winpthreads/include");
         } 
         step.linkLibrary(lib);
     }
@@ -1713,6 +1716,8 @@ const BuilderContext = struct {
 
     fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
         addGL(lib);
         addUv(lib);
         addZigV8(lib);
