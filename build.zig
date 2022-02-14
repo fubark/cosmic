@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "7559a689756241c7ed6be4a6022138dffb003b1d";
+const DepsRevision = "202a42a39519d7c13f32e9ab0f71cdf96bf31676";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -136,9 +136,9 @@ pub fn build(b: *Builder) !void {
     {
         const step = b.step("openssl", "Build openssl.");
         const crypto = try openssl.buildCrypto(b, target, mode);
-        step.dependOn(&b.addInstallArtifact(crypto).step);
+        step.dependOn(&ctx.addInstallArtifact(crypto).step);
         const ssl = try openssl.buildSsl(b, target, mode);
-        step.dependOn(&b.addInstallArtifact(ssl).step);
+        step.dependOn(&ctx.addInstallArtifact(ssl).step);
     }
 
     const build_wasm = ctx.createBuildWasmBundleStep();
@@ -344,6 +344,9 @@ const BuilderContext = struct {
             const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
             const name = basename[0..i];
             const path = self.builder.fmt("{s}/{s}", .{ triple, name });
+            artifact.override_dest_dir = .{ .custom = path };
+        } else if (artifact.kind == .lib) {
+            const path = self.builder.fmt("{s}/lib", .{ triple });
             artifact.override_dest_dir = .{ .custom = path };
         }
         return self.builder.addInstallArtifact(artifact);
