@@ -45,6 +45,8 @@ pub const Window = struct {
     // If we are doing MSAA, then we'll need to set this to the multisample framebuffer.
     fbo_id: gl.GLuint = 0,
 
+    msaa: ?MsaaFrameBuffer = null,
+
     proj_transform: Transform,
     initial_mvp: Mat4,
 
@@ -67,8 +69,9 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.width, res.height)) |fbo| {
-            res.fbo_id = fbo;
+        if (createMsaaFrameBuffer(res.width, res.height)) |msaa| {
+            res.fbo_id = msaa.fbo;
+            res.msaa = msaa;
         }
 
         return res;
@@ -97,8 +100,9 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.width, res.height)) |fbo| {
-            res.fbo_id = fbo;
+        if (createMsaaFrameBuffer(res.width, res.height)) |msaa| {
+            res.fbo_id = msaa.fbo;
+            res.msaa = msaa;
         }
 
         return res;
@@ -114,6 +118,21 @@ pub const Window = struct {
             self.alloc.destroy(self.gl_ctx_ref_count);
         } else {
             self.gl_ctx_ref_count.* -= 1;
+        }
+    }
+
+    pub fn handleResize(self: *Self, width: u32, height: u32) void {
+        self.width = width;
+        self.height = height;
+
+        // Resize the transforms.
+        self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
+        self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
+
+        // The default frame buffer already resizes to the window.
+        // The msaa texture was created separately, so it needs to update.
+        if (self.msaa) |msaa| {
+            resizeMsaaFrameBuffer(msaa, width, height);
         }
     }
 
@@ -274,8 +293,15 @@ test "initDisplayProjection" {
     try t.eq(transform.transformPoint(.{ 0, 600, 0, 1 }), .{ -1, -1, 0, 1 });
 }
 
-// TODO: Support simpler msaa setup for newer opengl.
-pub fn createMsaaFrameBuffer(width: u32, height: u32) ?gl.GLuint {
+fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
+    gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, msaa.fbo);
+    gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex);
+    gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
+    gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex, 0);
+    gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+}
+
+pub fn createMsaaFrameBuffer(width: u32, height: u32) ?MsaaFrameBuffer {
     // Setup multisampling anti alias.
     // See: https://learnopengl.com/Advanced-OpenGL/Anti-Aliasing
     const max_samples = gl.getMaxSamples();
@@ -298,8 +324,18 @@ pub fn createMsaaFrameBuffer(width: u32, height: u32) ?gl.GLuint {
         gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
 
         log.debug("msaa framebuffer created with {} samples", .{num_samples});
-        return ms_fbo;
+        return MsaaFrameBuffer{
+            .fbo = ms_fbo,
+            .tex = ms_tex,
+            .num_samples = num_samples,
+        };
     } else {
         return null;
     }
 }
+
+const MsaaFrameBuffer = struct {
+    fbo: gl.GLuint,
+    tex: gl.GLuint,
+    num_samples: u32,
+};

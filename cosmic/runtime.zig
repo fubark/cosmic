@@ -857,6 +857,9 @@ pub const RuntimeContext = struct {
 
     fn handleResizeEvent(self: *Self, res_id: ResourceId, e: api.cs_input.ResizeEvent) void {
         if (self.getResourcePtr(.CsWindow, res_id)) |win| {
+            // Update the backend buffer.
+            win.window.handleResize(e.width, e.height);
+
             const ctx = self.context;
             if (win.on_resize_cb) |cb| {
                 const js_event = self.getJsValue(e);
