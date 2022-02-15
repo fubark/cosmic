@@ -62,14 +62,14 @@ pub const UvPoller = struct {
 
             // log.debug("uv poller wait", .{});
             self.inner.poll(self.uv_loop);
-            // log.debug("uv poller wait return {}", .{uv.uv_loop_alive(self.uv_loop)});
-
-            // Notify that there is new uv work to process.
-            self.notify.set();
+            // log.debug("uv poller wait end, alive: {}", .{uv.uv_loop_alive(self.uv_loop) == 1});
 
             if (builtin.os.tag == .windows) {
                 self.poll_ready.store(false, .Release);
             }
+
+            // Notify that there is new uv work to process.
+            self.notify.set();
         }
 
         // Reuse flag to indicate the thread is done.
@@ -136,7 +136,7 @@ const UvPollerMac = struct {
     }
 };
 
-/// Since UvPoller is run on a separate thread,
+/// Since UvPoller runs on a separate thread,
 /// and libuv also uses GetQueuedCompletionStatus(Ex),
 /// the iocp is assumed to allow 2 concurrent threads.
 /// Otherwise, the first thread to call GetQueuedCompletionStatus will bind to iocp
