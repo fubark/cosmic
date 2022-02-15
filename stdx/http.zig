@@ -6,7 +6,8 @@ const uv = @import("uv");
 const Curl = curl.Curl;
 const CurlM = curl.CurlM;
 const CurlSH = curl.CurlSH;
-const log = std.log.scoped(.http);
+const log = stdx.log.scoped(.http);
+const EventDispatcher = @import("events.zig").EventDispatcher;
 
 // NOTES:
 // Debugging tls handshake: "openssl s_client -connect 127.0.0.1:3000" Useful options: -prexit -debug -msg 
@@ -23,8 +24,8 @@ var curl_h: Curl = undefined;
 var share: CurlSH = undefined;
 var curlm: CurlM = undefined;
 pub var curlm_uvloop: *uv.uv_loop_t = undefined; // This is set later when uv loop is available.
-// Creating new timers currently does not wake UvPoller. Need to use the interrupt handle.
-pub var uv_interrupt: *uv.uv_async_t = undefined;
+pub var dispatcher: EventDispatcher = undefined;
+
 // Only one timer is needed for the curlm handle.
 var timer: uv.uv_timer_t = undefined;
 var timer_inited = false;
@@ -239,13 +240,11 @@ fn onCurlSetTimer(cm: *curl.CURLM, timeout_ms: c_long, user_ptr: *anyopaque) cal
         const res = uv.uv_timer_stop(&timer);
         uv.assertNoError(res);
     } else {
-        const res = uv.uv_timer_start(&timer, onUvTimer, @intCast(u64, timeout_ms), 0);
-        uv.assertNoError(res);
+        dispatcher.startTimer(&timer, @intCast(u32, timeout_ms), onUvTimer);
     }
     return 0;
 }
 
-// TODO: deinit handle on error.
 const AsyncRequestHandle = struct {
     const Self = @This();
 
@@ -260,11 +259,13 @@ const AsyncRequestHandle = struct {
     buf: std.ArrayList(u8),
 
     // Closure of callback.
+    // TODO: Don't own the callback context.
     cb_ctx: *anyopaque,
     cb_ctx_size: u32,
     success_cb: fn (ctx: *anyopaque, Response) void,
+    failure_cb: fn (ctx: *anyopaque, err_code: u32) void,
 
-    fn finish(self: *Self) void {
+    fn success(self: *Self) void {
         const resp = Response{
             .status_code = self.status_code,
             .headers = self.header_ctx.headers_buf.toOwnedSlice(),
@@ -272,6 +273,10 @@ const AsyncRequestHandle = struct {
             .body = self.buf.toOwnedSlice(),
         };
         self.success_cb(self.cb_ctx, resp);
+    }
+
+    fn fail(self: *Self, err_code: u32) void {
+        self.failure_cb(self.cb_ctx, err_code);
     }
 
     fn deinit(self: Self) void {
@@ -331,6 +336,7 @@ fn onCurlPush(parent: *curl.CURL, h: *curl.CURL, num_headers: usize, headers: *c
 }
 
 fn handleInternalSocket(sock_h: *SockHandle, action: c_int) void {
+    // log.debug("internal curl socket {} {*}", .{action, sock_h});
     _ = sock_h;
     // Nop for now.
     switch (action) {
@@ -458,8 +464,12 @@ fn checkDone() void {
                     }
 
                     // Once checkDone reports a request is done,
-                    // invoke the success cb and destroy the request.
-                    req.finish();
+                    // invoke the success/failure cb and destroy the request.
+                    if (info.data.result == curl.CURLE_OK) {
+                        req.success();
+                    } else {
+                        req.fail(info.data.result);
+                    }
                     req.destroy();
                 },
                 else => {
@@ -470,7 +480,14 @@ fn checkDone() void {
     }
 }
 
-pub fn requestAsync(alloc: std.mem.Allocator, url: []const u8, opts: RequestOptions, _ctx: anytype, success_cb: fn (ptr: *anyopaque, Response) void) !void {
+pub fn requestAsync(
+    alloc: std.mem.Allocator,
+    url: []const u8,
+    opts: RequestOptions,
+    _ctx: anytype,
+    success_cb: fn (*anyopaque, Response) void,
+    failure_cb: fn (*anyopaque, err_code: u32) void,
+) !void {
     const S = struct {
         fn writeBody(read_buf: [*]u8, item_size: usize, nitems: usize, user_data: *std.ArrayList(u8)) callconv(.C) usize {
             const write_buf = user_data;
@@ -524,6 +541,7 @@ pub fn requestAsync(alloc: std.mem.Allocator, url: []const u8, opts: RequestOpti
         .cb_ctx = ctx,
         .cb_ctx_size = @sizeOf(@TypeOf(_ctx)),
         .success_cb = success_cb,
+        .failure_cb = failure_cb,
 
         .status_code = undefined,
         .header_ctx = .{
@@ -549,8 +567,6 @@ pub fn requestAsync(alloc: std.mem.Allocator, url: []const u8, opts: RequestOpti
     // Only one timer is needed for all requests.
     if (!timer_inited) {
         var res = uv.uv_timer_init(curlm_uvloop, &timer);
-        uv.assertNoError(res);
-        res = uv.uv_async_send(uv_interrupt);
         uv.assertNoError(res);
         timer_inited = true;
     }

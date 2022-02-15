@@ -1,5 +1,12 @@
 (function() {
 
+    cs.test.assert = function(pred, msg) {
+        if (pred) {
+            return
+        }
+        throw new Error(msg || 'Assertion failed.')
+    }
+
     cs.test.eq = function(act, exp) {
         if (equal(act, exp)) {
             return

@@ -335,7 +335,8 @@ pub const HttpServer = struct {
             h2o.h2o_context_request_shutdown(&self.ctx);
 
             // Interrupt uv poller to consider any graceful shutdown timeouts set by h2o. eg. http2 resend GOAWAY
-            _ = uv.uv_async_send(self.rt.uv_dummy_async);
+            const res = uv.uv_async_send(self.rt.uv_dummy_async);
+            uv.assertNoError(res);
         }
 
         if (!self.closed_listen_handle) {

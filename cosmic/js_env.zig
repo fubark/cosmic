@@ -370,6 +370,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_core, "getOs", api.cs_core.getOs);
     ctx.setConstFuncT(cs_core, "getOsVersion", api.cs_core.getOsVersion);
     ctx.setConstFuncT(cs_core, "getCpu", api.cs_core.getCpu);
+    ctx.setConstFuncT(cs_core, "getResourceUsage", api.cs_core.getResourceUsage);
     {
         const cs_os = iso.initObjectTemplateDefault();
         ctx.setProp(cs_os, "linux", iso.initIntegerU32(@enumToInt(api.cs_core.Os.linux)));

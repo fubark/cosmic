@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "7559a689756241c7ed6be4a6022138dffb003b1d";
+const DepsRevision = "202a42a39519d7c13f32e9ab0f71cdf96bf31676";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -42,6 +42,7 @@ pub fn build(b: *Builder) !void {
     const is_official_build = b.option(bool, "is-official-build", "Whether the build should be an official build.") orelse false;
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
+    const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -82,6 +83,7 @@ pub fn build(b: *Builder) !void {
         .mode = mode,
         .target = target,
         .build_options = build_options,
+        .wsl = wsl,
     };
 
     const get_deps = GetDepsStep.create(b, deps_rev);
@@ -99,8 +101,22 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        const main_test = ctx.createTestStep();
-        step.step.dependOn(&main_test.step);
+        const test_exe = ctx.createTestExeStep();
+        step.step.dependOn(&test_exe.step);
+        const test_install = ctx.addInstallArtifact(test_exe);
+        step.step.dependOn(&test_install.step);
+        b.step("test-exe", "Creates the test exe.").dependOn(&step.step);
+    }
+
+    {
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const test_exe = ctx.createTestExeStep();
+        const run_test = test_exe.run();
+        step.step.dependOn(&run_test.step);
         b.step("test", "Run tests").dependOn(&step.step);
     }
 
@@ -120,9 +136,9 @@ pub fn build(b: *Builder) !void {
     {
         const step = b.step("openssl", "Build openssl.");
         const crypto = try openssl.buildCrypto(b, target, mode);
-        step.dependOn(&b.addInstallArtifact(crypto).step);
+        step.dependOn(&ctx.addInstallArtifact(crypto).step);
         const ssl = try openssl.buildSsl(b, target, mode);
-        step.dependOn(&b.addInstallArtifact(ssl).step);
+        step.dependOn(&ctx.addInstallArtifact(ssl).step);
     }
 
     const build_wasm = ctx.createBuildWasmBundleStep();
@@ -148,6 +164,7 @@ pub fn build(b: *Builder) !void {
             .mode = mode,
             .target = target,
             .build_options = _build_options,
+            .wsl = wsl,
         };
 
         const step = _ctx.createBuildExeStep();
@@ -171,6 +188,7 @@ pub fn build(b: *Builder) !void {
             .mode = mode,
             .target = target,
             .build_options = build_options,
+            .wsl = wsl,
         };
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
@@ -200,6 +218,7 @@ pub fn build(b: *Builder) !void {
             .mode = mode,
             .target = target,
             .build_options = build_options,
+            .wsl = wsl,
         };
         const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
@@ -213,9 +232,9 @@ pub fn build(b: *Builder) !void {
     }
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
-    const whitelist_test = ctx.createTestStep();
+    const whitelist_test = ctx.createTestExeStep();
     whitelist_test.setFilter("INCLUDE");
-    b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.step);
+    b.step("whitelist-test", "Tests with INCLUDE in name").dependOn(&whitelist_test.run().step);
 
     // b.default_step.dependOn(&build_cosmic.step);
 }
@@ -235,6 +254,8 @@ const BuilderContext = struct {
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
     build_options: *std.build.OptionsStep,
+    // This is only used to detect running a linux binary in WSL.
+    wsl: bool = false,
 
     fn fromRoot(self: *Self, path: []const u8) []const u8 {
         return self.builder.pathFromRoot(path);
@@ -318,11 +339,14 @@ const BuilderContext = struct {
 
     fn addInstallArtifact(self: *Self, artifact: *LibExeObjStep) *std.build.InstallArtifactStep {
         const triple = getSimpleTriple(self.builder, artifact.target);
-        if (artifact.kind == .exe) {
+        if (artifact.kind == .exe or artifact.kind == .test_exe) {
             const basename = std.fs.path.basename(artifact.root_src.?.path);
             const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
             const name = basename[0..i];
             const path = self.builder.fmt("{s}/{s}", .{ triple, name });
+            artifact.override_dest_dir = .{ .custom = path };
+        } else if (artifact.kind == .lib) {
+            const path = self.builder.fmt("{s}/lib", .{ triple });
             artifact.override_dest_dir = .{ .custom = path };
         }
         return self.builder.addInstallArtifact(artifact);
@@ -370,8 +394,8 @@ const BuilderContext = struct {
         return step;
     }
 
-    fn createTestStep(self: *Self) *std.build.LibExeObjStep {
-        const step = self.builder.addTest("./test/main_test.zig");
+    fn createTestExeStep(self: *Self) *std.build.LibExeObjStep {
+        const step = self.builder.addTestExe("main_test", "./test/main_test.zig");
         self.setBuildMode(step);
         self.setTarget(step);
         // This fixes test files that import above, eg. @import("../foo")
@@ -420,7 +444,7 @@ const BuilderContext = struct {
         addGL(step);
         addLyon(step);
         addStbi(step);
-        if (builtin.os.tag == .macos) {
+        if (self.target.getOsTag() == .macos) {
             self.buildLinkMacSys(step);
         }
         if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
@@ -782,8 +806,11 @@ const BuilderContext = struct {
         lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
         if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
             // Since H2O source relies on posix only, provide an interface to windows API.
-            lib.addIncludeDir("./lib/mingw/win_posix/include");
-            lib.addIncludeDir("./lib/mingw/winpthreads/include");
+            lib.addSystemIncludeDir("./lib/mingw/win_posix/include");
+            if ((builtin.os.tag == .linux and !self.wsl) or builtin.os.tag == .macos) {
+                lib.addSystemIncludeDir("./lib/mingw/win_posix/include-posix");
+            }
+            lib.addSystemIncludeDir("./lib/mingw/winpthreads/include");
         } 
         step.linkLibrary(lib);
     }
@@ -1699,6 +1726,8 @@ const BuilderContext = struct {
 
     fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
         addGL(lib);
         addUv(lib);
         addZigV8(lib);

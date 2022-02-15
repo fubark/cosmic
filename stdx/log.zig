@@ -4,11 +4,29 @@ const builtin = @import("builtin");
 
 const UseStd = builtin.target.cpu.arch != .wasm32;
 
+const UseTimer = builtin.mode == .Debug and true;
+
+var timer: ?std.time.Timer = null;
+
+fn initTimerOnce() void {
+    if (timer == null) {
+        timer = std.time.Timer.start() catch unreachable;
+    }
+}
+
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
         pub fn debug(comptime format: []const u8, args: anytype) void {
             if (UseStd) {
-                std.log.scoped(Scope).debug(format, args);
+                if (UseTimer) {
+                    initTimerOnce();
+                    const elapsed = timer.?.read();
+                    const secs = elapsed / 1000000000;
+                    const msecs = (elapsed % 1000000000)/1000000;
+                    std.log.scoped(Scope).debug("{}.{}: " ++ format, .{secs, msecs} ++ args);
+                } else {
+                    std.log.scoped(Scope).debug(format, args);
+                }
             } else {
                 wasm.scoped(Scope).debug(format, args);
             }

@@ -8,6 +8,7 @@ const v8 = @import("v8");
 const input = @import("input");
 const KeyCode = input.KeyCode;
 const t = stdx.testing;
+const curl = @import("curl");
 
 const v8x = @import("v8x.zig");
 const tasks = @import("tasks.zig");
@@ -18,6 +19,7 @@ const RuntimeContext = runtime.RuntimeContext;
 const RuntimeValue = runtime.RuntimeValue;
 const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
+const F64SafeUint = runtime.F64SafeUint;
 const ThisResource = runtime.ThisResource;
 const Error = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
@@ -572,7 +574,7 @@ pub const cs_http = struct {
             .timeout = 30,
             .keepConnection = false,
         };
-        return simpleRequestAsync(rt, url, opts);
+        return requestAsyncInternal(rt, url, opts, false);
     }
 
     /// Makes a POST request and returns the response body text if successful.
@@ -599,7 +601,7 @@ pub const cs_http = struct {
             .timeout = 30,
             .keepConnection = false,
         };
-        return simpleRequestAsync(rt, url, opts);
+        return requestAsyncInternal(rt, url, opts, false);
     }
 
     fn simpleRequest(rt: *RuntimeContext, url: []const u8, opts: RequestOptions) ?ds.Box([]const u8) {
@@ -613,7 +615,9 @@ pub const cs_http = struct {
         }
     }
 
-    fn simpleRequestAsync(rt: *RuntimeContext, url: []const u8, opts: RequestOptions) v8.Promise {
+    /// detailed=false will just return the body text.
+    /// detailed=true will return the entire response object.
+    fn requestAsyncInternal(rt: *RuntimeContext, url: []const u8, opts: RequestOptions, comptime detailed: bool) v8.Promise {
         const iso = rt.isolate;
 
         const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
@@ -624,10 +628,10 @@ pub const cs_http = struct {
             fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
                 const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
                 const pid = ctx.inner;
-                if (resp.status_code < 500) {
-                    runtime.resolvePromise(ctx.rt, pid, resp.body);
+                if (detailed) {
+                    runtime.resolvePromise(ctx.rt, pid, resp);
                 } else {
-                    runtime.resolvePromise(ctx.rt, pid, ctx.rt.js_false);
+                    runtime.resolvePromise(ctx.rt, pid, resp.body);
                 }
                 resp.deinit(ctx.rt.alloc);
             }
@@ -636,6 +640,17 @@ pub const cs_http = struct {
                 const _promise_id = ctx.inner;
                 runtime.rejectPromise(ctx.rt, _promise_id, err);
             }
+
+            fn onCurlFailure(ptr: *anyopaque, curle_err: u32) void {
+                const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr).*;
+                switch (curle_err) {
+                    curl.CURLE_COULDNT_CONNECT => onFailure(ctx, error.ConnectFailed),
+                    else => {
+                        log.debug("TODO: Handle curl async error: {}", .{curle_err});
+                        onFailure(ctx, error.RequestFailed);
+                    },
+                }
+            }
         };
 
         const ctx = RuntimeValue(PromiseId){
@@ -643,7 +658,10 @@ pub const cs_http = struct {
             .inner = promise_id,
         };
 
-        stdx.http.requestAsync(rt.alloc, url, toStdRequestOptions(opts), ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
+        const std_opts = toStdRequestOptions(opts);
+
+        // Catch any immediate errors as well as async errors.
+        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess, S.onCurlFailure) catch |err| S.onFailure(ctx, err);
 
         return promise;
     }
@@ -681,35 +699,7 @@ pub const cs_http = struct {
     /// @param options
     pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
         const opts = mb_opts orelse RequestOptions{};
-
-        const iso = rt.isolate;
-
-        const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
-        const promise = resolver.inner.getPromise();
-        const promise_id = rt.promises.add(resolver) catch unreachable;
-
-        const S = struct {
-            fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
-                const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
-                const pid = ctx.inner;
-                runtime.resolvePromise(ctx.rt, pid, resp);
-                resp.deinit(ctx.rt.alloc);
-            }
-
-            fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
-                const _promise_id = ctx.inner;
-                runtime.rejectPromise(ctx.rt, _promise_id, err);
-            }
-        };
-
-        const ctx = RuntimeValue(PromiseId){
-            .rt = rt,
-            .inner = promise_id,
-        };
-
-        const std_opts = toStdRequestOptions(opts);
-        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
-        return promise;
+        return requestAsyncInternal(rt, url, opts, true);
     }
 
     pub const RequestMethod = enum {
@@ -915,6 +905,9 @@ pub const cs_core = struct {
     }
 
     /// Invoke a callback after a timeout in milliseconds.
+    /// @param timeout
+    /// @param callback
+    /// @param callbackArg
     pub fn setTimeout(rt: *RuntimeContext, timeout: u32, cb: v8.Function, cb_arg: ?v8.Value) u32 {
         const p_cb = rt.isolate.initPersistent(v8.Function, cb);
         if (cb_arg) |cb_arg_| {
@@ -991,6 +984,7 @@ pub const cs_core = struct {
         rt.last_err = error.NoError;
     }
 
+    /// Returns the host operating system.
     pub fn getOs() Os {
         switch (builtin.os.tag) {
             .linux => return .linux,
@@ -1000,6 +994,7 @@ pub const cs_core = struct {
         }
     }
 
+    /// Returns the host operating system and version number as a string.
     pub fn getOsVersion(rt: *RuntimeContext) ds.Box([]const u8) {
         const info = std.zig.system.NativeTargetInfo.detect(rt.alloc, std.zig.CrossTarget{}) catch unreachable;
         const range = info.target.os.getVersionRange();
@@ -1019,11 +1014,77 @@ pub const cs_core = struct {
         return ds.Box([]const u8).init(rt.alloc, str);
     }
 
+    /// Returns the host cpu arch and model as a string.
     pub fn getCpu(rt: *RuntimeContext) ds.Box([]const u8) {
         const info = std.zig.system.NativeTargetInfo.detect(rt.alloc, std.zig.CrossTarget{}) catch unreachable;
         const str = std.fmt.allocPrint(rt.alloc, "{} {s}", .{info.target.cpu.arch, info.target.cpu.model.name}) catch unreachable;
         return ds.Box([]const u8).init(rt.alloc, str);
     }
+
+    /// Returns the resource usage of the current process.
+    pub fn getResourceUsage() ResourceUsage {
+        const RUSAGE_SELF: i32 = 0;
+        if (builtin.os.tag == .linux) {
+            var usage: std.os.linux.rusage = undefined;
+            if (std.os.linux.getrusage(std.os.linux.rusage.SELF, &usage) != 0) {
+                unreachable;
+            }
+            return .{
+                .user_time_secs = @intCast(u32, usage.utime.tv_sec),
+                .user_time_usecs = @intCast(u32, usage.utime.tv_usec),
+                .sys_time_secs = @intCast(u32, usage.stime.tv_sec),
+                .sys_time_usecs = @intCast(u32, usage.stime.tv_usec),
+                .memory = @intCast(F64SafeUint, usage.maxrss),
+            };
+        } else if (builtin.os.tag == .windows) {
+            var creation_time: std.os.windows.FILETIME = undefined;
+            var exit_time: std.os.windows.FILETIME = undefined;
+            var kernel_time: std.os.windows.FILETIME = undefined;
+            var user_time: std.os.windows.FILETIME = undefined;
+            var pmc: std.os.windows.PROCESS_MEMORY_COUNTERS = undefined;
+            const process = std.os.windows.kernel32.GetCurrentProcess();
+            if (!GetProcessTimes(process, &creation_time, &exit_time, &kernel_time, &user_time)) {
+                log.debug("Failed to get process times.", .{});
+                unreachable;
+            }
+            if (std.os.windows.kernel32.K32GetProcessMemoryInfo(process, &pmc, @sizeOf(std.os.windows.PROCESS_MEMORY_COUNTERS)) == 0) {
+                log.debug("Failed to get process memory info: {}", .{ std.os.windows.kernel32.GetLastError() });
+                unreachable;
+            }
+            // In 100ns
+            const user_time_u64 = twoToU64(user_time.dwLowDateTime, user_time.dwHighDateTime);
+            const kernel_time_u64 = twoToU64(kernel_time.dwLowDateTime, kernel_time.dwHighDateTime);
+            return .{
+                .user_time_secs = @intCast(u32, user_time_u64 / 10000000),
+                .user_time_usecs = @intCast(u32, (user_time_u64 % 10000000) / 10),
+                .sys_time_secs = @intCast(u32, kernel_time_u64 / 10000000),
+                .sys_time_usecs = @intCast(u32, (kernel_time_u64 % 10000000) / 10),
+                .memory = @intCast(F64SafeUint, pmc.PeakWorkingSetSize / 1024),
+            };
+        } else {
+            const usage = std.os.getrusage(RUSAGE_SELF);
+            return .{
+                .user_time_secs = @intCast(u32, usage.utime.tv_sec),
+                .user_time_usecs = @intCast(u32, usage.utime.tv_usec),
+                .sys_time_secs = @intCast(u32, usage.stime.tv_sec),
+                .sys_time_usecs = @intCast(u32, usage.stime.tv_usec),
+                .memory = @intCast(F64SafeUint, usage.maxrss),
+            };
+        }
+    }
+
+    pub const ResourceUsage = struct {
+        // User cpu time seconds.
+        user_time_secs: u32,
+        // User cpu time microseconds.
+        user_time_usecs: u32,
+        // System cpu time seconds.
+        sys_time_secs: u32,
+        // System cpu time microseconds.
+        sys_time_usecs: u32,
+        // Total memory allocated.
+        memory: F64SafeUint,
+    };
 
     pub const Os = enum {
         linux,
@@ -1046,6 +1107,41 @@ pub const cs_core = struct {
         }
     }
 };
+
+fn twoToU64(lower: u32, higher: u32) u64 {
+    if (builtin.cpu.arch.endian() == .Little) {
+        var val: [2]u32 = .{lower, higher};
+        return @bitCast(u64, val);
+    } else {
+        var val: [2]u32 = .{higher, lower};
+        return @bitCast(u64, val);
+    }
+}
+
+test "twoToU64" {
+    var num: u64 = std.math.maxInt(u64) - 1;
+    if (builtin.cpu.arch.endian() == .Little) {
+        const lower = @ptrCast([*]u32, &num)[0];
+        try t.eq(lower, std.math.maxInt(u32)-1);
+        const higher = @ptrCast([*]u32, &num)[1];
+        try t.eq(higher, std.math.maxInt(u32));
+        try t.eq(twoToU64(lower, higher), num);
+    } else {
+        const lower = @ptrCast([*]u32, &num)[1];
+        try t.eq(lower, std.math.maxInt(u32));
+        const higher = @ptrCast([*]u32, &num)[0];
+        try t.eq(higher, std.math.maxInt(u32)-1);
+        try t.eq(twoToU64(lower, higher), num);
+    }
+}
+
+pub extern "kernel32" fn GetProcessTimes(
+    process: std.os.windows.HANDLE,
+    creation_time: *std.os.windows.FILETIME,
+    exit_time: *std.os.windows.FILETIME,
+    kernel_time: *std.os.windows.FILETIME,
+    user_time: *std.os.windows.FILETIME,
+) bool;
 
 /// @title User Input
 /// @name input

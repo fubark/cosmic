@@ -1,4 +1,5 @@
 const t = cs.test
+const assert = t.assert
 const eq = t.eq
 const neq = t.neq
 const contains = t.contains
@@ -350,6 +351,21 @@ test('cs.http.request', () => {
     contains(resp.text(), 'Zig is a general-purpose programming language')
 });
 
+// TODO: Revisit, works but has memory leak.
+// testIsolated('cs.http.requestAsync', async () => {
+//     try {
+//         const resp = await cs.http.requestAsync('https://127.0.0.1')
+//         t.fail('expected exception')
+//     } catch (err) {
+//         contains(err.message, 'ConnectFailed')
+//     }
+// 
+//     const resp = await cs.http.requestAsync('https://ziglang.org')
+//     eq(resp.status, 200)
+//     eq(resp.getHeader('content-type'), 'text/html')
+//     contains(resp.text(), 'Zig is a general-purpose programming language')
+// });
+
 testIsolated('cs.http.serveHttp', async () => {
     const s = cs.http.serveHttp('127.0.0.1', 3000)
     s.setHandler((req, resp) => {
@@ -475,4 +491,32 @@ testIsolated('setTimeout: callback this is global by default', async () => {
     }
     new Foo().start()
     await p
+})
+
+if (getOs() == Os.macos) {
+    test('getOsVersion', () => {
+        assert(getOsVersion().startsWith('macos'), 'Os version prefix')
+    })
+}
+
+if (getOs() == Os.linux) {
+    test('getOsVersion', () => {
+        assert(getOsVersion().startsWith('linux'), 'Os version prefix')
+    })
+}
+
+if (getOs() == Os.windows) {
+    test('getOsVersion', () => {
+        assert(getOsVersion().startsWith('windows'), 'Os version prefix')
+    })
+}
+
+test('getResourceUsage', () => {
+    const usage = getResourceUsage()
+    // Just testing that the call succeeds and returns the correct properties.
+    assert(typeof usage.user_time_secs == 'number' && usage.user_time_secs >= 0)
+    assert(typeof usage.user_time_usecs == 'number' && usage.user_time_usecs >= 0)
+    assert(typeof usage.sys_time_secs == 'number' && usage.sys_time_secs >= 0)
+    assert(typeof usage.sys_time_usecs == 'number' && usage.sys_time_usecs >= 0)
+    assert(typeof usage.memory == 'number' && usage.memory >= 0)
 })
