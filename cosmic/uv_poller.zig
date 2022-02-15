@@ -176,7 +176,10 @@ const UvPollerWindows = struct {
 
 /// For debugging. Poll immediately to see if there are problems with the windows queue. 
 pub export fn cosmic_check_win_queue() void {
-    log.debug("check win queue", .{});
+    if (builtin.os.tag != .windows) {
+        return;
+    }
+    // log.debug("check win queue", .{});
     var bytes: u32 = undefined;
     var key: usize = undefined;
     var overlapped: ?*std.os.windows.OVERLAPPED = null;
