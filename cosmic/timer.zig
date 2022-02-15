@@ -5,7 +5,7 @@ const v8 = @import("v8");
 const t = stdx.testing;
 const Null = stdx.ds.CompactNull(u32);
 const RuntimeContext = @import("runtime.zig").RuntimeContext;
-const EventDispatcher = @import("events.zig").EventDispatcher;
+const EventDispatcher = stdx.events.EventDispatcher;
 
 const log = stdx.log.scoped(.timer);
 

@@ -1,9 +1,11 @@
 const std = @import("std");
+const stdx = @import("stdx");
 const uv = @import("uv");
 const builtin = @import("builtin");
 
-const log = std.log.scoped(.uv_poller);
+const log = stdx.log.scoped(.uv_poller);
 const mac_sys = @import("mac_sys.zig");
+const runtime = @import("runtime.zig");
 
 /// A dedicated thread is used to poll libuv's backend fd.
 pub const UvPoller = struct {
@@ -22,15 +24,30 @@ pub const UvPoller = struct {
 
     close_flag: std.atomic.Atomic(bool),
 
+    // Currently only used for GetQueuedCompletionStatus (pre windows 10) to make sure there is only one thread polling at any time.
+    poll_ready: std.atomic.Atomic(bool),
+
     pub fn init(uv_loop: *uv.uv_loop_t, notify: *std.Thread.ResetEvent) Self {
         var new = Self{
             .uv_loop = uv_loop,
             .inner = undefined,
             .notify = notify,
             .close_flag = std.atomic.Atomic(bool).init(false),
+            .poll_ready = std.atomic.Atomic(bool).init(true),
         };
         new.inner.init(uv_loop);
         return new;
+    }
+
+    pub fn setPollReady(self: *Self) void {
+        if (builtin.os.tag == .windows) {
+            self.poll_ready.store(true, .Release);
+        }
+    }
+
+    /// Only exposed for testing purposes.
+    pub fn poll(self: *Self) void {
+        self.inner.poll(self.uv_loop);
     }
 
     pub fn run(self: *Self) void {
@@ -39,12 +56,20 @@ pub const UvPoller = struct {
                 break;
             }
 
+            if (builtin.os.tag == .windows) {
+                while (!self.poll_ready.load(.Acquire)) {}
+            }
+
             // log.debug("uv poller wait", .{});
             self.inner.poll(self.uv_loop);
             // log.debug("uv poller wait return {}", .{uv.uv_loop_alive(self.uv_loop)});
 
             // Notify that there is new uv work to process.
             self.notify.set();
+
+            if (builtin.os.tag == .windows) {
+                self.poll_ready.store(false, .Release);
+            }
         }
 
         // Reuse flag to indicate the thread is done.
@@ -111,6 +136,11 @@ const UvPollerMac = struct {
     }
 };
 
+/// Since UvPoller is run on a separate thread,
+/// and libuv also uses GetQueuedCompletionStatus(Ex),
+/// the iocp is assumed to allow 2 concurrent threads.
+/// Otherwise, the first thread to call GetQueuedCompletionStatus will bind to iocp
+/// preventing the other thread from receiving anything.
 const UvPollerWindows = struct {
     const Self = @This();
 
@@ -128,14 +158,14 @@ const UvPollerWindows = struct {
 
         // Wait forever if -1 is returned.
         const timeout = uv.uv_backend_timeout(uv_loop);
+        // log.debug("windows poll wait {} {}", .{timeout, uv_loop.iocp.?});
         if (timeout == -1) {
-            // Call directly since zig's abstraction will panic on expected errors.
-            _ = std.os.windows.kernel32.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, std.os.windows.INFINITE);
+            GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, std.os.windows.INFINITE);
         } else {
-            _ = std.os.windows.kernel32.GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, @intCast(u32, timeout));
+            GetQueuedCompletionStatus(uv_loop.iocp.?, &bytes, &key, &overlapped, @intCast(u32, timeout));
         }
 
-        // Give the event back so libuv can deal with it.
+        // Repost so libuv can pick it up during uv_run.
         if (overlapped != null) {
             std.os.windows.PostQueuedCompletionStatus(uv_loop.iocp.?, bytes, key, overlapped) catch |err| {
                 log.debug("PostQueuedCompletionStatus error: {}", .{err});
@@ -143,4 +173,55 @@ const UvPollerWindows = struct {
         }
     }
 };
+
+/// For debugging. Poll immediately to see if there are problems with the windows queue. 
+pub export fn cosmic_check_win_queue() void {
+    log.debug("check win queue", .{});
+    var bytes: u32 = undefined;
+    var key: usize = undefined;
+    var overlapped: ?*std.os.windows.OVERLAPPED = null;
+    GetQueuedCompletionStatus(runtime.global.uv_loop.iocp.?, &bytes, &key, &overlapped, 0);
+    if (overlapped != null) {
+        // Repost so we don't lose any queue items.
+        std.os.windows.PostQueuedCompletionStatus(runtime.global.uv_loop.iocp.?, bytes, key, overlapped) catch |err| {
+            log.debug("PostQueuedCompletionStatus error: {}", .{err});
+        }; 
+    }
+}
+
+/// Duped from std.os.windows.GetQueuedCompletionStatus in case we need to make changes.
+fn GetQueuedCompletionStatus(
+    completion_port: std.os.windows.HANDLE,
+    bytes_transferred_count: *std.os.windows.DWORD,
+    lpCompletionKey: *usize,
+    lpOverlapped: *?*std.os.windows.OVERLAPPED,
+    dwMilliseconds: std.os.windows.DWORD,
+) void {
+    if (std.os.windows.kernel32.GetQueuedCompletionStatus(
+        completion_port,
+        bytes_transferred_count,
+        lpCompletionKey,
+        lpOverlapped,
+        dwMilliseconds,
+    ) == std.os.windows.FALSE) {
+        switch (std.os.windows.kernel32.GetLastError()) {
+            .ABANDONED_WAIT_0 => {
+                // Nop, iocp handle was closed.
+            },
+            .OPERATION_ABORTED => {
+                // Nop, event was cancelled.
+                log.debug("OPERATION ABORTED", .{});
+                unreachable;
+            },
+            .IMEOUT => {
+                // Nop, timeout reached.
+            },
+            //.HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
+            else => |err| {
+                log.debug("GetQueuedCompletionStatus error: {}", .{err});
+                unreachable;
+            },
+        }
+    }
+}
 

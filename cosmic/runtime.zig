@@ -27,9 +27,12 @@ const WorkQueue = work_queue.WorkQueue;
 const UvPoller = @import("uv_poller.zig").UvPoller;
 const HttpServer = @import("server.zig").HttpServer;
 const Timer = @import("timer.zig").Timer;
-const EventDispatcher = @import("events.zig").EventDispatcher;
+const EventDispatcher = stdx.events.EventDispatcher;
 
 pub const PromiseId = u32;
+
+// Keep a global rt for debugging and prototyping.
+pub var global: *RuntimeContext = undefined;
 
 // Manages runtime resources.
 // Used by V8 callback functions.
@@ -188,6 +191,12 @@ pub const RuntimeContext = struct {
         self.uv_loop = alloc.create(uv.uv_loop_t) catch unreachable;
         var res = uv.uv_loop_init(self.uv_loop);
         uv.assertNoError(res);
+        // Make sure iocp allows 2 concurrent threads on windows (Main thread and uv poller thread).
+        // If set to 1 (libuv default), the first thread that calls GetQueuedCompletionStatus will attach to the iocp and other threads won't be able to receive events.
+        if (builtin.os.tag == .windows) {
+            std.os.windows.CloseHandle(self.uv_loop.iocp.?);
+            self.uv_loop.iocp = std.os.windows.CreateIoCompletionPort(std.os.windows.INVALID_HANDLE_VALUE, null, 0, 2) catch unreachable;
+        }
 
         const S = struct {
             fn onWatcherQueueChanged(_loop: [*c]uv.uv_loop_t) callconv(.C) void {
@@ -212,9 +221,10 @@ pub const RuntimeContext = struct {
         self.event_dispatcher = EventDispatcher.init(self.uv_dummy_async);
 
         stdx.http.curlm_uvloop = self.uv_loop;
-        stdx.http.uv_interrupt = self.uv_dummy_async;
+        stdx.http.dispatcher = self.event_dispatcher;
 
-        // Uv needs to run once to initialize or UvPoller will never get the first event.
+        // uv needs to run once to initialize or UvPoller will never get the first event.
+        // TODO: Revisit this again.
         _ = uv.uv_run(self.uv_loop, uv.UV_RUN_NOWAIT);
 
         // Start uv poller thread.
@@ -262,6 +272,8 @@ pub const RuntimeContext = struct {
         self.timer.init(self) catch unreachable;
 
         self.context.enter();
+
+        global = self;
     }
 
     // uv related handles like timer are deinited in shutdownRuntime.
@@ -1403,6 +1415,9 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     // Make uv poller wake up with dummy update.
     _ = uv.uv_async_send(rt.uv_dummy_async);
 
+    // uv poller might be waiting for wakeup.
+    rt.uv_poller.setPollReady();
+
     // Busy wait.
     while (rt.uv_poller.close_flag.load(.Acquire)) {}
 
@@ -1511,6 +1526,8 @@ fn processMainEventLoop(rt: *RuntimeContext) void {
 
     // After callbacks and js executions are done, process V8 event loop.
     processV8EventLoop(rt);
+
+    rt.uv_poller.setPollReady();
 }
 
 /// If there are too many promises to execute for a js execution, v8 will defer the rest into it's event loop.
