@@ -8,6 +8,7 @@ const v8 = @import("v8");
 const input = @import("input");
 const KeyCode = input.KeyCode;
 const t = stdx.testing;
+const curl = @import("curl");
 
 const v8x = @import("v8x.zig");
 const tasks = @import("tasks.zig");
@@ -573,7 +574,7 @@ pub const cs_http = struct {
             .timeout = 30,
             .keepConnection = false,
         };
-        return simpleRequestAsync(rt, url, opts);
+        return requestAsyncInternal(rt, url, opts, false);
     }
 
     /// Makes a POST request and returns the response body text if successful.
@@ -600,7 +601,7 @@ pub const cs_http = struct {
             .timeout = 30,
             .keepConnection = false,
         };
-        return simpleRequestAsync(rt, url, opts);
+        return requestAsyncInternal(rt, url, opts, false);
     }
 
     fn simpleRequest(rt: *RuntimeContext, url: []const u8, opts: RequestOptions) ?ds.Box([]const u8) {
@@ -614,7 +615,9 @@ pub const cs_http = struct {
         }
     }
 
-    fn simpleRequestAsync(rt: *RuntimeContext, url: []const u8, opts: RequestOptions) v8.Promise {
+    /// detailed=false will just return the body text.
+    /// detailed=true will return the entire response object.
+    fn requestAsyncInternal(rt: *RuntimeContext, url: []const u8, opts: RequestOptions, comptime detailed: bool) v8.Promise {
         const iso = rt.isolate;
 
         const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
@@ -625,10 +628,10 @@ pub const cs_http = struct {
             fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
                 const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
                 const pid = ctx.inner;
-                if (resp.status_code < 500) {
-                    runtime.resolvePromise(ctx.rt, pid, resp.body);
+                if (detailed) {
+                    runtime.resolvePromise(ctx.rt, pid, resp);
                 } else {
-                    runtime.resolvePromise(ctx.rt, pid, ctx.rt.js_false);
+                    runtime.resolvePromise(ctx.rt, pid, resp.body);
                 }
                 resp.deinit(ctx.rt.alloc);
             }
@@ -637,6 +640,17 @@ pub const cs_http = struct {
                 const _promise_id = ctx.inner;
                 runtime.rejectPromise(ctx.rt, _promise_id, err);
             }
+
+            fn onCurlFailure(ptr: *anyopaque, curle_err: u32) void {
+                const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr).*;
+                switch (curle_err) {
+                    curl.CURLE_COULDNT_CONNECT => onFailure(ctx, error.ConnectFailed),
+                    else => {
+                        log.debug("TODO: Handle curl async error: {}", .{curle_err});
+                        onFailure(ctx, error.RequestFailed);
+                    },
+                }
+            }
         };
 
         const ctx = RuntimeValue(PromiseId){
@@ -644,7 +658,10 @@ pub const cs_http = struct {
             .inner = promise_id,
         };
 
-        stdx.http.requestAsync(rt.alloc, url, toStdRequestOptions(opts), ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
+        const std_opts = toStdRequestOptions(opts);
+
+        // Catch any immediate errors as well as async errors.
+        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess, S.onCurlFailure) catch |err| S.onFailure(ctx, err);
 
         return promise;
     }
@@ -682,35 +699,7 @@ pub const cs_http = struct {
     /// @param options
     pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
         const opts = mb_opts orelse RequestOptions{};
-
-        const iso = rt.isolate;
-
-        const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
-        const promise = resolver.inner.getPromise();
-        const promise_id = rt.promises.add(resolver) catch unreachable;
-
-        const S = struct {
-            fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
-                const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
-                const pid = ctx.inner;
-                runtime.resolvePromise(ctx.rt, pid, resp);
-                resp.deinit(ctx.rt.alloc);
-            }
-
-            fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
-                const _promise_id = ctx.inner;
-                runtime.rejectPromise(ctx.rt, _promise_id, err);
-            }
-        };
-
-        const ctx = RuntimeValue(PromiseId){
-            .rt = rt,
-            .inner = promise_id,
-        };
-
-        const std_opts = toStdRequestOptions(opts);
-        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess) catch |err| S.onFailure(ctx, err);
-        return promise;
+        return requestAsyncInternal(rt, url, opts, true);
     }
 
     pub const RequestMethod = enum {
