@@ -1047,8 +1047,8 @@ pub const cs_core = struct {
                 log.debug("Failed to get process times.", .{});
                 unreachable;
             }
-            if (std.os.windows.kernel32.K32GetProcessMemoryInfo(process, &pmc, @sizeOf(std.os.windows.PROCESS_MEMORY_COUNTERS)) == 1) {
-                log.debug("Failed to get process memory info.", .{});
+            if (std.os.windows.kernel32.K32GetProcessMemoryInfo(process, &pmc, @sizeOf(std.os.windows.PROCESS_MEMORY_COUNTERS)) == 0) {
+                log.debug("Failed to get process memory info: {}", .{ std.os.windows.kernel32.GetLastError() });
                 unreachable;
             }
             // In 100ns
