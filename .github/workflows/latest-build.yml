@@ -12,8 +12,6 @@ on:
     branches:
       - master
 # Cancel previous job if it's running.
-# Normally softprops/turnstyle would be enough but waiting for the job to finish somehow acquires a lock preventing the original
-# job from recreating the "latest" tag which we need to do to refresh the release created date. See below.
 concurrency:
   group: latest
   cancel-in-progress: true
@@ -34,7 +32,7 @@ jobs:
           - host: macos-11
             target: aarch64-macos-gnu
             mode: release
-          - host: ubuntu-20.04
+          - host: windows-2019
             target: x86_64-windows-gnu
             mode: release
           # - host: windows-2019
@@ -63,11 +61,17 @@ jobs:
       ZIG_MODE_FLAG: ${{ (matrix.config.mode == 'release' && '-Drelease-safe') || '' }}
     steps:
       - name: Install Linux deps.
-        if: matrix.config.host == 'ubuntu-20.04' && env.BUILD_TARGET == 'x86_64-linux-gnu'
+        if: env.BUILD_HOST == 'ubuntu-20.04' && env.BUILD_TARGET == 'x86_64-linux-gnu'
         run: |
           sudo add-apt-repository -y "deb http://archive.ubuntu.com/ubuntu `lsb_release -sc` main universe restricted multiverse"
           sudo apt-get update -y -qq
           sudo apt-get install libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libxxf86vm-dev libxss-dev libgl1-mesa-dev
+
+      - name: Setup WSL (windows)
+        if: env.BUILD_TARGET == 'x86_64-windows-gnu'
+        uses: Vampire/setup-wsl@v1
+        with:
+          additional-packages: wget tar xz-utils zip
 
       - name: Clone repo.
         uses: actions/checkout@v2
@@ -81,21 +85,29 @@ jobs:
           version: 0.9.0
 
       - name: Get version.
-        id: version
+        if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
         run: |
           zig build version > version 2>&1
-          echo ::set-output name=version::`cat version`
+          echo "BUILD_VERSION=$(cat version)" >> $GITHUB_ENV
 
+      - name: Get version. (windows)
+        if: env.BUILD_HOST == 'windows-2019'
+        run: |
+          zig build version > version 2>&1
+          echo "BUILD_VERSION=$(cat version)" >> $env:GITHUB_ENV
+
+      # Override zig global cache dir has problems on windows so just save default windows dir. (windows build needs the same global cache for subsequent builds)
       - name: Cache.
         uses: actions/cache@v2
         with:
           path: |-
             ~/.cache/zig
             zig-cache
+            ~/AppData/Local/zig
           key:
-            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}
+            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-2
           restore-keys:
-            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}
+            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-2
 
       - name: Get deps.
         run: zig build get-deps ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
@@ -105,14 +117,14 @@ jobs:
 
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
-        if: (env.BUILD_TARGET != 'aarch64-macos-gnu' && env.BUILD_TARGET != 'x86_64-windows-gnu')
+        if: env.BUILD_TARGET != 'aarch64-macos-gnu'
         run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Build.
         run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Test js.
-        if: (env.BUILD_TARGET != 'aarch64-macos-gnu' && env.BUILD_TARGET != 'x86_64-windows-gnu')
+        if: env.BUILD_TARGET != 'aarch64-macos-gnu'
         run: zig build test-cosmic-js ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       # Remove when zig strip is fixed.
@@ -142,6 +154,12 @@ jobs:
 
       - name: Zip. (linux/macos)
         if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
+        run: |
+          (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
+
+      - name: Zip. (windows)
+        if: env.BUILD_HOST == 'windows-2019'
+        shell: wsl-bash {0}
         run: |
           (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
 
@@ -194,7 +212,7 @@ jobs:
             Certified, latest development build.
 
             Last updated: ${{ steps.time.outputs.readableTime }}
-          name: ${{ steps.version.outputs.version }}
+          name: ${{ env.BUILD_VERSION }}
           tag_name: latest
           prerelease: false
           draft: false
