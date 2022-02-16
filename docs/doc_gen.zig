@@ -425,6 +425,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
         u32,
         i16,
         i32,
+        u53,
         u16 => "number",
 
         v8.Value,
