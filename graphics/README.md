@@ -45,7 +45,7 @@
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
 
 ### Dependencies
-Get the Zig compiler (0.9.0) [here](https://ziglang.org/download/). On Linux you'll need SDL2 installed. You need to pull the deps repo which has header files, prebuilt libs, and assets for the demo:
+Get the Zig compiler (0.9.0) [here](https://ziglang.org/download/). You need to pull the deps repo which has header files and prebuilt libs:
 ```sh
 git clone https://github.com/fubark/cosmic.git
 zig build get-deps

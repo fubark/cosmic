@@ -43,7 +43,7 @@ const svg = graphics.svg;
 const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
 const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
 
-const vera_ttf = @embedFile("../../../../deps/assets/vera.ttf");
+const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
 /// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {

@@ -4,15 +4,19 @@ const w = cs.window.create('Demo', 1200, 720)
 
 const Color = cs.graphics.Color
 
+const root = getMainScriptDir()
+
 const g = w.getGraphics()
-const my_font = g.addTtfFont('./deps/fonts/NunitoSans-Regular.ttf')
-const emoji_font = g.addTtfFont('./deps/fonts/NotoColorEmoji.ttf')
+const my_font = g.addTtfFont(`${root}/assets/NunitoSans-Regular.ttf`)
+// Note: The bundled NotoColorEmoji only has 2 glyphs for the purpose of the demo.
+// If you want the full emoji set download it at: https://github.com/googlefonts/noto-emoji/releases
+const emoji_font = g.addTtfFont(`${root}/assets/NotoColorEmoji.ttf`)
 g.addFallbackFont(emoji_font)
 
-const zig_logo_svg = cs.files.readText('./deps/assets/zig-logo-dark.svg')
-const tiger_head_svg = cs.files.readText('./deps/assets/tiger-head.svg')
+const zig_logo_svg = cs.files.readText(`${root}/assets/zig-logo-dark.svg`)
+const tiger_head_svg = cs.files.readText(`${root}/assets/tiger-head.svg`)
 const tiger_head_draw_list = g.compileSvgContent(tiger_head_svg)
-const game_char_image = g.newImage('./deps/assets/game-char.png')
+const game_char_image = g.newImage(`${root}/assets/game-char.png`)
 
 w.onUpdate(g => {
     g.fillColor(Color.black)

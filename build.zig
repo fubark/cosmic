@@ -9,7 +9,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 
 const VersionName = "v0.1";
-const DepsRevision = "202a42a39519d7c13f32e9ab0f71cdf96bf31676";
+const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
 const V8_Revision = "9.9.115";
 
 // Debugging:
@@ -123,12 +123,24 @@ pub fn build(b: *Builder) !void {
     const test_file = ctx.createTestFileStep();
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
-    const build_exe = ctx.createBuildExeStep();
-    b.step("exe", "Build exe with main file at -Dpath").dependOn(&build_exe.step);
+    {
+        const step = b.addLog("", .{});
+        const build_exe = ctx.createBuildExeStep();
+        step.step.dependOn(&build_exe.step);
+        step.step.dependOn(&ctx.addInstallArtifact(build_exe).step);
+        b.step("exe", "Build exe with main file at -Dpath").dependOn(&step.step);
+    }
 
-    const run_exe = build_exe.run();
-    run_exe.addArgs(args);
-    b.step("run", "Run with main file at -Dpath").dependOn(&run_exe.step);
+    {
+        const step = b.addLog("", .{});
+        const build_exe = ctx.createBuildExeStep();
+        step.step.dependOn(&build_exe.step);
+        step.step.dependOn(&ctx.addInstallArtifact(build_exe).step);
+        const run_exe = build_exe.run();
+        run_exe.addArgs(args);
+        step.step.dependOn(&run_exe.step);
+        b.step("run", "Run with main file at -Dpath").dependOn(&step.step);
+    }
 
     const build_lib = ctx.createBuildLibStep();
     b.step("lib", "Build lib with main file at -Dpath").dependOn(&build_lib.step);
