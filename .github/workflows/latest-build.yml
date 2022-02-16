@@ -163,85 +163,40 @@ jobs:
         run: |
           (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
 
-      # To update the release create date, we need to recreate the latest tag.
-      - name: Update latest tag.
-        uses: actions/github-script@v5
+      - name: Save artifact.
+        uses: actions/upload-artifact@v2
         with:
-          script: |
-            const ref = 'tags/latest';
-            const res = await github.rest.git.listMatchingRefs({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'tags/latest',
-            });
-            if (res.data.length > 0) {
-              await github.rest.git.updateRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'tags/latest',
-                sha: context.sha,
-              });
-              /*await github.rest.git.deleteRef({
-                 owner: context.repo.owner,
-                 repo: context.repo.repo,
-                 ref: 'tags/latest',
-                 sha: context.sha,
-              });*/
-            } else {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                // Only create needs full path
-                ref: 'refs/tags/latest',
-                sha: context.sha,
-              });
-            }
+          name: bin
+          path: |
+            ${{ env.BIN_ZIP }}
 
-      - name: Get current time.
-        uses: josStorer/get-current-time@v2
-        id: time
+    outputs:
+      version: ${{ env.BUILD_VERSION }}
+
+  release:
+    needs: build
+    name: Release
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: bin
 
       - name: Github Release.
-        uses: softprops/action-gh-release@v0.1.14
-        # Github requires tags for releases.
-        #if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: marvinpinto/action-automatic-releases@latest
         with:
-          body: |
-            Certified, latest development build.
-
-            Last updated: ${{ steps.time.outputs.readableTime }}
-          name: ${{ env.BUILD_VERSION }}
-          tag_name: latest
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          automatic_release_tag: latest
           prerelease: false
-          draft: false
-          files: ${{ env.BIN_ZIP }}
-
-      # After the recreate tag hack, the old release might still be there but marked as draft. Find it and delete it.
-      # - name: Clean up stale releases.
-      #   uses: actions/github-script@v5
-      #   with:
-      #     script: |
-      #       const res = await github.rest.repos.listReleases({
-      #         owner: context.repo.owner,
-      #         repo: context.repo.repo,
-      #       });
-      #       if (res.data.length > 0) {
-      #         for (let i = 0; i < res.data.length; i++) {
-      #           const item = res.data[i];
-      #           if (item.tag_name == 'latest' && item.draft) {
-      #             await github.rest.repos.deleteRelease({
-      #               owner: context.repo.owner,
-      #               repo: context.repo.repo,
-      #               release_id: item.id,
-      #             });
-      #           }
-      #         }
-      #       }
+          title: ${{ needs.build.outputs.version }}
+          files: |
+            cosmic-windows-x64.zip
+            cosmic-linux-x64.zip
+            cosmic-macos-x64.zip
+            cosmic-macos-arm64.zip
 
   dispatch:
-    needs: build
+    needs: release
     name: Dispatch doc gen.
     runs-on: ubuntu-20.04
     steps:
