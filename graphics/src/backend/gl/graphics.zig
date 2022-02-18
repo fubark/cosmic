@@ -1212,14 +1212,14 @@ pub const Graphics = struct {
 
     /// Begin frame sets up the context before any other draw call.
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
-    pub fn beginFrame(self: *Self, vp_width: u32, vp_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
+    pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
         // log.debug("beginFrame", .{});
 
         // Projection transform is different depending on viewport but is needed for user transforms to recompute the mvp.
         self.cur_proj_transform = proj_transform;
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
-        gl.glViewport(0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height));
+        gl.glViewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
@@ -1229,8 +1229,8 @@ pub const Graphics = struct {
         self.cur_clip_rect = .{
             .x = 0,
             .y = 0,
-            .width = @intToFloat(f32, vp_width),
-            .height = @intToFloat(f32, vp_height),
+            .width = @intToFloat(f32, buf_width),
+            .height = @intToFloat(f32, buf_height),
         };
         self.cur_scissors = false;
         gl.glDisable(gl.GL_SCISSOR_TEST);
@@ -1251,7 +1251,7 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
-    pub fn endFrame(self: *Self, vp_width: u32, vp_height: u32, custom_fbo: gl.GLuint) void {
+    pub fn endFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("endFrame", .{});
         self.flushDraw();
         if (custom_fbo != 0) {
@@ -1259,7 +1259,7 @@ pub const Graphics = struct {
             gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, custom_fbo);
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
             // blit's filter is only used when the sizes between src and dst buffers are different.
-            gl.blitFramebuffer(0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height), 0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
+            gl.blitFramebuffer(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), 0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
     }
 

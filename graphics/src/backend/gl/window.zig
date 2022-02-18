@@ -41,6 +41,11 @@ pub const Window = struct {
     width: u32,
     height: u32,
 
+    // When creating a window with high dpi, the buffer size can differ from
+    // the logical window size. (Usually a multiple, eg. 2x)
+    buf_width: u32,
+    buf_height: u32,
+
     // Initialize to the default gl framebuffer.
     // If we are doing MSAA, then we'll need to set this to the multisample framebuffer.
     fbo_id: gl.GLuint = 0,
@@ -69,7 +74,7 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.width, res.height)) |msaa| {
+        if (createMsaaFrameBuffer(res.buf_width, res.buf_height)) |msaa| {
             res.fbo_id = msaa.fbo;
             res.msaa = msaa;
         }
@@ -173,11 +178,11 @@ pub const Window = struct {
     }
 
     pub fn beginFrame(self: Self) void {
-        self.graphics.g.beginFrame(self.width, self.height, self.fbo_id, self.proj_transform, self.initial_mvp);
+        self.graphics.g.beginFrame(self.buf_width, self.buf_height, self.fbo_id, self.proj_transform, self.initial_mvp);
     }
 
     pub fn endFrame(self: Self) void {
-        self.graphics.g.endFrame(self.width, self.height, self.fbo_id);
+        self.graphics.g.endFrame(self.buf_width, self.buf_height, self.fbo_id);
     }
 
     pub fn swapBuffers(self: Self) void {
@@ -222,6 +227,12 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
     win.id = sdl.SDL_GetWindowID(win.sdl_window);
     win.width = @intCast(u32, config.width);
     win.height = @intCast(u32, config.height);
+
+    var buf_width: c_int = undefined;
+    var buf_height: c_int = undefined;
+    sdl.SDL_GL_GetDrawableSize(win.sdl_window, &buf_width, &buf_height);
+    win.buf_width = @intCast(u32, buf_width);
+    win.buf_height = @intCast(u32, buf_height);
 }
 
 fn initGL_Context(win: *Window) !void {
@@ -263,6 +274,7 @@ pub fn quit() void {
 fn getSdlWindowFlags(config: Config) c_int {
     var flags: c_int = 0;
     if (config.resizable) flags |= sdl.SDL_WINDOW_RESIZABLE;
+    // TODO: Implement high dpi if it doesn't work on windows: https://nlguillemot.wordpress.com/2016/12/11/high-dpi-rendering/
     if (config.high_dpi) flags |= sdl.SDL_WINDOW_ALLOW_HIGHDPI;
     if (config.mode == .PseudoFullscreen) {
         flags |= sdl.SDL_WINDOW_FULLSCREEN_DESKTOP;

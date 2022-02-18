@@ -57,6 +57,7 @@ pub const cs_window = struct {
                 .height = height,
                 .title = title,
                 .resizable = true,
+                .high_dpi = true,
                 .mode = .Windowed,
             }, rt.active_window.window) catch unreachable;
         } else {
@@ -66,6 +67,7 @@ pub const cs_window = struct {
                 .height = height,
                 .title = title,
                 .resizable = true,
+                .high_dpi = true,
                 .mode = .Windowed,
             }) catch unreachable;
         }
