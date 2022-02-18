@@ -71,6 +71,12 @@ pub const Graphics = struct {
     cur_line_width: f32,
     cur_line_width_half: f32,
 
+    // Depth pixel ratio:
+    // This is used to fetch a higher res font bitmap for high dpi displays.
+    // eg. 18px user font size would normally use a 32px backed font bitmap but with dpr=2,
+    // it would use a 64px bitmap font instead.
+    cur_dpr: u8,
+
     // Images are handles to textures.
     images: ds.CompactUnorderedList(ImageId, Image),
 
@@ -106,6 +112,7 @@ pub const Graphics = struct {
             .cur_scissors = undefined,
             .cur_text_align = .Left,
             .cur_text_baseline = .Top,
+            .cur_dpr = 1,
         };
 
         const max_total_textures = gl.getMaxTotalTextures();
@@ -397,7 +404,7 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, str, res);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
@@ -437,7 +444,7 @@ pub const Graphics = struct {
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, start_x, start_y, str);
+        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
 
         while (text_renderer.renderNextCodepoint(&ctx, &quad)) {
             self.setCurrentTexture(quad.image);

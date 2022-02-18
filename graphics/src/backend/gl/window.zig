@@ -46,6 +46,9 @@ pub const Window = struct {
     buf_width: u32,
     buf_height: u32,
 
+    // Depth pixel ratio. Buffer size / logical window size.
+    dpr: u8,
+
     // Initialize to the default gl framebuffer.
     // If we are doing MSAA, then we'll need to set this to the multisample framebuffer.
     fbo_id: gl.GLuint = 0,
@@ -69,6 +72,7 @@ pub const Window = struct {
         // Initialize graphics.
         res.graphics = alloc.create(graphics.Graphics) catch unreachable;
         res.graphics.init(alloc);
+        res.graphics.g.cur_dpr = res.dpr;
 
         // Setup transforms.
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
@@ -233,6 +237,8 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
     sdl.SDL_GL_GetDrawableSize(win.sdl_window, &buf_width, &buf_height);
     win.buf_width = @intCast(u32, buf_width);
     win.buf_height = @intCast(u32, buf_height);
+
+    win.dpr = @intCast(u8, win.buf_width / win.width);
 }
 
 fn initGL_Context(win: *Window) !void {
