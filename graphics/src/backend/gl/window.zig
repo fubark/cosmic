@@ -134,6 +134,12 @@ pub const Window = struct {
         self.width = width;
         self.height = height;
 
+        var buf_width: c_int = undefined;
+        var buf_height: c_int = undefined;
+        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+        self.buf_width = @intCast(u32, buf_width);
+        self.buf_height = @intCast(u32, buf_height);
+
         // Resize the transforms.
         self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
         self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
@@ -141,7 +147,7 @@ pub const Window = struct {
         // The default frame buffer already resizes to the window.
         // The msaa texture was created separately, so it needs to update.
         if (self.msaa) |msaa| {
-            resizeMsaaFrameBuffer(msaa, width, height);
+            resizeMsaaFrameBuffer(msaa, self.buf_width, self.buf_height);
         }
     }
 
