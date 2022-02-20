@@ -1,5 +1,3 @@
-// Demo assets can be found at: https://github.com/fubark/cosmic-deps
-
 const w = cs.window.create('Demo', 1200, 720)
 
 const Color = cs.graphics.Color

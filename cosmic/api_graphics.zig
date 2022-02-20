@@ -431,9 +431,9 @@ pub const cs_graphics = struct {
                 .tag = .DrawCommandList,
             }) catch unreachable;
 
-            const ctx = rt.context;
+            const ctx = rt.getContext();
             const iso = rt.isolate;
-            const new = rt.handle_class.initInstance(ctx);
+            const new = rt.handle_class.inner.initInstance(ctx);
             const data = iso.initExternal(native_ptr);
             new.setInternalField(0, data);
 

@@ -51,7 +51,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 else stdx.mem.ptrCastAlign(*RuntimeContext, info.getData().castTo(v8.Object).getInternalField(0).castTo(v8.External).get());
 
             const iso = rt.isolate;
-            const ctx = rt.context;
+            const ctx = rt.getContext();
 
             var hscope: v8.HandleScope = undefined;
             hscope.init(iso);

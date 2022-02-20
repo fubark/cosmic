@@ -32,7 +32,7 @@ pub const Timer = struct {
     // The initial state is at max(u32) so the first timeout should set the uv timer.
     active_timeout: u32,
 
-    ctx: v8.Context,
+    ctx: v8.Persistent(v8.Context),
     receiver: v8.Value,
     dispatcher: EventDispatcher,
 
@@ -74,7 +74,7 @@ pub const Timer = struct {
     fn onTimeout(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
         const timer = @ptrCast(*uv.uv_timer_t, ptr);
         const self = stdx.mem.ptrCastAlign(*Self, timer.data);
-        self.processNext(self.ctx);
+        self.processNext();
     }
 
     pub fn setTimeout(self: *Self, timeout_ms: u32, cb: v8.Persistent(v8.Function), cb_arg: ?v8.Persistent(v8.Value)) !u32 {
@@ -116,10 +116,12 @@ pub const Timer = struct {
         return self.heap.peek();
     }
 
-    pub fn processNext(self: *Self, ctx: v8.Context) void {
+    pub fn processNext(self: *Self) void {
         // Pop the next timeout.
         const timeout = self.heap.remove();
         const group = self.map.get(timeout).?;
+
+        const ctx = self.ctx.inner;
 
         // Invoke each callback in order and deinit them.
         var cur = group.head;
@@ -178,17 +180,15 @@ test "Timer" {
     _ = try timer.setTimeout(300, cb, null);
     _ = try timer.setTimeout(300, cb, null);
 
-    const ctx: v8.Context = undefined;
-
     const timeout = timer.peekNext().?;
     try t.eq(timeout, 0);
-    timer.processNext(ctx);
+    timer.processNext();
     try t.eq(timer.peekNext().?, 100);
-    timer.processNext(ctx);
+    timer.processNext();
     try t.eq(timer.peekNext().?, 200);
-    timer.processNext(ctx);
+    timer.processNext();
     try t.eq(timer.peekNext().?, 300);
-    timer.processNext(ctx);
+    timer.processNext();
     try t.eq(timer.peekNext(), null);
 }
 

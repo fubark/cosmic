@@ -80,6 +80,8 @@ jobs:
           echo "BUILD_VERSION=$(cat version)" >> $env:GITHUB_ENV
 
       - name: Cache.
+        # Don't cache for windows, since there are issues with subsequent builds. Check to re-enable this later.
+        if: env.BUILD_TARGET != 'x86_64-windows-gnu'
         uses: actions/cache@v2
         with:
           path: |-

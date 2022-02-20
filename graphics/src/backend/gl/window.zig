@@ -41,6 +41,14 @@ pub const Window = struct {
     width: u32,
     height: u32,
 
+    // When creating a window with high dpi, the buffer size can differ from
+    // the logical window size. (Usually a multiple, eg. 2x)
+    buf_width: u32,
+    buf_height: u32,
+
+    // Depth pixel ratio. Buffer size / logical window size.
+    dpr: u8,
+
     // Initialize to the default gl framebuffer.
     // If we are doing MSAA, then we'll need to set this to the multisample framebuffer.
     fbo_id: gl.GLuint = 0,
@@ -64,12 +72,13 @@ pub const Window = struct {
         // Initialize graphics.
         res.graphics = alloc.create(graphics.Graphics) catch unreachable;
         res.graphics.init(alloc);
+        res.graphics.g.cur_dpr = res.dpr;
 
         // Setup transforms.
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.width, res.height)) |msaa| {
+        if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
             res.fbo_id = msaa.fbo;
             res.msaa = msaa;
         }
@@ -100,7 +109,7 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.width, res.height)) |msaa| {
+        if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
             res.fbo_id = msaa.fbo;
             res.msaa = msaa;
         }
@@ -125,6 +134,12 @@ pub const Window = struct {
         self.width = width;
         self.height = height;
 
+        var buf_width: c_int = undefined;
+        var buf_height: c_int = undefined;
+        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+        self.buf_width = @intCast(u32, buf_width);
+        self.buf_height = @intCast(u32, buf_height);
+
         // Resize the transforms.
         self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
         self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
@@ -132,7 +147,7 @@ pub const Window = struct {
         // The default frame buffer already resizes to the window.
         // The msaa texture was created separately, so it needs to update.
         if (self.msaa) |msaa| {
-            resizeMsaaFrameBuffer(msaa, width, height);
+            resizeMsaaFrameBuffer(msaa, self.buf_width, self.buf_height);
         }
     }
 
@@ -173,11 +188,11 @@ pub const Window = struct {
     }
 
     pub fn beginFrame(self: Self) void {
-        self.graphics.g.beginFrame(self.width, self.height, self.fbo_id, self.proj_transform, self.initial_mvp);
+        self.graphics.g.beginFrame(self.buf_width, self.buf_height, self.fbo_id, self.proj_transform, self.initial_mvp);
     }
 
     pub fn endFrame(self: Self) void {
-        self.graphics.g.endFrame(self.width, self.height, self.fbo_id);
+        self.graphics.g.endFrame(self.buf_width, self.buf_height, self.fbo_id);
     }
 
     pub fn swapBuffers(self: Self) void {
@@ -222,6 +237,14 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
     win.id = sdl.SDL_GetWindowID(win.sdl_window);
     win.width = @intCast(u32, config.width);
     win.height = @intCast(u32, config.height);
+
+    var buf_width: c_int = undefined;
+    var buf_height: c_int = undefined;
+    sdl.SDL_GL_GetDrawableSize(win.sdl_window, &buf_width, &buf_height);
+    win.buf_width = @intCast(u32, buf_width);
+    win.buf_height = @intCast(u32, buf_height);
+
+    win.dpr = @intCast(u8, win.buf_width / win.width);
 }
 
 fn initGL_Context(win: *Window) !void {
@@ -263,6 +286,7 @@ pub fn quit() void {
 fn getSdlWindowFlags(config: Config) c_int {
     var flags: c_int = 0;
     if (config.resizable) flags |= sdl.SDL_WINDOW_RESIZABLE;
+    // TODO: Implement high dpi if it doesn't work on windows: https://nlguillemot.wordpress.com/2016/12/11/high-dpi-rendering/
     if (config.high_dpi) flags |= sdl.SDL_WINDOW_ALLOW_HIGHDPI;
     if (config.mode == .PseudoFullscreen) {
         flags |= sdl.SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -301,13 +325,18 @@ fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
     gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
 }
 
-pub fn createMsaaFrameBuffer(width: u32, height: u32) ?MsaaFrameBuffer {
+pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer {
     // Setup multisampling anti alias.
     // See: https://learnopengl.com/Advanced-OpenGL/Anti-Aliasing
     const max_samples = gl.getMaxSamples();
     log.debug("max samples: {}", .{max_samples});
-    const msaa_preferred_samples: u32 = 8;
-    if (max_samples >= 4) {
+    if (max_samples >= 2) {
+        const msaa_preferred_samples: u32 = switch (dpr) {
+            1 => 8,
+            // Since the draw buffer is already a supersample, we don't need much msaa samples.
+            2 => 4,
+            else => 2,
+        };
         var ms_fbo: gl.GLuint = 0;
         gl.genFramebuffers(1, &ms_fbo);
         gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);

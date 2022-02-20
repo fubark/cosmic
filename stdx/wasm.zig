@@ -98,6 +98,7 @@ pub const PromiseId = u32;
 var promises: ds.CompactUnorderedList(PromiseId, PromiseInternal) = undefined;
 const PromiseDepId = u32;
 var promise_child_deps: ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId) = undefined;
+pub const NullId = ds.CompactNull(u32);
 
 pub fn createPromise(comptime T: type) Promise(T) {
     const id = promises.add(.{
@@ -170,15 +171,15 @@ export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
     p.resolved = true;
 
     if (p.child_deps_list_id) |list_id| {
-        var mb_cur = promise_child_deps.getListHead(list_id);
-        while (mb_cur) |cur| {
+        var cur = promise_child_deps.getListHead(list_id).?;
+        while (cur != NullId) {
             const child_id = promise_child_deps.getAssumeExists(cur);
             const child_p = promises.getPtrAssumeExists(child_id);
             child_p.cur_resolved_deps += 1;
             if (child_p.cur_resolved_deps == child_p.num_deps) {
                 child_p.resolved = true;
             }
-            mb_cur = promise_child_deps.getNext(cur);
+            cur = promise_child_deps.getNextIdNoCheck(cur);
         }
     }
 
@@ -197,15 +198,15 @@ pub fn resolvePromise(id: PromiseId, value: anytype) void {
     p.resolved = true;
 
     if (p.child_deps_list_id) |list_id| {
-        var mb_cur = promise_child_deps.getListHead(list_id);
-        while (mb_cur) |cur| {
+        var cur = promise_child_deps.getListHead(list_id).?;
+        while (cur != NullId) {
             const child_id = promise_child_deps.getAssumeExists(cur);
             const child_p = promises.getPtrAssumeExists(child_id);
             child_p.cur_resolved_deps += 1;
             if (child_p.cur_resolved_deps == child_p.num_deps) {
                 child_p.resolved = true;
             }
-            mb_cur = promise_child_deps.getNext(cur);
+            cur = promise_child_deps.getNextIdNoCheck(cur);
         }
     }
 

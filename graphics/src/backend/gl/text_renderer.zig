@@ -34,10 +34,10 @@ pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, p
     return std.math.round(advance);
 }
 
-pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, str: []const u8, res: *TextMetrics) void {
+pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics) void {
     const font_grp = g.font_cache.getFontGroup(group_id);
     var req_font_size = font_size;
-    const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size);
+    const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
 
     const primary = g.font_cache.getOrCreateBitmapFont(font_grp.fonts[0], bm_font_size);
     var scale = primary.getScaleToUserFontSize(req_font_size);
@@ -72,11 +72,11 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, str: []c
     }
 }
 
-pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, x: f32, y: f32, str: []const u8) RenderTextContext {
+pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, x: f32, y: f32, str: []const u8) RenderTextContext {
     const group = g.font_cache.getFontGroup(group_id);
 
     var req_font_size = font_size;
-    const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size);
+    const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
 
     return .{
         .str = str,

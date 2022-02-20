@@ -216,10 +216,10 @@ pub const HttpServer = struct {
     fn defaultHandler(ptr: *h2o.h2o_handler, req: *h2o.h2o_req) callconv(.C) c_int {
         const self = @ptrCast(*H2oServerHandler, ptr).server;
         const iso = self.rt.isolate;
-        const ctx = self.rt.context;
+        const ctx = self.rt.getContext();
 
         if (self.js_handler) |handler| {
-            const js_req = self.rt.default_obj_t.initInstance(ctx);
+            const js_req = self.rt.default_obj_t.inner.initInstance(ctx);
             const method = req.method.base[0..req.method.len];
             _ = js_req.setValue(ctx, iso.initStringUtf8("method"), iso.initStringUtf8(method));
             const path = req.path_normalized.base[0..req.path_normalized.len];
@@ -239,7 +239,7 @@ pub const HttpServer = struct {
             ResponseWriter.called_send = false;
             ResponseWriter.cur_generator = &self.generator;
 
-            const writer = self.rt.http_response_writer.initInstance(ctx);
+            const writer = self.rt.http_response_writer.inner.initInstance(ctx);
             if (handler.inner.call(ctx, self.rt.js_undefined, &.{ js_req.toValue(), writer.toValue() })) |res| {
                 // If user code returned true or called send, report as handled.
                 if (res.toBool(iso) or ResponseWriter.called_send) {

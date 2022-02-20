@@ -71,6 +71,12 @@ pub const Graphics = struct {
     cur_line_width: f32,
     cur_line_width_half: f32,
 
+    // Depth pixel ratio:
+    // This is used to fetch a higher res font bitmap for high dpi displays.
+    // eg. 18px user font size would normally use a 32px backed font bitmap but with dpr=2,
+    // it would use a 64px bitmap font instead.
+    cur_dpr: u8,
+
     // Images are handles to textures.
     images: ds.CompactUnorderedList(ImageId, Image),
 
@@ -106,6 +112,7 @@ pub const Graphics = struct {
             .cur_scissors = undefined,
             .cur_text_align = .Left,
             .cur_text_baseline = .Top,
+            .cur_dpr = 1,
         };
 
         const max_total_textures = gl.getMaxTotalTextures();
@@ -397,7 +404,7 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, str, res);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
@@ -437,7 +444,7 @@ pub const Graphics = struct {
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, start_x, start_y, str);
+        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
 
         while (text_renderer.renderNextCodepoint(&ctx, &quad)) {
             self.setCurrentTexture(quad.image);
@@ -1212,14 +1219,14 @@ pub const Graphics = struct {
 
     /// Begin frame sets up the context before any other draw call.
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
-    pub fn beginFrame(self: *Self, vp_width: u32, vp_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
+    pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
         // log.debug("beginFrame", .{});
 
         // Projection transform is different depending on viewport but is needed for user transforms to recompute the mvp.
         self.cur_proj_transform = proj_transform;
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
-        gl.glViewport(0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height));
+        gl.glViewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
@@ -1229,8 +1236,8 @@ pub const Graphics = struct {
         self.cur_clip_rect = .{
             .x = 0,
             .y = 0,
-            .width = @intToFloat(f32, vp_width),
-            .height = @intToFloat(f32, vp_height),
+            .width = @intToFloat(f32, buf_width),
+            .height = @intToFloat(f32, buf_height),
         };
         self.cur_scissors = false;
         gl.glDisable(gl.GL_SCISSOR_TEST);
@@ -1251,7 +1258,7 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
-    pub fn endFrame(self: *Self, vp_width: u32, vp_height: u32, custom_fbo: gl.GLuint) void {
+    pub fn endFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("endFrame", .{});
         self.flushDraw();
         if (custom_fbo != 0) {
@@ -1259,7 +1266,7 @@ pub const Graphics = struct {
             gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, custom_fbo);
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
             // blit's filter is only used when the sizes between src and dst buffers are different.
-            gl.blitFramebuffer(0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height), 0, 0, @intCast(c_int, vp_width), @intCast(c_int, vp_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
+            gl.blitFramebuffer(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), 0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
     }
 

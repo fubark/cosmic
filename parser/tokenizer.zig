@@ -675,7 +675,7 @@ fn LineSourceState(comptime Incremental: bool) type {
                         self.stop_ch_idx = token.loc.start +% @bitCast(u32, self.inc_offset);
                         return;
                     }
-                    self.stop_token_id = self.buf.tokens.getNext(self.stop_token_id).?;
+                    self.stop_token_id = self.buf.tokens.getNextIdNoCheck(self.stop_token_id);
                     if (self.stop_token_id == NullToken) {
                         const line_id = self.doc.getLineIdByLoc(self.stop_line_loc);
                         const line = self.doc.getLineById(line_id);
@@ -692,7 +692,7 @@ fn LineSourceState(comptime Incremental: bool) type {
                         self.stop_ch_idx = token.loc.start +% @bitCast(u32, self.inc_offset);
                         return;
                     }
-                    self.stop_token_id = self.buf.tokens.getNext(self.stop_token_id).?;
+                    self.stop_token_id = self.buf.tokens.getNextIdNoCheck(self.stop_token_id);
                     if (self.stop_token_id == NullToken) {
                         const line_id = self.doc.getLineIdByLoc(self.stop_line_loc);
                         const line = self.doc.getLineById(line_id);
@@ -850,7 +850,7 @@ fn LineSourceState(comptime Incremental: bool) type {
             } else {
                 if (self.cur_token_list_last != self.buf.temp_head_id) {
                     // Add accumulated token list and map it from doc line id.
-                    const head = self.buf.tokens.getNext(self.buf.temp_head_id).?;
+                    const head = self.buf.tokens.getNextIdNoCheck(self.buf.temp_head_id);
                     const list_id = self.buf.tokens.addListWithDetachedHead(head) catch unreachable;
                     const line_id = self.doc.getLineIdByLoc(.{ .leaf_id = self.leaf_id, .chunk_line_idx = self.chunk_line_idx });
                     self.buf.lines.items[line_id] = list_id;

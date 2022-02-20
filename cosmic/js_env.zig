@@ -6,6 +6,8 @@ const Graphics = graphics.Graphics;
 const StdColor = graphics.Color;
 const ds = stdx.ds;
 const v8 = @import("v8");
+const uv = @import("uv");
+const h2o = @import("h2o");
 
 const runtime = @import("runtime.zig");
 const SizedJsString = runtime.SizedJsString;
@@ -14,6 +16,7 @@ const V8Context = runtime.V8Context;
 const ContextBuilder = runtime.ContextBuilder;
 const RuntimeValue = runtime.RuntimeValue;
 const printFmt = runtime.printFmt;
+const errorFmt = runtime.errorFmt;
 const ManagedSlice = runtime.ManagedSlice;
 const ManagedStruct = runtime.ManagedStruct;
 const This = runtime.This;
@@ -27,9 +30,7 @@ const HttpServer = _server.HttpServer;
 const ResponseWriter = _server.ResponseWriter;
 const api = @import("api.zig");
 const cs_graphics = @import("api_graphics.zig").cs_graphics;
-
-const uv = @import("uv");
-const h2o = @import("h2o");
+const v8x = @import("v8x.zig");
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
 // A parent HandleScope should persist the values we create in here until the end of the script execution.
@@ -44,20 +45,20 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const undef_u32 = v8.Integer.initU32(iso, 0);
 
     // GenericHandle
-    const handle_class = v8.ObjectTemplate.initDefault(iso);
-    handle_class.setInternalFieldCount(1);
+    const handle_class = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
+    handle_class.inner.setInternalFieldCount(1);
     rt.handle_class = handle_class;
 
     // GenericObject
-    rt.default_obj_t = v8.ObjectTemplate.initDefault(iso);
+    rt.default_obj_t = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
 
     // JsWindow
-    const window_class = v8.FunctionTemplate.initDefault(iso);
+    const window_class = v8.Persistent(v8.FunctionTemplate).init(iso, v8.FunctionTemplate.initDefault(iso));
     {
-        const inst = window_class.getInstanceTemplate();
+        const inst = window_class.inner.getInstanceTemplate();
         inst.setInternalFieldCount(1);
 
-        const proto = window_class.getPrototypeTemplate();
+        const proto = window_class.inner.getPrototypeTemplate();
         ctx.setFuncT(proto, "onUpdate", api.cs_window.Window.onUpdate);
         ctx.setFuncT(proto, "onMouseDown", api.cs_window.Window.onMouseDown);
         ctx.setFuncT(proto, "onMouseUp", api.cs_window.Window.onMouseUp);
@@ -85,13 +86,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     rt.window_class = window_class;
 
     // JsGraphics
-    const graphics_class = v8.FunctionTemplate.initDefault(iso);
-    graphics_class.setClassName(v8.String.initUtf8(iso, "Graphics"));
+    const graphics_class = v8.Persistent(v8.FunctionTemplate).init(iso, v8.FunctionTemplate.initDefault(iso));
+    graphics_class.inner.setClassName(v8.String.initUtf8(iso, "Graphics"));
     {
-        const inst = graphics_class.getInstanceTemplate();
+        const inst = graphics_class.inner.getInstanceTemplate();
         inst.setInternalFieldCount(1);
 
-        const proto = graphics_class.getPrototypeTemplate();
+        const proto = graphics_class.inner.getPrototypeTemplate();
         
         // NOTE: Accessors are callbacks anyway so it's probably not that much faster than a function call.
         // Although, I have not explored if there exists a native binding to some memory location.
@@ -153,9 +154,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     rt.graphics_class = graphics_class;
 
     // JsImage
-    const image_class = ctx.initFuncT("Image");
+    const image_class = v8.Persistent(v8.FunctionTemplate).init(iso, ctx.initFuncT("Image"));
     {
-        const inst = image_class.getInstanceTemplate();
+        const inst = image_class.inner.getInstanceTemplate();
         ctx.setProp(inst, "width", undef_u32);
         ctx.setProp(inst, "height", undef_u32);
         // For image id.
@@ -164,14 +165,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     rt.image_class = image_class;
 
     // JsColor
-    const color_class = v8.FunctionTemplate.initDefault(iso);
+    const color_class = v8.Persistent(v8.FunctionTemplate).init(iso, v8.FunctionTemplate.initDefault(iso));
     {
-        const proto = color_class.getPrototypeTemplate();
+        const proto = color_class.inner.getPrototypeTemplate();
         ctx.setFuncT(proto, "darker", cs_graphics.Color.darker);
         ctx.setFuncT(proto, "lighter", cs_graphics.Color.lighter);
         ctx.setFuncT(proto, "withAlpha", cs_graphics.Color.withAlpha);
     }
-    var instance = color_class.getInstanceTemplate();
+    var instance = color_class.inner.getInstanceTemplate();
     ctx.setProp(instance, "r", undef_u32);
     ctx.setProp(instance, "g", undef_u32);
     ctx.setProp(instance, "b", undef_u32);
@@ -207,7 +208,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         .{ "magenta", Color.magenta },
     };
     inline for (colors) |it| {
-        ctx.setFuncGetter(color_class, it.@"0", it.@"1");
+        ctx.setFuncGetter(color_class.inner, it.@"0", it.@"1");
     }
     rt.color_class = color_class;
 
@@ -283,7 +284,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const response_class = v8.FunctionTemplate.initDefault(iso);
     response_class.setClassName(v8.String.initUtf8(iso, "Response"));
     ctx.setConstProp(http, "Response", response_class);
-    rt.http_response_class = response_class;
+    rt.http_response_class = v8.Persistent(v8.FunctionTemplate).init(iso, response_class);
     {
         // cs.http.Server
         const server_class = iso.initFunctionTemplateDefault();
@@ -298,7 +299,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "closeAsync", api.cs_http.Server.closeAsync);
 
         ctx.setConstProp(http, "Server", server_class);
-        rt.http_server_class = server_class;
+        rt.http_server_class = v8.Persistent(v8.FunctionTemplate).init(iso, server_class);
     }
     {
         // cs.http.ResponseWriter
@@ -310,7 +311,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(obj_t, "setHeader", api.cs_http.ResponseWriter.setHeader);
         ctx.setConstFuncT(obj_t, "send", api.cs_http.ResponseWriter.send);
         ctx.setConstFuncT(obj_t, "sendBytes", api.cs_http.ResponseWriter.sendBytes);
-        rt.http_response_writer = obj_t;
+        rt.http_response_writer = v8.Persistent(v8.ObjectTemplate).init(iso, obj_t);
     }
     ctx.setConstProp(cs, "http", http);
 
@@ -330,7 +331,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         const mod = v8.ObjectTemplate.initDefault(iso);
 
         // cs.graphics.Color
-        ctx.setConstProp(mod, "Color", color_class);
+        ctx.setConstProp(mod, "Color", color_class.inner);
 
         // cs.graphics.TextAlign
         const text_align = iso.initObjectTemplateDefault();
@@ -410,9 +411,38 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs, "input", cs_input);
 
     const res = iso.initContext(global, null);
+    res.enter();
+    defer res.exit();
 
     // const rt_global = res.getGlobal();
     // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(iso, "cs")).castToObject();
 
+    {
+        // Run api_init.js
+        var exec_res: v8x.ExecuteResult = undefined;
+        defer exec_res.deinit();
+        const origin = v8.String.initUtf8(iso, "api_init.js");
+        v8x.executeString(rt.alloc, iso, res, api_init, origin, &exec_res);
+        if (!exec_res.success) {
+            errorFmt("{s}", .{exec_res.err.?});
+            unreachable;
+        }
+    }
+
+    if (rt.is_test_env) {
+        // Run test_init.js
+        var exec_res: v8x.ExecuteResult = undefined;
+        defer exec_res.deinit();
+        const origin = v8.String.initUtf8(iso, "test_init.js");
+        v8x.executeString(rt.alloc, iso, res, test_init, origin, &exec_res);
+        if (!exec_res.success) {
+            errorFmt("{s}", .{exec_res.err.?});
+            unreachable;
+        }
+    }
+
     return res;
 }
+
+const api_init = @embedFile("snapshots/api_init.js");
+const test_init = @embedFile("snapshots/test_init.js");

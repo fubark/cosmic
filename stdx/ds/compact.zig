@@ -445,12 +445,12 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
         }
 
         pub fn findInList(self: Self, list_id: ListId, ctx: anytype, pred: fn (ctx: @TypeOf(ctx), buf: Self, item_id: Index) bool) ?Index {
-            var mb_id = self.getListHead(list_id);
-            while (mb_id) |id| {
+            var id = self.getListHead(list_id) orelse return null;
+            while (id != Null) {
                 if (pred(ctx, self, id)) {
                     return id;
                 }
-                mb_id = self.getNext(id);
+                id = self.getNextIdNoCheck(id);
             }
             return null;
         }
@@ -489,7 +489,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             var i: u32 = 0;
             var cur: Index = self.getListHead(list_id).?;
             while (i != idx) : (i += 1) {
-                cur = self.getNext(cur).?;
+                cur = self.getNextId(cur).?;
             }
             return cur;
         }
@@ -504,10 +504,14 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             return &self.nodes.getPtrAssumeExists(id).data;
         }
 
-        pub fn getNext(self: Self, id: Index) ?Index {
+        pub fn getNextId(self: Self, id: Index) ?Index {
             if (self.nodes.get(id)) |node| {
                 return node.next;
             } else return null;
+        }
+
+        pub fn getNextIdNoCheck(self: Self, id: Index) Index {
+            return self.nodes.getAssumeExists(id).next;
         }
 
         pub fn getNextNode(self: Self, id: Index) ?Node {
@@ -534,9 +538,9 @@ test "CompactManySinglyLinkedList" {
 
     // Test detachAfter.
     const after = try lists.insertAfter(head, 20);
-    try t.eq(lists.getNext(head), after);
+    try t.eq(lists.getNextIdNoCheck(head), after);
     try t.eq(lists.detachAfter(head), after);
-    try t.eq(lists.getNext(head), Null);
+    try t.eq(lists.getNextIdNoCheck(head), Null);
 }
 
 /// Reuses deleted ids.
