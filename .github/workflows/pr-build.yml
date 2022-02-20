@@ -107,4 +107,4 @@ jobs:
 
       - name: Test js.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
-        run: zig build test-cosmic-js ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+        run: ./zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }} test test/js/test.js
