@@ -78,7 +78,7 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.buf_width, res.buf_height)) |msaa| {
+        if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
             res.fbo_id = msaa.fbo;
             res.msaa = msaa;
         }
@@ -109,7 +109,7 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.width, res.height)) |msaa| {
+        if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
             res.fbo_id = msaa.fbo;
             res.msaa = msaa;
         }
@@ -325,13 +325,18 @@ fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
     gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
 }
 
-pub fn createMsaaFrameBuffer(width: u32, height: u32) ?MsaaFrameBuffer {
+pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer {
     // Setup multisampling anti alias.
     // See: https://learnopengl.com/Advanced-OpenGL/Anti-Aliasing
     const max_samples = gl.getMaxSamples();
     log.debug("max samples: {}", .{max_samples});
-    const msaa_preferred_samples: u32 = 8;
-    if (max_samples >= 4) {
+    if (max_samples >= 2) {
+        const msaa_preferred_samples: u32 = switch (dpr) {
+            1 => 8,
+            // Since the draw buffer is already a supersample, we don't need much msaa samples.
+            2 => 4,
+            else => 2,
+        };
         var ms_fbo: gl.GLuint = 0;
         gl.genFramebuffers(1, &ms_fbo);
         gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);

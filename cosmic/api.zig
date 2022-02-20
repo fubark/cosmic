@@ -208,6 +208,7 @@ pub const cs_window = struct {
                 .height = height,
                 .title = title,
                 .resizable = true,
+                .high_dpi = true,
                 .mode = .Windowed,
             }, this.res.window) catch unreachable;
             new_res.ptr.init(rt, new_win, new_res.id);
