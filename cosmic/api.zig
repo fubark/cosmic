@@ -623,7 +623,7 @@ pub const cs_http = struct {
     fn requestAsyncInternal(rt: *RuntimeContext, url: []const u8, opts: RequestOptions, comptime detailed: bool) v8.Promise {
         const iso = rt.isolate;
 
-        const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+        const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.getContext()));
         const promise = resolver.inner.getPromise();
         const promise_id = rt.promises.add(resolver) catch unreachable;
 
@@ -755,7 +755,7 @@ pub const cs_http = struct {
         server.init(rt);
         try server.startHttp(host, port);
 
-        const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
+        const js_handle = rt.http_server_class.inner.getFunction(rt.getContext()).initInstance(rt.getContext(), &.{}).?;
         js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
         return js_handle;
     }
@@ -771,7 +771,8 @@ pub const cs_http = struct {
         server.init(rt);
         try server.startHttps(host, port, cert_path, key_path);
 
-        const js_handle = rt.http_server_class.getFunction(rt.context).initInstance(rt.context, &.{}).?;
+        const ctx = rt.getContext();
+        const js_handle = rt.http_server_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
         js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
         return js_handle;
     }
@@ -793,7 +794,7 @@ pub const cs_http = struct {
         /// Requests the server to close. The promise will resolve when it's done.
         pub fn closeAsync(rt: *RuntimeContext, this: ThisResource(.CsHttpServer)) v8.Promise {
             const iso = rt.isolate;
-            const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.context));
+            const resolver = iso.initPersistent(v8.PromiseResolver, v8.PromiseResolver.init(rt.getContext()));
             const promise = resolver.inner.getPromise();
             const promise_id = rt.promises.add(resolver) catch unreachable;
 
@@ -878,7 +879,7 @@ pub const cs_core = struct {
 
         var i: u32 = 0;
         while (i < len) : (i += 1) {
-            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
+            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx.inner, info.getArg(i));
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
         }
@@ -1398,7 +1399,7 @@ pub const cs_test = struct {
     pub fn create(rt: *RuntimeContext, name: []const u8, cb: v8.Function) void {
         // FUTURE: Save test cases and execute them in parallel.
         const iso = rt.isolate;
-        const ctx = rt.context;
+        const ctx = rt.getContext();
 
         // Dupe name since we will be invoking functions that could clear the transient string buffer.
         const name_dupe = rt.alloc.dupe(u8, name) catch unreachable;
@@ -1516,12 +1517,12 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.context, obj.getInternalField(1));
+    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     // TODO: report stack trace.
     rt.num_async_tests_finished += 1;
-    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.context, val);
+    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
     defer rt.alloc.free(str);
 
     printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
