@@ -489,7 +489,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             var i: u32 = 0;
             var cur: Index = self.getListHead(list_id).?;
             while (i != idx) : (i += 1) {
-                cur = self.getNext(cur).?;
+                cur = self.getNextId(cur).?;
             }
             return cur;
         }
@@ -538,9 +538,9 @@ test "CompactManySinglyLinkedList" {
 
     // Test detachAfter.
     const after = try lists.insertAfter(head, 20);
-    try t.eq(lists.getNext(head), after);
+    try t.eq(lists.getNextIdNoCheck(head), after);
     try t.eq(lists.detachAfter(head), after);
-    try t.eq(lists.getNext(head), Null);
+    try t.eq(lists.getNextIdNoCheck(head), Null);
 }
 
 /// Reuses deleted ids.

@@ -1256,7 +1256,7 @@ const LineTokenState = struct {
 
     // Called by consumeNext, so it assumes there is a next token.
     fn seekToNextToken(self: *Self) void {
-        self.next_tok_id = self.buf.tokens.getNext(self.next_tok_id).?;
+        self.next_tok_id = self.buf.tokens.getNextIdNoCheck(self.next_tok_id);
         if (self.next_tok_id != NullToken) {
             // It's the next node in the list.
             return;
@@ -1487,7 +1487,7 @@ const LineTokenIterator = struct {
 
     cur_loc: document.LineLocation,
     cur_chunk_line_end_idx: u32,
-    next_token_id: ?TokenId,
+    next_token_id: TokenId,
     end_loc: document.LineLocation,
     token_lists: []const ?TokenListId,
     tokens: *ds.CompactManySinglyLinkedList(TokenListId, TokenId, Token),
@@ -1499,7 +1499,7 @@ const LineTokenIterator = struct {
             .tokens = tokens,
             .cur_loc = loc,
             .cur_chunk_line_end_idx = @intCast(u32, doc.getLeafLineChunkSlice(loc.leaf_id).len) - 1,
-            .next_token_id = null,
+            .next_token_id = NullToken,
             .end_loc = end_loc,
             .token_lists = token_lists,
         };
@@ -1510,7 +1510,7 @@ const LineTokenIterator = struct {
     fn seekToNextLineHead(self: *Self) void {
         while (true) {
             if (std.meta.eql(self.cur_loc, self.end_loc)) {
-                self.next_token_id = null;
+                self.next_token_id = NullToken;
                 return;
             }
             const line_id = self.doc.getLineIdByLoc(self.cur_loc);
@@ -1526,12 +1526,12 @@ const LineTokenIterator = struct {
     }
 
     fn next(self: *Self) ?TokenId {
-        if (self.next_token_id == null) {
+        if (self.next_token_id == NullToken) {
             return null;
         } else {
             defer {
-                self.next_token_id = self.tokens.getNext(self.next_token_id.?);
-                if (self.next_token_id == null) {
+                self.next_token_id = self.tokens.getNextIdNoCheck(self.next_token_id);
+                if (self.next_token_id == NullToken) {
                     if (self.cur_loc.chunk_line_idx == self.cur_chunk_line_end_idx) {
                         if (!std.meta.eql(self.cur_loc, self.end_loc)) {
                             self.cur_loc.leaf_id = self.doc.getNextLeafNode(self.cur_loc.leaf_id).?;

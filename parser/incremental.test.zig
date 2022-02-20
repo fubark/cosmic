@@ -53,51 +53,51 @@ test "Parser is_incremental=true" {
     // Verify token lists per document line.
     try t.eq(doc.numLines(), @intCast(u32, lines.items.len));
 
-    var token_id = tokens.getListHead(lines.items[doc.getLineId(0)].?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), "const");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), "std");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), "=");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), "@import");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), "(");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), "\"std\"");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), ")");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 0, token_id.?), ";");
-    token_id = tokens.getNext(token_id.?);
+    var token_id = tokens.getListHead(lines.items[doc.getLineId(0)].?).?;
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), "const");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), "std");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), "=");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), "@import");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), "(");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), "\"std\"");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), ")");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 0, token_id), ";");
+    token_id = tokens.getNextIdNoCheck(token_id);
     try t.eq(token_id, NullToken);
 
     // Empty line so no token list.
     try t.eq(lines.items[doc.getLineId(1)], null);
 
-    token_id = tokens.getListHead(lines.items[doc.getLineId(2)].?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "pub");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "fn");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "main");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "(");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), ")");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "!");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "void");
-    token_id = tokens.getNext(token_id.?);
-    try t.eqStr(ast.getTokenString(&doc, 2, token_id.?), "{");
-    token_id = tokens.getNext(token_id.?);
+    token_id = tokens.getListHead(lines.items[doc.getLineId(2)].?).?;
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "pub");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "fn");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "main");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "(");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), ")");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "!");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "void");
+    token_id = tokens.getNextIdNoCheck(token_id);
+    try t.eqStr(ast.getTokenString(&doc, 2, token_id), "{");
+    token_id = tokens.getNextIdNoCheck(token_id);
     try t.eq(token_id, NullToken);
 
     // Skip to end.
-    token_id = tokens.getListHead(lines.items[doc.getLineId(5)].?);
-    try t.eqStr(ast.getTokenString(&doc, 5, token_id.?), "}");
-    token_id = tokens.getNext(token_id.?);
+    token_id = tokens.getListHead(lines.items[doc.getLineId(5)].?).?;
+    try t.eqStr(ast.getTokenString(&doc, 5, token_id), "}");
+    token_id = tokens.getNextIdNoCheck(token_id);
     try t.eq(token_id, NullToken);
 
     // str_buf.clearRetainingCapacity();
