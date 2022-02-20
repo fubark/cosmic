@@ -350,3 +350,4 @@ export fn h2o_config_dispose() void {}
 export fn v8__Context__Global() void {}
 export fn h2o_context_dispose() void {}
 export fn uv_is_closing() void {}
+export fn SDL_GL_GetDrawableSize() void {}

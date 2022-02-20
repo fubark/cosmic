@@ -755,7 +755,8 @@ pub const cs_http = struct {
         server.init(rt);
         try server.startHttp(host, port);
 
-        const js_handle = rt.http_server_class.inner.getFunction(rt.getContext()).initInstance(rt.getContext(), &.{}).?;
+        const ctx = rt.getContext();
+        const js_handle = rt.http_server_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
         js_handle.setInternalField(0, rt.isolate.initIntegerU32(handle.id));
         return js_handle;
     }

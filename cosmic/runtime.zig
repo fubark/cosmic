@@ -28,6 +28,7 @@ const UvPoller = @import("uv_poller.zig").UvPoller;
 const HttpServer = @import("server.zig").HttpServer;
 const Timer = @import("timer.zig").Timer;
 const EventDispatcher = stdx.events.EventDispatcher;
+const NullId = stdx.ds.CompactNull(u32);
 
 pub const PromiseId = u32;
 
@@ -611,9 +612,7 @@ pub const RuntimeContext = struct {
     }
 
     fn findPrevResource(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-        if (buf.getNext(item_id)) |next| {
-            return next == target;
-        } else return false;
+        return buf.getNextIdNoCheck(item_id) == target;
     }
 
     fn getCsWindowResourceBySdlId(self: *Self, sdl_win_id: u32) ?ResourceId {
@@ -1160,12 +1159,12 @@ fn updateMultipleWindows(rt: *RuntimeContext) void {
     // TODO: Make windows with varying target fps work.
     var min_delay: u64 = std.math.maxInt(u64);
 
-    var cur_res = rt.resources.getListHead(rt.window_resource_list);
-    cur_res = rt.resources.getNext(cur_res.?);
-    while (cur_res) |res_id| {
-        const res = rt.resources.getAssumeExists(res_id);
+    var cur_res = rt.resources.getListHead(rt.window_resource_list).?;
+    cur_res = rt.resources.getNextIdNoCheck(cur_res);
+    while (cur_res != NullId) {
+        const res = rt.resources.getAssumeExists(cur_res);
         if (res.deinited) {
-            cur_res = rt.resources.getNext(res_id);
+            cur_res = rt.resources.getNextIdNoCheck(cur_res);
             continue;
         }
         const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
@@ -1195,7 +1194,7 @@ fn updateMultipleWindows(rt: *RuntimeContext) void {
         // swapBuffers will delay if vsync is on.
         win.window.swapBuffers();
 
-        cur_res = rt.resources.getNext(res_id);
+        cur_res = rt.resources.getNextIdNoCheck(cur_res);
     }
 
     graphics.delay(min_delay);
