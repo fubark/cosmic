@@ -239,6 +239,19 @@ pub const cs_window = struct {
         pub fn getHeight(this: ThisResource(.CsWindow)) u32 {
             return this.res.window.getWidth();
         }
+
+        /// Sets the window's title.
+        /// @param title
+        pub fn setTitle(this: ThisResource(.CsWindow), title: []const u8) void {
+            this.res.window.setTitle(title);
+        }
+
+        /// Gets the window's title.
+        /// @param title
+        pub fn getTitle(rt: *RuntimeContext, this: ThisResource(.CsWindow)) ds.Box([]const u8) {
+            const title = this.res.window.getTitle(rt.alloc);
+            return ds.Box([]const u8).init(rt.alloc, title);
+        }
     };
 };
 

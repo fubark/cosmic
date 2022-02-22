@@ -150,6 +150,20 @@ pub const Window = struct {
             .Test => {},
         }
     }
+
+    pub fn setTitle(self: Self, title: []const u8) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.setTitle(self.inner, title),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn getTitle(self: Self, alloc: std.mem.Allocator) []const u8 {
+        switch (Backend) {
+            .OpenGL => return gl.Window.getTitle(self.inner, alloc),
+            else => stdx.panic("unsupported"),
+        }
+    }
 };
 
 pub const Mode = enum {

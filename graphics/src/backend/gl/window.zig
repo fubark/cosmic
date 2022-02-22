@@ -200,6 +200,17 @@ pub const Window = struct {
         // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
         sdl.SDL_GL_SwapWindow(self.sdl_window);
     }
+
+    pub fn setTitle(self: Self, title: []const u8) void {
+        const cstr = std.cstr.addNullByte(self.alloc, title) catch unreachable;
+        defer self.alloc.free(cstr);
+        sdl.SDL_SetWindowTitle(self.sdl_window, cstr);
+    }
+
+    pub fn getTitle(self: Self, alloc: std.mem.Allocator) []const u8 {
+        const cstr = sdl.SDL_GetWindowTitle(self.sdl_window);
+        return alloc.dupe(u8, std.mem.span(cstr)) catch unreachable;
+    }
 };
 
 pub fn disableVSync() !void {
