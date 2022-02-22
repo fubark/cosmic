@@ -1174,7 +1174,9 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
             updateMultipleWindows(rt, DevMode);
         }
 
-        processMainEventLoop(rt);
+        if (rt.uv_poller.polled) {
+            processMainEventLoop(rt);
+        }
 
         if (DevMode) {
             if (rt.dev_restart_req) {
@@ -1652,6 +1654,7 @@ fn processMainEventLoop(rt: *RuntimeContext) void {
     // After callbacks and js executions are done, process V8 event loop.
     processV8EventLoop(rt);
 
+    rt.uv_poller.polled = false;
     rt.uv_poller.setPollReady();
 }
 
