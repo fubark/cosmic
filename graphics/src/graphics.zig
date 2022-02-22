@@ -565,6 +565,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getFontSize(self: *Self) f32 {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.getFontSize(self.g),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn setFontSize(self: *Self, font_size: f32) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.setFontSize(&self.g, font_size),
