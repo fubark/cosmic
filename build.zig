@@ -25,6 +25,7 @@ const UsePrebuiltUv: ?[]const u8 = null;
 // const UsePrebuiltUv: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 const UsePrebuiltH2O: ?[]const u8 = null;
 // const UsePrebuiltH2O: ?[]const u8 = "/Users/fubar/dev/h2o";
+const LibV8Path: ?[]const u8 = null;
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -2244,13 +2245,9 @@ fn getV8_StaticLibGithubUrl(alloc: std.mem.Allocator, tag: []const u8, target: s
 }
 
 fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
-    // Keep for local dev.
-    // const mode_str: []const u8 = if (self.mode == .Debug) "debug" else "release";
-    // const path = std.fmt.allocPrint(self.builder.allocator, "lib/zig-v8/v8-out/{s}-{s}/{s}/ninja/obj/zig/libc_v8.a", .{
-    //     @tagName(self.target.getCpuArch()),
-    //     @tagName(self.target.getOsTag()),
-    //     mode_str,
-    // }) catch unreachable;
+    if (LibV8Path) |path| {
+        return path;
+    }
     const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
     const triple = BuilderContext.getSimpleTriple(b, target);
