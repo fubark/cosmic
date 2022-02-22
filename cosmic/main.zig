@@ -94,9 +94,13 @@ fn runAndExit(src_path: []const u8, dev_mode: bool) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    runtime.runUserMain(alloc, src_path, dev_mode) catch {
+    runtime.runUserMain(alloc, src_path, dev_mode) catch |err| {
         stdx.heap.deinitDefaultAllocator();
-        process.exit(1);
+        if (err == error.FileNotFound) {
+            abortFmt("File not found: {s}", .{src_path});
+        } else {
+            abortFmt("Encountered error: {}", .{err});
+        }
     };
     stdx.heap.deinitDefaultAllocator();
     process.exit(0);
