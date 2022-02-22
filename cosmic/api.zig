@@ -869,10 +869,19 @@ pub const cs_core = struct {
     /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        printInternal(info, false);
+    }
+
+    pub fn print_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        printInternal(info, true);
+    }
+
+    fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool) void {
         const len = info.length();
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         const iso = rt.isolate;
-        const ctx = rt.context;
+        const ctx = rt.getContext();
 
         var hscope: v8.HandleScope = undefined;
         hscope.init(iso);
@@ -880,9 +889,12 @@ pub const cs_core = struct {
 
         var i: u32 = 0;
         while (i < len) : (i += 1) {
-            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx.inner, info.getArg(i));
+            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
+            if (DevMode) {
+                rt.dev_ctx.printFmt("{s} ", .{str});
+            }
         }
     }
 
@@ -891,6 +903,14 @@ pub const cs_core = struct {
     pub fn puts(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         print(raw_info);
         printFmt("\n", .{});
+    }
+
+    pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        printInternal(info, true);
+        printFmt("\n", .{});
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        rt.dev_ctx.print("\n");
     }
 
     /// Converts a buffer to a UTF-8 string.

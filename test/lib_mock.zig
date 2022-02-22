@@ -341,6 +341,8 @@ export fn uv_walk() void {}
 export fn uv_stop() void {}
 export fn uv_loop_size() void {}
 export fn uv_loop_close() void {}
+export fn uv_fs_event_init() void {}
+export fn uv_fs_event_start() void {}
 export fn v8__Message__Get() void {}
 export fn v8__Isolate__TerminateExecution() void {}
 export fn v8__Isolate__IsExecutionTerminating() void {}

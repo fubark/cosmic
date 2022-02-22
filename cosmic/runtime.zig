@@ -29,6 +29,8 @@ const HttpServer = @import("server.zig").HttpServer;
 const Timer = @import("timer.zig").Timer;
 const EventDispatcher = stdx.events.EventDispatcher;
 const NullId = stdx.ds.CompactNull(u32);
+const devmode = @import("devmode.zig");
+const DevModeContext = devmode.DevModeContext;
 
 pub const PromiseId = u32;
 
@@ -113,6 +115,10 @@ pub const RuntimeContext = struct {
 
     timer: Timer,
 
+    dev_mode: bool,
+    dev_ctx: DevModeContext,
+    dev_restart_req: bool,
+
     event_dispatcher: EventDispatcher,
 
     // V8.
@@ -134,6 +140,7 @@ pub const RuntimeContext = struct {
         platform: v8.Platform,
         main_script_path: []const u8,
         is_test_env: bool,
+        dev_mode: bool,
     ) void {
         self.* = .{
             .alloc = alloc,
@@ -184,6 +191,9 @@ pub const RuntimeContext = struct {
             .received_uncaught_exception = false,
             .last_err = error.NoError,
             .timer = undefined,
+            .dev_mode = dev_mode,
+            .dev_ctx = undefined,
+            .dev_restart_req = false,
             .event_dispatcher = undefined,
 
             .platform = platform,
@@ -308,12 +318,18 @@ pub const RuntimeContext = struct {
         _ = std.Thread.spawn(.{}, UvPoller.run, .{&self.uv_poller}) catch unreachable;
     }
 
-    // uv related handles like timer are deinited in shutdownRuntime.
+    /// Isolate should not be entered when calling this.
     fn deinit(self: *Self) void {
+        self.enter();
+
         self.str_buf.deinit();
         self.cb_str_buf.deinit();
         self.cb_f32_buf.deinit();
         self.vec2_buf.deinit();
+
+        if (self.dev_mode and !self.dev_restart_req) {
+            self.dev_ctx.deinit();
+        }
 
         {
             var iter = self.weak_handles.iterator();
@@ -365,7 +381,9 @@ pub const RuntimeContext = struct {
         self.handle_class.deinit();
         self.default_obj_t.deinit();
 
-        // Deinit v8 isolate last.
+        // Deinit isolate after exiting.
+        self.exit();
+        self.context.deinit();
         self.isolate.deinit();
         v8.destroyArrayBufferAllocator(self.create_params.array_buffer_allocator.?);
     }
@@ -417,7 +435,12 @@ pub const RuntimeContext = struct {
             .CsWindow => {
                 // TODO: This should do cleanup like deleteCsWindowBySdlId
                 const window = stdx.mem.ptrCastAlign(*CsWindow, handle.ptr);
-                window.deinit(self);
+                if (self.dev_mode and self.dev_restart_req) {
+                    // Skip deiniting the window for a dev mode restart.
+                    window.deinit(self, self.dev_ctx.dev_window == window);
+                } else {
+                    window.deinit(self, false);
+                }
 
                 // Update current vars.
                 self.num_windows -= 1;
@@ -564,9 +587,10 @@ pub const RuntimeContext = struct {
         };
     }
 
-    /// Destroys the ResourceHandle and removes it from the runtime. Doing so also frees the resource slot for reuse.
-    /// This is called when the js handle invokes the weak finalizer. At that point no js handle
-    /// still references the id so it is safe to remove the native handle.
+    /// Destroys the ResourceHandle and removes it from the runtime.
+    /// Doing so also frees the resource slot for reuse.
+    /// This is called when the js handle invokes the weak finalizer.
+    /// At that point no js handle still references the id so it is safe to remove the native handle.
     pub fn destroyResourceHandle(self: *Self, res_id: ResourceId) void {
         if (!self.resources.has(res_id)) {
             log.err("Expected resource id: {}", .{res_id});
@@ -577,7 +601,8 @@ pub const RuntimeContext = struct {
             self.startDeinitResourceHandle(res_id);
         }
 
-        // The external handle is kept alive after deinit since it's needed by a finalizer callback.
+        // The external handle is kept alive after the deinit step,
+        // since it's needed by a finalizer callback.
         if (res.tag != .Dummy) {
             self.alloc.destroy(res.external_handle);
 
@@ -1075,7 +1100,7 @@ fn reportUncaughtPromiseRejections() void {
 }
 
 // Main loop for running user apps.
-pub fn runUserLoop(rt: *RuntimeContext) void {
+pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
     const iso = rt.isolate;
 
     var try_catch: v8.TryCatch = undefined;
@@ -1143,16 +1168,23 @@ pub fn runUserLoop(rt: *RuntimeContext) void {
         }
 
         if (rt.num_windows == 1) {
-            updateSingleWindow(rt);
+            updateSingleWindow(rt, DevMode);
         } else {
-            updateMultipleWindows(rt);
+            updateMultipleWindows(rt, DevMode);
         }
 
         processMainEventLoop(rt);
+
+        if (DevMode) {
+            if (rt.dev_restart_req) {
+                return;
+            }
+        }
     }
 }
 
-fn updateMultipleWindows(rt: *RuntimeContext) void {
+fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
+    _ = DevMode;
     const ctx = rt.getContext();
 
     // Currently, we just use the smallest delay. This forces larger target fps to be update more frequently.
@@ -1202,7 +1234,7 @@ fn updateMultipleWindows(rt: *RuntimeContext) void {
     // TODO: Run any queued micro tasks.
 }
 
-fn updateSingleWindow(rt: *RuntimeContext) void {
+fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
     const ctx = rt.getContext();
     rt.active_window.window.beginFrame();
 
@@ -1217,6 +1249,20 @@ fn updateSingleWindow(rt: *RuntimeContext) void {
             // errorFmt("{s}", .{trace});
             // return;
         };
+    }
+
+    if (DevMode) {
+        if (rt.dev_ctx.dev_window != null) {
+            // No user windows are active. Draw a default background.
+            const g = rt.active_window.graphics;
+            // Background.
+            const Background = graphics.Color.init(30, 30, 30, 255);
+            g.setFillColor(Background);
+            g.fillRect(0, 0, @intToFloat(f32, rt.active_window.window.inner.width), @intToFloat(f32, rt.active_window.window.inner.height));
+            devmode.renderDevHud(rt, rt.active_window);
+        } else if (rt.active_window.show_dev_mode) {
+            devmode.renderDevHud(rt, rt.active_window);
+        }
     }
 
     rt.active_window.window.endFrame();
@@ -1295,6 +1341,8 @@ pub const CsWindow = struct {
 
     fps_limiter: graphics.DefaultFpsLimiter,
 
+    show_dev_mode: bool,
+
     pub fn init(self: *Self, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
         const iso = rt.isolate;
         const ctx = rt.getContext();
@@ -1319,11 +1367,14 @@ pub const CsWindow = struct {
             .js_graphics = iso.initPersistent(v8.Object, js_graphics),
             .graphics = g,
             .fps_limiter = graphics.DefaultFpsLimiter.init(60),
+            .show_dev_mode = false,
         };
     }
 
-    pub fn deinit(self: *Self, rt: *RuntimeContext) void {
-        self.window.deinit();
+    pub fn deinit(self: *Self, rt: *RuntimeContext, skip_window: bool) void {
+        if (!skip_window) {
+            self.window.deinit();
+        }
 
         if (self.on_update_cb) |*cb| {
             cb.deinit();
@@ -1405,7 +1456,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, true);
+    rt.init(alloc, platform, abs_path, true, false);
     rt.enter();
     defer {
         shutdownRuntime(&rt);
@@ -1435,8 +1486,52 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     return rt.num_tests_passed == rt.num_tests;
 }
 
+/// Performs a restart for dev mode.
+fn restart(rt: *RuntimeContext) !void {
+    // log.debug("restart", .{});
+
+    // Save context.
+    const alloc = rt.alloc;
+    const platform = rt.platform;
+    const main_script_path = alloc.dupe(u8, rt.main_script_path) catch unreachable;
+    defer alloc.free(main_script_path);
+    rt.dev_ctx.dev_window = rt.active_window; // Set dev_window so deinit skips this window resource.
+    const win = rt.dev_ctx.dev_window.?.window;
+    const dev_ctx = rt.dev_ctx;
+
+    // Shutdown runtime.
+    shutdownRuntime(rt);
+    rt.exit();
+    rt.deinit();
+
+    // Start runtime again with saved context.
+    rt.init(alloc, platform, main_script_path, false, true);
+    rt.enter();
+
+    // Reuse dev context.
+    rt.dev_ctx = dev_ctx;
+
+    // Reuse window.
+    const res = rt.createCsWindowResource();
+    res.ptr.init(rt, win, res.id);
+    rt.active_window = res.ptr;
+    rt.active_window.show_dev_mode = true;
+
+    rt.dev_ctx.cmdLog("Restarted.");
+    rt.dev_ctx.dev_window = res.ptr;
+
+    // Reinit watcher
+    rt.dev_ctx.initWatcher(rt, main_script_path);
+
+    try rt.runMainScript();
+}
+
 /// Shutdown other threads gracefully before starting deinit.
 fn shutdownRuntime(rt: *RuntimeContext) void {
+    if (rt.dev_mode) {
+        rt.dev_ctx.close();
+    }
+
     rt.timer.close();
 
     rt.uv_poller.close_flag.store(true, .Release);
@@ -1640,7 +1735,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
     }
 }
 
-pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
+pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: bool) !void {
     _ = curl.initDefault();
     defer curl.deinit();
 
@@ -1665,7 +1760,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, false);
+    rt.init(alloc, platform, abs_path, false, dev_mode);
     rt.enter();
     defer {
         shutdownRuntime(&rt);
@@ -1673,20 +1768,53 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8) !void {
         rt.deinit();
     }
 
+    if (dev_mode) {
+        rt.dev_ctx.init(alloc);
+
+        // Create the dev mode window.
+        // The first window created by the user script will take over this window.
+        const win = graphics.Window.init(rt.alloc, .{
+            .width = 800,
+            .height = 600,
+            .title = "Dev Mode",
+            .high_dpi = true,
+            .resizable = true,
+            .mode = .Windowed,
+        }) catch unreachable;
+        const res = rt.createCsWindowResource();
+        res.ptr.init(&rt, win, res.id);
+        rt.active_window = res.ptr;
+        rt.active_window.show_dev_mode = true;
+        rt.dev_ctx.cmdLog("Dev Mode started.");
+        rt.dev_ctx.dev_window = res.ptr;
+
+        // Start watching the main script.
+        rt.dev_ctx.initWatcher(&rt, abs_path);
+    }
+
     try rt.runMainScript();
 
     // Check if we need to enter an app loop.
-    if (rt.num_windows > 0) {
-        runUserLoop(&rt);
-    }
-
-    // For now we assume the user won't use a realtime loop with event loop.
-    // TODO: process event loop tasks in the realtime loop.
-    while (true) {
-        if (pollMainEventLoop(&rt)) {
-            processMainEventLoop(&rt);
-            continue;
-        } else break;
+    if (!dev_mode) {
+        if (rt.num_windows > 0) {
+            runUserLoop(&rt, false);
+        } else {
+            // For now we assume the user won't use a realtime loop with event loop.
+            while (true) {
+                if (pollMainEventLoop(&rt)) {
+                    processMainEventLoop(&rt);
+                    continue;
+                } else break;
+            }
+        }
+    } else {
+        while (true) {
+            runUserLoop(&rt, true);
+            if (rt.dev_restart_req) {
+                try restart(&rt);
+                continue;
+            } else break;
+        }
     }
 }
 
