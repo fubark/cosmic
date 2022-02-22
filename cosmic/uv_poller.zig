@@ -51,6 +51,14 @@ pub const UvPoller = struct {
     }
 
     pub fn run(self: *Self) void {
+        // pthread on macos only allows setting the name on the current thread.
+        switch (builtin.os.tag) {
+            .macos, .ios, .watchos, .tvos => if (builtin.link_libc) {
+                _ = std.c.pthread_setname_np("UV Poller");
+            },
+            else => {},
+        }
+
         while (true) {
             if (self.close_flag.load(.Acquire)) {
                 break;

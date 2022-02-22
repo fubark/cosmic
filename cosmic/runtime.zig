@@ -315,7 +315,8 @@ pub const RuntimeContext = struct {
 
         // Start uv poller thread.
         self.uv_poller = UvPoller.init(self.uv_loop, &self.main_wakeup);
-        _ = std.Thread.spawn(.{}, UvPoller.run, .{&self.uv_poller}) catch unreachable;
+        const thread = std.Thread.spawn(.{}, UvPoller.run, .{&self.uv_poller}) catch unreachable;
+        _ = thread.setName("UV Poller") catch {};
     }
 
     /// Isolate should not be entered when calling this.
