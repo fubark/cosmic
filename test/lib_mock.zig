@@ -353,3 +353,7 @@ export fn v8__Context__Global() void {}
 export fn h2o_context_dispose() void {}
 export fn uv_is_closing() void {}
 export fn SDL_GL_GetDrawableSize() void {}
+export fn SDL_SetWindowSize() void {}
+export fn SDL_GetWindowSize() void {}
+export fn SDL_SetWindowTitle() void {}
+export fn SDL_GetWindowTitle() void {}
