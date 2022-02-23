@@ -252,6 +252,13 @@ pub const cs_window = struct {
             const title = this.res.window.getTitle(rt.alloc);
             return ds.Box([]const u8).init(rt.alloc, title);
         }
+
+        /// Resizes the window.
+        /// @param width
+        /// @param height
+        pub fn resize(this: ThisResource(.CsWindow), width: u32, height: u32) void {
+            this.res.window.resize(width, height);
+        }
     };
 };
 

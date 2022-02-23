@@ -83,6 +83,13 @@ pub const Window = struct {
         }
     }
 
+    pub fn resize(self: *Self, width: u32, height: u32) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.resize(&self.inner, width, height),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     /// Internal function to update the buffer on a user resize or window manager resize.
     /// An explicit call to resize() should not need to call this.
     pub fn handleResize(self: *Self, width: u32, height: u32) void {

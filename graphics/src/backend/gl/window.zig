@@ -151,6 +151,29 @@ pub const Window = struct {
         }
     }
 
+    pub fn resize(self: *Self, width: u32, height: u32) void {
+        sdl.SDL_SetWindowSize(self.sdl_window, @intCast(c_int, width), @intCast(c_int, height));
+
+        var cur_width: c_int = undefined;
+        var cur_height: c_int = undefined;
+        sdl.SDL_GetWindowSize(self.sdl_window, &cur_width, &cur_height);
+        self.width = @intCast(u32, cur_width);
+        self.height = @intCast(u32, cur_height);
+
+        var buf_width: c_int = undefined;
+        var buf_height: c_int = undefined;
+        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+        self.buf_width = @intCast(u32, buf_width);
+        self.buf_height = @intCast(u32, buf_height);
+
+        self.proj_transform = initDisplayProjection(@intToFloat(f32, self.width), @intToFloat(f32, self.height));
+        self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
+
+        if (self.msaa) |msaa| {
+            resizeMsaaFrameBuffer(msaa, self.buf_width, self.buf_height);
+        }
+    }
+
     pub fn minimize(self: Self) void {
         sdl.SDL_MinimizeWindow(self.sdl_window);
     }
