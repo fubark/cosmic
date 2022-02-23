@@ -198,6 +198,10 @@ pub const Window = struct {
         sdl.SDL_SetWindowPosition(self.sdl_window, x, y);
     }
 
+    pub fn center(self: Self) void {
+        sdl.SDL_SetWindowPosition(self.sdl_window, sdl.SDL_WINDOWPOS_CENTERED, sdl.SDL_WINDOWPOS_CENTERED);
+    }
+
     pub fn focus(self: Self) void {
         sdl.SDL_RaiseWindow(self.sdl_window);
     }

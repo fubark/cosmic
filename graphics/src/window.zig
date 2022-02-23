@@ -142,6 +142,13 @@ pub const Window = struct {
         }
     }
 
+    pub fn center(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.center(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn focus(self: Self) void {
         switch (Backend) {
             .OpenGL => gl.Window.focus(self.inner),

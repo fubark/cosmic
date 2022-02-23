@@ -225,6 +225,11 @@ pub const cs_window = struct {
             this.res.window.setPosition(x, y);
         }
 
+        /// Center the window on the screen.
+        pub fn center(this: ThisResource(.CsWindow)) void {
+            this.res.window.center();
+        }
+
         /// Raises the window above other windows and acquires the input focus.
         pub fn focus(this: ThisResource(.CsWindow)) void {
             this.res.window.focus();
