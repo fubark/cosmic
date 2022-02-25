@@ -450,6 +450,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         }
     }
 
+    // Attach rt pointer for callbacks that don't have user data. eg. ResolveModuleCallback
+    const rt_external = iso.initExternal(rt);
+    res.setEmbedderData(0, rt_external);
+
     return res;
 }
 

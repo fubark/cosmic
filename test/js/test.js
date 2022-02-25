@@ -8,11 +8,22 @@ const throws = cs.test.throws
 const test = cs.test.create
 const testIsolated = cs.test.createIsolated
 
+import { foo, bar } from 'extra/submod_a.js'
+
 test('cs.test asserts', () => {
     eq(1, 1)
     eq(0, 0)
     neq(0, false)
     neq(false, '')
+})
+
+// TODO: Expose an eval function and test that instead.
+test('esm imports', () => {
+    // Import.
+    eq(foo, 1)
+
+    // Nested import.
+    eq(bar, 2)
 })
 
 test('errCode and errString', () => {

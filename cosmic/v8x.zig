@@ -32,7 +32,7 @@ pub fn executeString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context,
     try_catch.init(iso);
     defer try_catch.deinit();
 
-    var origin = v8.ScriptOrigin.initDefault(iso, src_origin.handle);
+    var origin = v8.ScriptOrigin.initDefault(iso, src_origin.toValue());
 
     var context = iso.getCurrentContext();
 
@@ -44,20 +44,21 @@ pub fn executeString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context,
 
     const js_src = v8.String.initUtf8(iso, final_src);
 
-    if (v8.Script.compile(context, js_src, origin)) |script| {
-        if (script.run(context)) |script_res| {
-            result.* = .{
-                .alloc = alloc,
-                .result = allocPrintValueAsUtf8(alloc, iso, context, script_res),
-                .err = null,
-                .success = true,
-            };
-        } else {
-            setResultError(alloc, iso, ctx, try_catch, result);
-        }
-    } else {
+    // TODO: Use ScriptCompiler.compile to take a ScriptCompilerSource option that can account for the extra line offset.
+    const script = v8.Script.compile(context, js_src, origin) catch {
         setResultError(alloc, iso, ctx, try_catch, result);
-    }
+        return;
+    };
+    const script_res = script.run(context) catch {
+        setResultError(alloc, iso, ctx, try_catch, result);
+        return;
+    };
+    result.* = .{
+        .alloc = alloc,
+        .result = allocValueAsUtf8(alloc, iso, context, script_res),
+        .err = null,
+        .success = true,
+    };
 }
 
 pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, message: v8.Message, default_msg: []const u8) []const u8 {
@@ -70,20 +71,23 @@ pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ct
     hscope.init(iso);
     defer hscope.deinit();
 
-    // Append source line.
-    const source_line = message.getSourceLine(ctx).?;
-    _ = appendValueAsUtf8(&buf, iso, ctx, source_line);
-    writer.writeAll("\n") catch unreachable;
+    // Some exceptions don't have a line mapping by default. eg. Exceptions thrown in native callbacks.
+    if (message.getLineNumber(ctx) != null) {
+        // Append source line.
+        const source_line = message.getSourceLine(ctx).?;
+        _ = appendValueAsUtf8(&buf, iso, ctx, source_line);
+        writer.writeAll("\n") catch unreachable;
 
-    // Print wavy underline.
-    const col_start = message.getStartColumn();
-    const col_end = message.getEndColumn();
-    var i: u32 = 0;
-    while (i < col_start) : (i += 1) {
-        writer.writeByte(' ') catch unreachable;
-    }
-    while (i < col_end) : (i += 1) {
-        writer.writeByte('^') catch unreachable;
+        // Print wavy underline.
+        const col_start = message.getStartColumn().?;
+        const col_end = message.getEndColumn().?;
+        var i: u32 = 0;
+        while (i < col_start) : (i += 1) {
+            writer.writeByte(' ') catch unreachable;
+        }
+        while (i < col_end) : (i += 1) {
+            writer.writeByte('^') catch unreachable;
+        }
     }
 
     // Exception message.
@@ -109,10 +113,25 @@ pub fn appendStackTraceString(buf: *std.ArrayList(u8), iso: v8.Isolate, trace: v
             writer.writeAll(" ") catch unreachable;
         }
         appendStringAsUtf8(buf, iso, frame.getScriptNameOrSourceUrl());
-        // Subtract line number by one since we prepend all scripts with "use strict".
-        writer.print(":{}:{}", .{frame.getLineNumber()-1, frame.getColumn()}) catch unreachable;
+        writer.print(":{}:{}", .{frame.getLineNumber(), frame.getColumn()}) catch unreachable;
         writer.writeAll("\n") catch unreachable;
     }
+}
+
+pub fn allocExceptionStackTraceString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, exception: v8.Value) []const u8 {
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(iso);
+    defer hscope.deinit();
+
+    var buf = std.ArrayList(u8).init(alloc);
+    const writer = buf.writer();
+
+    _ = appendValueAsUtf8(&buf, iso, ctx, exception);
+    writer.writeAll("\n") catch unreachable;
+
+    appendStackTraceString(&buf, iso, v8.Exception.getStackTrace(exception));
+
+    return buf.toOwnedSlice();
 }
 
 pub fn allocPrintTryCatchStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, try_catch: v8.TryCatch) ?[]const u8 {
@@ -126,13 +145,13 @@ pub fn allocPrintTryCatchStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, c
 
     if (try_catch.getMessage()) |message| {
         const exception = try_catch.getException().?;
-        const exception_str = allocPrintValueAsUtf8(alloc, iso, ctx, exception);
+        const exception_str = allocValueAsUtf8(alloc, iso, ctx, exception);
         defer alloc.free(exception_str);
         return allocPrintMessageStackTrace(alloc, iso, ctx, message, exception_str);
     } else {
         // V8 didn't provide any extra information about this error, just get exception str.
         const exception = try_catch.getException().?;
-        return allocPrintValueAsUtf8(alloc, iso, ctx, exception);
+        return allocValueAsUtf8(alloc, iso, ctx, exception);
     }
 }
 
@@ -172,12 +191,19 @@ pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: v8.Isolate, ctx: v8.C
     return arr.items[start..];
 }
 
-pub fn allocPrintValueAsUtf8(alloc: std.mem.Allocator, isolate: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
+pub fn allocStringAsUtf8(alloc: std.mem.Allocator, iso: v8.Isolate, str: v8.String) []const u8 {
+    const len = str.lenUtf8(iso);
+    const buf = alloc.alloc(u8, len) catch unreachable;
+    _ = str.writeUtf8(iso, buf);
+    return buf;
+}
+
+pub fn allocValueAsUtf8(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);
-    const len = str.lenUtf8(isolate);
+    const len = str.lenUtf8(iso);
     const buf = alloc.alloc(u8, len) catch unreachable;
-    _ = str.writeUtf8(isolate, buf);
+    _ = str.writeUtf8(iso, buf);
     return buf;
 }
 
@@ -196,7 +222,9 @@ pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: v8.Isolate, com
 pub fn updateOptionalPersistent(comptime T: type, iso: v8.Isolate, existing: *?v8.Persistent(T), mb_val: ?T) void {
     if (mb_val) |val| {
         if (existing.* != null) {
-            if (existing.*.?.inner.handle.* != val.handle.*) {
+            const existing_addr = stdx.mem.ptrCastAlign(*const v8.C_InternalAddress, existing.*.?.inner.handle);
+            const val_addr = stdx.mem.ptrCastAlign(*const v8.C_InternalAddress, val.handle);
+            if (existing_addr.* != val_addr.*) {
                 // Internal addresses doesn't match, deinit existing persistent.
                 existing.*.?.deinit();
             } else {

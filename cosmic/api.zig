@@ -929,7 +929,7 @@ pub const cs_core = struct {
 
         var i: u32 = 0;
         while (i < len) : (i += 1) {
-            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
+            const str = v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
             if (DevMode) {
@@ -1578,12 +1578,12 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
+    const test_name = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     // TODO: report stack trace.
     rt.num_async_tests_finished += 1;
-    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
+    const str = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
     defer rt.alloc.free(str);
 
     printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});

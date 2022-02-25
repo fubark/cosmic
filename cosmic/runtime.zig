@@ -135,6 +135,8 @@ pub const RuntimeContext = struct {
     js_false: v8.Boolean,
     js_true: v8.Boolean,
 
+    modules: std.AutoHashMap(u32, ModuleInfo),
+
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
         platform: v8.Platform,
@@ -201,6 +203,8 @@ pub const RuntimeContext = struct {
             .context = undefined,
             .create_params = undefined,
             .hscope = undefined,
+
+            .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -370,6 +374,14 @@ pub const RuntimeContext = struct {
 
         self.alloc.free(self.main_script_path);
 
+        {
+            var iter = self.modules.valueIterator();
+            while (iter.next()) |it| {
+                it.deinit(self.alloc);
+            }
+            self.modules.deinit();
+        }
+
         self.timer.deinit();
 
         self.window_class.deinit();
@@ -406,10 +418,146 @@ pub const RuntimeContext = struct {
         return self.context.inner;
     }
 
-    fn runMainScript(self: *Self) !void {
-        const origin = v8.String.initUtf8(self.isolate, self.main_script_path);
+    fn runModuleScript(self: *Self, abs_path: []const u8) !void {
+        const alloc = self.alloc;
+        const iso = self.isolate;
+        const origin_path = iso.initStringUtf8(abs_path);
 
-        const src = try std.fs.cwd().readFileAlloc(self.alloc, self.main_script_path, 1e9);
+        const src = try std.fs.cwd().readFileAlloc(alloc, abs_path, 1e9);
+        defer self.alloc.free(src);
+        const js_src = self.isolate.initStringUtf8(src);
+
+        var try_catch: v8.TryCatch = undefined;
+        try_catch.init(iso);
+        defer try_catch.deinit();
+
+        var origin = v8.ScriptOrigin.init(iso, origin_path.toValue(), 
+            0, 0, false, -1, null, false, false, true, null,
+        );
+
+        var mod_src: v8.ScriptCompilerSource = undefined;
+        // TODO: Look into CachedData.
+        mod_src.init(js_src, origin, null);
+        defer mod_src.deinit();
+
+        const mod = v8.ScriptCompiler.compileModule(self.isolate, &mod_src, .kNoCompileOptions, .kNoCacheNoReason) catch {
+            const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
+            defer self.alloc.free(trace_str);
+            errorFmt("{s}", .{trace_str});
+            return error.MainScriptError;
+        };
+        std.debug.assert(mod.getStatus() == .kUninstantiated);
+
+        const mod_info = ModuleInfo{
+            .dir = self.alloc.dupe(u8, std.fs.path.dirname(abs_path).?) catch unreachable,
+        };
+        self.modules.put(mod.getScriptId(), mod_info) catch unreachable;
+
+        // const reqs = mod.getModuleRequests();
+        // log.debug("reqs: {}", .{ reqs.length() });
+        // const req = reqs.get(self.getContext(), 0).castTo(v8.ModuleRequest);
+        // const spec = v8x.allocPrintValueAsUtf8(self.alloc, self.isolate, self.getContext(), req.getSpecifier());
+        // defer self.alloc.free(spec);
+        // log.debug("import: {s}", .{spec});
+
+        const S = struct {
+            fn resolveModule(
+                ctx_ptr: ?*const v8.C_Context,
+                spec_: ?*const v8.C_Data,
+                import_assertions: ?*const v8.C_FixedArray,
+                referrer: ?*const v8.C_Module
+            ) callconv(.C) ?*const v8.C_Module {
+                _ = import_assertions;
+                const ctx = v8.Context{ .handle = ctx_ptr.? };
+                const rt = stdx.mem.ptrCastAlign(*RuntimeContext, ctx.getEmbedderData(0).castTo(v8.External).get());
+                const js_spec = v8.String{ .handle = spec_.? };
+                const iso_ = ctx.getIsolate();
+
+                var origin_ = v8.ScriptOrigin.init(iso_, js_spec.toValue(), 
+                    0, 0, false, -1, null, false, false, true, null,
+                );
+
+                const spec_str = v8x.allocStringAsUtf8(rt.alloc, iso_, js_spec);
+                defer rt.alloc.free(spec_str);
+
+                var abs_path_: []const u8 = undefined;
+                var abs_path_needs_free = false;
+                defer {
+                    if (abs_path_needs_free) {
+                        rt.alloc.free(abs_path_);
+                    }
+                }
+                if (std.fs.path.isAbsolute(spec_str)) {
+                    abs_path_ = spec_str;
+                } else {
+                    // Build path from referrer's script dir.
+                    const referrer_mod = v8.Module{ .handle = referrer.? };
+                    const referrer_info = rt.modules.get(referrer_mod.getScriptId()).?;
+                    abs_path_ = std.fmt.allocPrint(rt.alloc, "{s}/{s}", .{ referrer_info.dir, spec_str }) catch unreachable;
+                    abs_path_needs_free = true;
+                }
+
+                const src_ = std.fs.cwd().readFileAlloc(rt.alloc, abs_path_, 1e9) catch {
+                    v8x.throwErrorExceptionFmt(rt.alloc, iso_, "Failed to load module: {s}", .{spec_str});
+                    return null;
+                };
+                defer rt.alloc.free(src_);
+
+                const js_src_ = iso_.initStringUtf8(src_);
+
+                var mod_src_: v8.ScriptCompilerSource = undefined;
+                mod_src_.init(js_src_, origin_, null);
+                defer mod_src_.deinit();
+
+                var try_catch_: v8.TryCatch = undefined;
+                try_catch_.init(iso_);
+                defer try_catch_.deinit();
+
+                const mod_ = v8.ScriptCompiler.compileModule(iso_, &mod_src_, .kNoCompileOptions, .kNoCacheNoReason) catch {
+                    _ = try_catch_.rethrow();
+                    return null;
+                };
+
+                const mod_info_ = ModuleInfo{
+                    .dir = rt.alloc.dupe(u8, std.fs.path.dirname(abs_path_).?) catch unreachable,
+                };
+                rt.modules.put(mod_.getScriptId(), mod_info_) catch unreachable;
+
+                return mod_.handle;
+            }
+        };
+
+        const success = mod.instantiate(self.getContext(), S.resolveModule) catch {
+            const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
+            defer self.alloc.free(trace_str);
+            errorFmt("{s}", .{trace_str});
+            return error.MainScriptError;
+        };
+        if (!success) {
+            stdx.panic("TODO: Did not expect !success.");
+        }
+        std.debug.assert(mod.getStatus() == .kInstantiated);
+
+        const res = mod.evaluate(self.getContext()) catch {
+            const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
+            defer self.alloc.free(trace_str);
+            errorFmt("{s}", .{trace_str});
+            return error.MainScriptError;
+        };
+        _ = res;
+        if (mod.getStatus() == .kErrored) {
+            const trace_str = v8x.allocExceptionStackTraceString(self.alloc, self.isolate, self.getContext(), mod.getException());
+            defer self.alloc.free(trace_str);
+            errorFmt("{s}", .{trace_str});
+            return error.MainScriptError;
+        }
+        processV8EventLoop(self);
+    }
+
+    fn runScript(self: *Self, abs_path: []const u8) !void {
+        const origin = v8.String.initUtf8(self.isolate, abs_path);
+
+        const src = try std.fs.cwd().readFileAlloc(self.alloc, abs_path, 1e9);
         defer self.alloc.free(src);
 
         var res: v8x.ExecuteResult = undefined;
@@ -422,6 +570,10 @@ pub const RuntimeContext = struct {
             errorFmt("{s}", .{res.err.?});
             return error.MainScriptError;
         }
+    }
+
+    fn runMainScript(self: *Self) !void {
+        try self.runModuleScript(self.main_script_path);
     }
 
     /// Destroys the resource owned by the handle and marks it as deinited.
@@ -754,7 +906,7 @@ pub const RuntimeContext = struct {
                 return iso.initStringUtf8(str).handle;
             },
             *const anyopaque => {
-                return stdx.mem.ptrCastAlign(*const v8.C_Value, native_val);
+                return @ptrCast(*const v8.C_Value, native_val);
             },
             v8.Persistent(v8.Object) => {
                 return native_val.inner.handle;
@@ -871,7 +1023,7 @@ pub const RuntimeContext = struct {
                     const num_keys = keys.length();
                     var i: u32 = 0;
                     while (i < num_keys) {
-                        const native_key = v8x.allocPrintValueAsUtf8(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
+                        const native_key = v8x.allocValueAsUtf8(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
                         native_val.put(native_key, self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i)).?) catch unreachable;
                     }
                     return native_val;
@@ -1051,11 +1203,11 @@ pub fn ManagedStruct(comptime T: type) type {
 }
 
 var galloc: std.mem.Allocator = undefined;
-var uncaught_promise_errors: std.AutoHashMap(c_int, []const u8) = undefined;
+var uncaught_promise_errors: std.AutoHashMap(u32, []const u8) = undefined;
 
 fn initGlobal(alloc: std.mem.Allocator) void {
     galloc = alloc;
-    uncaught_promise_errors = std.AutoHashMap(c_int, []const u8).init(alloc);
+    uncaught_promise_errors = std.AutoHashMap(u32, []const u8).init(alloc);
 }
 
 fn deinitGlobal() void {
@@ -1078,7 +1230,7 @@ fn promiseRejectCallback(c_msg: v8.C_PromiseRejectMessage) callconv(.C) void {
         v8.PromiseRejectEvent.kPromiseRejectWithNoHandler => {
             // Record this uncaught incident since a follow up kPromiseHandlerAddedAfterReject can remove the record.
             // At a later point reportUncaughtPromiseRejections will list all of them.
-            const str = v8x.allocPrintValueAsUtf8(galloc, iso, ctx, msg.getValue());
+            const str = v8x.allocValueAsUtf8(galloc, iso, ctx, msg.getValue());
             const key = promise.toObject().getIdentityHash();
             uncaught_promise_errors.put(key, str) catch unreachable;
         },
@@ -1980,11 +2132,11 @@ fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
+    const test_name = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     rt.num_isolated_tests_finished += 1;
-    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
+    const str = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
     defer rt.alloc.free(str);
 
     // TODO: Show stack trace.
@@ -2064,3 +2216,13 @@ const c_log = stdx.log.scoped(.c);
 pub export fn cosmic_log(buf: [*c]const u8) void {
     c_log.debug("{s}", .{ buf });
 }
+
+const ModuleInfo = struct {
+    const Self = @This();
+
+    dir: []const u8,
+
+    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+        alloc.free(self.dir);
+    }
+};
