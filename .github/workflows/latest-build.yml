@@ -96,8 +96,9 @@ jobs:
           zig build version > version 2>&1
           echo "BUILD_VERSION=$(cat version)" >> $env:GITHUB_ENV
 
-      # Override zig global cache dir has problems on windows so just save default windows dir. (windows build needs the same global cache for subsequent builds)
       - name: Cache.
+        # Don't cache for windows, since there are issues with subsequent builds. Check to re-enable this later.
+        if: env.BUILD_TARGET != 'x86_64-windows-gnu'
         uses: actions/cache@v2
         with:
           path: |-
