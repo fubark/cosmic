@@ -49,6 +49,21 @@ pub const cs_window = struct {
     /// @param width
     /// @param height
     pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
+        if (rt.dev_mode and rt.dev_ctx.dev_window != null) {
+            // Take over the dev window.
+            const dev_win = rt.dev_ctx.dev_window.?;
+            const cur_width = dev_win.window.getWidth();
+            const cur_height = dev_win.window.getHeight();
+            dev_win.window.setTitle(title);
+            if (cur_width != width or cur_height != height) {
+                dev_win.window.resize(width, height);
+                dev_win.window.center();
+            }
+            rt.dev_ctx.dev_window = null;
+            rt.active_window = dev_win;
+            return dev_win.js_window.castToObject();
+        }
+
         var win: graphics.Window = undefined;
         if (rt.num_windows > 0) {
             // Create a new window using an existing open gl context.
@@ -225,6 +240,11 @@ pub const cs_window = struct {
             this.res.window.setPosition(x, y);
         }
 
+        /// Center the window on the screen.
+        pub fn center(this: ThisResource(.CsWindow)) void {
+            this.res.window.center();
+        }
+
         /// Raises the window above other windows and acquires the input focus.
         pub fn focus(this: ThisResource(.CsWindow)) void {
             this.res.window.focus();
@@ -238,6 +258,26 @@ pub const cs_window = struct {
         /// Returns the height of the window in logical pixel units.
         pub fn getHeight(this: ThisResource(.CsWindow)) u32 {
             return this.res.window.getWidth();
+        }
+
+        /// Sets the window's title.
+        /// @param title
+        pub fn setTitle(this: ThisResource(.CsWindow), title: []const u8) void {
+            this.res.window.setTitle(title);
+        }
+
+        /// Gets the window's title.
+        /// @param title
+        pub fn getTitle(rt: *RuntimeContext, this: ThisResource(.CsWindow)) ds.Box([]const u8) {
+            const title = this.res.window.getTitle(rt.alloc);
+            return ds.Box([]const u8).init(rt.alloc, title);
+        }
+
+        /// Resizes the window.
+        /// @param width
+        /// @param height
+        pub fn resize(this: ThisResource(.CsWindow), width: u32, height: u32) void {
+            this.res.window.resize(width, height);
         }
     };
 };
@@ -869,10 +909,19 @@ pub const cs_core = struct {
     /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        printInternal(info, false);
+    }
+
+    pub fn print_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        printInternal(info, true);
+    }
+
+    fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool) void {
         const len = info.length();
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         const iso = rt.isolate;
-        const ctx = rt.context;
+        const ctx = rt.getContext();
 
         var hscope: v8.HandleScope = undefined;
         hscope.init(iso);
@@ -880,9 +929,12 @@ pub const cs_core = struct {
 
         var i: u32 = 0;
         while (i < len) : (i += 1) {
-            const str = v8x.allocPrintValueAsUtf8(rt.alloc, iso, ctx.inner, info.getArg(i));
+            const str = v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
+            if (DevMode) {
+                rt.dev_ctx.printFmt("{s} ", .{str});
+            }
         }
     }
 
@@ -891,6 +943,14 @@ pub const cs_core = struct {
     pub fn puts(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         print(raw_info);
         printFmt("\n", .{});
+    }
+
+    pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        printInternal(info, true);
+        printFmt("\n", .{});
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        rt.dev_ctx.print("\n");
     }
 
     /// Converts a buffer to a UTF-8 string.
@@ -1518,12 +1578,12 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
-    const test_name = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
+    const test_name = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
     defer rt.alloc.free(test_name);
 
     // TODO: report stack trace.
     rt.num_async_tests_finished += 1;
-    const str = v8x.allocPrintValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
+    const str = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
     defer rt.alloc.free(str);
 
     printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});

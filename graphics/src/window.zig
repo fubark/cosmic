@@ -83,6 +83,13 @@ pub const Window = struct {
         }
     }
 
+    pub fn resize(self: *Self, width: u32, height: u32) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.resize(&self.inner, width, height),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     /// Internal function to update the buffer on a user resize or window manager resize.
     /// An explicit call to resize() should not need to call this.
     pub fn handleResize(self: *Self, width: u32, height: u32) void {
@@ -135,6 +142,13 @@ pub const Window = struct {
         }
     }
 
+    pub fn center(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.center(self.inner),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn focus(self: Self) void {
         switch (Backend) {
             .OpenGL => gl.Window.focus(self.inner),
@@ -148,6 +162,20 @@ pub const Window = struct {
             .OpenGL => gl.Window.swapBuffers(self.inner),
             .WasmCanvas => {},
             .Test => {},
+        }
+    }
+
+    pub fn setTitle(self: Self, title: []const u8) void {
+        switch (Backend) {
+            .OpenGL => gl.Window.setTitle(self.inner, title),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn getTitle(self: Self, alloc: std.mem.Allocator) []const u8 {
+        switch (Backend) {
+            .OpenGL => return gl.Window.getTitle(self.inner, alloc),
+            else => stdx.panic("unsupported"),
         }
     }
 };

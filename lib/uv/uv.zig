@@ -17,6 +17,7 @@ pub const uv_async_t = c.uv_async_t;
 pub const uv_timer_t = c.uv_timer_t;
 pub const uv_poll_t = c.uv_poll_t;
 pub const uv_timer_cb = c.uv_timer_cb;
+pub const uv_fs_event_t = c.uv_fs_event_t;
 
 pub const UV_EBUSY = c.UV_EBUSY;
 
@@ -31,6 +32,11 @@ pub const UV_WRITABLE = c.UV_WRITABLE;
 pub const UV_TCP = c.UV_TCP;
 pub const UV_TIMER = c.UV_TIMER;
 
+// uv_fs_event enum
+pub const UV_RENAME = c.UV_RENAME;
+pub const UV_CHANGE = c.UV_CHANGE;
+
+pub const uv_fs_event_cb = ?fn (*uv_fs_event_t, [*c]const u8, c_int, c_int) callconv(.C) void;
 pub const uv_connection_cb = ?fn (*uv_stream_t, c_int) callconv(.C) void;
 pub extern fn uv_loop_init(loop: *uv_loop_t) c_int;
 pub extern fn uv_listen(stream: *uv_stream_t, backlog: c_int, cb: uv_connection_cb) c_int;
@@ -72,6 +78,9 @@ pub extern fn uv_poll_start(handle: *uv_poll_t, events: c_int, cb: c.uv_poll_cb)
 pub extern fn uv_poll_stop(handle: *uv_poll_t) c_int;
 pub extern fn uv_is_closing(handle: *const uv_handle_t) c_int;
 pub extern fn uv_update_time(*uv_loop_t) void;
+pub extern fn uv_fs_event_init(loop: *uv_loop_t, handle: *uv_fs_event_t) c_int;
+pub extern fn uv_fs_event_start(handle: *uv_fs_event_t, cb: uv_fs_event_cb, path: [*c]const u8, flags: c_uint) c_int;
+pub extern fn uv_fs_event_stop(handle: *uv_fs_event_t) c_int;
 
 pub fn assertNoError(code: c_int) void {
     if (code != 0) {

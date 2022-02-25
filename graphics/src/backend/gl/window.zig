@@ -151,6 +151,29 @@ pub const Window = struct {
         }
     }
 
+    pub fn resize(self: *Self, width: u32, height: u32) void {
+        sdl.SDL_SetWindowSize(self.sdl_window, @intCast(c_int, width), @intCast(c_int, height));
+
+        var cur_width: c_int = undefined;
+        var cur_height: c_int = undefined;
+        sdl.SDL_GetWindowSize(self.sdl_window, &cur_width, &cur_height);
+        self.width = @intCast(u32, cur_width);
+        self.height = @intCast(u32, cur_height);
+
+        var buf_width: c_int = undefined;
+        var buf_height: c_int = undefined;
+        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+        self.buf_width = @intCast(u32, buf_width);
+        self.buf_height = @intCast(u32, buf_height);
+
+        self.proj_transform = initDisplayProjection(@intToFloat(f32, self.width), @intToFloat(f32, self.height));
+        self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
+
+        if (self.msaa) |msaa| {
+            resizeMsaaFrameBuffer(msaa, self.buf_width, self.buf_height);
+        }
+    }
+
     pub fn minimize(self: Self) void {
         sdl.SDL_MinimizeWindow(self.sdl_window);
     }
@@ -173,6 +196,10 @@ pub const Window = struct {
 
     pub fn setPosition(self: Self, x: i32, y: i32) void {
         sdl.SDL_SetWindowPosition(self.sdl_window, x, y);
+    }
+
+    pub fn center(self: Self) void {
+        sdl.SDL_SetWindowPosition(self.sdl_window, sdl.SDL_WINDOWPOS_CENTERED, sdl.SDL_WINDOWPOS_CENTERED);
     }
 
     pub fn focus(self: Self) void {
@@ -199,6 +226,17 @@ pub const Window = struct {
         // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
         // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
         sdl.SDL_GL_SwapWindow(self.sdl_window);
+    }
+
+    pub fn setTitle(self: Self, title: []const u8) void {
+        const cstr = std.cstr.addNullByte(self.alloc, title) catch unreachable;
+        defer self.alloc.free(cstr);
+        sdl.SDL_SetWindowTitle(self.sdl_window, cstr);
+    }
+
+    pub fn getTitle(self: Self, alloc: std.mem.Allocator) []const u8 {
+        const cstr = sdl.SDL_GetWindowTitle(self.sdl_window);
+        return alloc.dupe(u8, std.mem.span(cstr)) catch unreachable;
     }
 };
 

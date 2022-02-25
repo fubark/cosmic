@@ -24,8 +24,17 @@ pub const UvPoller = struct {
 
     close_flag: std.atomic.Atomic(bool),
 
-    // Currently only used for GetQueuedCompletionStatus (pre windows 10) to make sure there is only one thread polling at any time.
+    // Used to make sure there is only one thread polling at any moment.
+    // Used for GetQueuedCompletionStatus (pre windows 10).
+    // Used for macos select poller. libuv uses kevent which can deadlock with select.
     poll_ready: std.atomic.Atomic(bool),
+
+    // Once polling returns this will be set true.
+    // This thread will then block on poll_ready to continue.
+    // This provides a cheap method for the main thread to do a realtime check of the polled status.
+    // Once true, the main thread will process events, set polled to false and set poll_ready to true.
+    // If main thread is only concerned with evented io, it would wait on notify.
+    polled: bool,
 
     pub fn init(uv_loop: *uv.uv_loop_t, notify: *std.Thread.ResetEvent) Self {
         var new = Self{
@@ -34,13 +43,14 @@ pub const UvPoller = struct {
             .notify = notify,
             .close_flag = std.atomic.Atomic(bool).init(false),
             .poll_ready = std.atomic.Atomic(bool).init(true),
+            .polled = false,
         };
         new.inner.init(uv_loop);
         return new;
     }
 
     pub fn setPollReady(self: *Self) void {
-        if (builtin.os.tag == .windows) {
+        if (builtin.os.tag == .windows or builtin.os.tag == .macos) {
             self.poll_ready.store(true, .Release);
         }
     }
@@ -48,15 +58,24 @@ pub const UvPoller = struct {
     /// Only exposed for testing purposes.
     pub fn poll(self: *Self) void {
         self.inner.poll(self.uv_loop);
+        self.polled = true;
     }
 
     pub fn run(self: *Self) void {
+        // pthread on macos only allows setting the name on the current thread.
+        switch (builtin.os.tag) {
+            .macos, .ios, .watchos, .tvos => if (builtin.link_libc) {
+                _ = std.c.pthread_setname_np("UV Poller");
+            },
+            else => {},
+        }
+
         while (true) {
             if (self.close_flag.load(.Acquire)) {
                 break;
             }
 
-            if (builtin.os.tag == .windows) {
+            if (builtin.os.tag == .windows or builtin.os.tag == .macos) {
                 while (!self.poll_ready.load(.Acquire)) {}
             }
 
@@ -64,7 +83,9 @@ pub const UvPoller = struct {
             self.inner.poll(self.uv_loop);
             // log.debug("uv poller wait end, alive: {}", .{uv.uv_loop_alive(self.uv_loop) == 1});
 
-            if (builtin.os.tag == .windows) {
+            self.polled = true;
+
+            if (builtin.os.tag == .windows or builtin.os.tag == .macos) {
                 self.poll_ready.store(false, .Release);
             }
 

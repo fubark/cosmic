@@ -54,3 +54,9 @@ pub fn pathExists(path: []const u8) !bool {
     };
     return true;
 }
+
+pub fn getFileMd5Hash(alloc: std.mem.Allocator, path: []const u8, out: *[16]u8) !void {
+    const content = try std.fs.cwd().readFileAlloc(alloc, path, 1e9);
+    defer alloc.free(content);
+    std.crypto.hash.Md5.hash(content, out, .{});
+}

@@ -299,6 +299,10 @@ pub const Graphics = struct {
         self.cur_stroke_color = color;
     }
 
+    pub fn getFontSize(self: Self) f32 {
+        return self.cur_font_size;
+    }
+
     pub fn setFontSize(self: *Self, size: f32) void {
         if (self.cur_font_size != size) {
             self.cur_font_size = size;

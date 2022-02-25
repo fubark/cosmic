@@ -39,11 +39,16 @@ pub fn main() !void {
     if (string.eq(cmd, "cli")) {
         repl();
         process.exit(0);
+    } else if (string.eq(cmd, "dev")) {
+        const src_path = nextArg(args, &arg_idx) orelse {
+            abortFmt("Expected path to main source file.", .{});
+        };
+        try runAndExit(src_path, true);
     } else if (string.eq(cmd, "run")) {
         const src_path = nextArg(args, &arg_idx) orelse {
             abortFmt("Expected path to main source file.", .{});
         };
-        try runAndExit(src_path);
+        try runAndExit(src_path, false);
     } else if (string.eq(cmd, "test")) {
         const src_path = nextArg(args, &arg_idx) orelse {
             abortFmt("Expected path to main source file.", .{});
@@ -61,7 +66,7 @@ pub fn main() !void {
     } else {
         // Assume param is a js file.
         const src_path = cmd;
-        try runAndExit(src_path);
+        try runAndExit(src_path, false);
     }
 }
 
@@ -85,13 +90,17 @@ fn testAndExit(src_path: []const u8) !void {
     }
 }
 
-fn runAndExit(src_path: []const u8) !void {
+fn runAndExit(src_path: []const u8, dev_mode: bool) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    runtime.runUserMain(alloc, src_path) catch {
+    runtime.runUserMain(alloc, src_path, dev_mode) catch |err| {
         stdx.heap.deinitDefaultAllocator();
-        process.exit(1);
+        if (err == error.FileNotFound) {
+            abortFmt("File not found: {s}", .{src_path});
+        } else {
+            abortFmt("Encountered error: {}", .{err});
+        }
     };
     stdx.heap.deinitDefaultAllocator();
     process.exit(0);
@@ -184,9 +193,10 @@ const main_usage =
     \\
     \\Commands:
     \\
+    \\  dev              Starts dev mode on a JS source file.
     \\  cli              Starts a REPL session.
-    \\  run              Runs a Javascript/Typescript source file.
-    \\  test             Starts the test runner on Javascript/Typescript source files.
+    \\  run              Runs a JS source file.
+    \\  test             Starts the test runner on JS source files.
     \\  exe              TODO: Packages source files into a single binary executable.
     \\
     \\  help             Print this help and exit
