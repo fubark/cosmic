@@ -35,6 +35,7 @@ pub fn build(b: *Builder) !void {
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
     const static_link = b.option(bool, "static", "Statically link deps") orelse false;
@@ -75,6 +76,7 @@ pub fn build(b: *Builder) !void {
         .builder = b,
         .enable_tracy = tracy,
         .link_graphics = graphics,
+        .link_audio = audio,
         .link_v8 = v8,
         .link_net = net,
         .link_mock = false,
@@ -169,6 +171,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = false,
             .link_graphics = false,
+            .link_audio = false,
             .link_v8 = false,
             .link_mock = true,
             .static_link = static_link,
@@ -193,6 +196,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = true,
             .link_graphics = true,
+            .link_audio = true,
             .link_v8 = true,
             .link_mock = false,
             .static_link = static_link,
@@ -223,6 +227,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = true,
             .link_graphics = true,
+            .link_audio = true,
             .link_v8 = true,
             .link_mock = false,
             .static_link = static_link,
@@ -260,6 +265,7 @@ const BuilderContext = struct {
     filter: []const u8,
     enable_tracy: bool,
     link_graphics: bool,
+    link_audio: bool,
     link_v8: bool,
     link_net: bool,
     link_mock: bool,
@@ -455,6 +461,7 @@ const BuilderContext = struct {
         addSDL(step);
         addStbtt(step);
         addGL(step);
+        addMiniaudio(step);
         addLyon(step);
         addStbi(step);
         if (self.target.getOsTag() == .macos) {
@@ -471,6 +478,9 @@ const BuilderContext = struct {
             linkGL(step, self.target);
             self.linkLyon(step, self.target);
             self.buildLinkStbi(step);
+        }
+        if (self.link_audio) {
+            self.buildLinkMiniaudio(step);
         }
         addZigV8(step);
         if (self.link_v8) {
@@ -1704,6 +1714,27 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
+    fn buildLinkMiniaudio(self: *Self, step: *std.build.LibExeObjStep) void {
+        const lib = self.builder.addStaticLibrary("miniaudio", null);
+        lib.setTarget(self.target);
+        lib.setBuildMode(self.mode);
+
+        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
+            if (!self.target.isNative()) {
+                lib.addFrameworkDir("/System/Library/Frameworks");
+                lib.addSystemIncludeDir("/usr/include");
+                lib.linkFramework("CoreAudio");
+                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            }
+        }
+
+        const c_flags = &[_][]const u8{
+        };
+        lib.addCSourceFile(self.fromRoot("./lib/miniaudio/src/miniaudio.c"), c_flags);
+        lib.linkLibC();
+        step.linkLibrary(lib);
+    }
+
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
         const path = getV8_StaticLibPath(self.builder, step.target);
         step.addAssemblyFile(path);
@@ -1941,6 +1972,16 @@ fn addStbtt(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbtt_pkg);
     step.addIncludeDir("./deps/stb");
     step.linkLibC();
+}
+
+const miniaudio_pkg = Pkg{
+    .name = "miniaudio",
+    .path = FileSource.relative("./lib/miniaudio/miniaudio.zig"),
+};
+
+fn addMiniaudio(step: *std.build.LibExeObjStep) void {
+    step.addPackage(miniaudio_pkg);
+    step.addIncludeDir("./lib/miniaudio/src");
 }
 
 const stdx_pkg = Pkg{
