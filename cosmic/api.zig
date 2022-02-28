@@ -1139,6 +1139,11 @@ pub const cs_core = struct {
         }
     }
 
+    /// Invokes the JS engine garbage collector.
+    pub fn gc(rt: *RuntimeContext) void {
+        rt.isolate.lowMemoryNotification();
+    }
+
     pub const ResourceUsage = struct {
         // User cpu time seconds.
         user_time_secs: u32,
