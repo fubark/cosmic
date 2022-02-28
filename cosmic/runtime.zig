@@ -144,6 +144,8 @@ pub const RuntimeContext = struct {
 
     modules: std.AutoHashMap(u32, ModuleInfo),
 
+    get_native_val_err: anyerror,
+
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
         platform: v8.Platform,
@@ -212,6 +214,7 @@ pub const RuntimeContext = struct {
             .hscope = undefined,
 
             .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
+            .get_native_val_err = undefined,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -950,7 +953,19 @@ pub const RuntimeContext = struct {
         }
     }
 
-    pub fn getNativeValue(self: *Self, comptime T: type, val: anytype) ?T {
+    /// functions with error returns have problems being inside inlines so a quick hack is to return an optional
+    /// and set a temporary error var.
+    pub inline fn getNativeValue2(self: *Self, comptime T: type, val: anytype) ?T {
+        return self.getNativeValue(T, val) catch |err| {
+            self.get_native_val_err = err;
+            return null;
+        };
+    }
+
+    /// Converts a js value to a target native type.
+    /// Slice-like types depend on temporary buffers.
+    /// Returns an error if conversion failed.
+    pub fn getNativeValue(self: *Self, comptime T: type, val: anytype) !T {
         const ctx = self.getContext();
         switch (T) {
             []const f32 => {
@@ -964,7 +979,7 @@ pub const RuntimeContext = struct {
                         self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx);
                     }
                     return self.cb_f32_buf.items[start..];
-                } else return null;
+                } else return error.CantConvert;
             },
             []const u8 => {
                 if (@TypeOf(val) == SizedJsString) {
@@ -987,7 +1002,7 @@ pub const RuntimeContext = struct {
                         return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
                     }
                 }
-                return null;
+                return error.CantConvert;
             },
             Uint8Array => {
                 if (val.isUint8Array()) {
@@ -1000,22 +1015,22 @@ pub const RuntimeContext = struct {
                         const buf = @ptrCast([*]u8, store.getData().?);
                         return Uint8Array{ .buf = buf[0..len] };
                     } else return Uint8Array{ .buf = "" };
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Uint8Array => {
                 if (val.isUint8Array()) {
                     return val.castTo(v8.Uint8Array);
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Function => {
                 if (val.isFunction()) {
                     return val.castTo(v8.Function);
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Object => {
                 if (val.isObject()) {
                     return val.castTo(v8.Object);
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Value => return val,
             std.StringHashMap([]const u8) => {
@@ -1029,10 +1044,12 @@ pub const RuntimeContext = struct {
                     var i: u32 = 0;
                     while (i < num_keys) {
                         const native_key = v8x.allocValueAsUtf8(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
-                        native_val.put(native_key, self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i)).?) catch unreachable;
+                        if (self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i))) |child_native_val| {
+                            native_val.put(native_key, child_native_val) catch unreachable;
+                        } else |_| {}
                     }
                     return native_val;
-                } else return null;
+                } else return error.CantConvert;
             },
             else => {
                 if (@typeInfo(T) == .Struct) {
@@ -1048,14 +1065,30 @@ pub const RuntimeContext = struct {
                                     .obj = val.castTo(v8.Object),
                                 };
                             } else {
-                                const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
-                                if (self.getNativeValue(Field.field_type, js_val)) |child_value| {
-                                    @field(native_val, Field.name) = child_value;
+                                return error.HandleExpired;
+                            }
+                        } else {
+                            const obj = val.castTo(v8.Object);
+                            var native_val: T = undefined;
+                            if (comptime hasAllOptionalFields(T)) {
+                                native_val = .{};
+                            }
+                            const Fields = std.meta.fields(T);
+                            inline for (Fields) |Field| {
+                                if (@typeInfo(Field.field_type) == .Optional) {
+                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                    const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
+                                    @field(native_val, Field.name) = self.getNativeValue2(ChildType, js_val) orelse null;
+                                } else {
+                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                    if (self.getNativeValue(Field.field_type, js_val)) |child_value| {
+                                        @field(native_val, Field.name) = child_value;
+                                    } else |_| {}
                                 }
                             }
+                            return native_val;
                         }
-                        return native_val;
-                    } else return null;
+                    } else return error.CantConvert;
                 } else if (@typeInfo(T) == .Enum) {
                     if (@hasDecl(T, "IsStringSumType")) {
                         // String to enum conversion.
@@ -1067,14 +1100,14 @@ pub const RuntimeContext = struct {
                                 return @intToEnum(T, Field.value);
                             }
                         }
-                        return null;
+                        return error.CantConvert;
                     } else {
                         // Integer to enum conversion.
                         const ival = val.toU32(ctx);
                         return std.meta.intToEnum(T, ival) catch {
                             if (@hasDecl(T, "Default")) {
                                 return T.Default;
-                            } else return null;
+                            } else return error.CantConvert;
                         };
                     }
                 } else {

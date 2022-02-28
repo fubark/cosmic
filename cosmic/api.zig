@@ -1217,7 +1217,7 @@ pub extern "kernel32" fn GetProcessTimes(
 /// @title User Input
 /// @name input
 /// @ns cs.input
-/// This API provides access to input devices connected to your computer like the keyboard and mouse.
+/// This module provides access to input devices connected to your computer like the keyboard and mouse.
 /// You'll need to create a <a href="window.html#create">Window</a> before you can register for events.
 pub const cs_input = struct {
 

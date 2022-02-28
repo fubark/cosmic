@@ -177,8 +177,8 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         } else {
                             @field(native_args, field.name) = native_val;
                         }
-                    } else {
-                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
+                    } else |err| {
+                        throwConversionError(rt, err, @typeName(field.field_type));
                         has_args = false;
                     }
                 } else {
@@ -187,18 +187,16 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                             @field(native_args, field.name) = null;
                         } else {
                             const FieldType = comptime @typeInfo(field.field_type).Optional.child;
-                            if (rt.getNativeValue(FieldType, info.getArg(i))) |native_val| {
-                                @field(native_args, field.name) = native_val;
-                            } else {
-                                @field(native_args, field.name) = null;
-                            }
+                            @field(native_args, field.name) = (rt.getNativeValue(FieldType, info.getArg(i)) catch null);
                         }
-                    } else if (rt.getNativeValue(field.field_type, info.getArg(i))) |native_val| {
-                        @field(native_args, field.name) = native_val;
                     } else {
-                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
-                        // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
-                        has_args = false;
+                        if (rt.getNativeValue2(field.field_type, info.getArg(i))) |native_val| {
+                            @field(native_args, field.name) = native_val;
+                        } else {
+                            throwConversionError(rt, rt.get_native_val_err, @typeName(field.field_type));
+                            // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
+                            has_args = false;
+                        }
                     }
                 }
             }
@@ -262,6 +260,14 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
         }
     };
     return gen.cb;
+}
+
+fn throwConversionError(rt: *RuntimeContext, err: anyerror, target_type: []const u8) void {
+    switch (err) {
+        error.CantConvert => v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Expected {s}", .{target_type}),
+        error.HandleExpired => v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Handle {s} expired", .{target_type}),
+        else => unreachable,
+    }
 }
 
 const GenJsFuncOptions = struct {

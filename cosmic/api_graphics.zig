@@ -498,18 +498,19 @@ pub const cs_graphics = struct {
         pub const magenta = fromStdColor(StdColor.Magenta);
 
         pub fn lighter(rt: *RuntimeContext, this: This) cs_graphics.Color {
-            const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
+            // TODO: Implement ThisStruct and generate the getNativeValue logic.
+            const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()) catch unreachable;
             return fromStdColor(toStdColor(color).lighter());
         }
 
         pub fn darker(rt: *RuntimeContext, this: This) cs_graphics.Color {
-            const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
+            const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()) catch unreachable;
             return fromStdColor(toStdColor(color).darker());
         }
 
         /// @param alpha
         pub fn withAlpha(rt: *RuntimeContext, this: This, a: u8) cs_graphics.Color {
-            const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()).?;
+            const color = rt.getNativeValue(cs_graphics.Color, this.obj.toValue()) catch unreachable;
             return fromStdColor(toStdColor(color).withAlpha(a));
         }
     };
