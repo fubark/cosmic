@@ -136,7 +136,7 @@ pub const RuntimeContext = struct {
     isolate: v8.Isolate,
     context: v8.Persistent(v8.Context),
     hscope: v8.HandleScope,
-    global: v8.Object,
+    global: v8.Persistent(v8.Object),
 
     // Store locally for quick access.
     js_undefined: v8.Primitive,
@@ -283,7 +283,7 @@ pub const RuntimeContext = struct {
         _ = iso.addMessageListenerWithErrorLevel(v8MessageCallback, v8.MessageErrorLevel.kMessageError, external);
 
         self.context = v8.Persistent(v8.Context).init(iso, js_env.initContext(self, iso));
-        self.global = self.context.inner.getGlobal();
+        self.global = iso.initPersistent(v8.Object, self.context.inner.getGlobal());
     }
 
     fn initUv(self: *Self) void {
@@ -407,6 +407,7 @@ pub const RuntimeContext = struct {
         self.handle_class.deinit();
         self.sound_class.deinit();
         self.default_obj_t.deinit();
+        self.global.deinit();
 
         // Deinit isolate after exiting.
         self.exit();

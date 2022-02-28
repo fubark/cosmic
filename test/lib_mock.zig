@@ -396,3 +396,4 @@ export fn ma_sound_get_pitch() void {}
 export fn ma_sound_get_pan() void {}
 export fn ma_volume_db_to_linear() void {}
 export fn ma_volume_linear_to_db() void {}
+export fn v8__HeapStatistics__SIZEOF() void {}
