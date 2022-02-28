@@ -388,3 +388,11 @@ export fn v8__Isolate__LowMemoryNotification() void {}
 export fn ma_decoder_uninit() void {}
 export fn ma_decoder_init_memory() void {}
 export fn ma_decoder_config_init_default() void {}
+export fn ma_sound_set_pan() void {}
+export fn ma_sound_set_volume() void {}
+export fn ma_sound_set_pitch() void {}
+export fn ma_sound_get_volume() void {}
+export fn ma_sound_get_pitch() void {}
+export fn ma_sound_get_pan() void {}
+export fn ma_volume_db_to_linear() void {}
+export fn ma_volume_linear_to_db() void {}

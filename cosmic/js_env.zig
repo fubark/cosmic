@@ -370,6 +370,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         sound_class.inner.setInternalFieldCount(2);
         ctx.setConstFuncT(sound_class.inner, "play", api.cs_audio.Sound.play);
         ctx.setConstFuncT(sound_class.inner, "playBg", api.cs_audio.Sound.playBg);
+        ctx.setConstFuncT(sound_class.inner, "setVolume", api.cs_audio.Sound.setVolume);
+        ctx.setConstFuncT(sound_class.inner, "getVolume", api.cs_audio.Sound.getVolume);
+        ctx.setConstFuncT(sound_class.inner, "setGain", api.cs_audio.Sound.setGain);
+        ctx.setConstFuncT(sound_class.inner, "getGain", api.cs_audio.Sound.getGain);
+        ctx.setConstFuncT(sound_class.inner, "setPitch", api.cs_audio.Sound.setPitch);
+        ctx.setConstFuncT(sound_class.inner, "getPitch", api.cs_audio.Sound.getPitch);
+        ctx.setConstFuncT(sound_class.inner, "setPan", api.cs_audio.Sound.setPan);
+        ctx.setConstFuncT(sound_class.inner, "getPan", api.cs_audio.Sound.getPan);
         ctx.setConstProp(cs_audio, "Sound", sound_class.inner);
         rt.sound_class = sound_class;
     }

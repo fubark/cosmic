@@ -81,4 +81,40 @@ pub const Sound = struct {
         const res = ma.ma_sound_start(&self.sound);
         ma.assertNoError(res);
     }
+
+    pub fn setVolume(self: *Self, volume: f32) void {
+        ma.ma_sound_set_volume(&self.sound, volume);
+    }
+
+    pub fn getVolume(self: Self) f32 {
+        return ma.ma_sound_get_volume(&self.sound);
+    }
+
+    pub fn setGain(self: *Self, gain: f32) void {
+        const volume = ma.ma_volume_db_to_linear(gain);
+        ma.ma_sound_set_volume(&self.sound, volume);
+    }
+
+    pub fn getGain(self: Self) f32 {
+        const volume = ma.ma_sound_get_volume(&self.sound);
+        return ma.ma_volume_linear_to_db(volume);
+    }
+
+    /// Value must be greater than 0.
+    pub fn setPitch(self: *Self, pitch: f32) void {
+        ma.ma_sound_set_pitch(&self.sound, pitch);
+    }
+
+    pub fn getPitch(self: Self) f32 {
+        return ma.ma_sound_get_pitch(&self.sound);
+    }
+
+    /// -1 (stereo left) to 1 (stereo right). Middle is 0.
+    pub fn setPan(self: *Self, pan: f32) void {
+        ma.ma_sound_set_pan(&self.sound, pan);
+    }
+
+    pub fn getPan(self: Self) f32 {
+        return ma.ma_sound_get_pan(&self.sound);
+    }
 };

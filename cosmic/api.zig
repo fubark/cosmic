@@ -1266,6 +1266,51 @@ pub const cs_audio = struct {
         pub fn playBg(self: ThisHandle(.Sound)) void {
             self.ptr.playBg();
         }
+
+        /// Sets the volume in a positive linear scale. Volume at 0 is muted. 1 is the default value.
+        /// @param volume
+        pub fn setVolume(self: ThisHandle(.Sound), volume: f32) void {
+            self.ptr.setVolume(volume);
+        }
+
+        /// Returns the volume in a positive linear scale.
+        pub fn getVolume(self: ThisHandle(.Sound)) f32 {
+            return self.ptr.getVolume();
+        }
+
+        /// Sets the volume with gain in decibels.
+        /// @param gain
+        pub fn setGain(self: ThisHandle(.Sound), gain: f32) void {
+            self.ptr.setGain(gain);
+        }
+
+        /// Gets the gain in decibels.
+        pub fn getGain(self: ThisHandle(.Sound)) f32 {
+            return self.ptr.getGain();
+        }
+
+        /// Sets the pitch. A higher value results in a higher pitch and must be greater than 0. Default value is 1.
+        /// @param pitch
+        pub fn setPitch(self: ThisHandle(.Sound), pitch: f32) void {
+            self.ptr.setPitch(pitch);
+        }
+
+        /// Returns the current pitch.
+        pub fn getPitch(self: ThisHandle(.Sound)) f32 {
+            return self.ptr.getPitch();
+        }
+
+        /// Sets the stereo pan. Default value is 0.
+        /// Set to -1 to shift the sound to the left and +1 to shift the sound to the right.
+        /// @param pan
+        pub fn setPan(self: ThisHandle(.Sound), pan: f32) void {
+            self.ptr.setPan(pan);
+        }
+
+        /// Returns the current stereo pan.
+        pub fn getPan(self: ThisHandle(.Sound)) f32 {
+            return self.ptr.getPan();
+        }
     };
 };
 
