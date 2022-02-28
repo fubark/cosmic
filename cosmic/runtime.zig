@@ -19,6 +19,7 @@ const log = stdx.log.scoped(.runtime);
 const api = @import("api.zig");
 const cs_graphics = @import("api_graphics.zig").cs_graphics;
 const gen = @import("gen.zig");
+const audio = @import("audio.zig");
 
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
@@ -53,6 +54,7 @@ pub const RuntimeContext = struct {
     http_response_writer: v8.Persistent(v8.ObjectTemplate),
     image_class: v8.Persistent(v8.FunctionTemplate),
     color_class: v8.Persistent(v8.FunctionTemplate),
+    sound_class: v8.Persistent(v8.ObjectTemplate),
     handle_class: v8.Persistent(v8.ObjectTemplate),
     default_obj_t: v8.Persistent(v8.ObjectTemplate),
 
@@ -164,6 +166,7 @@ pub const RuntimeContext = struct {
             .http_server_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
+            .sound_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
@@ -402,6 +405,7 @@ pub const RuntimeContext = struct {
         self.image_class.deinit();
         self.color_class.deinit();
         self.handle_class.deinit();
+        self.sound_class.deinit();
         self.default_obj_t.deinit();
 
         // Deinit isolate after exiting.
@@ -2023,6 +2027,11 @@ const WeakHandle = struct {
                 ptr.deinit();
                 rt.alloc.destroy(ptr);
             },
+            .Sound => {
+                const ptr = stdx.mem.ptrCastAlign(*audio.Sound, self.ptr);
+                ptr.deinit(rt.alloc);
+                rt.alloc.destroy(ptr);
+            },
             .Null => {},
         }
     }
@@ -2030,12 +2039,14 @@ const WeakHandle = struct {
 
 const WeakHandleTag = enum {
     DrawCommandList,
+    Sound,
     Null,
 };
 
 pub fn WeakHandlePtr(comptime Tag: WeakHandleTag) type {
     return switch (Tag) {
         .DrawCommandList => *graphics.DrawCommandList,
+        .Sound => *audio.Sound,
         else => unreachable,
     };
 }

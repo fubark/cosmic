@@ -360,6 +360,21 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
     const rt_data = iso.initExternal(rt);
 
+    // cs.audio
+    const cs_audio = iso.initObjectTemplateDefault();
+    ctx.setConstFuncT(cs_audio, "loadWav", api.cs_audio.loadWav);
+    ctx.setConstFuncT(cs_audio, "loadWavFile", api.cs_audio.loadWavFile);
+    {
+        // Sound
+        const sound_class = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
+        sound_class.inner.setInternalFieldCount(2);
+        ctx.setConstFuncT(sound_class.inner, "play", api.cs_audio.Sound.play);
+        ctx.setConstFuncT(sound_class.inner, "playBg", api.cs_audio.Sound.playBg);
+        ctx.setConstProp(cs_audio, "Sound", sound_class.inner);
+        rt.sound_class = sound_class;
+    }
+    ctx.setConstProp(cs, "audio", cs_audio);
+
     // cs.core
     const cs_core = iso.initObjectTemplateDefault();
     if (!rt.dev_mode) {

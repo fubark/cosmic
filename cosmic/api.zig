@@ -9,7 +9,11 @@ const input = @import("input");
 const KeyCode = input.KeyCode;
 const t = stdx.testing;
 const curl = @import("curl");
+const ma = @import("miniaudio");
 
+const audio = @import("audio.zig");
+const AudioEngine = audio.AudioEngine;
+const StdSound = audio.Sound;
 const v8x = @import("v8x.zig");
 const tasks = @import("tasks.zig");
 const work_queue = @import("work_queue.zig");
@@ -283,6 +287,17 @@ pub const cs_window = struct {
     };
 };
 
+fn readInternal(alloc: std.mem.Allocator, path: []const u8) Error![]const u8 {
+    return std.fs.cwd().readFileAlloc(alloc, path, 1e12) catch |err| switch (err) {
+        error.FileNotFound => return error.FileNotFound,
+        error.IsDir => return error.IsDir,
+        else => {
+            log.debug("unknown error: {}", .{err});
+            unreachable;
+        }
+    };
+}
+
 /// @title File System
 /// @name files
 /// @ns cs.files
@@ -294,14 +309,7 @@ pub const cs_files = struct {
     /// Returns the contents on success or null.
     /// @param path
     pub fn read(rt: *RuntimeContext, path: []const u8) Error!ManagedStruct(Uint8Array) {
-        const res = std.fs.cwd().readFileAlloc(rt.alloc, path, 1e12) catch |err| switch (err) {
-            error.FileNotFound => return error.FileNotFound,
-            error.IsDir => return error.IsDir,
-            else => {
-                log.debug("unknown error: {}", .{err});
-                unreachable;
-            }
-        };
+        const res = try readInternal(rt.alloc, path);
         return ManagedStruct(Uint8Array).init(rt.alloc, Uint8Array{ .buf = res });
     }
 
@@ -1213,6 +1221,53 @@ pub extern "kernel32" fn GetProcessTimes(
     kernel_time: *std.os.windows.FILETIME,
     user_time: *std.os.windows.FILETIME,
 ) bool;
+
+var audio_engine: AudioEngine = undefined;
+var audio_engine_inited = false;
+
+fn getAudioEngine() *AudioEngine {
+    if (!audio_engine_inited) {
+        audio_engine.init();
+    }
+    return &audio_engine;
+}
+
+/// @title Audio Playback and Capture
+/// @name audio
+/// @ns cs.audio
+/// This module provides a cross platform API to decode sound files, capture audio, and play audio.
+pub const cs_audio = struct {
+
+    /// Decodes .wav data into a Sound handle.
+    /// @param data
+    pub fn loadWav(rt: *RuntimeContext, data: Uint8Array) !v8.Object {
+        const engine = getAudioEngine();
+        const sound = engine.createSound(rt.alloc, .Wav, data.buf) catch unreachable;
+        return runtime.createWeakHandle(rt, .Sound, sound);
+    }
+
+    /// Decodes a .wav file into a Sound handle. File path can be absolute or relative to the cwd.
+    /// @param path
+    pub fn loadWavFile(rt: *RuntimeContext, path: []const u8) !v8.Object {
+        const data = try readInternal(rt.alloc, path);
+        defer rt.alloc.free(data);
+        return loadWav(rt, Uint8Array{ .buf = data });
+    }
+
+    pub const Sound = struct {
+
+        /// Plays the sound until it's done.
+        pub fn play(self: ThisHandle(.Sound)) void {
+            self.ptr.play();
+        }
+
+        /// Starts playing the sound in the background. Returns immediately.
+        /// Playing the sound while it is already playing does nothing.
+        pub fn playBg(self: ThisHandle(.Sound)) void {
+            self.ptr.playBg();
+        }
+    };
+};
 
 /// @title User Input
 /// @name input

@@ -375,3 +375,16 @@ export fn v8__Exception__GetStackTrace() void {}
 export fn v8__TryCatch__ReThrow() void {}
 export fn v8__ScriptCompiler__CachedData__SIZEOF() void {}
 export fn v8__Message__GetLineNumber() void {}
+export fn v8__Object__SetAlignedPointerInInternalField() void {}
+export fn ma_sound_uninit() void {}
+export fn ma_sound_start() void {}
+export fn v8__WeakCallbackInfo__GetInternalField() void {}
+export fn ma_sound_is_playing() void {}
+export fn ma_sound_init_from_data_source() void {}
+export fn ma_sound_at_end() void {}
+export fn ma_result_description() void {}
+export fn ma_engine_init() void {}
+export fn v8__Isolate__LowMemoryNotification() void {}
+export fn ma_decoder_uninit() void {}
+export fn ma_decoder_init_memory() void {}
+export fn ma_decoder_config_init_default() void {}
