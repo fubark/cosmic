@@ -21,6 +21,7 @@ const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
 const F64SafeUint = runtime.F64SafeUint;
 const ThisResource = runtime.ThisResource;
+const ThisHandle = runtime.ThisHandle;
 const Error = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
 const This = runtime.This;

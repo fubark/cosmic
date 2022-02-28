@@ -56,10 +56,17 @@ pub const RuntimeContext = struct {
     handle_class: v8.Persistent(v8.ObjectTemplate),
     default_obj_t: v8.Persistent(v8.ObjectTemplate),
 
-    // Collection of mappings from id to resource handles.
+    /// Collection of mappings from id to resource handles.
+    /// Resources of similar type are linked together.
+    /// Resources can be deinited by js but the resource id slot won't be freed until a js finalizer callback.
     resources: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle),
 
-    weak_handles: ds.CompactUnorderedList(u32, WeakHandle),
+    /// Weak handles are like resources except they aren't grouped together by type.
+    /// A weak handle can be deinited but the slot won't be freed until a js finalizer callback.
+    /// Since the finalizer callback relies on the garbage collector, the handles should be light in memory
+    /// and have a pointer to the inner struct which can be deinited explicitly
+    /// either through the runtime or user request.
+    weak_handles: ds.CompactUnorderedList(WeakHandleId, WeakHandle),
 
     generic_resource_list: ResourceListId,
     generic_resource_list_last: ResourceId,
@@ -676,17 +683,13 @@ pub const RuntimeContext = struct {
         return null;
     }
 
-    pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
-        var id: u32 = 0;
-        while (id < self.weak_handles.data.items.len) : (id += 1) {
-            if (self.weak_handles.getPtr(id)) |handle| {
-                if (handle.ptr == ptr) {
-                    handle.deinit(self);
-                    self.weak_handles.remove(id);
-                    break;
-                }
-            }
+    pub fn destroyWeakHandle(self: *Self, id: WeakHandleId) void {
+        const handle = self.weak_handles.getPtr(id).?;
+        if (handle.tag != .Null) {
+            handle.deinit(self);
         }
+        handle.obj.deinit();
+        self.weak_handles.remove(id);
     }
 
     pub fn createCsHttpServerResource(self: *Self) CreatedResource(HttpServer) {
@@ -918,18 +921,20 @@ pub const RuntimeContext = struct {
                     } else {
                         return self.js_null.handle;
                     }
-                } else if (@hasDecl(Type, "ManagedSlice")) {
-                    return self.getJsValuePtr(native_val.slice);
-                } else if (@hasDecl(Type, "ManagedStruct")) {
-                    return self.getJsValuePtr(native_val.val);
                 } else if (@typeInfo(Type) == .Struct) {
-                    // Generic struct to js object.
-                    const obj = iso.initObject();
-                    const Fields = std.meta.fields(Type);
-                    inline for (Fields) |Field| {
-                        _ = obj.setValue(ctx, iso.initStringUtf8(Field.name), self.getJsValue(@field(native_val, Field.name)));
+                    if (@hasDecl(Type, "ManagedSlice")) {
+                        return self.getJsValuePtr(native_val.slice);
+                    } else if (@hasDecl(Type, "ManagedStruct")) {
+                        return self.getJsValuePtr(native_val.val);
+                    } else {
+                        // Generic struct to js object.
+                        const obj = iso.initObject();
+                        const Fields = std.meta.fields(Type);
+                        inline for (Fields) |Field| {
+                            _ = obj.setValue(ctx, iso.initStringUtf8(Field.name), self.getJsValue(@field(native_val, Field.name)));
+                        }
+                        return obj.handle;
                     }
-                    return obj.handle;
                 } else if (@typeInfo(Type) == .Enum) {
                     if (@hasDecl(Type, "IsStringSumType")) {
                         // string value.
@@ -1032,21 +1037,16 @@ pub const RuntimeContext = struct {
             else => {
                 if (@typeInfo(T) == .Struct) {
                     if (val.isObject()) {
-                        const obj = val.castTo(v8.Object);
-                        var native_val: T = undefined;
-                        if (comptime hasAllOptionalFields(T)) {
-                            native_val = .{};
-                        }
-                        const Fields = std.meta.fields(T);
-                        inline for (Fields) |Field| {
-                            if (@typeInfo(Field.field_type) == .Optional) {
-                                const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
-                                const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
-                                if (self.getNativeValue(ChildType, js_val)) |child_value| {
-                                    @field(native_val, Field.name) = child_value;
-                                } else {
-                                    @field(native_val, Field.name) = null;
-                                }
+                        if (@hasDecl(T, "Handle")) {
+                            const Ptr = stdx.meta.FieldType(T, .ptr);
+                            const handle_id = @intCast(u32, @ptrToInt(val.castTo(v8.Object).getInternalField(0).castTo(v8.External).get()));
+                            const handle = self.weak_handles.getAssumeExists(handle_id);
+                            if (handle.tag != .Null) {
+                                return T{
+                                    .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
+                                    .id = handle_id,
+                                    .obj = val.castTo(v8.Object),
+                                };
                             } else {
                                 const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
                                 if (self.getNativeValue(Field.field_type, js_val)) |child_value| {
@@ -1974,26 +1974,38 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     }
 }
 
+const WeakHandleId = u32;
+
 const WeakHandle = struct {
     const Self = @This();
 
-    ptr: *const anyopaque,
+    ptr: *anyopaque,
     tag: WeakHandleTag,
+    obj: v8.Persistent(v8.Object),
 
     fn deinit(self: *Self, rt: *RuntimeContext) void {
         switch (self.tag) {
             .DrawCommandList => {
-                const ptr = stdx.mem.ptrCastAlign(*const RuntimeValue(graphics.DrawCommandList), self.ptr);
-                ptr.inner.deinit();
+                const ptr = stdx.mem.ptrCastAlign(*graphics.DrawCommandList, self.ptr);
+                ptr.deinit();
                 rt.alloc.destroy(ptr);
             },
+            .Null => {},
         }
     }
 };
 
 const WeakHandleTag = enum {
     DrawCommandList,
+    Null,
 };
+
+pub fn WeakHandlePtr(comptime Tag: WeakHandleTag) type {
+    return switch (Tag) {
+        .DrawCommandList => *graphics.DrawCommandList,
+        else => unreachable,
+    };
+}
 
 /// Convenience wrapper around v8 when constructing the v8.Context.
 pub const ContextBuilder = struct {
@@ -2102,13 +2114,35 @@ pub fn RuntimeValue(comptime T: type) type {
     };
 }
 
-// Holds the rt and resource id for passing into a callback.
+/// Holds the rt and resource id for passing into a callback.
 const ExternalResourceHandle = struct {
     rt: *RuntimeContext,
     res_id: ResourceId,
 };
 
-// This is converted from a js object that has a resource id in their first internal field.
+/// Converted from a js object that has a weak handle id in their first internal field.
+pub fn Handle(comptime Tag: WeakHandleTag) type {
+    return struct {
+        pub const Handle = true;
+
+        id: WeakHandleId,
+        ptr: WeakHandlePtr(Tag),
+        obj: v8.Object,
+    };
+}
+
+/// Converted from a js function's this object that has a weak handle id in their first internal field.
+pub fn ThisHandle(comptime Tag: WeakHandleTag) type {
+    return struct {
+        pub const ThisHandle = true;
+
+        id: WeakHandleId,
+        ptr: WeakHandlePtr(Tag),
+        obj: v8.Object,
+    };
+}
+
+/// This is converted from a js object that has a resource id in their first internal field.
 pub fn ThisResource(comptime Tag: ResourceTag) type {
     return struct {
         pub const ThisResource = true;
@@ -2226,3 +2260,39 @@ const ModuleInfo = struct {
         alloc.free(self.dir);
     }
 };
+
+pub fn finalizeHandle(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
+    const info = v8.WeakCallbackInfo.initFromC(c_info);
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getParameter());
+    const id = @intCast(u32, @ptrToInt(info.getInternalField(1)) / 2);
+    rt.destroyWeakHandle(id);
+}
+
+pub fn createWeakHandle(rt: *RuntimeContext, comptime Tag: WeakHandleTag, ptr: WeakHandlePtr(Tag)) v8.Object {
+    const ctx = rt.getContext();
+    const iso = rt.isolate;
+    const template = switch (Tag) {
+        .DrawCommandList => rt.handle_class,
+        .Sound => rt.sound_class,
+        else => unreachable,
+    };
+    const new = template.inner.initInstance(ctx);
+    var new_p = iso.initPersistent(v8.Object, new);
+
+    const id = rt.weak_handles.add(.{
+        .ptr = ptr,
+        .tag = Tag,
+        .obj = new_p,
+    }) catch unreachable;
+
+    const js_id = iso.initExternal(@intToPtr(?*anyopaque, id));
+    new.setInternalField(0, js_id);
+
+    // id is doubled then halved on callback.
+    // Set on the second internal field since the first is already used for the original id.
+    new.setAlignedPointerInInternalField(1, @intToPtr(?*anyopaque, @intCast(u64, id) * 2));
+
+    new_p.setWeakFinalizer(rt, finalizeHandle, .kInternalFields);
+
+    return new_p.inner;
+}

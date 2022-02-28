@@ -11,6 +11,7 @@ const v8 = @import("v8");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const This = runtime.This;
+const Handle = runtime.Handle;
 const RuntimeValue = runtime.RuntimeValue;
 const v8x = @import("v8x.zig");
 const log = stdx.log.scoped(.api_graphics);
@@ -416,30 +417,12 @@ pub const cs_graphics = struct {
             g.drawPolygon(rt.vec2_buf.items);
         }
 
-        /// Compiles svg content in UTF-8 into a draw list handle.
+        /// Compiles svg content string into a draw list handle.
         /// @param content
-        pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Persistent(v8.Object) {
-            const draw_list = g.compileSvgContent(rt.alloc, content) catch unreachable;
-
-            const native_ptr = rt.alloc.create(RuntimeValue(graphics.DrawCommandList)) catch unreachable;
-            native_ptr.* = .{
-                .rt = rt,
-                .inner = draw_list,
-            };
-            _ = rt.weak_handles.add(.{
-                .ptr = native_ptr,
-                .tag = .DrawCommandList,
-            }) catch unreachable;
-
-            const ctx = rt.getContext();
-            const iso = rt.isolate;
-            const new = rt.handle_class.inner.initInstance(ctx);
-            const data = iso.initExternal(native_ptr);
-            new.setInternalField(0, data);
-
-            var new_p = iso.initPersistent(v8.Object, new);
-            new_p.setWeakFinalizer(native_ptr, finalize_DrawCommandList, v8.WeakCallbackType.kParameter);
-            return new_p;
+        pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Object {
+            const ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
+            ptr.* = g.compileSvgContent(rt.alloc, content) catch unreachable;
+            return runtime.createWeakHandle(rt, .DrawCommandList, ptr);
         }
 
         /// Paints svg content in UTF-8.
@@ -450,10 +433,8 @@ pub const cs_graphics = struct {
 
         /// Executes a draw list handle.
         /// @param handle
-        pub fn executeDrawList(g: *Graphics, handle: v8.Object) void {
-            const ptr = handle.getInternalField(0).castTo(v8.External).get();
-            const value = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr);
-            g.executeDrawList(value.inner);
+        pub fn executeDrawList(g: *Graphics, list: Handle(.DrawCommandList)) void {
+            g.executeDrawList(list.ptr.*);
         }
 
         /// Paints an image.
@@ -464,13 +445,6 @@ pub const cs_graphics = struct {
         /// @param image
         pub fn imageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
             g.drawImageSized(x, y, width, height, image.id);
-        }
-
-        fn finalize_DrawCommandList(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
-            const info = v8.WeakCallbackInfo.initFromC(c_info);
-            const ptr = info.getParameter();
-            const rt = stdx.mem.ptrCastAlign(*RuntimeValue(graphics.DrawCommandList), ptr).rt;
-            rt.destroyWeakHandleByPtr(ptr);
         }
     };
 

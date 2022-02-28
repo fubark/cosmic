@@ -45,8 +45,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const undef_u32 = v8.Integer.initU32(iso, 0);
 
     // GenericHandle
+    // First field is for the handle id.
+    // Second field is id*2 for setWeakFinalizer.
     const handle_class = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
-    handle_class.inner.setInternalFieldCount(1);
+    handle_class.inner.setInternalFieldCount(2);
     rt.handle_class = handle_class;
 
     // GenericObject
@@ -169,7 +171,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     rt.image_class = image_class;
 
     // JsColor
-    const color_class = v8.Persistent(v8.FunctionTemplate).init(iso, v8.FunctionTemplate.initDefault(iso));
+    const color_class = iso.initPersistent(v8.FunctionTemplate, iso.initFunctionTemplateDefault());
     {
         const proto = color_class.inner.getPrototypeTemplate();
         ctx.setFuncT(proto, "darker", cs_graphics.Color.darker);
@@ -359,7 +361,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const rt_data = iso.initExternal(rt);
 
     // cs.core
-    const cs_core = v8.ObjectTemplate.initDefault(iso);
+    const cs_core = iso.initObjectTemplateDefault();
     if (!rt.dev_mode) {
         ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
         ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
@@ -451,8 +453,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
 
     // Attach rt pointer for callbacks that don't have user data. eg. ResolveModuleCallback
-    const rt_external = iso.initExternal(rt);
-    res.setEmbedderData(0, rt_external);
+    res.setEmbedderData(0, rt_data);
 
     return res;
 }
