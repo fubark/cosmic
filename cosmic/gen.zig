@@ -94,7 +94,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 var total_size: u32 = 0;
                 inline for (ct_info.func_arg_fields) |field, i| {
                     if (field.field_type == []const u8) {
-                        const js_str = info.getArg(i).toString(ctx);
+                        const js_str = info.getArg(i).toString(ctx) catch unreachable;
                         const len = js_str.lenUtf8(iso);
                         total_size += len;
                         js_strs[i] = .{

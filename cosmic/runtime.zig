@@ -981,7 +981,7 @@ pub const RuntimeContext = struct {
                     const start = self.cb_f32_buf.items.len;
                     self.cb_f32_buf.resize(start + len) catch unreachable;
                     while (i < len) : (i += 1) {
-                        self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx);
+                        self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx) catch return error.CantConvert;
                     }
                     return self.cb_f32_buf.items[start..];
                 } else return error.CantConvert;
@@ -995,15 +995,15 @@ pub const RuntimeContext = struct {
             },
             bool => return val.toBool(self.isolate),
             i32 => return val.toI32(ctx),
-            u8 => return @intCast(u8, val.toU32(ctx)),
-            u16 => return @intCast(u16, val.toU32(ctx)),
+            u8 => return @intCast(u8, val.toU32(ctx) catch return error.CantConvert),
+            u16 => return @intCast(u16, val.toU32(ctx) catch return error.CantConvert),
             u32 => return val.toU32(ctx),
             f32 => return val.toF32(ctx),
             graphics.Image => {
                 if (val.isObject()) {
                     const obj = val.castTo(v8.Object);
-                    if (obj.toValue().instanceOf(ctx, self.image_class.inner.getFunction(ctx).toObject())) {
-                        const image_id = obj.getInternalField(0).toU32(ctx);
+                    if (obj.toValue().instanceOf(ctx, self.image_class.inner.getFunction(ctx).toObject()) catch return error.CantConvert) {
+                        const image_id = obj.getInternalField(0).toU32(ctx) catch return error.CantConvert;
                         return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
                     }
                 }
@@ -1086,9 +1086,9 @@ pub const RuntimeContext = struct {
                                     @field(native_val, Field.name) = self.getNativeValue2(ChildType, js_val) orelse null;
                                 } else {
                                     const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
-                                    if (self.getNativeValue(Field.field_type, js_val)) |child_value| {
+                                    if (self.getNativeValue2(Field.field_type, js_val)) |child_value| {
                                         @field(native_val, Field.name) = child_value;
-                                    } else |_| {}
+                                    }
                                 }
                             }
                             return native_val;
@@ -1108,7 +1108,7 @@ pub const RuntimeContext = struct {
                         return error.CantConvert;
                     } else {
                         // Integer to enum conversion.
-                        const ival = val.toU32(ctx);
+                        const ival = val.toU32(ctx) catch return error.CantConvert;
                         return std.meta.intToEnum(T, ival) catch {
                             if (@hasDecl(T, "Default")) {
                                 return T.Default;

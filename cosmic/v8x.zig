@@ -173,7 +173,7 @@ fn appendStringAsUtf8(arr: *std.ArrayList(u8), iso: v8.Isolate, str: v8.String) 
 
 pub fn appendValueAsUtf8Lower(arr: *std.ArrayList(u8), isolate: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
-    const str = val.toString(ctx);
+    const str = val.toString(ctx) catch unreachable;
     const len = str.lenUtf8(isolate);
     const start = arr.items.len;
     arr.resize(start + len) catch unreachable;
@@ -183,7 +183,7 @@ pub fn appendValueAsUtf8Lower(arr: *std.ArrayList(u8), isolate: v8.Isolate, ctx:
 
 pub fn appendValueAsUtf8(arr: *std.ArrayList(u8), isolate: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
-    const str = val.toString(ctx);
+    const str = val.toString(ctx) catch unreachable;
     const len = str.lenUtf8(isolate);
     const start = arr.items.len;
     arr.resize(start + len) catch unreachable;
@@ -258,7 +258,7 @@ fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, va
 
 pub fn allocValueAsUtf8(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
-    const str = val.toString(ctx);
+    const str = val.toString(ctx) catch unreachable;
     const len = str.lenUtf8(iso);
     const buf = alloc.alloc(u8, len) catch unreachable;
     _ = str.writeUtf8(iso, buf);
