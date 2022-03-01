@@ -86,3 +86,67 @@ pub fn fail() !void {
 pub fn setLogLevel(level: std.log.Level) void {
     std.testing.log_level = level;
 }
+
+var mocks: std.ArrayList(*Mock) = std.ArrayList(*Mock).init(alloc);
+
+pub fn unitTrace(loc: std.builtin.SourceLocation) void {
+    for (mocks.items) |mock| {
+        if (mock.funcs.getEntry(loc.fn_name)) |entry| {
+            entry.value_ptr.call_count += 1;
+        }
+    }
+}
+
+export fn unitTraceC(fn_name_ptr: [*]const u8, fn_name_len: usize) void {
+    const fn_name = fn_name_ptr[0..fn_name_len];
+    for (mocks.items) |mock| {
+        if (mock.funcs.getEntry(fn_name)) |entry| {
+            entry.value_ptr.call_count += 1;
+        }
+    }
+}
+
+pub const Mock = struct {
+    const Self = @This();
+
+    funcs: std.StringHashMap(FuncMock),
+
+    pub fn create() *Self {
+        const m = alloc.create(Mock) catch unreachable;
+        m.* = .{
+            .funcs = std.StringHashMap(FuncMock).init(alloc),
+        };
+        mocks.append(m) catch unreachable;
+        return m;
+    }
+
+    pub fn destroy(self: *Self) void {
+        self.funcs.deinit();
+        alloc.destroy(self);
+        for (mocks.items) |it, i| {
+            if (it == self) {
+                _ = mocks.orderedRemove(i);
+                if (mocks.items.len == 0) {
+                    mocks.clearAndFree();
+                }
+                break;
+            }
+        }
+    }
+
+    pub fn add(self: *Self, comptime E: @Type(.EnumLiteral)) void {
+        std.debug.print("add {s}\n", .{@tagName(E)});
+        std.debug.assert(!self.funcs.contains(@tagName(E)));
+        self.funcs.put(@tagName(E), .{
+            .call_count = 0,
+        }) catch unreachable;
+    }
+
+    pub fn getNumCalls(self: Self, comptime E: @Type(.EnumLiteral)) u32 {
+        return self.funcs.get(@tagName(E)).?.call_count;
+    }
+};
+
+const FuncMock = struct {
+    call_count: u32,
+};

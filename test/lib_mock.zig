@@ -1,9 +1,20 @@
+const std = @import("std");
+const stdx = @import("stdx");
 const uv = @import("uv");
 const gl = @import("gl");
+const ma = @import("miniaudio");
 const GLint = gl.GLint;
 const GLsizei = gl.GLsizei;
 const GLclampf = gl.GLclampf;
 const GLenum = gl.GLenum;
+
+const log = stdx.log.scoped(.lib_mock);
+
+extern fn unitTraceC(fn_name_ptr: *const u8, fn_name_len: usize) void;
+
+fn unitTrace(loc: std.builtin.SourceLocation) void {
+    unitTraceC(&loc.fn_name[0], loc.fn_name.len);
+}
 
 // Mocked out external deps.
 
@@ -383,7 +394,10 @@ export fn ma_sound_is_playing() void {}
 export fn ma_sound_init_from_data_source() void {}
 export fn ma_sound_at_end() void {}
 export fn ma_result_description() void {}
-export fn ma_engine_init() void {}
+export fn ma_engine_init() ma.ma_result {
+    unitTrace(@src());
+    return 0;
+}
 export fn v8__Isolate__LowMemoryNotification() void {}
 export fn ma_decoder_uninit() void {}
 export fn ma_decoder_init_memory() void {}

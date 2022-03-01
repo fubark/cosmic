@@ -1772,9 +1772,11 @@ const BuilderContext = struct {
         const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
+        addStdx(lib, self.buildOptionsPkg());
         addGL(lib);
         addUv(lib);
         addZigV8(lib);
+        addMiniaudio(lib);
         step.linkLibrary(lib);
     }
 

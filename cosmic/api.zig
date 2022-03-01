@@ -8,6 +8,7 @@ const v8 = @import("v8");
 const input = @import("input");
 const KeyCode = input.KeyCode;
 const t = stdx.testing;
+const Mock = t.Mock;
 const curl = @import("curl");
 const ma = @import("miniaudio");
 
@@ -1228,8 +1229,21 @@ var audio_engine_inited = false;
 fn getAudioEngine() *AudioEngine {
     if (!audio_engine_inited) {
         audio_engine.init();
+        audio_engine_inited = true;
     }
     return &audio_engine;
+}
+
+test "getAudioEngine inits once" {
+    const m = Mock.create();
+    defer m.destroy();
+    m.add(.ma_engine_init);
+
+    const eng1 = getAudioEngine();
+    try t.eq(m.getNumCalls(.ma_engine_init), 1);
+    const eng2 = getAudioEngine();
+    try t.eq(m.getNumCalls(.ma_engine_init), 1);
+    try t.eq(eng1, eng2);
 }
 
 /// @title Audio Playback and Capture
