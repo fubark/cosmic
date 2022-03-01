@@ -198,6 +198,64 @@ pub fn allocStringAsUtf8(alloc: std.mem.Allocator, iso: v8.Isolate, str: v8.Stri
     return buf;
 }
 
+/// Custom dump format that shows top 2 level children.
+pub fn allocValueDump(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, val: v8.Value) []const u8 {
+    var buf = std.ArrayList(u8).init(alloc);
+    allocValueDump2(&buf, iso, ctx, val, 0, 2);
+    return buf.toOwnedSlice();
+}
+
+fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, val: v8.Value, level: u32, level_max: u32) void {
+    if (val.isString()) {
+        const writer = buf.writer();
+        writer.writeAll("\"") catch unreachable;
+        _ = appendStringAsUtf8(buf, iso, val.castTo(v8.String));
+        writer.writeAll("\"") catch unreachable;
+    } else if (val.isArray()) {
+        if (level < level_max) {
+            const writer = buf.writer();
+            const arr = val.castTo(v8.Array);
+            const num_elems = arr.length();
+            if (num_elems > 0) {
+                writer.writeAll("[ ") catch unreachable;
+                var i: u32 = 0;
+                while (i < num_elems) : (i += 1) {
+                    const elem = val.castTo(v8.Object).getAtIndex(ctx, i);
+                    allocValueDump2(buf, iso, ctx, elem, level + 1, level_max);
+                    if (i + 1 < num_elems) {
+                        writer.writeAll(", ") catch unreachable;
+                    }
+                }
+                writer.writeAll(" ]") catch unreachable;
+            } else writer.writeAll("[]") catch unreachable;
+        } else buf.writer().writeAll("(Array)") catch unreachable;
+    } else if (val.isObject()) {
+        if (level < level_max) {
+            const writer = buf.writer();
+            const obj = val.castTo(v8.Object);
+            const props = obj.getOwnPropertyNames(ctx);
+            const num_props = props.length();
+            if (num_props > 0) {
+                writer.writeAll("{ ") catch unreachable;
+                var i: u32 = 0;
+                while (i < num_props) : (i += 1) {
+                    const prop = props.castTo(v8.Object).getAtIndex(ctx, i);
+                    const value = obj.getValue(ctx, prop);
+                    _ = appendValueAsUtf8(buf, iso, ctx, prop);
+                    writer.writeAll(": ") catch unreachable;
+                    allocValueDump2(buf, iso, ctx, value, level + 1, level_max);
+                    if (i + 1 < num_props) {
+                        writer.writeAll(", ") catch unreachable;
+                    }
+                }
+                writer.writeAll(" }") catch unreachable;
+            } else writer.writeAll("{}") catch unreachable;
+        } else buf.writer().writeAll("(Object)") catch unreachable;
+    } else {
+        _ = appendValueAsUtf8(buf, iso, ctx, val);
+    }
+}
+
 pub fn allocValueAsUtf8(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, any_value: anytype) []const u8 {
     const val = v8.getValue(any_value);
     const str = val.toString(ctx);

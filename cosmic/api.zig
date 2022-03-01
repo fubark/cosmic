@@ -939,7 +939,7 @@ pub const cs_core = struct {
 
         var i: u32 = 0;
         while (i < len) : (i += 1) {
-            const str = v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
+            const str = v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             printFmt("{s} ", .{str});
             if (DevMode) {
