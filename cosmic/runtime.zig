@@ -838,6 +838,7 @@ pub const RuntimeContext = struct {
             u8 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
             F64SafeUint => return iso.initNumber(@intToFloat(f64, native_val)).handle,
+            u64 => return iso.initBigIntU64(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
             stdx.http.Response => {
@@ -999,6 +1000,13 @@ pub const RuntimeContext = struct {
             u16 => return @intCast(u16, val.toU32(ctx) catch return error.CantConvert),
             u32 => return val.toU32(ctx),
             f32 => return val.toF32(ctx),
+            u64 => {
+                if (val.isBigInt()) {
+                    return val.castTo(v8.BigInt).getUint64();
+                } else {
+                    return @intCast(u64, val.toU32(ctx) catch return error.CantConvert);
+                }
+            },
             graphics.Image => {
                 if (val.isObject()) {
                     const obj = val.castTo(v8.Object);
