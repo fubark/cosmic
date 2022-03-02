@@ -3,8 +3,6 @@
 // least show you how to use the Cosmic API.
 
 // TODO: Use proper collision detection.
-// TODO: Enable sfx when audio is supported in Cosmic.
-// TODO: Enable music when it is supported in Cosmic.
 // TODO: Use Cosmic UI when it's done.
 // TODO: Reorganize code.
 
@@ -13,16 +11,10 @@ const TextAlign = cs.graphics.TextAlign
 const TextBaseline = cs.graphics.TextBaseline
 const AppName = 'paddleball'
 
+const root = getMainScriptDir()
+
 if (!cs.files.ensurePath(getAppDir(AppName))) {
     panic('Could not create app dir.')
-}
-
-function Media(path) {
-    return {
-        path: path,
-        play() { console.log('play sound: ' + path); },
-        stop() { console.log('stop sound: ' + path); },
-    };
 }
 
 class Game {
@@ -676,7 +668,7 @@ class Game {
         var bricksPerLine = 1;
         var that = this;
 
-        const data = cs.files.readText(getMainScriptDir() + `/assets/paddleball/${level}.txt`);
+        const data = cs.files.readText(`${root}/assets/paddleball/${level}.txt`);
         if (data == null) {
             panic(errString(data))
         }
@@ -764,7 +756,7 @@ class Game {
         var bricksPerLine = 0
         var MINI_BRICKS_WIDTH = 0
         if (this.collection[this.collectionSelect]) {
-            const data = cs.files.readText(getMainScriptDir() + `/assets/paddleball/${this.collectionSelect + 1}.txt`);
+            const data = cs.files.readText(`${root}/assets/paddleball/${this.collectionSelect + 1}.txt`);
             if (data == null) {
                 panic(errString(data))
             }
@@ -1354,13 +1346,10 @@ Game.sound = {
         if (Game.sound.disabled) {
             return;
         }
-        sound.play();
-    },
-    pauseSound(sound) {
-        sound.pause();
+        sound.playBg();
     },
     stopSound(sound) {
-        sound.stop();
+        sound.stopBg();
     },
     disable() {
         Game.sound.disabled = true;
@@ -1372,18 +1361,16 @@ Game.sound = {
         // TODO
     },
     load() {
-        puts('loading sound')
-        var soundsPath = 'sound/'
-        Game.sound.STAGE_WIN = new Media(soundsPath + 'stagewin.wav')
-        Game.sound.GREEN_ITEM = new Media(soundsPath + 'greenitem.wav')
-        Game.sound.WHITE_ITEM = new Media(soundsPath + 'whiteitem.wav')
-        Game.sound.BURST = new Media(soundsPath + 'burst.wav')
-        Game.sound.BRICK_HIT = new Media(soundsPath + 'brickhit.wav')
-        Game.sound.PADDLE_HIT = new Media(soundsPath + 'paddlehit.wav')
-        Game.sound.MENU_SELECT = new Media(soundsPath + 'menuselect.wav')
-        Game.sound.METAL_HIT = new Media(soundsPath + 'metalhit.wav')
-        Game.sound.RED_ITEM = new Media(soundsPath + 'paddleshorten.wav')
-        Game.sound.SUPER_BALL = new Media(soundsPath + 'superball.wav')
+        Game.sound.STAGE_WIN = cs.audio.loadOggFile(`${root}/assets/paddleball/stagewin.ogg`)
+        Game.sound.GREEN_ITEM = cs.audio.loadWavFile(`${root}/assets/paddleball/greenitem.wav`)
+        Game.sound.WHITE_ITEM = cs.audio.loadWavFile(`${root}/assets/paddleball/whiteitem.wav`)
+        Game.sound.BURST = cs.audio.loadWavFile(`${root}/assets/paddleball/burst.wav`)
+        Game.sound.BRICK_HIT = cs.audio.loadWavFile(`${root}/assets/paddleball/brickhit.wav`)
+        Game.sound.PADDLE_HIT = cs.audio.loadWavFile(`${root}/assets/paddleball/paddlehit.wav`)
+        Game.sound.MENU_SELECT = cs.audio.loadWavFile(`${root}/assets/paddleball/menuselect.wav`)
+        Game.sound.METAL_HIT = cs.audio.loadWavFile(`${root}/assets/paddleball/metalhit.wav`)
+        Game.sound.RED_ITEM = cs.audio.loadWavFile(`${root}/assets/paddleball/reditem.wav`)
+        Game.sound.SUPER_BALL = cs.audio.loadWavFile(`${root}/assets/paddleball/superball.wav`)
     }
 }
 
