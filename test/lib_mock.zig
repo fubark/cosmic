@@ -1,9 +1,22 @@
+const std = @import("std");
+const stdx = @import("stdx");
 const uv = @import("uv");
 const gl = @import("gl");
+const ma = @import("miniaudio");
 const GLint = gl.GLint;
 const GLsizei = gl.GLsizei;
 const GLclampf = gl.GLclampf;
 const GLenum = gl.GLenum;
+
+const log = stdx.log.scoped(.lib_mock);
+
+extern fn unitTraceC(fn_name_ptr: *const u8, fn_name_len: usize) void;
+
+/// Since lib_mock is compiled as a static lib, it would use a different reference to the global mocks var
+/// if we called unitTrace directly. Instead, call into an exported c function.
+fn unitTrace(loc: std.builtin.SourceLocation) void {
+    unitTraceC(&loc.fn_name[0], loc.fn_name.len);
+}
 
 // Mocked out external deps.
 
@@ -375,3 +388,53 @@ export fn v8__Exception__GetStackTrace() void {}
 export fn v8__TryCatch__ReThrow() void {}
 export fn v8__ScriptCompiler__CachedData__SIZEOF() void {}
 export fn v8__Message__GetLineNumber() void {}
+export fn v8__Object__SetAlignedPointerInInternalField() void {}
+export fn ma_sound_uninit() void {}
+export fn ma_sound_start() void {}
+export fn v8__WeakCallbackInfo__GetInternalField() void {}
+export fn ma_sound_is_playing() void {}
+export fn ma_sound_init_from_data_source() void {}
+export fn ma_sound_at_end() void {}
+export fn ma_result_description() void {}
+export fn ma_engine_init() ma.ma_result {
+    unitTrace(@src());
+    return 0;
+}
+export fn v8__Isolate__LowMemoryNotification() void {}
+export fn ma_decoder_uninit() void {}
+export fn ma_decoder_init_memory() void {}
+export fn ma_decoder_config_init_default() void {}
+export fn ma_sound_set_pan() void {}
+export fn ma_sound_set_volume() void {}
+export fn ma_sound_set_pitch() void {}
+export fn ma_sound_get_volume() void {}
+export fn ma_sound_get_pitch() void {}
+export fn ma_sound_get_pan() void {}
+export fn ma_volume_db_to_linear() void {}
+export fn ma_volume_linear_to_db() void {}
+export fn v8__HeapStatistics__SIZEOF() void {}
+export fn ma_data_source_seek_to_pcm_frame() void {}
+export fn ma_sound_stop() void {}
+export fn ma_engine_listener_get_position() void {}
+export fn ma_engine_listener_get_velocity() void {}
+export fn ma_engine_listener_get_world_up() void {}
+export fn ma_engine_listener_set_direction() void {}
+export fn ma_engine_listener_set_position() void {}
+export fn ma_engine_listener_set_velocity() void {}
+export fn v8__Value__IsString() void {}
+export fn ma_engine_listener_set_world_up() void {}
+export fn v8__BigInt__Uint64Value() void {}
+export fn ma_sound_set_velocity() void {}
+export fn ma_engine_listener_get_direction() void {}
+export fn ma_sound_set_position() void {}
+export fn v8__BigInt__NewFromUnsigned() void {}
+export fn ma_sound_set_looping() void {}
+export fn ma_sound_set_direction() void {}
+export fn ma_sound_is_looping() void {}
+export fn ma_sound_get_velocity() void {}
+export fn ma_sound_get_position() void {}
+export fn ma_sound_get_length_in_pcm_frames() void {}
+export fn ma_sound_get_direction() void {}
+export fn ma_sound_get_data_format() void {}
+export fn ma_sound_get_cursor_in_pcm_frames() void {}
+export fn v8__Value__IsBigInt() void {}

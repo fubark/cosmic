@@ -20,6 +20,7 @@ const doc_versions: []const DocVersion = &.{
 
 const ModuleId = []const u8;
 const modules: []const ModuleId = &.{
+    "cs_audio",
     "cs_core",
     "cs_files",
     "cs_graphics",
@@ -428,6 +429,8 @@ fn getJsTypeName(comptime T: type) []const u8 {
         u53,
         u16 => "number",
 
+        u64 => "BigInt",
+
         v8.Value,
         *const anyopaque => "any",
 
@@ -570,6 +573,10 @@ fn parseMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, node: std.zig.Ast.
 
 // Finds the function in the container ast and extracts metadata in comments.
 fn extractFunctionMetadata(alloc: std.mem.Allocator, tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index, func: *FunctionInfo) !bool {
+    // Skip devmode _DEV functions.
+    if (std.mem.endsWith(u8, func.name, "_DEV")) {
+        return false;
+    }
     const child = findContainerChild(tree, container_node, func.name);
 
     const data = try parseMetadata(alloc, tree, child);

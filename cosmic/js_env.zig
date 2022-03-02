@@ -45,8 +45,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const undef_u32 = v8.Integer.initU32(iso, 0);
 
     // GenericHandle
+    // First field is for the handle id.
+    // Second field is id*2 for setWeakFinalizer.
     const handle_class = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
-    handle_class.inner.setInternalFieldCount(1);
+    handle_class.inner.setInternalFieldCount(2);
     rt.handle_class = handle_class;
 
     // GenericObject
@@ -169,7 +171,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     rt.image_class = image_class;
 
     // JsColor
-    const color_class = v8.Persistent(v8.FunctionTemplate).init(iso, v8.FunctionTemplate.initDefault(iso));
+    const color_class = iso.initPersistent(v8.FunctionTemplate, iso.initFunctionTemplateDefault());
     {
         const proto = color_class.inner.getPrototypeTemplate();
         ctx.setFuncT(proto, "darker", cs_graphics.Color.darker);
@@ -358,8 +360,63 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
     const rt_data = iso.initExternal(rt);
 
+    // cs.audio
+    const cs_audio = iso.initObjectTemplateDefault();
+    ctx.setConstFuncT(cs_audio, "loadWav", api.cs_audio.loadWav);
+    ctx.setConstFuncT(cs_audio, "loadWavFile", api.cs_audio.loadWavFile);
+    ctx.setConstFuncT(cs_audio, "loadMp3", api.cs_audio.loadMp3);
+    ctx.setConstFuncT(cs_audio, "loadMp3File", api.cs_audio.loadMp3File);
+    ctx.setConstFuncT(cs_audio, "loadFlac", api.cs_audio.loadFlac);
+    ctx.setConstFuncT(cs_audio, "loadFlacFile", api.cs_audio.loadFlacFile);
+    ctx.setConstFuncT(cs_audio, "loadOgg", api.cs_audio.loadOgg);
+    ctx.setConstFuncT(cs_audio, "loadOggFile", api.cs_audio.loadOggFile);
+    ctx.setConstFuncT(cs_audio, "load", api.cs_audio.load);
+    ctx.setConstFuncT(cs_audio, "loadFile", api.cs_audio.loadFile);
+    ctx.setConstFuncT(cs_audio, "getListenerPos", api.cs_audio.getListenerPos);
+    ctx.setConstFuncT(cs_audio, "setListenerPos", api.cs_audio.setListenerPos);
+    ctx.setConstFuncT(cs_audio, "getListenerDir", api.cs_audio.getListenerDir);
+    ctx.setConstFuncT(cs_audio, "setListenerDir", api.cs_audio.setListenerDir);
+    ctx.setConstFuncT(cs_audio, "getListenerUpDir", api.cs_audio.getListenerUpDir);
+    ctx.setConstFuncT(cs_audio, "setListenerUpDir", api.cs_audio.setListenerUpDir);
+    ctx.setConstFuncT(cs_audio, "getListenerVel", api.cs_audio.getListenerVel);
+    ctx.setConstFuncT(cs_audio, "setListenerVel", api.cs_audio.setListenerVel);
+    {
+        // Sound
+        const sound_class = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
+        sound_class.inner.setInternalFieldCount(2);
+        ctx.setConstFuncT(sound_class.inner, "play", api.cs_audio.Sound.play);
+        ctx.setConstFuncT(sound_class.inner, "playBg", api.cs_audio.Sound.playBg);
+        ctx.setConstFuncT(sound_class.inner, "isPlayingBg", api.cs_audio.Sound.isPlayingBg);
+        ctx.setConstFuncT(sound_class.inner, "loopBg", api.cs_audio.Sound.loopBg);
+        ctx.setConstFuncT(sound_class.inner, "isLoopingBg", api.cs_audio.Sound.isLoopingBg);
+        ctx.setConstFuncT(sound_class.inner, "pauseBg", api.cs_audio.Sound.pauseBg);
+        ctx.setConstFuncT(sound_class.inner, "resumeBg", api.cs_audio.Sound.resumeBg);
+        ctx.setConstFuncT(sound_class.inner, "stopBg", api.cs_audio.Sound.stopBg);
+        ctx.setConstFuncT(sound_class.inner, "setVolume", api.cs_audio.Sound.setVolume);
+        ctx.setConstFuncT(sound_class.inner, "getVolume", api.cs_audio.Sound.getVolume);
+        ctx.setConstFuncT(sound_class.inner, "setGain", api.cs_audio.Sound.setGain);
+        ctx.setConstFuncT(sound_class.inner, "getGain", api.cs_audio.Sound.getGain);
+        ctx.setConstFuncT(sound_class.inner, "setPitch", api.cs_audio.Sound.setPitch);
+        ctx.setConstFuncT(sound_class.inner, "getPitch", api.cs_audio.Sound.getPitch);
+        ctx.setConstFuncT(sound_class.inner, "setPan", api.cs_audio.Sound.setPan);
+        ctx.setConstFuncT(sound_class.inner, "getPan", api.cs_audio.Sound.getPan);
+        ctx.setConstFuncT(sound_class.inner, "getLengthInPcmFrames", api.cs_audio.Sound.getLengthInPcmFrames);
+        ctx.setConstFuncT(sound_class.inner, "getLength", api.cs_audio.Sound.getLength);
+        ctx.setConstFuncT(sound_class.inner, "getCursorPcmFrame", api.cs_audio.Sound.getCursorPcmFrame);
+        ctx.setConstFuncT(sound_class.inner, "seekToPcmFrame", api.cs_audio.Sound.seekToPcmFrame);
+        ctx.setConstFuncT(sound_class.inner, "setPosition", api.cs_audio.Sound.setPosition);
+        ctx.setConstFuncT(sound_class.inner, "getPosition", api.cs_audio.Sound.getPosition);
+        ctx.setConstFuncT(sound_class.inner, "setDirection", api.cs_audio.Sound.setDirection);
+        ctx.setConstFuncT(sound_class.inner, "getDirection", api.cs_audio.Sound.getDirection);
+        ctx.setConstFuncT(sound_class.inner, "setVelocity", api.cs_audio.Sound.setVelocity);
+        ctx.setConstFuncT(sound_class.inner, "getVelocity", api.cs_audio.Sound.getVelocity);
+        ctx.setConstProp(cs_audio, "Sound", sound_class.inner);
+        rt.sound_class = sound_class;
+    }
+    ctx.setConstProp(cs, "audio", cs_audio);
+
     // cs.core
-    const cs_core = v8.ObjectTemplate.initDefault(iso);
+    const cs_core = iso.initObjectTemplateDefault();
     if (!rt.dev_mode) {
         ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
         ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
@@ -381,6 +438,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_core, "getOsVersion", api.cs_core.getOsVersion);
     ctx.setConstFuncT(cs_core, "getCpu", api.cs_core.getCpu);
     ctx.setConstFuncT(cs_core, "getResourceUsage", api.cs_core.getResourceUsage);
+    ctx.setConstFuncT(cs_core, "gc", api.cs_core.gc);
     {
         const cs_os = iso.initObjectTemplateDefault();
         ctx.setProp(cs_os, "linux", iso.initIntegerU32(@enumToInt(api.cs_core.Os.linux)));
@@ -451,8 +509,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
 
     // Attach rt pointer for callbacks that don't have user data. eg. ResolveModuleCallback
-    const rt_external = iso.initExternal(rt);
-    res.setEmbedderData(0, rt_external);
+    res.setEmbedderData(0, rt_data);
 
     return res;
 }

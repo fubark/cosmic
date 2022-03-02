@@ -94,7 +94,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 var total_size: u32 = 0;
                 inline for (ct_info.func_arg_fields) |field, i| {
                     if (field.field_type == []const u8) {
-                        const js_str = info.getArg(i).toString(ctx);
+                        const js_str = info.getArg(i).toString(ctx) catch unreachable;
                         const len = js_str.lenUtf8(iso);
                         total_size += len;
                         js_strs[i] = .{
@@ -117,17 +117,33 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 @field(native_args, field.name) = This{ .obj = info.getThis() };
             }
             if (ct_info.this_res_field) |field| {
-                const PtrType = stdx.meta.FieldType(field.field_type, .res);
+                const Ptr = stdx.meta.FieldType(field.field_type, .res);
                 const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
                 const handle = rt.resources.getAssumeExists(res_id);
                 if (!handle.deinited) {
                     @field(native_args, field.name) = field.field_type{
-                        .res = stdx.mem.ptrCastAlign(PtrType, handle.ptr),
+                        .res = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
                         .res_id = res_id,
                         .obj = info.getThis(),
                     };
                 } else {
                     v8x.throwErrorException(iso, "Resource handle is already deinitialized.");
+                    return;
+                }
+            }
+            if (ct_info.this_handle_field) |field| {
+                const Ptr = stdx.meta.FieldType(field.field_type, .ptr);
+                const this = info.getThis();
+                const handle_id = @intCast(u32, @ptrToInt(this.getInternalField(0).castTo(v8.External).get()));
+                const handle = rt.weak_handles.getAssumeExists(handle_id);
+                if (handle.tag != .Null) {
+                    @field(native_args, field.name) = field.field_type{
+                        .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
+                        .id = handle_id,
+                        .obj = this,
+                    };
+                } else {
+                    v8x.throwErrorException(iso, "Handle is already deinitialized.");
                     return;
                 }
             }
@@ -161,8 +177,8 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         } else {
                             @field(native_args, field.name) = native_val;
                         }
-                    } else {
-                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
+                    } else |err| {
+                        throwConversionError(rt, err, @typeName(field.field_type));
                         has_args = false;
                     }
                 } else {
@@ -171,18 +187,16 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                             @field(native_args, field.name) = null;
                         } else {
                             const FieldType = comptime @typeInfo(field.field_type).Optional.child;
-                            if (rt.getNativeValue(FieldType, info.getArg(i))) |native_val| {
-                                @field(native_args, field.name) = native_val;
-                            } else {
-                                @field(native_args, field.name) = null;
-                            }
+                            @field(native_args, field.name) = (rt.getNativeValue(FieldType, info.getArg(i)) catch null);
                         }
-                    } else if (rt.getNativeValue(field.field_type, info.getArg(i))) |native_val| {
-                        @field(native_args, field.name) = native_val;
                     } else {
-                        v8x.throwErrorExceptionFmt(rt.alloc, iso, "Expected {s}", .{@typeName(field.field_type)});
-                        // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
-                        has_args = false;
+                        if (rt.getNativeValue2(field.field_type, info.getArg(i))) |native_val| {
+                            @field(native_args, field.name) = native_val;
+                        } else {
+                            throwConversionError(rt, rt.get_native_val_err, @typeName(field.field_type));
+                            // TODO: How to use return here without crashing compiler? Using a boolean var as a workaround.
+                            has_args = false;
+                        }
                     }
                 }
             }
@@ -248,6 +262,14 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
     return gen.cb;
 }
 
+fn throwConversionError(rt: *RuntimeContext, err: anyerror, target_type: []const u8) void {
+    switch (err) {
+        error.CantConvert => v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Expected {s}", .{target_type}),
+        error.HandleExpired => v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Handle {s} expired", .{target_type}),
+        else => unreachable,
+    }
+}
+
 const GenJsFuncOptions = struct {
     // Indicates that the native function is synchronous by nature but we want it async by executing it on a worker thread.
     // User must make sure the native function is thread-safe.
@@ -260,6 +282,7 @@ const GenJsFuncOptions = struct {
 const JsFuncInfo = struct {
     this_field: ?std.builtin.TypeInfo.StructField,
     this_res_field: ?std.builtin.TypeInfo.StructField,
+    this_handle_field: ?std.builtin.TypeInfo.StructField,
     native_ptr_field: ?std.builtin.TypeInfo.StructField,
     data_field: ?std.builtin.TypeInfo.StructField,
     rt_ptr_field: ?std.builtin.TypeInfo.StructField,
@@ -302,6 +325,15 @@ pub fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructFie
         break :b null;
     };
 
+    res.this_handle_field = b: {
+        inline for (arg_fields) |field| {
+            if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "ThisHandle")) {
+                break :b field;
+            }
+        }
+        break :b null;
+    };
+
     // First Data param will receive the attached function data.
     res.data_field = b: {
         inline for (arg_fields) |field| {
@@ -335,6 +367,11 @@ pub fn getJsFuncInfo(comptime arg_fields: []const std.builtin.TypeInfo.StructFie
             }
             if (res.this_res_field) |this_res_field| {
                 if (std.mem.eql(u8, field.name, this_res_field.name)) {
+                    is_func_arg = false;
+                }
+            }
+            if (res.this_handle_field) |this_handle_field| {
+                if (std.mem.eql(u8, field.name, this_handle_field.name)) {
                     is_func_arg = false;
                 }
             }

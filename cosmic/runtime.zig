@@ -19,6 +19,7 @@ const log = stdx.log.scoped(.runtime);
 const api = @import("api.zig");
 const cs_graphics = @import("api_graphics.zig").cs_graphics;
 const gen = @import("gen.zig");
+const audio = @import("audio.zig");
 
 const work_queue = @import("work_queue.zig");
 const TaskOutput = work_queue.TaskOutput;
@@ -53,13 +54,21 @@ pub const RuntimeContext = struct {
     http_response_writer: v8.Persistent(v8.ObjectTemplate),
     image_class: v8.Persistent(v8.FunctionTemplate),
     color_class: v8.Persistent(v8.FunctionTemplate),
+    sound_class: v8.Persistent(v8.ObjectTemplate),
     handle_class: v8.Persistent(v8.ObjectTemplate),
     default_obj_t: v8.Persistent(v8.ObjectTemplate),
 
-    // Collection of mappings from id to resource handles.
+    /// Collection of mappings from id to resource handles.
+    /// Resources of similar type are linked together.
+    /// Resources can be deinited by js but the resource id slot won't be freed until a js finalizer callback.
     resources: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle),
 
-    weak_handles: ds.CompactUnorderedList(u32, WeakHandle),
+    /// Weak handles are like resources except they aren't grouped together by type.
+    /// A weak handle can be deinited but the slot won't be freed until a js finalizer callback.
+    /// Since the finalizer callback relies on the garbage collector, the handles should be light in memory
+    /// and have a pointer to the inner struct which can be deinited explicitly
+    /// either through the runtime or user request.
+    weak_handles: ds.CompactUnorderedList(WeakHandleId, WeakHandle),
 
     generic_resource_list: ResourceListId,
     generic_resource_list_last: ResourceId,
@@ -127,7 +136,7 @@ pub const RuntimeContext = struct {
     isolate: v8.Isolate,
     context: v8.Persistent(v8.Context),
     hscope: v8.HandleScope,
-    global: v8.Object,
+    global: v8.Persistent(v8.Object),
 
     // Store locally for quick access.
     js_undefined: v8.Primitive,
@@ -136,6 +145,8 @@ pub const RuntimeContext = struct {
     js_true: v8.Boolean,
 
     modules: std.AutoHashMap(u32, ModuleInfo),
+
+    get_native_val_err: anyerror,
 
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
@@ -155,6 +166,7 @@ pub const RuntimeContext = struct {
             .http_server_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
+            .sound_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
@@ -205,6 +217,7 @@ pub const RuntimeContext = struct {
             .hscope = undefined,
 
             .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
+            .get_native_val_err = undefined,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -270,7 +283,7 @@ pub const RuntimeContext = struct {
         _ = iso.addMessageListenerWithErrorLevel(v8MessageCallback, v8.MessageErrorLevel.kMessageError, external);
 
         self.context = v8.Persistent(v8.Context).init(iso, js_env.initContext(self, iso));
-        self.global = self.context.inner.getGlobal();
+        self.global = iso.initPersistent(v8.Object, self.context.inner.getGlobal());
     }
 
     fn initUv(self: *Self) void {
@@ -392,7 +405,9 @@ pub const RuntimeContext = struct {
         self.image_class.deinit();
         self.color_class.deinit();
         self.handle_class.deinit();
+        self.sound_class.deinit();
         self.default_obj_t.deinit();
+        self.global.deinit();
 
         // Deinit isolate after exiting.
         self.exit();
@@ -676,17 +691,13 @@ pub const RuntimeContext = struct {
         return null;
     }
 
-    pub fn destroyWeakHandleByPtr(self: *Self, ptr: *const anyopaque) void {
-        var id: u32 = 0;
-        while (id < self.weak_handles.data.items.len) : (id += 1) {
-            if (self.weak_handles.getPtr(id)) |handle| {
-                if (handle.ptr == ptr) {
-                    handle.deinit(self);
-                    self.weak_handles.remove(id);
-                    break;
-                }
-            }
+    pub fn destroyWeakHandle(self: *Self, id: WeakHandleId) void {
+        const handle = self.weak_handles.getPtr(id).?;
+        if (handle.tag != .Null) {
+            handle.deinit(self);
         }
+        handle.obj.deinit();
+        self.weak_handles.remove(id);
     }
 
     pub fn createCsHttpServerResource(self: *Self) CreatedResource(HttpServer) {
@@ -827,6 +838,7 @@ pub const RuntimeContext = struct {
             u8 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
             F64SafeUint => return iso.initNumber(@intToFloat(f64, native_val)).handle,
+            u64 => return iso.initBigIntU64(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
             stdx.http.Response => {
@@ -918,18 +930,20 @@ pub const RuntimeContext = struct {
                     } else {
                         return self.js_null.handle;
                     }
-                } else if (@hasDecl(Type, "ManagedSlice")) {
-                    return self.getJsValuePtr(native_val.slice);
-                } else if (@hasDecl(Type, "ManagedStruct")) {
-                    return self.getJsValuePtr(native_val.val);
                 } else if (@typeInfo(Type) == .Struct) {
-                    // Generic struct to js object.
-                    const obj = iso.initObject();
-                    const Fields = std.meta.fields(Type);
-                    inline for (Fields) |Field| {
-                        _ = obj.setValue(ctx, iso.initStringUtf8(Field.name), self.getJsValue(@field(native_val, Field.name)));
+                    if (@hasDecl(Type, "ManagedSlice")) {
+                        return self.getJsValuePtr(native_val.slice);
+                    } else if (@hasDecl(Type, "ManagedStruct")) {
+                        return self.getJsValuePtr(native_val.val);
+                    } else {
+                        // Generic struct to js object.
+                        const obj = iso.initObject();
+                        const Fields = std.meta.fields(Type);
+                        inline for (Fields) |Field| {
+                            _ = obj.setValue(ctx, iso.initStringUtf8(Field.name), self.getJsValue(@field(native_val, Field.name)));
+                        }
+                        return obj.handle;
                     }
-                    return obj.handle;
                 } else if (@typeInfo(Type) == .Enum) {
                     if (@hasDecl(Type, "IsStringSumType")) {
                         // string value.
@@ -945,7 +959,19 @@ pub const RuntimeContext = struct {
         }
     }
 
-    pub fn getNativeValue(self: *Self, comptime T: type, val: anytype) ?T {
+    /// functions with error returns have problems being inside inlines so a quick hack is to return an optional
+    /// and set a temporary error var.
+    pub inline fn getNativeValue2(self: *Self, comptime T: type, val: anytype) ?T {
+        return self.getNativeValue(T, val) catch |err| {
+            self.get_native_val_err = err;
+            return null;
+        };
+    }
+
+    /// Converts a js value to a target native type.
+    /// Slice-like types depend on temporary buffers.
+    /// Returns an error if conversion failed.
+    pub fn getNativeValue(self: *Self, comptime T: type, val: anytype) !T {
         const ctx = self.getContext();
         switch (T) {
             []const f32 => {
@@ -956,10 +982,10 @@ pub const RuntimeContext = struct {
                     const start = self.cb_f32_buf.items.len;
                     self.cb_f32_buf.resize(start + len) catch unreachable;
                     while (i < len) : (i += 1) {
-                        self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx);
+                        self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx) catch return error.CantConvert;
                     }
                     return self.cb_f32_buf.items[start..];
-                } else return null;
+                } else return error.CantConvert;
             },
             []const u8 => {
                 if (@TypeOf(val) == SizedJsString) {
@@ -970,19 +996,26 @@ pub const RuntimeContext = struct {
             },
             bool => return val.toBool(self.isolate),
             i32 => return val.toI32(ctx),
-            u8 => return @intCast(u8, val.toU32(ctx)),
-            u16 => return @intCast(u16, val.toU32(ctx)),
+            u8 => return @intCast(u8, val.toU32(ctx) catch return error.CantConvert),
+            u16 => return @intCast(u16, val.toU32(ctx) catch return error.CantConvert),
             u32 => return val.toU32(ctx),
             f32 => return val.toF32(ctx),
+            u64 => {
+                if (val.isBigInt()) {
+                    return val.castTo(v8.BigInt).getUint64();
+                } else {
+                    return @intCast(u64, val.toU32(ctx) catch return error.CantConvert);
+                }
+            },
             graphics.Image => {
                 if (val.isObject()) {
                     const obj = val.castTo(v8.Object);
-                    if (obj.toValue().instanceOf(ctx, self.image_class.inner.getFunction(ctx).toObject())) {
-                        const image_id = obj.getInternalField(0).toU32(ctx);
+                    if (obj.toValue().instanceOf(ctx, self.image_class.inner.getFunction(ctx).toObject()) catch return error.CantConvert) {
+                        const image_id = obj.getInternalField(0).toU32(ctx) catch return error.CantConvert;
                         return graphics.Image{ .id = image_id, .width = 0, .height = 0 };
                     }
                 }
-                return null;
+                return error.CantConvert;
             },
             Uint8Array => {
                 if (val.isUint8Array()) {
@@ -995,22 +1028,22 @@ pub const RuntimeContext = struct {
                         const buf = @ptrCast([*]u8, store.getData().?);
                         return Uint8Array{ .buf = buf[0..len] };
                     } else return Uint8Array{ .buf = "" };
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Uint8Array => {
                 if (val.isUint8Array()) {
                     return val.castTo(v8.Uint8Array);
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Function => {
                 if (val.isFunction()) {
                     return val.castTo(v8.Function);
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Object => {
                 if (val.isObject()) {
                     return val.castTo(v8.Object);
-                } else return null;
+                } else return error.CantConvert;
             },
             v8.Value => return val,
             std.StringHashMap([]const u8) => {
@@ -1024,38 +1057,51 @@ pub const RuntimeContext = struct {
                     var i: u32 = 0;
                     while (i < num_keys) {
                         const native_key = v8x.allocValueAsUtf8(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
-                        native_val.put(native_key, self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i)).?) catch unreachable;
+                        if (self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i))) |child_native_val| {
+                            native_val.put(native_key, child_native_val) catch unreachable;
+                        } else |_| {}
                     }
                     return native_val;
-                } else return null;
+                } else return error.CantConvert;
             },
             else => {
                 if (@typeInfo(T) == .Struct) {
                     if (val.isObject()) {
-                        const obj = val.castTo(v8.Object);
-                        var native_val: T = undefined;
-                        if (comptime hasAllOptionalFields(T)) {
-                            native_val = .{};
-                        }
-                        const Fields = std.meta.fields(T);
-                        inline for (Fields) |Field| {
-                            if (@typeInfo(Field.field_type) == .Optional) {
-                                const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
-                                const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
-                                if (self.getNativeValue(ChildType, js_val)) |child_value| {
-                                    @field(native_val, Field.name) = child_value;
-                                } else {
-                                    @field(native_val, Field.name) = null;
-                                }
+                        if (@hasDecl(T, "Handle")) {
+                            const Ptr = stdx.meta.FieldType(T, .ptr);
+                            const handle_id = @intCast(u32, @ptrToInt(val.castTo(v8.Object).getInternalField(0).castTo(v8.External).get()));
+                            const handle = self.weak_handles.getAssumeExists(handle_id);
+                            if (handle.tag != .Null) {
+                                return T{
+                                    .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
+                                    .id = handle_id,
+                                    .obj = val.castTo(v8.Object),
+                                };
                             } else {
-                                const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
-                                if (self.getNativeValue(Field.field_type, js_val)) |child_value| {
-                                    @field(native_val, Field.name) = child_value;
+                                return error.HandleExpired;
+                            }
+                        } else {
+                            const obj = val.castTo(v8.Object);
+                            var native_val: T = undefined;
+                            if (comptime hasAllOptionalFields(T)) {
+                                native_val = .{};
+                            }
+                            const Fields = std.meta.fields(T);
+                            inline for (Fields) |Field| {
+                                if (@typeInfo(Field.field_type) == .Optional) {
+                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                    const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
+                                    @field(native_val, Field.name) = self.getNativeValue2(ChildType, js_val) orelse null;
+                                } else {
+                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                    if (self.getNativeValue2(Field.field_type, js_val)) |child_value| {
+                                        @field(native_val, Field.name) = child_value;
+                                    }
                                 }
                             }
+                            return native_val;
                         }
-                        return native_val;
-                    } else return null;
+                    } else return error.CantConvert;
                 } else if (@typeInfo(T) == .Enum) {
                     if (@hasDecl(T, "IsStringSumType")) {
                         // String to enum conversion.
@@ -1067,14 +1113,14 @@ pub const RuntimeContext = struct {
                                 return @intToEnum(T, Field.value);
                             }
                         }
-                        return null;
+                        return error.CantConvert;
                     } else {
                         // Integer to enum conversion.
-                        const ival = val.toU32(ctx);
+                        const ival = val.toU32(ctx) catch return error.CantConvert;
                         return std.meta.intToEnum(T, ival) catch {
                             if (@hasDecl(T, "Default")) {
                                 return T.Default;
-                            } else return null;
+                            } else return error.CantConvert;
                         };
                     }
                 } else {
@@ -1974,26 +2020,45 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     }
 }
 
+const WeakHandleId = u32;
+
 const WeakHandle = struct {
     const Self = @This();
 
-    ptr: *const anyopaque,
+    ptr: *anyopaque,
     tag: WeakHandleTag,
+    obj: v8.Persistent(v8.Object),
 
     fn deinit(self: *Self, rt: *RuntimeContext) void {
         switch (self.tag) {
             .DrawCommandList => {
-                const ptr = stdx.mem.ptrCastAlign(*const RuntimeValue(graphics.DrawCommandList), self.ptr);
-                ptr.inner.deinit();
+                const ptr = stdx.mem.ptrCastAlign(*graphics.DrawCommandList, self.ptr);
+                ptr.deinit();
                 rt.alloc.destroy(ptr);
             },
+            .Sound => {
+                const ptr = stdx.mem.ptrCastAlign(*audio.Sound, self.ptr);
+                ptr.deinit(rt.alloc);
+                rt.alloc.destroy(ptr);
+            },
+            .Null => {},
         }
     }
 };
 
 const WeakHandleTag = enum {
     DrawCommandList,
+    Sound,
+    Null,
 };
+
+pub fn WeakHandlePtr(comptime Tag: WeakHandleTag) type {
+    return switch (Tag) {
+        .DrawCommandList => *graphics.DrawCommandList,
+        .Sound => *audio.Sound,
+        else => unreachable,
+    };
+}
 
 /// Convenience wrapper around v8 when constructing the v8.Context.
 pub const ContextBuilder = struct {
@@ -2102,13 +2167,35 @@ pub fn RuntimeValue(comptime T: type) type {
     };
 }
 
-// Holds the rt and resource id for passing into a callback.
+/// Holds the rt and resource id for passing into a callback.
 const ExternalResourceHandle = struct {
     rt: *RuntimeContext,
     res_id: ResourceId,
 };
 
-// This is converted from a js object that has a resource id in their first internal field.
+/// Converted from a js object that has a weak handle id in their first internal field.
+pub fn Handle(comptime Tag: WeakHandleTag) type {
+    return struct {
+        pub const Handle = true;
+
+        id: WeakHandleId,
+        ptr: WeakHandlePtr(Tag),
+        obj: v8.Object,
+    };
+}
+
+/// Converted from a js function's this object that has a weak handle id in their first internal field.
+pub fn ThisHandle(comptime Tag: WeakHandleTag) type {
+    return struct {
+        pub const ThisHandle = true;
+
+        id: WeakHandleId,
+        ptr: WeakHandlePtr(Tag),
+        obj: v8.Object,
+    };
+}
+
+/// This is converted from a js object that has a resource id in their first internal field.
 pub fn ThisResource(comptime Tag: ResourceTag) type {
     return struct {
         pub const ThisResource = true;
@@ -2195,6 +2282,8 @@ pub const CsError = error {
     NoError,
     FileNotFound,
     IsDir,
+    InvalidFormat,
+    Unsupported,
 };
 
 /// Double precision can represent a 53 bit significand. 
@@ -2226,3 +2315,39 @@ const ModuleInfo = struct {
         alloc.free(self.dir);
     }
 };
+
+pub fn finalizeHandle(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
+    const info = v8.WeakCallbackInfo.initFromC(c_info);
+    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getParameter());
+    const id = @intCast(u32, @ptrToInt(info.getInternalField(1)) / 2);
+    rt.destroyWeakHandle(id);
+}
+
+pub fn createWeakHandle(rt: *RuntimeContext, comptime Tag: WeakHandleTag, ptr: WeakHandlePtr(Tag)) v8.Object {
+    const ctx = rt.getContext();
+    const iso = rt.isolate;
+    const template = switch (Tag) {
+        .DrawCommandList => rt.handle_class,
+        .Sound => rt.sound_class,
+        else => unreachable,
+    };
+    const new = template.inner.initInstance(ctx);
+    var new_p = iso.initPersistent(v8.Object, new);
+
+    const id = rt.weak_handles.add(.{
+        .ptr = ptr,
+        .tag = Tag,
+        .obj = new_p,
+    }) catch unreachable;
+
+    const js_id = iso.initExternal(@intToPtr(?*anyopaque, id));
+    new.setInternalField(0, js_id);
+
+    // id is doubled then halved on callback.
+    // Set on the second internal field since the first is already used for the original id.
+    new.setAlignedPointerInInternalField(1, @intToPtr(?*anyopaque, @intCast(u64, id) * 2));
+
+    new_p.setWeakFinalizer(rt, finalizeHandle, .kInternalFields);
+
+    return new_p.inner;
+}

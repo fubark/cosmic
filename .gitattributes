@@ -7,6 +7,7 @@
 *.js text eol=lf
 
 lib/mingw/** linguist-vendored
+lib/miniaudio/src/** linguist-vendored
 docs/*.css linguist-vendored
 docs/*.html linguist-vendored
 docs/*.js linguist-vendored
