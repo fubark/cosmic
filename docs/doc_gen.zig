@@ -429,6 +429,8 @@ fn getJsTypeName(comptime T: type) []const u8 {
         u53,
         u16 => "number",
 
+        u64 => "BigInt",
+
         v8.Value,
         *const anyopaque => "any",
 
