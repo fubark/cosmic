@@ -1971,7 +1971,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     }
 
     if (dev_mode) {
-        rt.dev_ctx.init(alloc);
+        rt.dev_ctx.init(alloc, .{});
 
         // Create the dev mode window.
         // The first window created by the user script will take over this window.

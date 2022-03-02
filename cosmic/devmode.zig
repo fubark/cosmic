@@ -9,10 +9,13 @@ const RuntimeContext = runtime.RuntimeContext;
 const CsWindow = runtime.CsWindow;
 const log = stdx.log.scoped(.devmode);
 
+const DevModeOptions = struct {
+    max_cmd_items: u32 = 100,
+    max_stdio_line_items: u32 = 100,
+};
+
 pub const DevModeContext = struct {
     const Self = @This();
-    const MaxCommandItems = 100;
-    const MaxStdioLineItems = 100;
     
     alloc: std.mem.Allocator,
 
@@ -32,7 +35,9 @@ pub const DevModeContext = struct {
     // Whether the current pos is at an empty new line. (hasn't inserted a line item yet.)
     term_stdio_on_new_line: bool,
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
+    opts: DevModeOptions,
+
+    pub fn init(self: *Self, alloc: std.mem.Allocator, opts: DevModeOptions) void {
         self.* = .{
             .alloc = alloc,
             .dev_window = null,
@@ -41,6 +46,7 @@ pub const DevModeContext = struct {
             .term_cmds = std.ArrayList(CommandItem).init(alloc),
             .term_stdio_lines = std.ArrayList(StdioLineItem).init(alloc),
             .term_stdio_on_new_line = true,
+            .opts = opts,
         };
     }
 
@@ -140,16 +146,16 @@ pub const DevModeContext = struct {
     }
 
     fn prependStdioLine(self: *Self, line: []const u8) void {
-        const full = self.term_stdio_lines.items.len >= MaxStdioLineItems;
+        const full = self.term_stdio_lines.items.len == self.opts.max_stdio_line_items;
         if (full) {
-            const last = self.term_cmds.pop();
+            const last = self.term_stdio_lines.pop();
             last.deinit(self.alloc);
         }
         self.term_stdio_lines.insert(0, .{
             .line = self.alloc.dupe(u8, line) catch unreachable,
         }) catch unreachable;
 
-        self.prependAggTermItem(.StdioLine, if (full) MaxStdioLineItems-1 else null);
+        self.prependAggTermItem(.StdioLine, if (full) self.opts.max_stdio_line_items-1 else null);
     }
 
     fn prependAggTermItem(self: *Self, tag: TermItemTag, mb_remove_idx: ?usize) void {
@@ -173,14 +179,10 @@ pub const DevModeContext = struct {
             };
         } else {
             // Update aggregate items.
-            if (self.term_cmds.items.len > 1) {
-                if (self.aggIndexOfTermItem(tag, self.term_cmds.items.len-2)) |last| {
-                    var i: u32 = 0;
-                    while (i <= last) : (i += 1) {
-                        if (self.term_items.items[i].tag == tag) {
-                            self.term_items.items[i].idx += 1;
-                        }
-                    }
+            var i: u32 = 0;
+            while (i < self.term_items.items.len) : (i += 1) {
+                if (self.term_items.items[i].tag == tag) {
+                    self.term_items.items[i].idx += 1;
                 }
             }
             self.term_items.insert(0, .{
@@ -191,7 +193,7 @@ pub const DevModeContext = struct {
     }
 
     pub fn cmdLog(self: *Self, str: []const u8) void {
-        const full = self.term_cmds.items.len >= MaxCommandItems;
+        const full = self.term_cmds.items.len == self.opts.max_cmd_items;
         if (full) {
             const last = self.term_cmds.pop();
             last.deinit(self.alloc);
@@ -200,7 +202,7 @@ pub const DevModeContext = struct {
             .msg = self.alloc.dupe(u8, str) catch unreachable,
         }) catch unreachable;
 
-        self.prependAggTermItem(.Command, if (full) MaxCommandItems-1 else null);
+        self.prependAggTermItem(.Command, if (full) self.opts.max_cmd_items-1 else null);
     }
 
     fn aggIndexOfTermItem(self: Self, tag: TermItemTag, idx: usize) ?u32 {
@@ -224,9 +226,12 @@ pub const DevModeContext = struct {
     }
 };
 
-test "DevModeContext terminal items" {
+test "DevModeContext command items" {
     var ctx: DevModeContext = undefined;
-    ctx.init(t.alloc);
+    ctx.init(t.alloc, .{
+        .max_cmd_items = 3,
+        .max_stdio_line_items = 3,
+    });
     defer ctx.deinit();
 
     // Insert command item.
@@ -237,28 +242,86 @@ test "DevModeContext terminal items" {
     try t.eqStr(ctx.getAggCommandItem(0).msg, "Command Log");
 
     // Insert command item to limit.
-    const max = DevModeContext.MaxCommandItems;
-    var i: u32 = 1;
-    while (i < max) : (i += 1) {
-        const str = try std.fmt.allocPrint(t.alloc, "Log {}", .{i});
-        defer t.alloc.free(str);
-        ctx.cmdLog(str);
-    }
-    try t.eq(ctx.term_cmds.items.len, max);
-    try t.eq(ctx.term_items.items.len, max);
-    i = 0;
-    while (i < max-1) : (i += 1) {
-        const str = try std.fmt.allocPrint(t.alloc, "Log {}", .{max-i-1});
-        defer t.alloc.free(str);
-        try t.eqStr(ctx.getAggCommandItem(i).msg, str);
-    }
-    try t.eqStr(ctx.getAggCommandItem(max-1).msg, "Command Log");
+    ctx.cmdLog("Log 1");
+    ctx.cmdLog("Log 2");
+    try t.eq(ctx.term_cmds.items.len, 3);
+    try t.eq(ctx.term_items.items.len, 3);
+    try t.eqStr(ctx.getAggCommandItem(0).msg, "Log 2");
+    try t.eqStr(ctx.getAggCommandItem(1).msg, "Log 1");
+    try t.eqStr(ctx.getAggCommandItem(2).msg, "Command Log");
 
     // Insert command item at limit.
     ctx.cmdLog("Command Log");
-    try t.eq(ctx.term_cmds.items.len, max);
-    try t.eq(ctx.term_items.items.len, max);
+    try t.eq(ctx.term_cmds.items.len, 3);
+    try t.eq(ctx.term_items.items.len, 3);
     try t.eqStr(ctx.getAggCommandItem(0).msg, "Command Log");
+    try t.eqStr(ctx.getAggCommandItem(1).msg, "Log 2");
+    try t.eqStr(ctx.getAggCommandItem(2).msg, "Log 1");
+}
+
+test "DevModeContext stdio lines" {
+    t.setLogLevel(.debug);
+    var ctx: DevModeContext = undefined;
+    ctx.init(t.alloc, .{
+       .max_cmd_items = 3,
+       .max_stdio_line_items = 3,
+    });
+    defer ctx.deinit();
+
+    ctx.print("Foo");
+    try t.eq(ctx.term_items.items.len, 1);
+    try t.eq(ctx.term_stdio_lines.items.len, 1);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "Foo");
+    ctx.print("Bar");
+    try t.eq(ctx.term_items.items.len, 1);
+    try t.eq(ctx.term_stdio_lines.items.len, 1);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "FooBar");
+    ctx.print("\n");
+    try t.eq(ctx.term_items.items.len, 1);
+    try t.eq(ctx.term_stdio_lines.items.len, 1);
+    ctx.print("Foo\n");
+    try t.eq(ctx.term_items.items.len, 2);
+    try t.eq(ctx.term_stdio_lines.items.len, 2);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "Foo");
+    try t.eqStr(ctx.getAggStdioLineItem(1).line, "FooBar");
+    ctx.print("Foo\n");
+    try t.eq(ctx.term_items.items.len, 3);
+    try t.eq(ctx.term_stdio_lines.items.len, 3);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "Foo");
+    try t.eqStr(ctx.getAggStdioLineItem(1).line, "Foo");
+    try t.eqStr(ctx.getAggStdioLineItem(2).line, "FooBar");
+    ctx.print("Overflow\n");
+    try t.eq(ctx.term_items.items.len, 3);
+    try t.eq(ctx.term_stdio_lines.items.len, 3);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "Overflow");
+    try t.eqStr(ctx.getAggStdioLineItem(1).line, "Foo");
+    try t.eqStr(ctx.getAggStdioLineItem(2).line, "Foo");
+}
+
+test "DevModeContext mix term items" {
+    var ctx: DevModeContext = undefined;
+    ctx.init(t.alloc, .{
+        .max_cmd_items = 3,
+        .max_stdio_line_items = 3,
+    });
+    defer ctx.deinit();
+
+    ctx.cmdLog("Command 1");
+    ctx.print("Foo 1\n");
+    try t.eq(ctx.term_items.items.len, 2);
+    try t.eq(ctx.term_cmds.items.len, 1);
+    try t.eq(ctx.term_stdio_lines.items.len, 1);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "Foo 1");
+    try t.eqStr(ctx.getAggCommandItem(1).msg, "Command 1");
+    ctx.cmdLog("Command 2");
+    ctx.print("Foo 2\n");
+    try t.eq(ctx.term_items.items.len, 4);
+    try t.eq(ctx.term_cmds.items.len, 2);
+    try t.eq(ctx.term_stdio_lines.items.len, 2);
+    try t.eqStr(ctx.getAggStdioLineItem(0).line, "Foo 2");
+    try t.eqStr(ctx.getAggCommandItem(1).msg, "Command 2");
+    try t.eqStr(ctx.getAggStdioLineItem(2).line, "Foo 1");
+    try t.eqStr(ctx.getAggCommandItem(3).msg, "Command 1");
 }
 
 const WatchEntry = struct {
