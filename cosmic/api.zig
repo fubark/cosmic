@@ -11,6 +11,7 @@ const t = stdx.testing;
 const Mock = t.Mock;
 const curl = @import("curl");
 const ma = @import("miniaudio");
+const Vec3 = stdx.math.Vec3;
 
 const audio = @import("audio.zig");
 const AudioEngine = audio.AudioEngine;
@@ -1178,6 +1179,8 @@ pub const cs_core = struct {
         NoError,
         FileNotFound,
         IsDir,
+        InvalidFormat,
+        Unsupported,
         NotAnError,
     };
 
@@ -1250,35 +1253,192 @@ test "getAudioEngine inits once" {
 /// @name audio
 /// @ns cs.audio
 /// This module provides a cross platform API to decode sound files, capture audio, and play audio.
+/// There is support for 3D Spatialization. You can adjust the listener's or sound's position, direction, and velocity.
+/// The positions are absolute values in the 3D space.
 pub const cs_audio = struct {
+
+    fn loadInternal(rt: *RuntimeContext, data: Uint8Array, encoder: StdSound.Encoding) Error!v8.Object {
+        const engine = getAudioEngine();
+        const sound = engine.createSound(rt.alloc, encoder, data.buf) catch |err| switch (err) {
+            error.InvalidFormat => return error.InvalidFormat,
+            else => {
+                log.debug("unexpected: {}", .{err});
+                unreachable;
+            },
+        };
+        return runtime.createWeakHandle(rt, .Sound, sound);
+    }
 
     /// Decodes .wav data into a Sound handle.
     /// @param data
-    pub fn loadWav(rt: *RuntimeContext, data: Uint8Array) !v8.Object {
-        const engine = getAudioEngine();
-        const sound = engine.createSound(rt.alloc, .Wav, data.buf) catch unreachable;
-        return runtime.createWeakHandle(rt, .Sound, sound);
+    pub fn loadWav(rt: *RuntimeContext, data: Uint8Array) Error!v8.Object {
+        return try loadInternal(rt, data, .Wav);
     }
 
     /// Decodes a .wav file into a Sound handle. File path can be absolute or relative to the cwd.
     /// @param path
-    pub fn loadWavFile(rt: *RuntimeContext, path: []const u8) !v8.Object {
+    pub fn loadWavFile(rt: *RuntimeContext, path: []const u8) Error!v8.Object {
         const data = try readInternal(rt.alloc, path);
         defer rt.alloc.free(data);
         return loadWav(rt, Uint8Array{ .buf = data });
     }
 
+    /// Decodes .mp3 data into a Sound handle.
+    /// @param data
+    pub fn loadMp3(rt: *RuntimeContext, data: Uint8Array) Error!v8.Object {
+        return try loadInternal(rt, data, .Mp3);
+    }
+
+    /// Decodes a .mp3 file into a Sound handle. File path can be absolute or relative to the cwd.
+    /// @param path
+    pub fn loadMp3File(rt: *RuntimeContext, path: []const u8) Error!v8.Object {
+        const data = try readInternal(rt.alloc, path);
+        defer rt.alloc.free(data);
+        return loadMp3(rt, Uint8Array{ .buf = data });
+    }
+
+    /// Decodes .flac data into a Sound handle.
+    /// @param data
+    pub fn loadFlac(rt: *RuntimeContext, data: Uint8Array) Error!v8.Object {
+        return try loadInternal(rt, data, .Flac);
+    }
+
+    /// Decodes a .flac file into a Sound handle. File path can be absolute or relative to the cwd.
+    /// @param path
+    pub fn loadFlacFile(rt: *RuntimeContext, path: []const u8) Error!v8.Object {
+        const data = try readInternal(rt.alloc, path);
+        defer rt.alloc.free(data);
+        return loadFlac(rt, Uint8Array{ .buf = data });
+    }
+
+    /// Decodes .ogg data into a Sound handle.
+    /// @param data
+    pub fn loadOgg(rt: *RuntimeContext, data: Uint8Array) Error!v8.Object {
+        return try loadInternal(rt, data, .Ogg);
+    }
+
+    /// Decodes a .ogg file into a Sound handle. File path can be absolute or relative to the cwd.
+    /// @param path
+    pub fn loadOggFile(rt: *RuntimeContext, path: []const u8) Error!v8.Object {
+        const data = try readInternal(rt.alloc, path);
+        defer rt.alloc.free(data);
+        return loadOgg(rt, Uint8Array{ .buf = data });
+    }
+
+    /// Attempt to decode wav, mp3, flac, or ogg data into a Sound handle.
+    /// @param data
+    pub fn load(rt: *RuntimeContext, data: Uint8Array) Error!v8.Object {
+        return try loadInternal(rt, data, .Unknown);
+    }
+
+    /// Attempt to decode wav, mp3, flac, or ogg file into a Sound handle.
+    /// File path can be absolute or relative to the cwd.
+    /// @param path
+    pub fn loadFile(rt: *RuntimeContext, path: []const u8) Error!v8.Object {
+        const data = try readInternal(rt.alloc, path);
+        defer rt.alloc.free(data);
+        return load(rt, Uint8Array{ .buf = data });
+    }
+
+    /// Sets the listener's position in 3D space.
+    pub fn setListenerPos(x: f32, y: f32, z: f32) void {
+        const engine = getAudioEngine();
+        engine.setListenerPosition(0, .{ .x = x, .y = y, .z = z });
+    }
+
+    /// Returns the listener's position in 3D space.
+    pub fn getListenerPos() Vec3 {
+        const engine = getAudioEngine();
+        return engine.getListenerPosition(0);
+    }
+
+    /// Sets the listener's forward direction in 3D space. See also setListenerUpDir.
+    /// @param x
+    /// @param y
+    /// @param z
+    pub fn setListenerDir(x: f32, y: f32, z: f32) void {
+        const engine = getAudioEngine();
+        engine.setListenerDirection(0, .{ .x = x, .y = y, .z = z });
+    }
+
+    /// Returns the listener's forward direction in 3D space.
+    pub fn getListenerDir() Vec3 {
+        const engine = getAudioEngine();
+        return engine.getListenerDirection(0);
+    }
+
+    /// Sets the listener's up direction in 3D space.
+    /// @param x
+    /// @param y
+    /// @param z
+    pub fn setListenerUpDir(x: f32, y: f32, z: f32) void {
+        const engine = getAudioEngine();
+        engine.setListenerWorldUp(0, .{ .x = x, .y = y, .z = z });
+    }
+
+    /// Returns the listener's up direction in 3D space.
+    pub fn getListenerUpDir() Vec3 {
+        const engine = getAudioEngine();
+        return engine.getListenerWorldUp(0);
+    }
+
+    /// Sets the listener's velocity in 3D space. This is for the doppler effect.
+    /// @param x
+    /// @param y
+    /// @param z
+    pub fn setListenerVel(x: f32, y: f32, z: f32) void {
+        const engine = getAudioEngine();
+        engine.setListenerVelocity(0, .{ .x = x, .y = y, .z = z });
+    }
+
+    /// Returns the listener's velocity in 3D space.
+    pub fn getListenerVel() Vec3 {
+        const engine = getAudioEngine();
+        return engine.getListenerVelocity(0);
+    }
+
     pub const Sound = struct {
 
-        /// Plays the sound until it's done.
+        /// Plays the sound. This won't return until the sound is done playing.
         pub fn play(self: ThisHandle(.Sound)) void {
             self.ptr.play();
         }
 
         /// Starts playing the sound in the background. Returns immediately.
-        /// Playing the sound while it is already playing does nothing.
+        /// Playing the sound while it's already playing will rewind to the start and begin playback.
         pub fn playBg(self: ThisHandle(.Sound)) void {
             self.ptr.playBg();
+        }
+
+        /// Returns whether the sound is playing or looping in the background.
+        pub fn isPlayingBg(self: ThisHandle(.Sound)) bool {
+            return self.ptr.isPlayingBg();
+        }
+
+        /// Starts looping the sound in the background.
+        pub fn loopBg(self: ThisHandle(.Sound)) void {
+            self.ptr.loopBg();
+        }
+
+        /// Returns whether the sound is looping in the background.
+        pub fn isLoopingBg(self: ThisHandle(.Sound)) bool {
+            return self.ptr.isLoopingBg();
+        }
+
+        /// Pauses the playback. 
+        pub fn pauseBg(self: ThisHandle(.Sound)) void {
+            self.ptr.pauseBg();
+        }
+
+        /// Resumes the playback from the current cursor position.
+        /// If the cursor is at the end, it will rewind to the start and begin playback.
+        pub fn resumeBg(self: ThisHandle(.Sound)) void {
+            self.ptr.resumeBg();
+        }
+
+        /// Stops the playback and rewinds to the start.
+        pub fn stopBg(self: ThisHandle(.Sound)) void {
+            self.ptr.stopBg();
         }
 
         /// Sets the volume in a positive linear scale. Volume at 0 is muted. 1 is the default value.
@@ -1324,6 +1484,66 @@ pub const cs_audio = struct {
         /// Returns the current stereo pan.
         pub fn getPan(self: ThisHandle(.Sound)) f32 {
             return self.ptr.getPan();
+        }
+
+        /// Returns the length of the sound in pcm frames. Unsupported for ogg.
+        pub fn getLengthInPcmFrames(self: ThisHandle(.Sound)) Error!u64 {
+            return self.ptr.getLengthInPcmFrames() catch return error.Unsupported;
+        }
+
+        /// Returns the length of the sound in milliseconds. Unsupported for ogg.
+        pub fn getLength(self: ThisHandle(.Sound)) Error!u64 {
+            return self.ptr.getLength() catch return error.Unsupported;
+        }
+
+        /// Returns the current playback position in pcm frames. Unsupported for ogg.
+        pub fn getCursorPcmFrame(self: ThisHandle(.Sound)) u64 {
+            return self.ptr.getCursorPcmFrame();
+        }
+
+        /// Seeks to playback position in pcm frames.
+        /// @param frameIndex
+        pub fn seekToPcmFrame(self: ThisHandle(.Sound), frame_index: u64) void {
+            return self.ptr.seekToPcmFrame(frame_index);
+        }
+
+        /// Sets the sound's position in 3D space.
+        /// @param x
+        /// @param y
+        /// @param z
+        pub fn setPosition(self: ThisHandle(.Sound), x: f32, y: f32, z: f32) void {
+            self.ptr.setPosition(x, y, z);
+        }
+
+        /// Returns the sound's position in 3D space.
+        pub fn getPosition(self: ThisHandle(.Sound)) Vec3 {
+            return self.ptr.getPosition();
+        }
+
+        /// Sets the sound's direction in 3D space.
+        /// @param x
+        /// @param y
+        /// @param z
+        pub fn setDirection(self: ThisHandle(.Sound), x: f32, y: f32, z: f32) void {
+            self.ptr.setDirection(x, y, z);
+        }
+
+        /// Returns the sound's direction in 3D space.
+        pub fn getDirection(self: ThisHandle(.Sound)) Vec3 {
+            return self.ptr.getDirection();
+        }
+
+        /// Sets the sound's velocity in 3D space. This is for the doppler effect.
+        /// @param x
+        /// @param y
+        /// @param z
+        pub fn setVelocity(self: ThisHandle(.Sound), x: f32, y: f32, z: f32) void {
+            self.ptr.setVelocity(x, y, z);
+        }
+
+        /// Returns the sound's velocity in 3D space.
+        pub fn getVelocity(self: ThisHandle(.Sound)) Vec3 {
+            return self.ptr.getVelocity();
         }
     };
 };

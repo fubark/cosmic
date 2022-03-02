@@ -1727,6 +1727,8 @@ const BuilderContext = struct {
                 lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
         }
+        // TODO: vorbis has UB when doing seekToPcmFrame.
+        lib.disable_sanitize_c = true;
 
         const c_flags = &[_][]const u8{
         };

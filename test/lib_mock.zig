@@ -12,6 +12,8 @@ const log = stdx.log.scoped(.lib_mock);
 
 extern fn unitTraceC(fn_name_ptr: *const u8, fn_name_len: usize) void;
 
+/// Since lib_mock is compiled as a static lib, it would use a different reference to the global mocks var
+/// if we called unitTrace directly. Instead, call into an exported c function.
 fn unitTrace(loc: std.builtin.SourceLocation) void {
     unitTraceC(&loc.fn_name[0], loc.fn_name.len);
 }
@@ -411,3 +413,28 @@ export fn ma_sound_get_pan() void {}
 export fn ma_volume_db_to_linear() void {}
 export fn ma_volume_linear_to_db() void {}
 export fn v8__HeapStatistics__SIZEOF() void {}
+export fn ma_data_source_seek_to_pcm_frame() void {}
+export fn ma_sound_stop() void {}
+export fn ma_engine_listener_get_position() void {}
+export fn ma_engine_listener_get_velocity() void {}
+export fn ma_engine_listener_get_world_up() void {}
+export fn ma_engine_listener_set_direction() void {}
+export fn ma_engine_listener_set_position() void {}
+export fn ma_engine_listener_set_velocity() void {}
+export fn v8__Value__IsString() void {}
+export fn ma_engine_listener_set_world_up() void {}
+export fn v8__BigInt__Uint64Value() void {}
+export fn ma_sound_set_velocity() void {}
+export fn ma_engine_listener_get_direction() void {}
+export fn ma_sound_set_position() void {}
+export fn v8__BigInt__NewFromUnsigned() void {}
+export fn ma_sound_set_looping() void {}
+export fn ma_sound_set_direction() void {}
+export fn ma_sound_is_looping() void {}
+export fn ma_sound_get_velocity() void {}
+export fn ma_sound_get_position() void {}
+export fn ma_sound_get_length_in_pcm_frames() void {}
+export fn ma_sound_get_direction() void {}
+export fn ma_sound_get_data_format() void {}
+export fn ma_sound_get_cursor_in_pcm_frames() void {}
+export fn v8__Value__IsBigInt() void {}

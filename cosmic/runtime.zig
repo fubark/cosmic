@@ -2282,6 +2282,8 @@ pub const CsError = error {
     NoError,
     FileNotFound,
     IsDir,
+    InvalidFormat,
+    Unsupported,
 };
 
 /// Double precision can represent a 53 bit significand. 

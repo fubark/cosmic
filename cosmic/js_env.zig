@@ -364,12 +364,34 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const cs_audio = iso.initObjectTemplateDefault();
     ctx.setConstFuncT(cs_audio, "loadWav", api.cs_audio.loadWav);
     ctx.setConstFuncT(cs_audio, "loadWavFile", api.cs_audio.loadWavFile);
+    ctx.setConstFuncT(cs_audio, "loadMp3", api.cs_audio.loadMp3);
+    ctx.setConstFuncT(cs_audio, "loadMp3File", api.cs_audio.loadMp3File);
+    ctx.setConstFuncT(cs_audio, "loadFlac", api.cs_audio.loadFlac);
+    ctx.setConstFuncT(cs_audio, "loadFlacFile", api.cs_audio.loadFlacFile);
+    ctx.setConstFuncT(cs_audio, "loadOgg", api.cs_audio.loadOgg);
+    ctx.setConstFuncT(cs_audio, "loadOggFile", api.cs_audio.loadOggFile);
+    ctx.setConstFuncT(cs_audio, "load", api.cs_audio.load);
+    ctx.setConstFuncT(cs_audio, "loadFile", api.cs_audio.loadFile);
+    ctx.setConstFuncT(cs_audio, "getListenerPos", api.cs_audio.getListenerPos);
+    ctx.setConstFuncT(cs_audio, "setListenerPos", api.cs_audio.setListenerPos);
+    ctx.setConstFuncT(cs_audio, "getListenerDir", api.cs_audio.getListenerDir);
+    ctx.setConstFuncT(cs_audio, "setListenerDir", api.cs_audio.setListenerDir);
+    ctx.setConstFuncT(cs_audio, "getListenerUpDir", api.cs_audio.getListenerUpDir);
+    ctx.setConstFuncT(cs_audio, "setListenerUpDir", api.cs_audio.setListenerUpDir);
+    ctx.setConstFuncT(cs_audio, "getListenerVel", api.cs_audio.getListenerVel);
+    ctx.setConstFuncT(cs_audio, "setListenerVel", api.cs_audio.setListenerVel);
     {
         // Sound
         const sound_class = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
         sound_class.inner.setInternalFieldCount(2);
         ctx.setConstFuncT(sound_class.inner, "play", api.cs_audio.Sound.play);
         ctx.setConstFuncT(sound_class.inner, "playBg", api.cs_audio.Sound.playBg);
+        ctx.setConstFuncT(sound_class.inner, "isPlayingBg", api.cs_audio.Sound.isPlayingBg);
+        ctx.setConstFuncT(sound_class.inner, "loopBg", api.cs_audio.Sound.loopBg);
+        ctx.setConstFuncT(sound_class.inner, "isLoopingBg", api.cs_audio.Sound.isLoopingBg);
+        ctx.setConstFuncT(sound_class.inner, "pauseBg", api.cs_audio.Sound.pauseBg);
+        ctx.setConstFuncT(sound_class.inner, "resumeBg", api.cs_audio.Sound.resumeBg);
+        ctx.setConstFuncT(sound_class.inner, "stopBg", api.cs_audio.Sound.stopBg);
         ctx.setConstFuncT(sound_class.inner, "setVolume", api.cs_audio.Sound.setVolume);
         ctx.setConstFuncT(sound_class.inner, "getVolume", api.cs_audio.Sound.getVolume);
         ctx.setConstFuncT(sound_class.inner, "setGain", api.cs_audio.Sound.setGain);
@@ -378,6 +400,16 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(sound_class.inner, "getPitch", api.cs_audio.Sound.getPitch);
         ctx.setConstFuncT(sound_class.inner, "setPan", api.cs_audio.Sound.setPan);
         ctx.setConstFuncT(sound_class.inner, "getPan", api.cs_audio.Sound.getPan);
+        ctx.setConstFuncT(sound_class.inner, "getLengthInPcmFrames", api.cs_audio.Sound.getLengthInPcmFrames);
+        ctx.setConstFuncT(sound_class.inner, "getLength", api.cs_audio.Sound.getLength);
+        ctx.setConstFuncT(sound_class.inner, "getCursorPcmFrame", api.cs_audio.Sound.getCursorPcmFrame);
+        ctx.setConstFuncT(sound_class.inner, "seekToPcmFrame", api.cs_audio.Sound.seekToPcmFrame);
+        ctx.setConstFuncT(sound_class.inner, "setPosition", api.cs_audio.Sound.setPosition);
+        ctx.setConstFuncT(sound_class.inner, "getPosition", api.cs_audio.Sound.getPosition);
+        ctx.setConstFuncT(sound_class.inner, "setDirection", api.cs_audio.Sound.setDirection);
+        ctx.setConstFuncT(sound_class.inner, "getDirection", api.cs_audio.Sound.getDirection);
+        ctx.setConstFuncT(sound_class.inner, "setVelocity", api.cs_audio.Sound.setVelocity);
+        ctx.setConstFuncT(sound_class.inner, "getVelocity", api.cs_audio.Sound.getVelocity);
         ctx.setConstProp(cs_audio, "Sound", sound_class.inner);
         rt.sound_class = sound_class;
     }
