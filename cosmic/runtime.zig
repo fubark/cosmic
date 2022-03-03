@@ -433,7 +433,9 @@ pub const RuntimeContext = struct {
         return self.context.inner;
     }
 
-    fn runModuleScript(self: *Self, abs_path: []const u8) !void {
+    /// Returns a result with a success flag.
+    /// If a js exception was thrown, the stack trace is printed to stderr and also attached to the result.
+    fn runModuleScript(self: *Self, abs_path: []const u8) !RunModuleScriptResult {
         const alloc = self.alloc;
         const iso = self.isolate;
         const origin_path = iso.initStringUtf8(abs_path);
@@ -544,9 +546,11 @@ pub const RuntimeContext = struct {
 
         const success = mod.instantiate(self.getContext(), S.resolveModule) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            defer self.alloc.free(trace_str);
             errorFmt("{s}", .{trace_str});
-            return error.MainScriptError;
+            return RunModuleScriptResult{
+                .success = false,
+                .js_err_trace = null,
+            };
         };
         if (!success) {
             stdx.panic("TODO: Did not expect !success.");
@@ -555,18 +559,26 @@ pub const RuntimeContext = struct {
 
         const res = mod.evaluate(self.getContext()) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            defer self.alloc.free(trace_str);
             errorFmt("{s}", .{trace_str});
-            return error.MainScriptError;
+            return RunModuleScriptResult{
+                .success = false,
+                .js_err_trace = trace_str,
+            };
         };
         _ = res;
         if (mod.getStatus() == .kErrored) {
             const trace_str = v8x.allocExceptionStackTraceString(self.alloc, self.isolate, self.getContext(), mod.getException());
-            defer self.alloc.free(trace_str);
             errorFmt("{s}", .{trace_str});
-            return error.MainScriptError;
+            return RunModuleScriptResult{
+                .success = false,
+                .js_err_trace = trace_str,
+            };
         }
         processV8EventLoop(self);
+        return RunModuleScriptResult{
+            .success = true,
+            .js_err_trace = null,
+        };
     }
 
     fn runScript(self: *Self, abs_path: []const u8) !void {
@@ -587,8 +599,8 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn runMainScript(self: *Self) !void {
-        try self.runModuleScript(self.main_script_path);
+    fn runMainScript(self: *Self) !RunModuleScriptResult {
+        return try self.runModuleScript(self.main_script_path);
     }
 
     /// Destroys the resource owned by the handle and marks it as deinited.
@@ -1442,14 +1454,17 @@ fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
     // Start frame timer after beginFrame since it could delay to sync with OpenGL pipeline.
     rt.active_window.fps_limiter.beginFrame();
 
-    if (rt.active_window.on_update_cb) |cb| {
-        const g_ctx = rt.active_window.js_graphics.toValue();
-        _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
-            // const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
-            // defer rt.alloc.free(trace);
-            // errorFmt("{s}", .{trace});
-            // return;
-        };
+    // Don't call user's onUpdate if dev mode has an error.
+    if (!DevMode or !rt.dev_ctx.has_error) {
+        if (rt.active_window.on_update_cb) |cb| {
+            const g_ctx = rt.active_window.js_graphics.toValue();
+            _ = cb.inner.call(ctx, rt.active_window.js_window, &.{ g_ctx }) orelse {
+                // const trace = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
+                // defer rt.alloc.free(trace);
+                // errorFmt("{s}", .{trace});
+                // return;
+            };
+        }
     }
 
     if (DevMode) {
@@ -1665,7 +1680,11 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
         rt.deinit();
     }
 
-    try rt.runMainScript();
+    const res = try rt.runMainScript();
+    defer res.deinit(rt.alloc);
+    if (!res.success) {
+        return error.MainScriptError;
+    }
 
     while (rt.num_async_tests_finished < rt.num_async_tests) {
         if (pollMainEventLoop(&rt)) {
@@ -1724,7 +1743,13 @@ fn restart(rt: *RuntimeContext) !void {
     // Reinit watcher
     rt.dev_ctx.initWatcher(rt, main_script_path);
 
-    try rt.runMainScript();
+    const run_res = try rt.runMainScript();
+    defer run_res.deinit(rt.alloc);
+    if (!run_res.success) {
+        rt.dev_ctx.enterJsErrorState(rt, run_res.js_err_trace.?);
+    } else {
+        rt.dev_ctx.enterJsSuccessState();
+    }
 }
 
 /// Shutdown other threads gracefully before starting deinit.
@@ -1994,7 +2019,16 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
         rt.dev_ctx.initWatcher(&rt, abs_path);
     }
 
-    try rt.runMainScript();
+    const res = try rt.runMainScript();
+    defer res.deinit(rt.alloc);
+
+    if (!res.success) {
+        if (!dev_mode) {
+            return error.MainScriptError;
+        } else {
+            rt.dev_ctx.enterJsErrorState(&rt, res.js_err_trace.?);
+        }
+    }
 
     // Check if we need to enter an app loop.
     if (!dev_mode) {
@@ -2351,3 +2385,16 @@ pub fn createWeakHandle(rt: *RuntimeContext, comptime Tag: WeakHandleTag, ptr: W
 
     return new_p.inner;
 }
+
+const RunModuleScriptResult = struct {
+    const Self = @This();
+
+    success: bool,
+    js_err_trace: ?[]const u8,
+
+    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+        if (self.js_err_trace) |trace| {
+            alloc.free(trace);
+        }
+    }
+};

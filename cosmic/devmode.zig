@@ -37,6 +37,10 @@ pub const DevModeContext = struct {
 
     opts: DevModeOptions,
 
+    // In devmode, this is set true on the first uncaught js exception.
+    // This is then used to ensure that only the dev window interface is active. (User scripts/cbs shouldn't be invoked.)
+    has_error: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, opts: DevModeOptions) void {
         self.* = .{
             .alloc = alloc,
@@ -47,6 +51,7 @@ pub const DevModeContext = struct {
             .term_stdio_lines = std.ArrayList(StdioLineItem).init(alloc),
             .term_stdio_on_new_line = true,
             .opts = opts,
+            .has_error = false,
         };
     }
 
@@ -223,6 +228,16 @@ pub const DevModeContext = struct {
     pub fn getAggStdioLineItem(self: Self, idx: usize) StdioLineItem {
         const cmd_idx = self.term_items.items[idx].idx;
         return self.term_stdio_lines.items[cmd_idx];
+    }
+
+    pub fn enterJsErrorState(self: *Self, rt: *RuntimeContext, js_err_trace: []const u8) void {
+        self.print(js_err_trace);
+        self.has_error = true;
+        self.dev_window = rt.active_window;
+    }
+
+    pub fn enterJsSuccessState(self: *Self) void {
+        self.has_error = false;
     }
 };
 
