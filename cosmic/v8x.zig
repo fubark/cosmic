@@ -88,10 +88,10 @@ pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ct
         while (i < col_end) : (i += 1) {
             writer.writeByte('^') catch unreachable;
         }
+        writer.writeAll("\n") catch unreachable;
     }
 
     // Exception message.
-    writer.writeAll("\n") catch unreachable;
     appendStringAsUtf8(&buf, iso, message.getMessage());
     writer.writeAll("\n") catch unreachable;
 

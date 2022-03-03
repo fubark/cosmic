@@ -690,6 +690,9 @@ pub const RuntimeContext = struct {
             defer rt.alloc.free(err_str);
             errorFmt("\n{s}", .{err_str});
             rt.received_uncaught_exception = true;
+            if (rt.dev_mode) {
+                rt.dev_ctx.enterJsErrorState(rt, err_str);
+            }
         }
     }
 
@@ -1373,7 +1376,10 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
             }
         }
 
-        const should_update = rt.num_windows > 0 and !rt.received_uncaught_exception;
+        // Receiving an uncaught exception exits in normal mode.
+        // In dev mode, dev_ctx.has_error should also be set and continue to display a dev window.
+        const exitFromUncaughtError = !DevMode and rt.received_uncaught_exception;
+        const should_update = rt.num_windows > 0 and !exitFromUncaughtError;
         if (!should_update) {
             return;
         }
