@@ -916,6 +916,9 @@ pub const cs_http = struct {
 /// Contains common utilities. All functions here are also available in the global scope. You can call them directly without the cs.core prefix.
 pub const cs_core = struct {
 
+    /// Whether print should also output to stdout in devmode.
+    const DevModeToStdout = false;
+
     /// Prints any number of variables as strings separated by " ".
     /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
@@ -942,7 +945,9 @@ pub const cs_core = struct {
         while (i < len) : (i += 1) {
             const str = v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
-            printFmt("{s} ", .{str});
+            if (!DevMode or DevModeToStdout) {
+                printFmt("{s} ", .{str});
+            }
             if (DevMode) {
                 rt.dev_ctx.printFmt("{s} ", .{str});
             }
@@ -959,7 +964,9 @@ pub const cs_core = struct {
     pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         printInternal(info, true);
-        printFmt("\n", .{});
+        if (DevModeToStdout) {
+            printFmt("\n", .{});
+        }
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         rt.dev_ctx.print("\n");
     }
