@@ -41,6 +41,10 @@ pub const DevModeContext = struct {
     // This is then used to ensure that only the dev window interface is active. (User scripts/cbs shouldn't be invoked.)
     has_error: bool,
 
+    // Once restart is requested, the runtime will perform a restart when appropriate.
+    // The flag is also used during restart to prevent some things from deiniting in order to persist them into the next session.
+    restart_requested: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, opts: DevModeOptions) void {
         self.* = .{
             .alloc = alloc,
@@ -52,6 +56,7 @@ pub const DevModeContext = struct {
             .term_stdio_on_new_line = true,
             .opts = opts,
             .has_error = false,
+            .restart_requested = false,
         };
     }
 
@@ -81,7 +86,7 @@ pub const DevModeContext = struct {
                     stdx.fs.getFileMd5Hash(rt_.alloc, entry.path, &hash) catch unreachable;
                     if (!std.meta.eql(hash, entry.hash)) {
                         entry.hash = hash;
-                        rt_.dev_restart_req = true;
+                        rt_.dev_ctx.requestRestart();
                     }
                 }
             }
@@ -238,6 +243,10 @@ pub const DevModeContext = struct {
 
     pub fn enterJsSuccessState(self: *Self) void {
         self.has_error = false;
+    }
+
+    pub fn requestRestart(self: *Self) void {
+        self.restart_requested = true;
     }
 };
 

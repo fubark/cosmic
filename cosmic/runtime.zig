@@ -126,7 +126,6 @@ pub const RuntimeContext = struct {
 
     dev_mode: bool,
     dev_ctx: DevModeContext,
-    dev_restart_req: bool,
 
     event_dispatcher: EventDispatcher,
 
@@ -207,7 +206,6 @@ pub const RuntimeContext = struct {
             .timer = undefined,
             .dev_mode = dev_mode,
             .dev_ctx = undefined,
-            .dev_restart_req = false,
             .event_dispatcher = undefined,
 
             .platform = platform,
@@ -345,7 +343,7 @@ pub const RuntimeContext = struct {
         self.cb_f32_buf.deinit();
         self.vec2_buf.deinit();
 
-        if (self.dev_mode and !self.dev_restart_req) {
+        if (self.dev_mode and !self.dev_ctx.restart_requested) {
             self.dev_ctx.deinit();
         }
 
@@ -615,7 +613,7 @@ pub const RuntimeContext = struct {
             .CsWindow => {
                 // TODO: This should do cleanup like deleteCsWindowBySdlId
                 const window = stdx.mem.ptrCastAlign(*CsWindow, handle.ptr);
-                if (self.dev_mode and self.dev_restart_req) {
+                if (self.dev_mode and self.dev_ctx.restart_requested) {
                     // Skip deiniting the window for a dev mode restart.
                     window.deinit(self, self.dev_ctx.dev_window == window);
                 } else {
@@ -1179,8 +1177,14 @@ pub const RuntimeContext = struct {
     }
 
     fn handleKeyUpEvent(self: *Self, e: api.cs_input.KeyUpEvent, comptime DevMode: bool) void {
-        if (DevMode and self.dev_ctx.has_error) {
-            return;
+        if (DevMode) {
+            // Manual restart hotkey.
+            if (e.key == .f5) {
+                self.dev_ctx.requestRestart();
+            }
+            if (self.dev_ctx.has_error) {
+                return;
+            }
         }
         const ctx = self.getContext();
         if (self.active_window.on_key_up_cb) |cb| {
@@ -1414,7 +1418,7 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
         }
 
         if (DevMode) {
-            if (rt.dev_restart_req) {
+            if (rt.dev_ctx.restart_requested) {
                 return;
             }
         }
@@ -1755,6 +1759,7 @@ fn restart(rt: *RuntimeContext) !void {
 
     // Reuse dev context.
     rt.dev_ctx = dev_ctx;
+    rt.dev_ctx.restart_requested = false;
 
     // Reuse window.
     const res = rt.createCsWindowResource();
@@ -2071,7 +2076,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     } else {
         while (true) {
             runUserLoop(&rt, true);
-            if (rt.dev_restart_req) {
+            if (rt.dev_ctx.restart_requested) {
                 try restart(&rt);
                 continue;
             } else break;
