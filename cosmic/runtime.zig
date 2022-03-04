@@ -1145,7 +1145,10 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleMouseDownEvent(self: *Self, e: api.cs_input.MouseDownEvent) void {
+    fn handleMouseDownEvent(self: *Self, e: api.cs_input.MouseDownEvent, comptime DevMode: bool) void {
+        if (DevMode and self.dev_ctx.has_error) {
+            return;
+        }
         const ctx = self.getContext();
         if (self.active_window.on_mouse_down_cb) |cb| {
             const js_event = self.getJsValue(e);
@@ -1153,7 +1156,10 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleMouseUpEvent(self: *Self, e: api.cs_input.MouseUpEvent) void {
+    fn handleMouseUpEvent(self: *Self, e: api.cs_input.MouseUpEvent, comptime DevMode: bool) void {
+        if (DevMode and self.dev_ctx.has_error) {
+            return;
+        }
         const ctx = self.getContext();
         if (self.active_window.on_mouse_up_cb) |cb| {
             const js_event = self.getJsValue(e);
@@ -1161,7 +1167,10 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleMouseMoveEvent(self: *Self, e: api.cs_input.MouseMoveEvent) void {
+    fn handleMouseMoveEvent(self: *Self, e: api.cs_input.MouseMoveEvent, comptime DevMode: bool) void {
+        if (DevMode and self.dev_ctx.has_error) {
+            return;
+        }
         const ctx = self.getContext();
         if (self.active_window.on_mouse_move_cb) |cb| {
             const js_event = self.getJsValue(e);
@@ -1169,7 +1178,10 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleKeyUpEvent(self: *Self, e: api.cs_input.KeyUpEvent) void {
+    fn handleKeyUpEvent(self: *Self, e: api.cs_input.KeyUpEvent, comptime DevMode: bool) void {
+        if (DevMode and self.dev_ctx.has_error) {
+            return;
+        }
         const ctx = self.getContext();
         if (self.active_window.on_key_up_cb) |cb| {
             const js_event = self.getJsValue(e);
@@ -1177,7 +1189,10 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleKeyDownEvent(self: *Self, e: api.cs_input.KeyDownEvent) void {
+    fn handleKeyDownEvent(self: *Self, e: api.cs_input.KeyDownEvent, comptime DevMode: bool) void {
+        if (DevMode and self.dev_ctx.has_error) {
+            return;
+        }
         const ctx = self.getContext();
         if (self.active_window.on_key_down_cb) |cb| {
             const js_event = self.getJsValue(e);
@@ -1185,10 +1200,14 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn handleResizeEvent(self: *Self, res_id: ResourceId, e: api.cs_input.ResizeEvent) void {
+    fn handleResizeEvent(self: *Self, res_id: ResourceId, e: api.cs_input.ResizeEvent, comptime DevMode: bool) void {
         if (self.getResourcePtr(.CsWindow, res_id)) |win| {
             // Update the backend buffer.
             win.window.handleResize(e.width, e.height);
+
+            if (DevMode and self.dev_ctx.has_error) {
+                return;
+            }
 
             const ctx = self.getContext();
             if (win.on_resize_cb) |cb| {
@@ -1339,7 +1358,7 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
                                 rt.handleResizeEvent(res_id, .{
                                     .width = @intCast(u32, event.window.data1),
                                     .height = @intCast(u32, event.window.data2),
-                                });
+                                }, DevMode);
                             }
                         },
                         else => {},
@@ -1347,24 +1366,24 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
                 },
                 sdl.SDL_KEYDOWN => {
                     const std_event = input.initSdlKeyDownEvent(event.key);
-                    rt.handleKeyDownEvent(api.fromStdKeyDownEvent(std_event));
+                    rt.handleKeyDownEvent(api.fromStdKeyDownEvent(std_event), DevMode);
                 },
                 sdl.SDL_KEYUP => {
                     const std_event = input.initSdlKeyUpEvent(event.key);
-                    rt.handleKeyUpEvent(api.fromStdKeyUpEvent(std_event));
+                    rt.handleKeyUpEvent(api.fromStdKeyUpEvent(std_event), DevMode);
                 },
                 sdl.SDL_MOUSEBUTTONDOWN => {
                     const std_event = input.initSdlMouseDownEvent(event.button);
-                    rt.handleMouseDownEvent(api.fromStdMouseDownEvent(std_event));
+                    rt.handleMouseDownEvent(api.fromStdMouseDownEvent(std_event), DevMode);
                 },
                 sdl.SDL_MOUSEBUTTONUP => {
                     const std_event = input.initSdlMouseUpEvent(event.button);
-                    rt.handleMouseUpEvent(api.fromStdMouseUpEvent(std_event));
+                    rt.handleMouseUpEvent(api.fromStdMouseUpEvent(std_event), DevMode);
                 },
                 sdl.SDL_MOUSEMOTION => {
                     if (rt.active_window.on_mouse_move_cb != null) {
                         const std_event = input.initSdlMouseMoveEvent(event.motion);
-                        rt.handleMouseMoveEvent(api.fromStdMouseMoveEvent(std_event));
+                        rt.handleMouseMoveEvent(api.fromStdMouseMoveEvent(std_event), DevMode);
                     }
                 },
                 sdl.SDL_QUIT => {
