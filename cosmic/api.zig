@@ -57,6 +57,9 @@ pub const cs_window = struct {
     /// @param height
     pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
         if (rt.dev_mode and rt.dev_ctx.dev_window != null) {
+            const S = struct {
+                var replaced_dev_window_before = false;
+            };
             // Take over the dev window.
             const dev_win = rt.dev_ctx.dev_window.?;
             const cur_width = dev_win.window.getWidth();
@@ -64,10 +67,14 @@ pub const cs_window = struct {
             dev_win.window.setTitle(title);
             if (cur_width != width or cur_height != height) {
                 dev_win.window.resize(width, height);
-                dev_win.window.center();
+                if (!S.replaced_dev_window_before) {
+                    // Only recenter if this is the first time the user window is taking over the dev window.
+                    dev_win.window.center();
+                }
             }
             rt.dev_ctx.dev_window = null;
             rt.active_window = dev_win;
+            S.replaced_dev_window_before = true;
             return dev_win.js_window.castToObject();
         }
 
