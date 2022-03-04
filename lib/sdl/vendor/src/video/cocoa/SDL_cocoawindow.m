@@ -1891,6 +1891,16 @@ Cocoa_SetWindowSize(_THIS, SDL_Window * window)
     [nswindow setFrame:[nswindow frameRectForContentRect:rect] display:YES];
     s_moveHack = moveHack;
 
+    // Explicit SDL_SetWindowSize doesn't update the SDL window size if
+    // it was readjusted by cocoa. (eg. fit into screen when too big).
+    // This fix get's the readjusted size so that at least SDL_GetWindowSize returns the right value.
+    // Does not fire SDL_WINDOWEVENT_RESIZED either and this fix does not address that.
+    // https://github.com/libsdl-org/SDL/issues/3217
+    NSRect result_rect = [nswindow contentRectForFrameRect:[nswindow frame]];
+    ConvertNSRect([nswindow screen], (window->flags & FULLSCREEN_MASK), &rect);
+    window->w = (int)result_rect.size.width;
+    window->h = (int)result_rect.size.height;
+
     ScheduleContextUpdates(windata);
 }}
 
