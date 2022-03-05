@@ -66,7 +66,7 @@ pub const cs_window = struct {
             const cur_height = dev_win.window.getHeight();
             dev_win.window.setTitle(title);
             if (cur_width != width or cur_height != height) {
-                dev_win.window.resize(width, height);
+                dev_win.resize(width, height);
                 if (!S.replaced_dev_window_before) {
                     // Only recenter if this is the first time the user window is taking over the dev window.
                     dev_win.window.center();

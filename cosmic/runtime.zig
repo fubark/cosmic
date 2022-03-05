@@ -1203,23 +1203,6 @@ pub const RuntimeContext = struct {
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
-
-    fn handleResizeEvent(self: *Self, res_id: ResourceId, e: api.cs_input.ResizeEvent, comptime DevMode: bool) void {
-        if (self.getResourcePtr(.CsWindow, res_id)) |win| {
-            // Update the backend buffer.
-            win.window.handleResize(e.width, e.height);
-
-            if (DevMode and self.dev_ctx.has_error) {
-                return;
-            }
-
-            const ctx = self.getContext();
-            if (win.on_resize_cb) |cb| {
-                const js_event = self.getJsValue(e);
-                _ = cb.inner.call(ctx, win.js_window, &.{ js_event });
-            }
-        }
-    }
 };
 
 fn hasAllOptionalFields(comptime T: type) bool {
@@ -1357,14 +1340,7 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
                                 rt.startDeinitResourceHandle(res_id);
                             }
                         },
-                        sdl.SDL_WINDOWEVENT_RESIZED => {
-                            if (rt.getCsWindowResourceBySdlId(event.window.windowID)) |res_id| {
-                                rt.handleResizeEvent(res_id, .{
-                                    .width = @intCast(u32, event.window.data1),
-                                    .height = @intCast(u32, event.window.data2),
-                                }, DevMode);
-                            }
-                        },
+                        sdl.SDL_WINDOWEVENT_RESIZED => handleSdlWindowResized(rt, event.window),
                         else => {},
                     }
                 },
@@ -1649,6 +1625,46 @@ pub const CsWindow = struct {
         const zero = iso.initNumberBitCastedU64(0);
         self.js_graphics.castToObject().setInternalField(0, zero);
         self.js_graphics.deinit();
+    }
+
+    pub fn resize(self: *Self, width: u32, height: u32) void {
+        self.window.resize(width, height);
+        // SDL is designed to not fire SDL_WINDOWEVENT_RESIZED for resizes invoked from code,
+        // so the user onResize handler wouldn't be called.
+        // However, if the window was adjusted by the os window manager,
+        // we should fire SDL_WINDOWEVENT_RESIZED just like it does for window creation.
+        const final_width = self.window.getWidth();
+        const final_height = self.window.getHeight();
+        if (final_width != width or final_height != height) {
+            var e = sdl.SDL_Event{
+                .window = sdl.SDL_WindowEvent{
+                    .type = sdl.SDL_WINDOWEVENT,
+                    .event = sdl.SDL_WINDOWEVENT_RESIZED,
+                    .data1 = @intCast(c_int, final_width),
+                    .data2 = @intCast(c_int, final_height),
+                    .windowID = self.window.inner.id,
+                    .timestamp = undefined,
+                    .padding1 = undefined,
+                    .padding2 = undefined,
+                    .padding3 = undefined,
+                },
+            };
+            _ = sdl.SDL_PushEvent(&e);
+        }
+    }
+
+    fn handleResizeEvent(self: *Self, rt: *RuntimeContext, e: api.cs_input.ResizeEvent) void {
+        // Update the backend buffer.
+        self.window.handleResize(e.width, e.height);
+
+        if (rt.dev_mode and rt.dev_ctx.has_error) {
+            return;
+        }
+
+        if (self.on_resize_cb) |cb| {
+            const js_event = rt.getJsValue(e);
+            _ = cb.inner.call(rt.getContext(), self.js_window, &.{ js_event });
+        }
     }
 };
 
@@ -2428,3 +2444,14 @@ const RunModuleScriptResult = struct {
         }
     }
 };
+
+fn handleSdlWindowResized(rt: *RuntimeContext, event: sdl.SDL_WindowEvent) void {
+    if (rt.getCsWindowResourceBySdlId(event.windowID)) |res_id| {
+        if (rt.getResourcePtr(.CsWindow, res_id)) |win| {
+            win.handleResizeEvent(rt, .{
+                .width = @intCast(u32, event.data1),
+                .height = @intCast(u32, event.data2),
+            });
+        }
+    }
+}
