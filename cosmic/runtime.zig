@@ -38,6 +38,14 @@ pub const PromiseId = u32;
 // Keep a global rt for debugging and prototyping.
 pub var global: *RuntimeContext = undefined;
 
+const RuntimeOptions = struct {
+    // Overrides the main script source instead of doing a file read. Used for testing.
+    main_script_override: ?[]const u8 = null,
+
+    // Writes with custom interface instead of stderr. Used for testing.
+    error_writer: ?WriterIfaceWrapper = null,
+};
+
 // Manages runtime resources.
 // Used by V8 callback functions.
 // TODO: Rename to Runtime
@@ -147,12 +155,15 @@ pub const RuntimeContext = struct {
 
     get_native_val_err: anyerror,
 
+    opts: RuntimeOptions,
+
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
         platform: v8.Platform,
         main_script_path: []const u8,
         is_test_env: bool,
         dev_mode: bool,
+        opts: RuntimeOptions,
     ) void {
         self.* = .{
             .alloc = alloc,
@@ -216,6 +227,7 @@ pub const RuntimeContext = struct {
 
             .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
             .get_native_val_err = undefined,
+            .opts = opts,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -438,9 +450,15 @@ pub const RuntimeContext = struct {
         const iso = self.isolate;
         const origin_path = iso.initStringUtf8(abs_path);
 
-        const src = try std.fs.cwd().readFileAlloc(alloc, abs_path, 1e9);
-        defer self.alloc.free(src);
-        const js_src = self.isolate.initStringUtf8(src);
+        const js_src = b: {
+            if (self.opts.main_script_override) |src_override| {
+                break :b self.isolate.initStringUtf8(src_override);
+            } else {
+                const src = try std.fs.cwd().readFileAlloc(alloc, abs_path, 1e9);
+                defer self.alloc.free(src);
+                break :b self.isolate.initStringUtf8(src);
+            }
+        };
 
         var try_catch: v8.TryCatch = undefined;
         try_catch.init(iso);
@@ -458,7 +476,7 @@ pub const RuntimeContext = struct {
         const mod = v8.ScriptCompiler.compileModule(self.isolate, &mod_src, .kNoCompileOptions, .kNoCacheNoReason) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
             defer self.alloc.free(trace_str);
-            errorFmt("{s}", .{trace_str});
+            self.errorFmt("{s}", .{trace_str});
             return error.MainScriptError;
         };
         std.debug.assert(mod.getStatus() == .kUninstantiated);
@@ -544,7 +562,7 @@ pub const RuntimeContext = struct {
 
         const success = mod.instantiate(self.getContext(), S.resolveModule) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            errorFmt("{s}", .{trace_str});
+            self.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
                 .success = false,
                 .js_err_trace = null,
@@ -557,7 +575,7 @@ pub const RuntimeContext = struct {
 
         const res = mod.evaluate(self.getContext()) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            errorFmt("{s}", .{trace_str});
+            self.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
                 .success = false,
                 .js_err_trace = trace_str,
@@ -566,7 +584,7 @@ pub const RuntimeContext = struct {
         _ = res;
         if (mod.getStatus() == .kErrored) {
             const trace_str = v8x.allocExceptionStackTraceString(self.alloc, self.isolate, self.getContext(), mod.getException());
-            errorFmt("{s}", .{trace_str});
+            self.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
                 .success = false,
                 .js_err_trace = trace_str,
@@ -592,7 +610,7 @@ pub const RuntimeContext = struct {
         processV8EventLoop(self);
 
         if (!res.success) {
-            errorFmt("{s}", .{res.err.?});
+            self.errorFmt("{s}", .{res.err.?});
             return error.MainScriptError;
         }
     }
@@ -686,7 +704,7 @@ pub const RuntimeContext = struct {
             const js_msg = v8.Message{ .handle = message.? };
             const err_str = v8x.allocPrintMessageStackTrace(rt.alloc, rt.isolate, rt.getContext(), js_msg, "Uncaught Exception");
             defer rt.alloc.free(err_str);
-            errorFmt("\n{s}", .{err_str});
+            rt.errorFmt("\n{s}", .{err_str});
             rt.received_uncaught_exception = true;
             if (rt.dev_mode) {
                 rt.dev_ctx.enterJsErrorState(rt, err_str);
@@ -1203,6 +1221,16 @@ pub const RuntimeContext = struct {
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
+
+    /// Normally prints to stderr. Can be overridden with RuntimeOptions.error_writer.
+    fn errorFmt(self: *Self, comptime format: []const u8, args: anytype) void {
+        if (self.opts.error_writer) |writer| {
+            std.fmt.format(writer, format, args) catch unreachable;
+        } else {
+            const stderr = std.io.getStdErr().writer();
+            stderr.print(format, args) catch unreachable;
+        }
+    }
 };
 
 fn hasAllOptionalFields(comptime T: type) bool {
@@ -1636,20 +1664,22 @@ pub const CsWindow = struct {
         const final_width = self.window.getWidth();
         const final_height = self.window.getHeight();
         if (final_width != width or final_height != height) {
-            var e = sdl.SDL_Event{
-                .window = sdl.SDL_WindowEvent{
-                    .type = sdl.SDL_WINDOWEVENT,
-                    .event = sdl.SDL_WINDOWEVENT_RESIZED,
-                    .data1 = @intCast(c_int, final_width),
-                    .data2 = @intCast(c_int, final_height),
-                    .windowID = self.window.inner.id,
-                    .timestamp = undefined,
-                    .padding1 = undefined,
-                    .padding2 = undefined,
-                    .padding3 = undefined,
-                },
-            };
-            _ = sdl.SDL_PushEvent(&e);
+            if (graphics.Backend == .OpenGL) {
+                var e = sdl.SDL_Event{
+                    .window = sdl.SDL_WindowEvent{
+                        .type = sdl.SDL_WINDOWEVENT,
+                        .event = sdl.SDL_WINDOWEVENT_RESIZED,
+                        .data1 = @intCast(c_int, final_width),
+                        .data2 = @intCast(c_int, final_height),
+                        .windowID = self.window.inner.id,
+                        .timestamp = undefined,
+                        .padding1 = undefined,
+                        .padding2 = undefined,
+                        .padding3 = undefined,
+                    },
+                };
+                _ = sdl.SDL_PushEvent(&e);
+            }
         }
     }
 
@@ -1685,7 +1715,7 @@ pub fn printFmt(comptime format: []const u8, args: anytype) void {
     stdout.print(format, args) catch unreachable;
 }
 
-pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
+pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, opts: RuntimeOptions) !bool {
     // Measure total time.
     const timer = try std.time.Timer.start();
     defer {
@@ -1717,7 +1747,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8) !bool {
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, true, false);
+    rt.init(alloc, platform, abs_path, true, false, opts);
     rt.enter();
     defer {
         shutdownRuntime(&rt);
@@ -1763,6 +1793,7 @@ fn restart(rt: *RuntimeContext) !void {
     rt.dev_ctx.dev_window = rt.active_window; // Set dev_window so deinit skips this window resource.
     const win = rt.dev_ctx.dev_window.?.window;
     const dev_ctx = rt.dev_ctx;
+    const opts = rt.opts;
 
     // Shutdown runtime.
     shutdownRuntime(rt);
@@ -1770,7 +1801,7 @@ fn restart(rt: *RuntimeContext) !void {
     rt.deinit();
 
     // Start runtime again with saved context.
-    rt.init(alloc, platform, main_script_path, false, true);
+    rt.init(alloc, platform, main_script_path, false, true, opts);
     rt.enter();
 
     // Reuse dev context.
@@ -2008,7 +2039,14 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
     }
 }
 
-pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: bool) !void {
+/// src_path is absolute or relative to the cwd.
+pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: bool, opts: RuntimeOptions) !void {
+    const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
+    defer alloc.free(abs_path);
+    try runUserMainAbs(alloc, abs_path, dev_mode, opts);
+}
+
+pub fn runUserMainAbs(alloc: std.mem.Allocator, src_abs_path: []const u8, dev_mode: bool, opts: RuntimeOptions) !void {
     _ = curl.initDefault();
     defer curl.deinit();
 
@@ -2033,7 +2071,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, false, dev_mode);
+    rt.init(alloc, platform, src_abs_path, false, dev_mode, opts);
     rt.enter();
     defer {
         shutdownRuntime(&rt);
@@ -2062,7 +2100,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
         rt.dev_ctx.dev_window = res.ptr;
 
         // Start watching the main script.
-        rt.dev_ctx.initWatcher(&rt, abs_path);
+        rt.dev_ctx.initWatcher(&rt, src_abs_path);
     }
 
     const res = try rt.runMainScript();
@@ -2455,3 +2493,32 @@ fn handleSdlWindowResized(rt: *RuntimeContext, event: sdl.SDL_WindowEvent) void 
         }
     }
 }
+
+const WriterIfaceWrapper = std.io.Writer(WriterIface, anyerror, WriterIface.write);
+
+pub const WriterIface = struct {
+    const Self = @This();
+
+    ptr: *anyopaque,
+    write_inner: fn(*anyopaque, []const u8) anyerror!usize,
+
+    pub fn init(writer_ptr: anytype) WriterIfaceWrapper {
+        const Ptr = @TypeOf(writer_ptr);
+        const Gen = struct {
+            fn write_(ptr_: *anyopaque, data: []const u8) anyerror!usize {
+                const self = stdx.mem.ptrCastAlign(Ptr, ptr_);
+                return self.write(data);
+            }
+        };
+        return .{
+            .context = .{
+                .ptr = writer_ptr,
+                .write_inner = Gen.write_,
+            },
+        };
+    }
+
+    fn write(self: Self, data: []const u8) anyerror!usize {
+        return try self.write_inner(self.ptr, data);
+    }
+};

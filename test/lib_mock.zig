@@ -263,6 +263,8 @@ export fn v8__Isolate__Dispose() void {}
 export fn v8__ArrayBuffer__Allocator__DELETE() void {}
 export fn v8__V8__Dispose() void {}
 export fn v8__V8__ShutdownPlatform() void {}
+export fn v8__Message__GetScriptResourceName() void {}
+export fn v8__V8__DisposePlatform() void {}
 export fn v8__Platform__DELETE() void {}
 export fn v8__V8__GetVersion() void {}
 export fn h2o__tokens() void {}

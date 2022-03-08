@@ -74,7 +74,7 @@ fn testAndExit(src_path: []const u8) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    const passed = runtime.runTestMain(alloc, src_path) catch |err| {
+    const passed = runtime.runTestMain(alloc, src_path, .{}) catch |err| {
         stdx.heap.deinitDefaultAllocator();
         if (err == error.FileNotFound) {
             abortFmt("File not found: {s}", .{src_path});
@@ -94,7 +94,7 @@ fn runAndExit(src_path: []const u8, dev_mode: bool) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    runtime.runUserMain(alloc, src_path, dev_mode) catch |err| {
+    runtime.runUserMain(alloc, src_path, dev_mode, .{}) catch |err| {
         stdx.heap.deinitDefaultAllocator();
         if (err == error.FileNotFound) {
             abortFmt("File not found: {s}", .{src_path});

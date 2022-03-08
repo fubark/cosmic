@@ -164,7 +164,6 @@ pub const Timer = struct {
 
 // This does not test the libuv mechanism.
 test "Timer" {
-    // t.setLogLevel(.debug);
     var rt: RuntimeContext = undefined;
     rt.alloc = t.alloc;
 

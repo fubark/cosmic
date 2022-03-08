@@ -124,7 +124,36 @@ pub fn build(b: *Builder) !void {
         b.step("test", "Run tests").dependOn(&step.step);
     }
 
-    const test_file = ctx.createTestFileStep();
+    {
+        var ctx_ = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_audio = true,
+            .link_v8 = true,
+            .link_mock = false,
+            .static_link = static_link,
+            .path = "cosmic/main.zig",
+            .filter = filter,
+            .mode = mode,
+            .target = target,
+            .build_options = build_options,
+            .wsl = wsl,
+        };
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const test_exe = ctx_.createTestFileStep("test/behavior_test.zig");
+        // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
+        test_exe.setFilter("behavior:");
+        step.step.dependOn(&test_exe.step);
+        b.step("test-behavior", "Run behavior tests").dependOn(&step.step);
+    }
+
+    const test_file = ctx.createTestFileStep(ctx.path);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
     {
@@ -395,8 +424,8 @@ const BuilderContext = struct {
         return exe;
     }
 
-    fn createTestFileStep(self: *Self) *std.build.LibExeObjStep {
-        const step = self.builder.addTest(self.path);
+    fn createTestFileStep(self: *Self, path: []const u8) *std.build.LibExeObjStep {
+        const step = self.builder.addTest(path);
         self.setBuildMode(step);
         self.setTarget(step);
         step.setMainPkgPath(".");
@@ -407,7 +436,6 @@ const BuilderContext = struct {
         addGraphics(step);
         addInput(step);
         self.addDeps(step) catch unreachable;
-        self.buildLinkMock(step);
 
         step.addPackage(build_options);
         self.postStep(step);
@@ -1343,9 +1371,9 @@ const BuilderContext = struct {
             if (!self.target.isNative()) {
                 lib.addFrameworkDir("/System/Library/Frameworks");
                 lib.addSystemIncludeDir("/usr/include");
-                lib.linkFramework("CoreAudio");
                 lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
+            lib.linkFramework("CoreAudio");
         }
         // TODO: vorbis has UB when doing seekToPcmFrame.
         lib.disable_sanitize_c = true;
