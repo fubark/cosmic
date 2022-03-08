@@ -4,6 +4,21 @@ const t = stdx.testing;
 
 const runtime = @import("../cosmic/runtime.zig");
 
+test "behavior: JS syntax error prints stack trace to stderr" {
+    const res = run(
+        \\class {
+    );
+    defer res.deinit();
+    try t.eq(res.success, false);
+    try t.eqStr(res.stderr,
+        \\class {
+        \\      ^
+        \\Uncaught SyntaxError: Unexpected token '{'
+        \\    at /test.js:1:6
+        \\
+    );
+}
+
 test "behavior: JS main script runtime error prints stack trace to stderr" {
     const res = run(
         \\foo
