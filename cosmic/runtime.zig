@@ -1734,14 +1734,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, opts: Runtime
     initGlobal(alloc);
     defer deinitGlobal();
 
-    const platform = v8.Platform.initDefault(0, true);
-    defer platform.deinit();
-
-    v8.initV8Platform(platform);
-    defer v8.deinitV8Platform();
-
-    v8.initV8();
-    defer _ = v8.deinitV8();
+    const platform = ensureV8Platform();
 
     const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
     defer alloc.free(abs_path);
@@ -2058,17 +2051,7 @@ pub fn runUserMainAbs(alloc: std.mem.Allocator, src_abs_path: []const u8, dev_mo
     initGlobal(alloc);
     defer deinitGlobal();
 
-    const platform = v8.Platform.initDefault(0, true);
-    defer platform.deinit();
-
-    v8.initV8Platform(platform);
-    defer v8.deinitV8Platform();
-
-    v8.initV8();
-    defer _ = v8.deinitV8();
-
-    const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
-    defer alloc.free(abs_path);
+    const platform = ensureV8Platform();
 
     var rt: RuntimeContext = undefined;
     rt.init(alloc, platform, src_abs_path, false, dev_mode, opts);
@@ -2522,3 +2505,28 @@ pub const WriterIface = struct {
         return try self.write_inner(self.ptr, data);
     }
 };
+
+// The v8 platform is stored as a global since after it's deinited,
+// we can no longer reinit v8. See v8.deinitV8/v8.deinitV8Platform.
+var g_platform: ?v8.Platform = null;
+
+/// Returns global v8 platform. Initializes if needed.
+fn ensureV8Platform() v8.Platform {
+    if (g_platform == null) {
+        const platform = v8.Platform.initDefault(0, true);
+        v8.initV8Platform(platform);
+        v8.initV8();
+        g_platform = platform;
+    }
+    return g_platform.?;
+}
+
+/// This should only be called at the end of the program or when v8 is no longer needed.
+/// V8 can't be reinited after this.
+fn deinitV8() void {
+    if (g_platform) |platform| {
+        v8.deinitV8();
+        v8.deinitV8Platform();
+        platform.deinit();
+    }
+}
