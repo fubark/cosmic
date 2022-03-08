@@ -85,8 +85,13 @@ pub fn allocPrintMessageStackTrace(alloc: std.mem.Allocator, iso: v8.Isolate, ct
         while (i < col_start) : (i += 1) {
             writer.writeByte(' ') catch unreachable;
         }
-        while (i < col_end) : (i += 1) {
+        // Sometimes a syntax error gives back the same start and end column which means the end column should be inclusive.
+        if (col_end == col_start) {
             writer.writeByte('^') catch unreachable;
+        } else {
+            while (i < col_end) : (i += 1) {
+                writer.writeByte('^') catch unreachable;
+            }
         }
         writer.writeAll("\n") catch unreachable;
     }

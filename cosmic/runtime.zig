@@ -2528,5 +2528,6 @@ fn deinitV8() void {
         v8.deinitV8();
         v8.deinitV8Platform();
         platform.deinit();
+        g_platform = null;
     }
 }

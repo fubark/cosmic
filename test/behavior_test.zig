@@ -5,18 +5,36 @@ const t = stdx.testing;
 const runtime = @import("../cosmic/runtime.zig");
 
 test "behavior: JS syntax error prints stack trace to stderr" {
-    const res = run(
-        \\class {
-    );
-    defer res.deinit();
-    try t.eq(res.success, false);
-    try t.eqStr(res.stderr,
-        \\class {
-        \\      ^
-        \\Uncaught SyntaxError: Unexpected token '{'
-        \\    at /test.js:1:6
-        \\
-    );
+    {
+        const res = run(
+            \\class {
+        );
+        defer res.deinit();
+        try t.eq(res.success, false);
+        try t.eqStr(res.stderr,
+            \\class {
+            \\      ^
+            \\Uncaught SyntaxError: Unexpected token '{'
+            \\    at /test.js:1:6
+            \\
+        );
+    }
+    {
+        // Case where v8 returns the same message start/end column indicator.
+        const res = run(
+            \\class Foo {
+            \\    x: 0
+        );
+        defer res.deinit();
+        try t.eq(res.success, false);
+        try t.eqStr(res.stderr,
+            \\    x: 0
+            \\    ^
+            \\Uncaught SyntaxError: Unexpected identifier
+            \\    at /test.js:2:4
+            \\
+        );
+    }
 }
 
 test "behavior: JS main script runtime error prints stack trace to stderr" {
