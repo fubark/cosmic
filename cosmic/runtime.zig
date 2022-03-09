@@ -475,9 +475,11 @@ pub const RuntimeContext = struct {
 
         const mod = v8.ScriptCompiler.compileModule(self.isolate, &mod_src, .kNoCompileOptions, .kNoCacheNoReason) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            defer self.alloc.free(trace_str);
             self.errorFmt("{s}", .{trace_str});
-            return error.MainScriptError;
+            return RunModuleScriptResult{
+                .success = false,
+                .js_err_trace = trace_str,
+            };
         };
         std.debug.assert(mod.getStatus() == .kUninstantiated);
 
