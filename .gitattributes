@@ -8,7 +8,8 @@
 
 lib/mingw/** linguist-vendored
 lib/miniaudio/src/** linguist-vendored
-lib/sdl/vendor/** linguist-vendorered
+lib/sdl/vendor/** linguist-vendored
+lib/curl/vendor/** linguist-vendored
 docs/*.css linguist-vendored
 docs/*.html linguist-vendored
 docs/*.js linguist-vendored

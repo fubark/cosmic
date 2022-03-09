@@ -1298,7 +1298,7 @@ const BuilderContext = struct {
             "vtls/wolfssl.c",
         };
         for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/curl/lib/{s}", .{file}, c_flags.items);
+            self.addCSourceFileFmt(lib, "./lib/curl/vendor/lib/{s}", .{file}, c_flags.items);
         }
 
         // lib.disable_sanitize_c = true;
@@ -1311,8 +1311,8 @@ const BuilderContext = struct {
         } else if (self.target.getOsTag() == .windows) {
             lib.addIncludeDir("./lib/curl/windows");
         }
-        lib.addIncludeDir("./deps/curl/include");
-        lib.addIncludeDir("./deps/curl/lib");
+        lib.addIncludeDir("./lib/curl/vendor/include");
+        lib.addIncludeDir("./lib/curl/vendor/lib");
         // Use the same openssl config so curl knows what features it has.
         lib.addIncludeDir("./lib/openssl/include");
         lib.addIncludeDir("./deps/openssl/include");
@@ -1555,7 +1555,7 @@ const curl_pkg = Pkg{
 
 fn addCurl(step: *LibExeObjStep) void {
     step.addPackage(curl_pkg);
-    step.addIncludeDir("./deps/curl/include/curl");
+    step.addIncludeDir("./lib/curl/vendor/include/curl");
 }
 
 const lyon_pkg = Pkg{
