@@ -926,6 +926,7 @@ pub const RuntimeContext = struct {
             v8.Value,
             v8.Boolean,
             v8.Object,
+            v8.Array,
             v8.Promise => return native_val.handle,
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
@@ -963,6 +964,15 @@ pub const RuntimeContext = struct {
                     } else {
                         return self.js_null.handle;
                     }
+                } else if (@typeInfo(Type) == .Pointer) {
+                    if (@typeInfo(Type).Pointer.size == .Slice) {
+                        const buf = self.alloc.alloc(v8.Value, native_val.len) catch unreachable;
+                        defer self.alloc.free(buf);
+                        for (native_val) |child_val, i| {
+                            buf[i] = self.getJsValue(child_val);
+                        }
+                        return iso.initArrayElements(buf).handle;
+                    }
                 } else if (@typeInfo(Type) == .Struct) {
                     if (@hasDecl(Type, "ManagedSlice")) {
                         return self.getJsValuePtr(native_val.slice);
@@ -985,9 +995,8 @@ pub const RuntimeContext = struct {
                         // int value.
                         return iso.initIntegerU32(@enumToInt(native_val)).handle;
                     }
-                } else {
-                    comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
                 }
+                comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to js.", .{@typeName(Type)}));
             },
         }
     }

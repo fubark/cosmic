@@ -926,6 +926,14 @@ pub const cs_core = struct {
     /// Whether print should also output to stdout in devmode.
     const DevModeToStdout = false;
 
+    /// Returns an array of arguments used to start the process in the command line.
+    pub fn getCliArgs(rt: *RuntimeContext) v8.Array {
+        const args = std.process.argsAlloc(rt.alloc) catch unreachable;
+        defer std.process.argsFree(rt.alloc, args);
+        const args_slice: []const []const u8 = args;
+        return rt.getJsValue(args_slice).castTo(v8.Array);
+    }
+
     /// Prints any number of variables as strings separated by " ".
     /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {

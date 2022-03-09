@@ -417,6 +417,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
 
     // cs.core
     const cs_core = iso.initObjectTemplateDefault();
+    ctx.setConstFuncT(cs_core, "getCliArgs", api.cs_core.getCliArgs);
     if (!rt.dev_mode) {
         ctx.setConstProp(cs_core, "print", iso.initFunctionTemplateCallbackData(api.cs_core.print, rt_data));
         ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts, rt_data));
