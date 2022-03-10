@@ -10,4 +10,8 @@ For secure layer over remote connections.
 
 ### Zlib
 For gzip file compression encoding and decoding.
-- https://github.com/madler/zlib.git
+- https://github.com/madler/zlib.git (cacf7f1d4e3d44d871b605da3b647f07d718623f)
+
+### nghttp2
+HTTP/2 library
+- https://github.com/nghttp2/nghttp2.git (8a552631b4e64851018947a44b98fa022133fa81)

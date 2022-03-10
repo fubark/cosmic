@@ -9,6 +9,7 @@ const log = std.log.scoped(.build);
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
 const zlib = @import("lib/zlib/lib.zig");
+const http2 = @import("lib/nghttp2/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -488,7 +489,7 @@ const BuilderContext = struct {
             buildLinkCrypto(step);
             buildLinkSsl(step);
             try self.buildLinkCurl(step);
-            self.buildLinkNghttp2(step);
+            buildLinkNghttp2(step);
             buildLinkZlib(step);
             try self.buildLinkUv(step);
             try self.buildLinkH2O(step);
@@ -1005,52 +1006,6 @@ const BuilderContext = struct {
                 lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
         }
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkNghttp2(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("nghttp2", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        const c_flags = &[_][]const u8{
-            "-DNGHTTP2_STATICLIB=1",
-        };
-
-        const c_files = &[_][]const u8{
-            // Copied from nghttp2/lib/CMakeLists.txt 
-            "nghttp2_pq.c",
-            "nghttp2_map.c",
-            "nghttp2_queue.c",
-            "nghttp2_frame.c",
-            "nghttp2_buf.c",
-            "nghttp2_stream.c",
-            "nghttp2_outbound_item.c",
-            "nghttp2_session.c",
-            "nghttp2_submit.c",
-            "nghttp2_helper.c",
-            "nghttp2_npn.c",
-            "nghttp2_hd.c",
-            "nghttp2_hd_huffman.c",
-            "nghttp2_hd_huffman_data.c",
-            "nghttp2_version.c",
-            "nghttp2_priority_spec.c",
-            "nghttp2_option.c",
-            "nghttp2_callbacks.c",
-            "nghttp2_mem.c",
-            "nghttp2_http.c",
-            "nghttp2_rcbuf.c",
-            "nghttp2_debug.c",
-        };
-
-        for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/nghttp2/lib/{s}", .{file}, c_flags);
-        }
-
-        // lib.disable_sanitize_c = true;
-
-        lib.linkLibC();
-        lib.addIncludeDir("./deps/nghttp2/lib/includes");
         step.linkLibrary(lib);
     }
 
@@ -2017,4 +1972,9 @@ fn buildLinkCrypto(step: *LibExeObjStep) void {
 fn buildLinkZlib(step: *LibExeObjStep) void {
     const lib = zlib.create(step.builder, step.target, step.build_mode) catch unreachable;
     zlib.linkLib(step, lib);
+}
+
+fn buildLinkNghttp2(step: *LibExeObjStep) void {
+    const lib = http2.create(step.builder, step.target, step.build_mode) catch unreachable;
+    http2.linkLib(step, lib);
 }
