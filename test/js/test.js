@@ -253,7 +253,7 @@ test('cs.files.getPathInfo', () => {
     eq(fs.getPathInfo('foo.txt'), null)
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
-        eq(fs.getPathInfo('foo.txt'), { kind: 'File' });
+        eq(fs.getPathInfo('foo.txt').kind, fs.FileKind.file)
     } finally {
         fs.remove('foo.txt')
     }
@@ -263,7 +263,7 @@ testIsolated('cs.files.getPathInfoAsync', async () => {
     eq(await fs.getPathInfoAsync('foo.txt'), null)
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
-        eq(await fs.getPathInfoAsync('foo.txt'), { kind: 'File' });
+        eq((await fs.getPathInfoAsync('foo.txt')).kind, fs.FileKind.file)
     } finally {
         fs.remove('foo.txt')
     }

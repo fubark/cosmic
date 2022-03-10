@@ -908,11 +908,6 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.a));
                 return new.handle;
             },
-            api.cs_files.PathInfo => {
-                const new = self.default_obj_t.inner.initInstance(ctx);
-                _ = new.setValue(ctx, iso.initStringUtf8("kind"), iso.initStringUtf8(@tagName(native_val.kind)));
-                return new.handle;
-            },
             Uint8Array => {
                 const store = v8.BackingStore.init(iso, native_val.buf.len);
                 if (store.getData()) |ptr| {
@@ -983,6 +978,7 @@ pub const RuntimeContext = struct {
                         return self.getJsValuePtr(native_val.val);
                     } else {
                         // Generic struct to js object.
+                        // TODO: Is it more performant to initialize from an object template if we know the fields beforehand?
                         const obj = iso.initObject();
                         const Fields = std.meta.fields(Type);
                         inline for (Fields) |Field| {

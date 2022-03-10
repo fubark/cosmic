@@ -455,7 +455,10 @@ pub const cs_files = struct {
     pub fn getPathInfo(path: []const u8) ?PathInfo {
         const stat = std.fs.cwd().statFile(path) catch return null;
         return PathInfo{
-            .kind = std.meta.stringToEnum(FileKind, @tagName(stat.kind)).?,
+            .kind = @intToEnum(FileKind, @enumToInt(stat.kind)),
+            .atime = @intCast(F64SafeUint, @divFloor(stat.atime, 1_000_000)),
+            .mtime = @intCast(F64SafeUint, @divFloor(stat.mtime, 1_000_000)),
+            .ctime = @intCast(F64SafeUint, @divFloor(stat.ctime, 1_000_000)),
         };
     }
 
@@ -465,22 +468,28 @@ pub const cs_files = struct {
         return runtime.invokeFuncAsync(rt, getPathInfo, args);
     }
 
-    pub const FileKind = enum {
-        BlockDevice,
-        CharacterDevice,
-        Directory,
-        NamedPipe,
-        SymLink,
-        File,
-        UnixDomainSocket,
-        Whiteout,
-        Door,
-        EventPort,
-        Unknown,
+    pub const FileKind = enum(u4) {
+        blockDevice = @enumToInt(std.fs.File.Kind.BlockDevice),
+        characterDevice = @enumToInt(std.fs.File.Kind.CharacterDevice),
+        directory = @enumToInt(std.fs.File.Kind.Directory),
+        namedPipe = @enumToInt(std.fs.File.Kind.NamedPipe),
+        symLink = @enumToInt(std.fs.File.Kind.SymLink),
+        file = @enumToInt(std.fs.File.Kind.File),
+        unixDomainSocket = @enumToInt(std.fs.File.Kind.UnixDomainSocket),
+        whiteout = @enumToInt(std.fs.File.Kind.Whiteout),
+        door = @enumToInt(std.fs.File.Kind.Door),
+        eventPort = @enumToInt(std.fs.File.Kind.EventPort),
+        unknown = @enumToInt(std.fs.File.Kind.Unknown),
     };
 
     pub const PathInfo = struct {
         kind: FileKind,
+        // Last access time in milliseconds since the unix epoch.
+        atime: F64SafeUint,
+        // Last modified time in milliseconds since the unix epoch.
+        mtime: F64SafeUint,
+        // Created time in milliseconds since the unix epoch.
+        ctime: F64SafeUint,
     };
 
     /// List the files in a directory. This is not recursive.

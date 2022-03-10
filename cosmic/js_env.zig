@@ -274,6 +274,20 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(files, "listDirAsync", api.cs_files.listDirAsync);
     // TODO: chmod op
 
+    const filekind = iso.initObjectTemplateDefault();
+    ctx.setProp(filekind, "blockDevice", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.blockDevice)));
+    ctx.setProp(filekind, "characterDevice", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.characterDevice)));
+    ctx.setProp(filekind, "directory", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.directory)));
+    ctx.setProp(filekind, "namedPipe", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.namedPipe)));
+    ctx.setProp(filekind, "symlink", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.symLink)));
+    ctx.setProp(filekind, "file", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.file)));
+    ctx.setProp(filekind, "unixDomainSocket", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.unixDomainSocket)));
+    ctx.setProp(filekind, "whiteout", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.whiteout)));
+    ctx.setProp(filekind, "door", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.door)));
+    ctx.setProp(filekind, "eventPort", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.eventPort)));
+    ctx.setProp(filekind, "unknown", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.unknown)));
+    ctx.setConstProp(files, "FileKind", filekind);
+
     // cs.http
     const http_constructor = iso.initFunctionTemplateDefault();
     http_constructor.setClassName(iso.initStringUtf8("http"));
