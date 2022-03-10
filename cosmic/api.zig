@@ -938,17 +938,21 @@ pub const cs_core = struct {
     /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        printInternal(info, false);
+        printInternal(info, false, false);
     }
 
     pub fn print_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        printInternal(info, true);
+        printInternal(info, true, false);
     }
 
-    fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool) void {
-        const len = info.length();
+    inline fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool, comptime Dump: bool) void {
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, DevMode, Dump);
+    }
+
+    fn printInternal2(rt: *RuntimeContext, info: v8.FunctionCallbackInfo, comptime DevMode: bool, comptime Dump: bool) void {
+        const len = info.length();
         const iso = rt.isolate;
         const ctx = rt.getContext();
 
@@ -956,15 +960,28 @@ pub const cs_core = struct {
         hscope.init(iso);
         defer hscope.deinit();
 
-        var i: u32 = 0;
-        while (i < len) : (i += 1) {
-            const str = v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(i));
+        if (len > 0) {
+            const str = if (Dump) v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(0))
+                else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(0));
             defer rt.alloc.free(str);
             if (!DevMode or DevModeToStdout) {
-                printFmt("{s} ", .{str});
+                rt.printFmt("{s}", .{str});
             }
             if (DevMode) {
-                rt.dev_ctx.printFmt("{s} ", .{str});
+                rt.dev_ctx.printFmt("{s}", .{str});
+            }
+        }
+
+        var i: u32 = 1;
+        while (i < len) : (i += 1) {
+            const str = if (Dump) v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(i))
+                else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
+            defer rt.alloc.free(str);
+            if (!DevMode or DevModeToStdout) {
+                rt.printFmt(" {s}", .{str});
+            }
+            if (DevMode) {
+                rt.dev_ctx.printFmt(" {s}", .{str});
             }
         }
     }
@@ -972,17 +989,38 @@ pub const cs_core = struct {
     /// Prints any number of variables as strings separated by " ". Wraps to the next line.
     /// @param args
     pub fn puts(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
-        print(raw_info);
-        printFmt("\n", .{});
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, false, false);
+        rt.printFmt("\n", .{});
     }
 
     pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        printInternal(info, true);
-        if (DevModeToStdout) {
-            printFmt("\n", .{});
-        }
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, true, false);
+        if (DevModeToStdout) {
+            rt.printFmt("\n", .{});
+        }
+        rt.dev_ctx.print("\n");
+    }
+
+    /// Prints a descriptive string of the js value(s) separated by " ". Wraps to the next line.
+    /// @param args
+    pub fn dump(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, false, true);
+        rt.printFmt("\n", .{});
+    }
+
+    pub fn dump_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, true, true);
+        if (DevModeToStdout) {
+            rt.printFmt("\n", .{});
+        }
         rt.dev_ctx.print("\n");
     }
 

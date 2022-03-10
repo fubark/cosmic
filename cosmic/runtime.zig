@@ -43,7 +43,10 @@ const RuntimeOptions = struct {
     main_script_override: ?[]const u8 = null,
 
     // Writes with custom interface instead of stderr. Used for testing.
-    error_writer: ?WriterIfaceWrapper = null,
+    err_writer: ?WriterIfaceWrapper = null,
+
+    // Writes with custom interface instead of stdout. Only available with builtin.is_test.
+    out_writer: ?WriterIfaceWrapper = null,
 };
 
 // Manages runtime resources.
@@ -1233,14 +1236,26 @@ pub const RuntimeContext = struct {
         }
     }
 
-    /// Normally prints to stderr. Can be overridden with RuntimeOptions.error_writer.
-    fn errorFmt(self: *Self, comptime format: []const u8, args: anytype) void {
-        if (self.opts.error_writer) |writer| {
+    /// Normally prints to stderr. Can be overridden with RuntimeOptions.err_writer.
+    fn errorFmt(self: Self, comptime format: []const u8, args: anytype) void {
+        if (self.opts.err_writer) |writer| {
             std.fmt.format(writer, format, args) catch unreachable;
         } else {
             const stderr = std.io.getStdErr().writer();
             stderr.print(format, args) catch unreachable;
         }
+    }
+
+    /// Normally prints to stdout. Can be overriden with RuntimeOptions.out_writer.
+    pub fn printFmt(self: Self, comptime format: []const u8, args: anytype) void {
+        if (builtin.is_test) {
+            if (self.opts.out_writer) |writer| {
+                std.fmt.format(writer, format, args) catch unreachable;
+                return;
+            }
+        }
+        const stdout = std.io.getStdOut().writer();
+        stdout.print(format, args) catch unreachable;
     }
 };
 
