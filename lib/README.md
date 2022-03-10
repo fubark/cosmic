@@ -19,3 +19,7 @@ HTTP/2 library
 ### curl
 Perform http(s) requests.
 - https://github.com/curl/curl.git (c07aca3baad7c08f25d6b8d2ea6fb30ceaee50fc)
+
+### libuv
+For native async io.
+- https://github.com/libuv/libuv.git (bb6248bca4ccc4cb50b3e859be23afd9be52ebcb)

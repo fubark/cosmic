@@ -11,6 +11,7 @@ const ssl = @import("lib/openssl/lib.zig");
 const zlib = @import("lib/zlib/lib.zig");
 const http2 = @import("lib/nghttp2/lib.zig");
 const curl = @import("lib/curl/lib.zig");
+const uv = @import("lib/uv/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -29,9 +30,9 @@ const LibCryptoPath: ?[]const u8 = null;
 // const LibCryptoPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libcrypto.a";
 const LibCurlPath: ?[]const u8 = null;
 // const LibCurlPath: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
+const LibUvPath: ?[]const u8 = null;
+// const LibUvPath: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 
-const UsePrebuiltUv: ?[]const u8 = null;
-// const UsePrebuiltUv: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 const UsePrebuiltH2O: ?[]const u8 = null;
 // const UsePrebuiltH2O: ?[]const u8 = "/Users/fubar/dev/h2o";
 
@@ -491,7 +492,7 @@ const BuilderContext = struct {
             buildLinkCurl(step);
             buildLinkNghttp2(step);
             buildLinkZlib(step);
-            try self.buildLinkUv(step);
+            buildLinkUv(step);
             try self.buildLinkH2O(step);
         }
         addSDL(step);
@@ -874,141 +875,6 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    fn buildLinkUv(self: *Self, step: *LibExeObjStep) !void {
-        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            step.linkSystemLibrary("iphlpapi");
-        }
-        if (UsePrebuiltUv) |path| {
-            step.addAssemblyFile(path);
-            return;
-        }
-
-        const lib = self.builder.addStaticLibrary("uv", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-
-        // From CMakeLists.txt
-        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_files.appendSlice(&.{
-            // common
-            "src/fs-poll.c",
-            "src/idna.c",
-            "src/inet.c",
-            "src/random.c",
-            "src/strscpy.c",
-            "src/threadpool.c",
-            "src/timer.c",
-            "src/uv-common.c",
-            "src/uv-data-getter-setters.c",
-            "src/version.c",
-        });
-        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
-            try c_files.appendSlice(&.{
-                "src/unix/async.c",
-                "src/unix/core.c",
-                "src/unix/dl.c",
-                "src/unix/fs.c",
-                "src/unix/getaddrinfo.c",
-                "src/unix/getnameinfo.c",
-                "src/unix/loop-watcher.c",
-                "src/unix/loop.c",
-                "src/unix/pipe.c",
-                "src/unix/poll.c",
-                "src/unix/process.c",
-                "src/unix/random-devurandom.c",
-                "src/unix/signal.c",
-                "src/unix/stream.c",
-                "src/unix/tcp.c",
-                "src/unix/thread.c",
-                "src/unix/tty.c",
-                "src/unix/udp.c",
-                "src/unix/proctitle.c",
-            });
-        }
-        if (self.target.getOsTag() == .linux) {
-            try c_files.appendSlice(&.{
-                // sys
-                "src/unix/linux-core.c",
-                "src/unix/linux-inotify.c",
-                "src/unix/linux-syscalls.c",
-                "src/unix/procfs-exepath.c",
-                "src/unix/random-getrandom.c",
-                "src/unix/random-sysctl-linux.c",
-                "src/unix/epoll.c",
-            });
-            try c_flags.appendSlice(&.{
-                "-D_GNU_SOURCE",
-                "-D_POSIX_C_SOURCE=200112",
-            });
-        } else if (self.target.getOsTag() == .macos) {
-            try c_files.appendSlice(&.{
-                "src/unix/bsd-ifaddrs.c",
-                "src/unix/kqueue.c",
-                "src/unix/random-getentropy.c",
-                "src/unix/darwin-proctitle.c",
-                "src/unix/darwin.c",
-                "src/unix/fsevents.c",
-            });
-            try c_flags.appendSlice(&.{
-                "-D_DARWIN_UNLIMITED_SELECT=1",
-                "-D_DARWIN_USE_64_BIT_INODE=1",
-                "-D_FILE_OFFSET_BITS=64",
-                "-D_LARGEFILE_SOURCE",
-            });
-        } else if (self.target.getOsTag() == .windows) {
-            try c_files.appendSlice(&.{
-                "src/win/loop-watcher.c",
-                "src/win/tcp.c",
-                "src/win/async.c",
-                "src/win/core.c",
-                "src/win/signal.c",
-                "src/win/snprintf.c",
-                "src/win/getnameinfo.c",
-                "src/win/fs.c",
-                "src/win/fs-event.c",
-                "src/win/getaddrinfo.c",
-                "src/win/handle.c",
-                "src/win/dl.c",
-                "src/win/udp.c",
-                "src/win/util.c",
-                "src/win/error.c",
-                "src/win/winapi.c",
-                "src/win/winsock.c",
-                "src/win/detect-wakeup.c",
-                "src/win/stream.c",
-                "src/win/tty.c",
-                "src/win/process-stdio.c",
-                "src/win/process.c",
-                "src/win/poll.c",
-                "src/win/thread.c",
-                "src/win/pipe.c",
-            });
-        }
-
-        for (c_files.items) |file| {
-            self.addCSourceFileFmt(lib, "./deps/libuv/{s}", .{file}, c_flags.items);
-        }
-
-        // libuv has UB in uv__write_req_update when the last buf->base has a null ptr.
-        lib.disable_sanitize_c = true;
-
-        lib.linkLibC();
-        lib.addIncludeDir("./deps/libuv/include");
-        lib.addIncludeDir("./deps/libuv/src");
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (self.target.isNativeOs()) {
-                // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
-                // which doesn't exist in later mac libs.
-                lib.linkFramework("CoreServices");
-            } else {
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            }
-        }
-        step.linkLibrary(lib);
-    }
-
     fn addCSourceFileFmt(self: *Self, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
         const path = std.fmt.allocPrint(self.builder.allocator, format, args) catch unreachable;
         lib.addCSourceFile(self.fromRoot(path), c_flags);
@@ -1226,7 +1092,7 @@ const uv_pkg = Pkg{
 
 fn addUv(step: *LibExeObjStep) void {
     step.addPackage(uv_pkg);
-    step.addIncludeDir("./deps/libuv/include");
+    step.addIncludeDir("./lib/uv/vendor/include");
 }
 
 const curl_pkg = Pkg{
@@ -1752,6 +1618,15 @@ fn buildLinkCurl(step: *LibExeObjStep) void {
             },
         }) catch unreachable;
         curl.linkLib(step, lib);
+    }
+}
+
+fn buildLinkUv(step: *LibExeObjStep) void {
+    if (LibUvPath) |path| {
+        uv.linkLibPath(step, path);
+    } else {
+        const lib = uv.create(step.builder, step.target, step.build_mode) catch unreachable;
+        uv.linkLib(step, lib);
     }
 }
 
