@@ -413,7 +413,7 @@ testIsolated('cs.http.serveHttp', async () => {
 
 testIsolated('cs.http.serveHttps', async () => {
     // Use a different port for each test since listening sockets can remain in TIME_WAIT and on Windows reuseaddr is not used.
-    const s = cs.http.serveHttps('127.0.0.1', 3001, './deps/https/localhost.crt', './deps/https/localhost.key')
+    const s = cs.http.serveHttps('127.0.0.1', 3001, './test/assets/localhost.crt', './test/assets/localhost.key')
     s.setHandler((req, resp) => {
         if (req.path == '/hello' && req.method == 'GET') {
             resp.setStatus(200)
@@ -435,7 +435,7 @@ testIsolated('cs.http.serveHttps', async () => {
         // Needs self-signed certificate localhost.crt installed in cainfo or capath and the request needs to hit
         // localhost and not 127.0.0.1 for ssl verify host step to work.
         const opts = {
-            certFile: './deps/https/localhost.crt',
+            certFile: './test/assets/localhost.crt',
         }
         var resp = await cs.http.requestAsync('https://localhost:3001', opts)
         eq(resp.text(), 'not found')
@@ -447,7 +447,7 @@ testIsolated('cs.http.serveHttps', async () => {
         // Post.
         resp = await cs.http.requestAsync('https://localhost:3001/hello', {
             method: 'post',
-            certFile: './deps/https/localhost.crt',
+            certFile: './test/assets/localhost.crt',
             body: 'my message',
         })
         eq(resp.text(), 'my message')
