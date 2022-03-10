@@ -12,6 +12,7 @@ const zlib = @import("lib/zlib/lib.zig");
 const http2 = @import("lib/nghttp2/lib.zig");
 const curl = @import("lib/curl/lib.zig");
 const uv = @import("lib/uv/lib.zig");
+const h2o = @import("lib/h2o/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -32,9 +33,8 @@ const LibCurlPath: ?[]const u8 = null;
 // const LibCurlPath: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
 const LibUvPath: ?[]const u8 = null;
 // const LibUvPath: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
-
-const UsePrebuiltH2O: ?[]const u8 = null;
-// const UsePrebuiltH2O: ?[]const u8 = "/Users/fubar/dev/h2o";
+const LibH2oPath: ?[]const u8 = null;
+// const LibH2oPath: ?[]const u8 = "/Users/fubar/dev/h2o";
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -493,7 +493,7 @@ const BuilderContext = struct {
             buildLinkNghttp2(step);
             buildLinkZlib(step);
             buildLinkUv(step);
-            try self.buildLinkH2O(step);
+            buildLinkH2O(step);
         }
         addSDL(step);
         addStbtt(step);
@@ -646,233 +646,6 @@ const BuilderContext = struct {
         _ = self;
         step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorA.c", &.{});
         step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorW.c", &.{});
-    }
-
-    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) !void {
-        if (UsePrebuiltH2O) |path| {
-            step.addAssemblyFile(path);
-            return;
-        }
-        const lib = self.builder.addStaticLibrary("h2o", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-        // lib.c_std = .C99;
-
-        // Unused defines:
-        // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-
-        // Move args into response file to avoid cli limit.
-        try c_flags.appendSlice(&.{
-            "@lib/h2o/cflags",
-        });
-        if (self.target.getOsTag() == .linux) {
-            try c_flags.appendSlice(&.{
-                "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
-            });
-        } else if (self.target.getOsTag() == .windows) {
-            try c_flags.appendSlice(&.{
-                "-D_WINDOWS=1",
-                // Need this when using C99.
-                "-D_POSIX_C_SOURCE=200809L",
-                "-D_POSIX",
-            });
-        }
-
-        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_files.appendSlice(&.{
-            // deps
-            "deps/picohttpparser/picohttpparser.c",
-            //"deps/cloexec/cloexec.c",
-            //"deps/hiredis/async.c",
-            // "deps/hiredis/hiredis.c",
-            // "deps/hiredis/net.c",
-            // "deps/hiredis/read.c",
-            // "deps/hiredis/sds.c",
-            "deps/libgkc/gkc.c",
-            //"deps/libyrmcds/close.c",
-            //"deps/libyrmcds/connect.c",
-            //"deps/libyrmcds/recv.c",
-            //"deps/libyrmcds/send.c",
-            //"deps/libyrmcds/send_text.c",
-            //"deps/libyrmcds/socket.c",
-            //"deps/libyrmcds/strerror.c",
-            //"deps/libyrmcds/text_mode.c",
-            "deps/picotls/deps/cifra/src/blockwise.c",
-            "deps/picotls/deps/cifra/src/chash.c",
-            "deps/picotls/deps/cifra/src/curve25519.c",
-            "deps/picotls/deps/cifra/src/drbg.c",
-            "deps/picotls/deps/cifra/src/hmac.c",
-            "deps/picotls/deps/cifra/src/sha256.c",
-            "deps/picotls/lib/certificate_compression.c",
-            "deps/picotls/lib/pembase64.c",
-            "deps/picotls/lib/picotls.c",
-            "deps/picotls/lib/openssl.c",
-            "deps/picotls/lib/cifra/random.c",
-            "deps/picotls/lib/cifra/x25519.c",
-            // "deps/quicly/lib/cc-cubic.c",
-            // "deps/quicly/lib/cc-pico.c",
-            // "deps/quicly/lib/cc-reno.c",
-            // "deps/quicly/lib/defaults.c",
-            // "deps/quicly/lib/frame.c",
-            // "deps/quicly/lib/local_cid.c",
-            // "deps/quicly/lib/loss.c",
-            // "deps/quicly/lib/quicly.c",
-            // "deps/quicly/lib/ranges.c",
-            // "deps/quicly/lib/rate.c",
-            // "deps/quicly/lib/recvstate.c",
-            // "deps/quicly/lib/remote_cid.c",
-            // "deps/quicly/lib/retire_cid.c",
-            // "deps/quicly/lib/sendstate.c",
-            // "deps/quicly/lib/sentmap.c",
-            // "deps/quicly/lib/streambuf.c",
-
-            // common
-            "lib/common/cache.c",
-            "lib/common/file.c",
-            "lib/common/filecache.c",
-            "lib/common/hostinfo.c",
-            // "lib/common/http1client.c",
-            // "lib/common/http2client.c",
-            // "lib/common/http3client.c",
-            // "lib/common/httpclient.c",
-            // "lib/common/memcached.c",
-            "lib/common/memory.c",
-            "lib/common/multithread.c",
-            // "lib/common/redis.c",
-            // "lib/common/serverutil.c",
-            "lib/common/socket.c",
-            "lib/common/socketpool.c",
-            "lib/common/string.c",
-            "lib/common/rand.c",
-            "lib/common/time.c",
-            "lib/common/timerwheel.c",
-            "lib/common/token.c",
-            "lib/common/url.c",
-            "lib/common/balancer/roundrobin.c",
-            "lib/common/balancer/least_conn.c",
-            "lib/common/absprio.c",
-
-            "lib/core/config.c",
-            "lib/core/configurator.c",
-            "lib/core/context.c",
-            "lib/core/headers.c",
-            // "lib/core/logconf.c",
-            // "lib/core/proxy.c",
-            "lib/core/request.c",
-            "lib/core/util.c",
-
-            // "lib/handler/access_log.c",
-            "lib/handler/compress.c",
-            "lib/handler/compress/gzip.c",
-            "lib/handler/errordoc.c",
-            "lib/handler/expires.c",
-            "lib/handler/fastcgi.c",
-            // "lib/handler/file.c",
-            "lib/handler/headers.c",
-            "lib/handler/mimemap.c",
-            "lib/handler/proxy.c",
-            // "lib/handler/connect.c",
-            "lib/handler/redirect.c",
-            "lib/handler/reproxy.c",
-            "lib/handler/throttle_resp.c",
-            "lib/handler/self_trace.c",
-            "lib/handler/server_timing.c",
-            "lib/handler/status.c",
-            "lib/handler/headers_util.c",
-            "lib/handler/status/events.c",
-            "lib/handler/status/requests.c",
-            "lib/handler/status/ssl.c",
-            "lib/handler/http2_debug_state.c",
-            "lib/handler/status/durations.c",
-            // "lib/handler/configurator/access_log.c",
-            "lib/handler/configurator/compress.c",
-            "lib/handler/configurator/errordoc.c",
-            "lib/handler/configurator/expires.c",
-            // "lib/handler/configurator/fastcgi.c",
-            "lib/handler/configurator/file.c",
-            "lib/handler/configurator/headers.c",
-            "lib/handler/configurator/proxy.c",
-            "lib/handler/configurator/redirect.c",
-            "lib/handler/configurator/reproxy.c",
-            "lib/handler/configurator/throttle_resp.c",
-            "lib/handler/configurator/self_trace.c",
-            "lib/handler/configurator/server_timing.c",
-            "lib/handler/configurator/status.c",
-            "lib/handler/configurator/http2_debug_state.c",
-            "lib/handler/configurator/headers_util.c",
-
-            "lib/http1.c",
-
-            "lib/tunnel.c",
-
-            "lib/http2/cache_digests.c",
-            "lib/http2/casper.c",
-            "lib/http2/connection.c",
-            "lib/http2/frame.c",
-            "lib/http2/hpack.c",
-            "lib/http2/scheduler.c",
-            "lib/http2/stream.c",
-            "lib/http2/http2_debug_state.c",
-
-            // "lib/http3/frame.c",
-            // "lib/http3/qpack.c",
-            // "lib/http3/common.c",
-            // "lib/http3/server.c",
-        });
-
-        for (c_files.items) |file| {
-            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags.items);
-        }
-
-        lib.addCSourceFile("./lib/h2o/utils.c", c_flags.items);
-
-        // picohttpparser has intentional UB code in
-        // findchar_fast when SSE4_2 is enabled: _mm_loadu_si128 can be given ranges pointer with less than 16 bytes.
-        // Can't seem to turn off sanitize for just the one source file. Tried to separate picohttpparser into it's own lib too.
-        // For now, disable sanitize c for entire h2o lib.
-        lib.disable_sanitize_c = true;
-
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (self.target.isNativeOs()) {
-                // Force using native headers or it won't find netinet/udp.h
-                lib.linkFramework("CoreServices");
-            } else {
-                lib.addSystemIncludeDir("/usr/include");
-            }
-        } 
-
-        lib.linkLibC();
-
-        // Load user_config.h here. include/h2o.h was patched to include user_config.h
-        lib.addIncludeDir("./lib/h2o");
-
-        lib.addIncludeDir("./lib/openssl/vendor/include");
-        lib.addIncludeDir("./deps/libuv/include");
-        lib.addIncludeDir("./deps/h2o/include");
-        lib.addIncludeDir("./deps/zlib");
-        lib.addIncludeDir("./deps/h2o/deps/quicly/include");
-        lib.addIncludeDir("./deps/h2o/deps/picohttpparser");
-        lib.addIncludeDir("./deps/h2o/deps/picotls/include");
-        lib.addIncludeDir("./deps/h2o/deps/klib");
-        lib.addIncludeDir("./deps/h2o/deps/cloexec");
-        lib.addIncludeDir("./deps/h2o/deps/brotli/c/include");
-        lib.addIncludeDir("./deps/h2o/deps/yoml");
-        lib.addIncludeDir("./deps/h2o/deps/hiredis");
-        lib.addIncludeDir("./deps/h2o/deps/golombset");
-        lib.addIncludeDir("./deps/h2o/deps/libgkc");
-        lib.addIncludeDir("./deps/h2o/deps/libyrmcds");
-        lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src/ext");
-        lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
-        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            // Since H2O source relies on posix only, provide an interface to windows API.
-            lib.addSystemIncludeDir("./lib/mingw/win_posix/include");
-            if ((builtin.os.tag == .linux and !self.wsl) or builtin.os.tag == .macos) {
-                lib.addSystemIncludeDir("./lib/mingw/win_posix/include-posix");
-            }
-            lib.addSystemIncludeDir("./lib/mingw/winpthreads/include");
-        } 
-        step.linkLibrary(lib);
     }
 
     fn addCSourceFileFmt(self: *Self, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
@@ -1075,9 +848,9 @@ fn addH2O(step: *LibExeObjStep) void {
     pkg.dependencies = &.{uv_pkg, openssl_pkg};
     step.addPackage(pkg);
     step.addIncludeDir("./lib/h2o");
-    step.addIncludeDir("./deps/h2o/include");
-    step.addIncludeDir("./deps/h2o/deps/picotls/include");
-    step.addIncludeDir("./deps/h2o/deps/quicly/include");
+    step.addIncludeDir("./lib/h2o/vendor/include");
+    step.addIncludeDir("./lib/h2o/vendor/deps/picotls/include");
+    step.addIncludeDir("./lib/h2o/vendor/deps/quicly/include");
     step.addIncludeDir("./lib/openssl/vendor/include");
     if (step.target.getOsTag() == .windows) {
         step.addIncludeDir("./lib/mingw/win_posix/include");
@@ -1627,6 +1400,26 @@ fn buildLinkUv(step: *LibExeObjStep) void {
     } else {
         const lib = uv.create(step.builder, step.target, step.build_mode) catch unreachable;
         uv.linkLib(step, lib);
+    }
+}
+
+fn buildLinkH2O(step: *LibExeObjStep) void {
+    if (LibH2oPath) |path| {
+        h2o.linkLibPath(step, path);
+    } else {
+        const b = step.builder;
+        const lib = h2o.create(step.builder, step.target, step.build_mode, .{
+            .openssl_includes = &.{
+                fromRoot(b, "lib/openssl/vendor/include"),
+            },
+            .libuv_includes = &.{
+                fromRoot(b, "lib/uv/vendor/include"),
+            },
+            .zlib_includes = &.{
+                fromRoot(b, "lib/zlib/vendor"),
+            },
+        }) catch unreachable;
+        h2o.linkLib(step, lib);
     }
 }
 

@@ -23,3 +23,7 @@ Perform http(s) requests.
 ### libuv
 For native async io.
 - https://github.com/libuv/libuv.git (bb6248bca4ccc4cb50b3e859be23afd9be52ebcb)
+
+### libh2o
+For http(s) server.
+- https://github.com/h2o/h2o.git (417923e4c031cd2b69ce58652c6b9f348a336392)
