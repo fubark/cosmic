@@ -7,6 +7,9 @@ const after = args[3] || 0
 
 for (const e of cs.files.walkDir(dir)) {
     const info = cs.files.getPathInfo(e.path)
+    if (e.type != cs.files.FileKind.file) {
+        continue
+    }
     if (info.atime > after) {
         if (after) {
             puts(e.path)

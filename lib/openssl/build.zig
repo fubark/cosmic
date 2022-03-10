@@ -830,7 +830,7 @@ pub fn buildCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.M
         "siphash/siphash.c",
     };
     for (c_files) |file| {
-        addCSourceFileFmt(b, lib, "./deps/openssl/crypto/{s}", .{file}, c_flags.items);
+        addCSourceFileFmt(b, lib, "./lib/openssl/vendor/crypto/{s}", .{file}, c_flags.items);
     }
 
     const digest_cfiles = &[_][]const u8{
@@ -1010,7 +1010,7 @@ pub fn buildCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.M
         "implementations/signature/mac_legacy_sig.c",
     };
     for (digest_cfiles) |file| {
-        addCSourceFileFmt(b, lib, "./deps/openssl/providers/{s}", .{file}, c_flags.items);
+        addCSourceFileFmt(b, lib, "./lib/openssl/vendor/providers/{s}", .{file}, c_flags.items);
     }
 
     lib.disable_sanitize_c = true;
@@ -1025,10 +1025,10 @@ pub fn buildCrypto(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.M
         lib.addIncludeDir("./lib/openssl/unix/include");
     }
 
-    lib.addIncludeDir("./deps/openssl/providers/implementations/include");
-    lib.addIncludeDir("./deps/openssl/providers/common/include");
-    lib.addIncludeDir("./deps/openssl/include");
-    lib.addIncludeDir("./deps/openssl");
+    lib.addIncludeDir("./lib/openssl/vendor/providers/implementations/include");
+    lib.addIncludeDir("./lib/openssl/vendor/providers/common/include");
+    lib.addIncludeDir("./lib/openssl/vendor/include");
+    lib.addIncludeDir("./lib/openssl/vendor");
     if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
         if (target.isNativeOs()) {
             // Force use native headers since it wants to find CommonCrypto headers.
@@ -1138,7 +1138,7 @@ pub fn buildSsl(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode
         "s3_cbc.c",
     };
     for (c_files) |file| {
-        addCSourceFileFmt(b, lib, "./deps/openssl/ssl/{s}", .{file}, c_flags.items);
+        addCSourceFileFmt(b, lib, "./lib/openssl/vendor/ssl/{s}", .{file}, c_flags.items);
     }
 
     lib.disable_sanitize_c = true;
@@ -1147,8 +1147,8 @@ pub fn buildSsl(b: *Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode
     // openssl headers need to be generated with:
     // ./Configure 
     // make build_all_generated
-    lib.addIncludeDir("./deps/openssl/include");
-    lib.addIncludeDir("./deps/openssl");
+    lib.addIncludeDir("./lib/openssl/vendor/include");
+    lib.addIncludeDir("./lib/openssl/vendor");
     return lib;
 }
 

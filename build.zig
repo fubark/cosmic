@@ -839,7 +839,7 @@ const BuilderContext = struct {
         // Load user_config.h here. include/h2o.h was patched to include user_config.h
         lib.addIncludeDir("./lib/h2o");
 
-        lib.addIncludeDir("./deps/openssl/include");
+        lib.addIncludeDir("./lib/openssl/vendor/include");
         lib.addIncludeDir("./deps/libuv/include");
         lib.addIncludeDir("./deps/h2o/include");
         lib.addIncludeDir("./deps/zlib");
@@ -1315,7 +1315,7 @@ const BuilderContext = struct {
         lib.addIncludeDir("./lib/curl/vendor/lib");
         // Use the same openssl config so curl knows what features it has.
         lib.addIncludeDir("./lib/openssl/include");
-        lib.addIncludeDir("./deps/openssl/include");
+        lib.addIncludeDir("./lib/openssl/vendor/include");
         lib.addIncludeDir("./deps/nghttp2/lib/includes");
         lib.addIncludeDir("./deps/zlib");
         if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
@@ -1531,7 +1531,7 @@ fn addH2O(step: *LibExeObjStep) void {
     step.addIncludeDir("./deps/h2o/include");
     step.addIncludeDir("./deps/h2o/deps/picotls/include");
     step.addIncludeDir("./deps/h2o/deps/quicly/include");
-    step.addIncludeDir("./deps/openssl/include");
+    step.addIncludeDir("./lib/openssl/vendor/include");
     if (step.target.getOsTag() == .windows) {
         step.addIncludeDir("./lib/mingw/win_posix/include");
         step.addIncludeDir("./lib/mingw/winpthreads/include");
