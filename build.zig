@@ -4,10 +4,10 @@ const FileSource = std.build.FileSource;
 const LibExeObjStep = std.build.LibExeObjStep;
 const print = std.debug.print;
 const builtin = @import("builtin");
-const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 const sdl = @import("lib/sdl/lib.zig");
+const ssl = @import("lib/openssl/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -18,7 +18,13 @@ const V8_Revision = "9.9.115";
 const PrintCommands = false;
 
 // Useful in dev to see descrepancies between zig and normal builds.
+const LibV8Path: ?[]const u8 = null;
 const LibSdlPath: ?[]const u8 = null;
+const LibSslPath: ?[]const u8 = null;
+// const LibSslPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
+const LibCryptoPath: ?[]const u8 = null;
+// const LibCryptoPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libcrypto.a";
+
 const UsePrebuiltCurl: ?[]const u8 = null;
 // const UsePrebuiltCurl: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
 // const UsePrebuiltCurl: ?[]const u8 = "/home/fubar/repos/curl/lib/.libs/libcurl.a";
@@ -26,7 +32,6 @@ const UsePrebuiltUv: ?[]const u8 = null;
 // const UsePrebuiltUv: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 const UsePrebuiltH2O: ?[]const u8 = null;
 // const UsePrebuiltH2O: ?[]const u8 = "/Users/fubar/dev/h2o";
-const LibV8Path: ?[]const u8 = null;
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -180,10 +185,10 @@ pub fn build(b: *Builder) !void {
 
     {
         const step = b.step("openssl", "Build openssl.");
-        const crypto = try openssl.buildCrypto(b, target, mode);
+        const crypto = try ssl.createCrypto(b, target, mode);
         step.dependOn(&ctx.addInstallArtifact(crypto).step);
-        const ssl = try openssl.buildSsl(b, target, mode);
-        step.dependOn(&ctx.addInstallArtifact(ssl).step);
+        const ssl_ = try ssl.createSsl(b, target, mode);
+        step.dependOn(&ctx.addInstallArtifact(ssl_).step);
     }
 
     const build_wasm = ctx.createBuildWasmBundleStep();
@@ -479,8 +484,8 @@ const BuilderContext = struct {
         addH2O(step);
         addOpenSSL(step);
         if (self.link_net) {
-            try openssl.buildLinkCrypto(self.builder, self.target, self.mode, step);
-            try openssl.buildLinkSsl(self.builder, self.target, self.mode, step);
+            buildLinkCrypto(step);
+            buildLinkSsl(step);
             try self.buildLinkCurl(step);
             self.buildLinkNghttp2(step);
             self.buildLinkZlib(step);
@@ -2012,5 +2017,32 @@ fn buildLinkSDL2(step: *LibExeObjStep) void {
     } else {
         const lib = sdl.create(step.builder, step.target, step.build_mode) catch unreachable;
         sdl.linkLib(step, lib);
+    }
+}
+
+fn buildLinkSsl(step: *LibExeObjStep) void {
+    if (LibSslPath) |path| {
+        ssl.linkLibSslPath(step, path);
+    } else {
+        if (builtin.os.tag == .windows) {
+            step.addAssemblyFile("./deps/prebuilt/win64/ssl.lib");
+            return;
+        }
+        const lib = ssl.createSsl(step.builder, step.target, step.build_mode) catch unreachable;
+        ssl.linkLibSsl(step, lib);
+    }
+}
+
+fn buildLinkCrypto(step: *LibExeObjStep) void {
+    if (LibCryptoPath) |path| {
+        ssl.linkLibCryptoPath(step, path);
+    } else {
+        if (builtin.os.tag == .windows) {
+            // Can't build, too many args in build-lib will break zig :)
+            step.addAssemblyFile("./deps/prebuilt/win64/crypto.lib");
+            return;
+        }
+        const lib = ssl.createCrypto(step.builder, step.target, step.build_mode) catch unreachable;
+        ssl.linkLibCrypto(step, lib);
     }
 }
