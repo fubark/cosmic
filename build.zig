@@ -895,7 +895,7 @@ const gl_pkg = Pkg{
 
 fn addGL(step: *LibExeObjStep) void {
     step.addPackage(gl_pkg);
-    step.addIncludeDir("./deps");
+    step.addIncludeDir("./lib/gl/vendor");
     step.linkLibC();
 }
 

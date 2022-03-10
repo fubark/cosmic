@@ -31,3 +31,6 @@ For http(s) server.
 ### stb
 For TTF rasterization and image manipulation.
 - https://github.com/nothings/stb.git
+
+### Mesa opengl headers
+- https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/include
