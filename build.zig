@@ -658,10 +658,10 @@ const BuilderContext = struct {
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
 
-        lib.addIncludeDir(self.fromRoot("./deps/stb"));
+        lib.addIncludeDir(self.fromRoot("./lib/stb/vendor"));
         lib.linkLibC();
         const c_flags = &[_][]const u8{ "-DSTB_TRUETYPE_IMPLEMENTATION" };
-        lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags);
+        lib.addCSourceFile(self.fromRoot("./lib/stb/stb_truetype.c"), c_flags);
         step.linkLibrary(lib);
     }
 
@@ -670,13 +670,13 @@ const BuilderContext = struct {
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
 
-        lib.addIncludeDir(self.fromRoot("./deps/stb"));
+        lib.addIncludeDir(self.fromRoot("./lib/stb/vendor"));
         lib.linkLibC();
 
         const c_flags = &[_][]const u8{ "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
         const src_files: []const []const u8 = &.{
-            self.fromRoot("./lib/stbi/stb_image.c"),
-            self.fromRoot("./lib/stbi/stb_image_write.c")
+            self.fromRoot("./lib/stb/stb_image.c"),
+            self.fromRoot("./lib/stb/stb_image_write.c")
         };
         lib.addCSourceFiles(src_files, c_flags);
         step.linkLibrary(lib);
@@ -927,22 +927,22 @@ fn linkGL(step: *LibExeObjStep, target: std.zig.CrossTarget) void {
 
 const stbi_pkg = Pkg{
     .name = "stbi",
-    .path = FileSource.relative("./lib/stbi/stbi.zig"),
+    .path = FileSource.relative("./lib/stb/stbi.zig"),
 };
 
 fn addStbi(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbi_pkg);
-    step.addIncludeDir("./deps/stb");
+    step.addIncludeDir("./lib/stb/vendor");
 }
 
 const stbtt_pkg = Pkg{
     .name = "stbtt",
-    .path = FileSource.relative("./lib/stbtt/stbtt.zig"),
+    .path = FileSource.relative("./lib/stb/stbtt.zig"),
 };
 
 fn addStbtt(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbtt_pkg);
-    step.addIncludeDir("./deps/stb");
+    step.addIncludeDir("./lib/stb/vendor");
     step.linkLibC();
 }
 

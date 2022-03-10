@@ -10,6 +10,12 @@ lib/mingw/** linguist-vendored
 lib/miniaudio/src/** linguist-vendored
 lib/sdl/vendor/** linguist-vendored
 lib/curl/vendor/** linguist-vendored
+lib/stb/vendor/** linguist-vendored
+lib/h2o/vendor/** linguist-vendored
+lib/uv/vendor/** linguist-vendored
+lib/zlib/vendor/** linguist-vendored
+lib/nghttp2/vendor/** linguist-vendored
+lib/openssl/vendor/** linguist-vendored
 docs/*.css linguist-vendored
 docs/*.html linguist-vendored
 docs/*.js linguist-vendored

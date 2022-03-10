@@ -27,3 +27,7 @@ For native async io.
 ### libh2o
 For http(s) server.
 - https://github.com/h2o/h2o.git (417923e4c031cd2b69ce58652c6b9f348a336392)
+
+### stb
+For TTF rasterization and image manipulation.
+- https://github.com/nothings/stb.git
