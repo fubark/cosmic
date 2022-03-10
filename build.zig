@@ -8,6 +8,7 @@ const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
+const zlib = @import("lib/zlib/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -488,7 +489,7 @@ const BuilderContext = struct {
             buildLinkSsl(step);
             try self.buildLinkCurl(step);
             self.buildLinkNghttp2(step);
-            self.buildLinkZlib(step);
+            buildLinkZlib(step);
             try self.buildLinkUv(step);
             try self.buildLinkH2O(step);
         }
@@ -1004,40 +1005,6 @@ const BuilderContext = struct {
                 lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
         }
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkZlib(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("zlib", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        const c_flags = &[_][]const u8{
-        };
-
-        const c_files = &[_][]const u8{
-            "inftrees.c",
-            "inflate.c",
-            "adler32.c",
-            "zutil.c",
-            "trees.c",
-            "gzclose.c",
-            "gzwrite.c",
-            "gzread.c",
-            "deflate.c",
-            "compress.c",
-            "crc32.c",
-            "infback.c",
-            "gzlib.c",
-            "uncompr.c",
-            "inffast.c",
-        };
-
-        for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/zlib/{s}", .{file}, c_flags);
-        }
-
-        lib.linkLibC();
         step.linkLibrary(lib);
     }
 
@@ -2045,4 +2012,9 @@ fn buildLinkCrypto(step: *LibExeObjStep) void {
         const lib = ssl.createCrypto(step.builder, step.target, step.build_mode) catch unreachable;
         ssl.linkLibCrypto(step, lib);
     }
+}
+
+fn buildLinkZlib(step: *LibExeObjStep) void {
+    const lib = zlib.create(step.builder, step.target, step.build_mode) catch unreachable;
+    zlib.linkLib(step, lib);
 }
