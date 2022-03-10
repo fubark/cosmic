@@ -15,3 +15,7 @@ For gzip file compression encoding and decoding.
 ### nghttp2
 HTTP/2 library
 - https://github.com/nghttp2/nghttp2.git (8a552631b4e64851018947a44b98fa022133fa81)
+
+### curl
+Perform http(s) requests.
+- https://github.com/curl/curl.git (c07aca3baad7c08f25d6b8d2ea6fb30ceaee50fc)

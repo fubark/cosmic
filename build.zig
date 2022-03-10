@@ -10,6 +10,7 @@ const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
 const zlib = @import("lib/zlib/lib.zig");
 const http2 = @import("lib/nghttp2/lib.zig");
+const curl = @import("lib/curl/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -26,10 +27,9 @@ const LibSslPath: ?[]const u8 = null;
 // const LibSslPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
 const LibCryptoPath: ?[]const u8 = null;
 // const LibCryptoPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libcrypto.a";
+const LibCurlPath: ?[]const u8 = null;
+// const LibCurlPath: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
 
-const UsePrebuiltCurl: ?[]const u8 = null;
-// const UsePrebuiltCurl: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
-// const UsePrebuiltCurl: ?[]const u8 = "/home/fubar/repos/curl/lib/.libs/libcurl.a";
 const UsePrebuiltUv: ?[]const u8 = null;
 // const UsePrebuiltUv: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 const UsePrebuiltH2O: ?[]const u8 = null;
@@ -488,7 +488,7 @@ const BuilderContext = struct {
         if (self.link_net) {
             buildLinkCrypto(step);
             buildLinkSsl(step);
-            try self.buildLinkCurl(step);
+            buildLinkCurl(step);
             buildLinkNghttp2(step);
             buildLinkZlib(step);
             try self.buildLinkUv(step);
@@ -1005,252 +1005,6 @@ const BuilderContext = struct {
             } else {
                 lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
-        }
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkCurl(self: *Self, step: *LibExeObjStep) !void {
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
-            step.linkFramework("SystemConfiguration");
-        } else if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            step.linkSystemLibrary("crypt32");
-        }
-        if (UsePrebuiltCurl) |path| {
-            step.addAssemblyFile(path);
-            return;
-        }
-
-        // TODO: Currently seeing BADF panics when doing fs syscalls when building/linking libcurl dynamically.
-        // Similar to this issue: https://github.com/ziglang/zig/issues/10375
-        // For now, just build a static lib.
-        // const lib = self.builder.addSharedLibrary("curl", null, .unversioned);
-
-        const lib = self.builder.addStaticLibrary("curl", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        // See config.status or lib/curl_config.h for generated defines from configure.
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_flags.appendSlice(&.{
-            // Indicates that we're building the lib not the tools.
-            "-DBUILDING_LIBCURL",
-
-            // Hides libcurl internal symbols (hide all symbols that aren't officially external).
-            "-DCURL_HIDDEN_SYMBOLS",
-
-            "-DCURL_STATICLIB",
-
-            "-DNGHTTP2_STATICLIB=1",
-
-            "-Wno-system-headers",
-        });
-
-        // Currently only linux and mac have custom configs.
-        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos or self.target.getOsTag() == .windows) {
-            // Will make sources include curl_config.h in ./lib/curl
-            try c_flags.append("-DHAVE_CONFIG_H");
-        }
-
-        if (self.target.getOsTag() == .linux) {
-            // cpu-machine-OS
-            // eg. x86_64-pc-linux-gnu
-            const os_flag = try std.fmt.allocPrint(self.builder.allocator, "-DOS=\"{s}-pc-{s}-{s}\"", .{
-                @tagName(self.target.getCpuArch()),
-                @tagName(self.target.getOsTag()),
-                @tagName(self.target.getAbi()),
-            });
-            try c_flags.appendSlice(&.{
-                "-DTARGET_LINUX",
-                "-pthread",
-                "-Werror-implicit-function-declaration",
-                "-fvisibility=hidden",
-                // Move to curl_config.
-                os_flag,
-            });
-        }
-
-        const c_files = &[_][]const u8{
-            // Copied from curl/lib/Makefile.inc (LIB_CFILES)
-            "altsvc.c",
-            "amigaos.c",
-            "asyn-ares.c",
-            "asyn-thread.c",
-            "base64.c",
-            "bufref.c",
-            "c-hyper.c",
-            "conncache.c",
-            "connect.c",
-            "content_encoding.c",
-            "cookie.c",
-            "curl_addrinfo.c",
-            "curl_ctype.c",
-            "curl_des.c",
-            "curl_endian.c",
-            "curl_fnmatch.c",
-            "curl_get_line.c",
-            "curl_gethostname.c",
-            "curl_gssapi.c",
-            "curl_memrchr.c",
-            "curl_multibyte.c",
-            "curl_ntlm_core.c",
-            "curl_ntlm_wb.c",
-            "curl_path.c",
-            "curl_range.c",
-            "curl_rtmp.c",
-            "curl_sasl.c",
-            "curl_sspi.c",
-            "curl_threads.c",
-            "dict.c",
-            "doh.c",
-            "dotdot.c",
-            "dynbuf.c",
-            "easy.c",
-            "easygetopt.c",
-            "easyoptions.c",
-            "escape.c",
-            "file.c",
-            "fileinfo.c",
-            "formdata.c",
-            "ftp.c",
-            "ftplistparser.c",
-            "getenv.c",
-            "getinfo.c",
-            "gopher.c",
-            "hash.c",
-            "hmac.c",
-            "hostasyn.c",
-            "hostcheck.c",
-            "hostip.c",
-            "hostip4.c",
-            "hostip6.c",
-            "hostsyn.c",
-            "hsts.c",
-            "http.c",
-            "http2.c",
-            "http_chunks.c",
-            "http_digest.c",
-            "http_negotiate.c",
-            "http_ntlm.c",
-            "http_proxy.c",
-            "http_aws_sigv4.c",
-            "idn_win32.c",
-            "if2ip.c",
-            "imap.c",
-            "inet_ntop.c",
-            "inet_pton.c",
-            "krb5.c",
-            "ldap.c",
-            "llist.c",
-            "md4.c",
-            "md5.c",
-            "memdebug.c",
-            "mime.c",
-            "mprintf.c",
-            "mqtt.c",
-            "multi.c",
-            "netrc.c",
-            "non-ascii.c",
-            "nonblock.c",
-            "openldap.c",
-            "parsedate.c",
-            "pingpong.c",
-            "pop3.c",
-            "progress.c",
-            "psl.c",
-            "rand.c",
-            "rename.c",
-            "rtsp.c",
-            "select.c",
-            "sendf.c",
-            "setopt.c",
-            "sha256.c",
-            "share.c",
-            "slist.c",
-            "smb.c",
-            "smtp.c",
-            "socketpair.c",
-            "socks.c",
-            "socks_gssapi.c",
-            "socks_sspi.c",
-            "speedcheck.c",
-            "splay.c",
-            "strcase.c",
-            "strdup.c",
-            "strerror.c",
-            "strtok.c",
-            "strtoofft.c",
-            "system_win32.c",
-            "telnet.c",
-            "tftp.c",
-            "timeval.c",
-            "transfer.c",
-            "url.c",
-            "urlapi.c",
-            "version.c",
-            "version_win32.c",
-            "warnless.c",
-            "wildcard.c",
-            "x509asn1.c",
-
-            // Copied from curl/lib/Makefile.inc (LIB_VAUTH_CFILES)
-            "vauth/cleartext.c",
-            "vauth/cram.c",
-            "vauth/digest.c",
-            "vauth/digest_sspi.c",
-            "vauth/gsasl.c",
-            "vauth/krb5_gssapi.c",
-            "vauth/krb5_sspi.c",
-            "vauth/ntlm.c",
-            "vauth/ntlm_sspi.c",
-            "vauth/oauth2.c",
-            "vauth/spnego_gssapi.c",
-            "vauth/spnego_sspi.c",
-            "vauth/vauth.c",
-
-            // Copied from curl/lib/Makefile.inc (LIB_VTLS_CFILES)
-            "vtls/bearssl.c",
-            "vtls/gskit.c",
-            "vtls/gtls.c",
-            "vtls/keylog.c",
-            "vtls/mbedtls.c",
-            "vtls/mbedtls_threadlock.c",
-            "vtls/mesalink.c",
-            "vtls/nss.c",
-            "vtls/openssl.c",
-            "vtls/rustls.c",
-            "vtls/schannel.c",
-            "vtls/schannel_verify.c",
-            "vtls/sectransp.c",
-            "vtls/vtls.c",
-            "vtls/wolfssl.c",
-        };
-        for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./lib/curl/vendor/lib/{s}", .{file}, c_flags.items);
-        }
-
-        // lib.disable_sanitize_c = true;
-
-        lib.linkLibC();
-        if (self.target.getOsTag() == .linux) {
-            lib.addIncludeDir("./lib/curl/linux");
-        } else if (self.target.getOsTag() == .macos) {
-            lib.addIncludeDir("./lib/curl/macos");
-        } else if (self.target.getOsTag() == .windows) {
-            lib.addIncludeDir("./lib/curl/windows");
-        }
-        lib.addIncludeDir("./lib/curl/vendor/include");
-        lib.addIncludeDir("./lib/curl/vendor/lib");
-        // Use the same openssl config so curl knows what features it has.
-        lib.addIncludeDir("./lib/openssl/include");
-        lib.addIncludeDir("./lib/openssl/vendor/include");
-        lib.addIncludeDir("./deps/nghttp2/lib/includes");
-        lib.addIncludeDir("./deps/zlib");
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (!self.target.isNativeOs()) {
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-                lib.addFrameworkDir("/System/Library/Frameworks");
-            } 
-            lib.linkFramework("SystemConfiguration");
         }
         step.linkLibrary(lib);
     }
@@ -1977,4 +1731,34 @@ fn buildLinkZlib(step: *LibExeObjStep) void {
 fn buildLinkNghttp2(step: *LibExeObjStep) void {
     const lib = http2.create(step.builder, step.target, step.build_mode) catch unreachable;
     http2.linkLib(step, lib);
+}
+
+fn buildLinkCurl(step: *LibExeObjStep) void {
+    const b = step.builder;
+    if (LibCurlPath) |path| {
+        curl.linkLibPath(step, path);
+    } else {
+        const lib = curl.create(step.builder, step.target, step.build_mode, .{
+            // Use the same openssl config so curl knows what features it has.
+            .openssl_includes = &.{
+                fromRoot(b, "lib/openssl/include"),
+                fromRoot(b, "lib/openssl/vendor/include"),
+            },
+            .nghttp2_includes = &.{
+                fromRoot(b, "lib/nghttp2/vendor/lib/includes"),
+            },
+            .zlib_includes = &.{
+                fromRoot(b, "lib/zlib/vendor"),
+            },
+        }) catch unreachable;
+        curl.linkLib(step, lib);
+    }
+}
+
+fn root() []const u8 {
+    return (std.fs.path.dirname(@src().file) orelse unreachable);
+}
+
+fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
+    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
 }
