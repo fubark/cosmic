@@ -57,17 +57,24 @@ pub const cs_window = struct {
     /// @param height
     pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
         if (rt.dev_mode and rt.dev_ctx.dev_window != null) {
+            const S = struct {
+                var replaced_dev_window_before = false;
+            };
             // Take over the dev window.
             const dev_win = rt.dev_ctx.dev_window.?;
             const cur_width = dev_win.window.getWidth();
             const cur_height = dev_win.window.getHeight();
             dev_win.window.setTitle(title);
             if (cur_width != width or cur_height != height) {
-                dev_win.window.resize(width, height);
-                dev_win.window.center();
+                dev_win.resize(width, height);
+                if (!S.replaced_dev_window_before) {
+                    // Only recenter if this is the first time the user window is taking over the dev window.
+                    dev_win.window.center();
+                }
             }
             rt.dev_ctx.dev_window = null;
             rt.active_window = dev_win;
+            S.replaced_dev_window_before = true;
             return dev_win.js_window.castToObject();
         }
 
@@ -448,7 +455,10 @@ pub const cs_files = struct {
     pub fn getPathInfo(path: []const u8) ?PathInfo {
         const stat = std.fs.cwd().statFile(path) catch return null;
         return PathInfo{
-            .kind = std.meta.stringToEnum(FileKind, @tagName(stat.kind)).?,
+            .kind = @intToEnum(FileKind, @enumToInt(stat.kind)),
+            .atime = @intCast(F64SafeUint, @divFloor(stat.atime, 1_000_000)),
+            .mtime = @intCast(F64SafeUint, @divFloor(stat.mtime, 1_000_000)),
+            .ctime = @intCast(F64SafeUint, @divFloor(stat.ctime, 1_000_000)),
         };
     }
 
@@ -458,22 +468,28 @@ pub const cs_files = struct {
         return runtime.invokeFuncAsync(rt, getPathInfo, args);
     }
 
-    pub const FileKind = enum {
-        BlockDevice,
-        CharacterDevice,
-        Directory,
-        NamedPipe,
-        SymLink,
-        File,
-        UnixDomainSocket,
-        Whiteout,
-        Door,
-        EventPort,
-        Unknown,
+    pub const FileKind = enum(u4) {
+        blockDevice = @enumToInt(std.fs.File.Kind.BlockDevice),
+        characterDevice = @enumToInt(std.fs.File.Kind.CharacterDevice),
+        directory = @enumToInt(std.fs.File.Kind.Directory),
+        namedPipe = @enumToInt(std.fs.File.Kind.NamedPipe),
+        symLink = @enumToInt(std.fs.File.Kind.SymLink),
+        file = @enumToInt(std.fs.File.Kind.File),
+        unixDomainSocket = @enumToInt(std.fs.File.Kind.UnixDomainSocket),
+        whiteout = @enumToInt(std.fs.File.Kind.Whiteout),
+        door = @enumToInt(std.fs.File.Kind.Door),
+        eventPort = @enumToInt(std.fs.File.Kind.EventPort),
+        unknown = @enumToInt(std.fs.File.Kind.Unknown),
     };
 
     pub const PathInfo = struct {
         kind: FileKind,
+        // Last access time in milliseconds since the unix epoch.
+        atime: F64SafeUint,
+        // Last modified time in milliseconds since the unix epoch.
+        mtime: F64SafeUint,
+        // Created time in milliseconds since the unix epoch.
+        ctime: F64SafeUint,
     };
 
     /// List the files in a directory. This is not recursive.
@@ -916,21 +932,36 @@ pub const cs_http = struct {
 /// Contains common utilities. All functions here are also available in the global scope. You can call them directly without the cs.core prefix.
 pub const cs_core = struct {
 
+    /// Whether print should also output to stdout in devmode.
+    const DevModeToStdout = false;
+
+    /// Returns an array of arguments used to start the process in the command line.
+    pub fn getCliArgs(rt: *RuntimeContext) v8.Array {
+        const args = std.process.argsAlloc(rt.alloc) catch unreachable;
+        defer std.process.argsFree(rt.alloc, args);
+        const args_slice: []const []const u8 = args;
+        return rt.getJsValue(args_slice).castTo(v8.Array);
+    }
+
     /// Prints any number of variables as strings separated by " ".
     /// @param args
     pub fn print(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        printInternal(info, false);
+        printInternal(info, false, false);
     }
 
     pub fn print_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        printInternal(info, true);
+        printInternal(info, true, false);
     }
 
-    fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool) void {
-        const len = info.length();
+    inline fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool, comptime Dump: bool) void {
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, DevMode, Dump);
+    }
+
+    fn printInternal2(rt: *RuntimeContext, info: v8.FunctionCallbackInfo, comptime DevMode: bool, comptime Dump: bool) void {
+        const len = info.length();
         const iso = rt.isolate;
         const ctx = rt.getContext();
 
@@ -938,13 +969,28 @@ pub const cs_core = struct {
         hscope.init(iso);
         defer hscope.deinit();
 
-        var i: u32 = 0;
-        while (i < len) : (i += 1) {
-            const str = v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(i));
+        if (len > 0) {
+            const str = if (Dump) v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(0))
+                else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(0));
             defer rt.alloc.free(str);
-            printFmt("{s} ", .{str});
+            if (!DevMode or DevModeToStdout) {
+                rt.printFmt("{s}", .{str});
+            }
             if (DevMode) {
-                rt.dev_ctx.printFmt("{s} ", .{str});
+                rt.dev_ctx.printFmt("{s}", .{str});
+            }
+        }
+
+        var i: u32 = 1;
+        while (i < len) : (i += 1) {
+            const str = if (Dump) v8x.allocValueDump(rt.alloc, iso, ctx, info.getArg(i))
+                else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
+            defer rt.alloc.free(str);
+            if (!DevMode or DevModeToStdout) {
+                rt.printFmt(" {s}", .{str});
+            }
+            if (DevMode) {
+                rt.dev_ctx.printFmt(" {s}", .{str});
             }
         }
     }
@@ -952,15 +998,38 @@ pub const cs_core = struct {
     /// Prints any number of variables as strings separated by " ". Wraps to the next line.
     /// @param args
     pub fn puts(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
-        print(raw_info);
-        printFmt("\n", .{});
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, false, false);
+        rt.printFmt("\n", .{});
     }
 
     pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        printInternal(info, true);
-        printFmt("\n", .{});
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, true, false);
+        if (DevModeToStdout) {
+            rt.printFmt("\n", .{});
+        }
+        rt.dev_ctx.print("\n");
+    }
+
+    /// Prints a descriptive string of the js value(s) separated by " ". Wraps to the next line.
+    /// @param args
+    pub fn dump(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, false, true);
+        rt.printFmt("\n", .{});
+    }
+
+    pub fn dump_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
+        const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
+        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        printInternal2(rt, info, true, true);
+        if (DevModeToStdout) {
+            rt.printFmt("\n", .{});
+        }
         rt.dev_ctx.print("\n");
     }
 

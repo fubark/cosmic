@@ -4,9 +4,15 @@ const FileSource = std.build.FileSource;
 const LibExeObjStep = std.build.LibExeObjStep;
 const print = std.debug.print;
 const builtin = @import("builtin");
-const openssl = @import("lib/openssl/build.zig");
 const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
+const sdl = @import("lib/sdl/lib.zig");
+const ssl = @import("lib/openssl/lib.zig");
+const zlib = @import("lib/zlib/lib.zig");
+const http2 = @import("lib/nghttp2/lib.zig");
+const curl = @import("lib/curl/lib.zig");
+const uv = @import("lib/uv/lib.zig");
+const h2o = @import("lib/h2o/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
@@ -17,15 +23,18 @@ const V8_Revision = "9.9.115";
 const PrintCommands = false;
 
 // Useful in dev to see descrepancies between zig and normal builds.
-const UsePrebuiltSDL = false;
-const UsePrebuiltCurl: ?[]const u8 = null;
-// const UsePrebuiltCurl: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
-// const UsePrebuiltCurl: ?[]const u8 = "/home/fubar/repos/curl/lib/.libs/libcurl.a";
-const UsePrebuiltUv: ?[]const u8 = null;
-// const UsePrebuiltUv: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
-const UsePrebuiltH2O: ?[]const u8 = null;
-// const UsePrebuiltH2O: ?[]const u8 = "/Users/fubar/dev/h2o";
 const LibV8Path: ?[]const u8 = null;
+const LibSdlPath: ?[]const u8 = null;
+const LibSslPath: ?[]const u8 = null;
+// const LibSslPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
+const LibCryptoPath: ?[]const u8 = null;
+// const LibCryptoPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libcrypto.a";
+const LibCurlPath: ?[]const u8 = null;
+// const LibCurlPath: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
+const LibUvPath: ?[]const u8 = null;
+// const LibUvPath: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
+const LibH2oPath: ?[]const u8 = null;
+// const LibH2oPath: ?[]const u8 = "/Users/fubar/dev/h2o";
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -123,7 +132,36 @@ pub fn build(b: *Builder) !void {
         b.step("test", "Run tests").dependOn(&step.step);
     }
 
-    const test_file = ctx.createTestFileStep();
+    {
+        var ctx_ = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_audio = true,
+            .link_v8 = true,
+            .link_mock = false,
+            .static_link = static_link,
+            .path = "cosmic/main.zig",
+            .filter = filter,
+            .mode = mode,
+            .target = target,
+            .build_options = build_options,
+            .wsl = wsl,
+        };
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const test_exe = ctx_.createTestFileStep("test/behavior_test.zig");
+        // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
+        test_exe.setFilter("behavior:");
+        step.step.dependOn(&test_exe.step);
+        b.step("test-behavior", "Run behavior tests").dependOn(&step.step);
+    }
+
+    const test_file = ctx.createTestFileStep(ctx.path);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
     {
@@ -150,10 +188,10 @@ pub fn build(b: *Builder) !void {
 
     {
         const step = b.step("openssl", "Build openssl.");
-        const crypto = try openssl.buildCrypto(b, target, mode);
+        const crypto = try ssl.createCrypto(b, target, mode);
         step.dependOn(&ctx.addInstallArtifact(crypto).step);
-        const ssl = try openssl.buildSsl(b, target, mode);
-        step.dependOn(&ctx.addInstallArtifact(ssl).step);
+        const ssl_ = try ssl.createSsl(b, target, mode);
+        step.dependOn(&ctx.addInstallArtifact(ssl_).step);
     }
 
     const build_wasm = ctx.createBuildWasmBundleStep();
@@ -394,8 +432,8 @@ const BuilderContext = struct {
         return exe;
     }
 
-    fn createTestFileStep(self: *Self) *std.build.LibExeObjStep {
-        const step = self.builder.addTest(self.path);
+    fn createTestFileStep(self: *Self, path: []const u8) *std.build.LibExeObjStep {
+        const step = self.builder.addTest(path);
         self.setBuildMode(step);
         self.setTarget(step);
         step.setMainPkgPath(".");
@@ -406,7 +444,6 @@ const BuilderContext = struct {
         addGraphics(step);
         addInput(step);
         self.addDeps(step) catch unreachable;
-        self.buildLinkMock(step);
 
         step.addPackage(build_options);
         self.postStep(step);
@@ -450,13 +487,13 @@ const BuilderContext = struct {
         addH2O(step);
         addOpenSSL(step);
         if (self.link_net) {
-            try openssl.buildLinkCrypto(self.builder, self.target, self.mode, step);
-            try openssl.buildLinkSsl(self.builder, self.target, self.mode, step);
-            try self.buildLinkCurl(step);
-            self.buildLinkNghttp2(step);
-            self.buildLinkZlib(step);
-            try self.buildLinkUv(step);
-            try self.buildLinkH2O(step);
+            buildLinkCrypto(step);
+            buildLinkSsl(step);
+            buildLinkCurl(step);
+            buildLinkNghttp2(step);
+            buildLinkZlib(step);
+            buildLinkUv(step);
+            buildLinkH2O(step);
         }
         addSDL(step);
         addStbtt(step);
@@ -473,7 +510,7 @@ const BuilderContext = struct {
             self.buildLinkWinPthreads(step);
         }
         if (self.link_graphics) {
-            try self.buildLinkSDL2(step);
+            buildLinkSDL2(step);
             self.buildLinkStbtt(step);
             linkGL(step, self.target);
             self.linkLyon(step, self.target);
@@ -611,1075 +648,6 @@ const BuilderContext = struct {
         step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorW.c", &.{});
     }
 
-    fn buildLinkH2O(self: *Self, step: *LibExeObjStep) !void {
-        if (UsePrebuiltH2O) |path| {
-            step.addAssemblyFile(path);
-            return;
-        }
-        const lib = self.builder.addStaticLibrary("h2o", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-        // lib.c_std = .C99;
-
-        // Unused defines:
-        // -DH2O_ROOT="/usr/local" -DH2O_CONFIG_PATH="/usr/local/etc/h2o.conf" -DH2O_HAS_PTHREAD_SETAFFINITY_NP 
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-
-        // Move args into response file to avoid cli limit.
-        try c_flags.appendSlice(&.{
-            "@lib/h2o/cflags",
-        });
-        if (self.target.getOsTag() == .linux) {
-            try c_flags.appendSlice(&.{
-                "-D_GNU_SOURCE", // This lets it find in6_pktinfo for some reason.
-            });
-        } else if (self.target.getOsTag() == .windows) {
-            try c_flags.appendSlice(&.{
-                "-D_WINDOWS=1",
-                // Need this when using C99.
-                "-D_POSIX_C_SOURCE=200809L",
-                "-D_POSIX",
-            });
-        }
-
-        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_files.appendSlice(&.{
-            // deps
-            "deps/picohttpparser/picohttpparser.c",
-            //"deps/cloexec/cloexec.c",
-            //"deps/hiredis/async.c",
-            // "deps/hiredis/hiredis.c",
-            // "deps/hiredis/net.c",
-            // "deps/hiredis/read.c",
-            // "deps/hiredis/sds.c",
-            "deps/libgkc/gkc.c",
-            //"deps/libyrmcds/close.c",
-            //"deps/libyrmcds/connect.c",
-            //"deps/libyrmcds/recv.c",
-            //"deps/libyrmcds/send.c",
-            //"deps/libyrmcds/send_text.c",
-            //"deps/libyrmcds/socket.c",
-            //"deps/libyrmcds/strerror.c",
-            //"deps/libyrmcds/text_mode.c",
-            "deps/picotls/deps/cifra/src/blockwise.c",
-            "deps/picotls/deps/cifra/src/chash.c",
-            "deps/picotls/deps/cifra/src/curve25519.c",
-            "deps/picotls/deps/cifra/src/drbg.c",
-            "deps/picotls/deps/cifra/src/hmac.c",
-            "deps/picotls/deps/cifra/src/sha256.c",
-            "deps/picotls/lib/certificate_compression.c",
-            "deps/picotls/lib/pembase64.c",
-            "deps/picotls/lib/picotls.c",
-            "deps/picotls/lib/openssl.c",
-            "deps/picotls/lib/cifra/random.c",
-            "deps/picotls/lib/cifra/x25519.c",
-            // "deps/quicly/lib/cc-cubic.c",
-            // "deps/quicly/lib/cc-pico.c",
-            // "deps/quicly/lib/cc-reno.c",
-            // "deps/quicly/lib/defaults.c",
-            // "deps/quicly/lib/frame.c",
-            // "deps/quicly/lib/local_cid.c",
-            // "deps/quicly/lib/loss.c",
-            // "deps/quicly/lib/quicly.c",
-            // "deps/quicly/lib/ranges.c",
-            // "deps/quicly/lib/rate.c",
-            // "deps/quicly/lib/recvstate.c",
-            // "deps/quicly/lib/remote_cid.c",
-            // "deps/quicly/lib/retire_cid.c",
-            // "deps/quicly/lib/sendstate.c",
-            // "deps/quicly/lib/sentmap.c",
-            // "deps/quicly/lib/streambuf.c",
-
-            // common
-            "lib/common/cache.c",
-            "lib/common/file.c",
-            "lib/common/filecache.c",
-            "lib/common/hostinfo.c",
-            // "lib/common/http1client.c",
-            // "lib/common/http2client.c",
-            // "lib/common/http3client.c",
-            // "lib/common/httpclient.c",
-            // "lib/common/memcached.c",
-            "lib/common/memory.c",
-            "lib/common/multithread.c",
-            // "lib/common/redis.c",
-            // "lib/common/serverutil.c",
-            "lib/common/socket.c",
-            "lib/common/socketpool.c",
-            "lib/common/string.c",
-            "lib/common/rand.c",
-            "lib/common/time.c",
-            "lib/common/timerwheel.c",
-            "lib/common/token.c",
-            "lib/common/url.c",
-            "lib/common/balancer/roundrobin.c",
-            "lib/common/balancer/least_conn.c",
-            "lib/common/absprio.c",
-
-            "lib/core/config.c",
-            "lib/core/configurator.c",
-            "lib/core/context.c",
-            "lib/core/headers.c",
-            // "lib/core/logconf.c",
-            // "lib/core/proxy.c",
-            "lib/core/request.c",
-            "lib/core/util.c",
-
-            // "lib/handler/access_log.c",
-            "lib/handler/compress.c",
-            "lib/handler/compress/gzip.c",
-            "lib/handler/errordoc.c",
-            "lib/handler/expires.c",
-            "lib/handler/fastcgi.c",
-            // "lib/handler/file.c",
-            "lib/handler/headers.c",
-            "lib/handler/mimemap.c",
-            "lib/handler/proxy.c",
-            // "lib/handler/connect.c",
-            "lib/handler/redirect.c",
-            "lib/handler/reproxy.c",
-            "lib/handler/throttle_resp.c",
-            "lib/handler/self_trace.c",
-            "lib/handler/server_timing.c",
-            "lib/handler/status.c",
-            "lib/handler/headers_util.c",
-            "lib/handler/status/events.c",
-            "lib/handler/status/requests.c",
-            "lib/handler/status/ssl.c",
-            "lib/handler/http2_debug_state.c",
-            "lib/handler/status/durations.c",
-            // "lib/handler/configurator/access_log.c",
-            "lib/handler/configurator/compress.c",
-            "lib/handler/configurator/errordoc.c",
-            "lib/handler/configurator/expires.c",
-            // "lib/handler/configurator/fastcgi.c",
-            "lib/handler/configurator/file.c",
-            "lib/handler/configurator/headers.c",
-            "lib/handler/configurator/proxy.c",
-            "lib/handler/configurator/redirect.c",
-            "lib/handler/configurator/reproxy.c",
-            "lib/handler/configurator/throttle_resp.c",
-            "lib/handler/configurator/self_trace.c",
-            "lib/handler/configurator/server_timing.c",
-            "lib/handler/configurator/status.c",
-            "lib/handler/configurator/http2_debug_state.c",
-            "lib/handler/configurator/headers_util.c",
-
-            "lib/http1.c",
-
-            "lib/tunnel.c",
-
-            "lib/http2/cache_digests.c",
-            "lib/http2/casper.c",
-            "lib/http2/connection.c",
-            "lib/http2/frame.c",
-            "lib/http2/hpack.c",
-            "lib/http2/scheduler.c",
-            "lib/http2/stream.c",
-            "lib/http2/http2_debug_state.c",
-
-            // "lib/http3/frame.c",
-            // "lib/http3/qpack.c",
-            // "lib/http3/common.c",
-            // "lib/http3/server.c",
-        });
-
-        for (c_files.items) |file| {
-            self.addCSourceFileFmt(lib, "./deps/h2o/{s}", .{file}, c_flags.items);
-        }
-
-        lib.addCSourceFile("./lib/h2o/utils.c", c_flags.items);
-
-        // picohttpparser has intentional UB code in
-        // findchar_fast when SSE4_2 is enabled: _mm_loadu_si128 can be given ranges pointer with less than 16 bytes.
-        // Can't seem to turn off sanitize for just the one source file. Tried to separate picohttpparser into it's own lib too.
-        // For now, disable sanitize c for entire h2o lib.
-        lib.disable_sanitize_c = true;
-
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (self.target.isNativeOs()) {
-                // Force using native headers or it won't find netinet/udp.h
-                lib.linkFramework("CoreServices");
-            } else {
-                lib.addSystemIncludeDir("/usr/include");
-            }
-        } 
-
-        lib.linkLibC();
-
-        // Load user_config.h here. include/h2o.h was patched to include user_config.h
-        lib.addIncludeDir("./lib/h2o");
-
-        lib.addIncludeDir("./deps/openssl/include");
-        lib.addIncludeDir("./deps/libuv/include");
-        lib.addIncludeDir("./deps/h2o/include");
-        lib.addIncludeDir("./deps/zlib");
-        lib.addIncludeDir("./deps/h2o/deps/quicly/include");
-        lib.addIncludeDir("./deps/h2o/deps/picohttpparser");
-        lib.addIncludeDir("./deps/h2o/deps/picotls/include");
-        lib.addIncludeDir("./deps/h2o/deps/klib");
-        lib.addIncludeDir("./deps/h2o/deps/cloexec");
-        lib.addIncludeDir("./deps/h2o/deps/brotli/c/include");
-        lib.addIncludeDir("./deps/h2o/deps/yoml");
-        lib.addIncludeDir("./deps/h2o/deps/hiredis");
-        lib.addIncludeDir("./deps/h2o/deps/golombset");
-        lib.addIncludeDir("./deps/h2o/deps/libgkc");
-        lib.addIncludeDir("./deps/h2o/deps/libyrmcds");
-        lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src/ext");
-        lib.addIncludeDir("./deps/h2o/deps/picotls/deps/cifra/src");
-        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            // Since H2O source relies on posix only, provide an interface to windows API.
-            lib.addSystemIncludeDir("./lib/mingw/win_posix/include");
-            if ((builtin.os.tag == .linux and !self.wsl) or builtin.os.tag == .macos) {
-                lib.addSystemIncludeDir("./lib/mingw/win_posix/include-posix");
-            }
-            lib.addSystemIncludeDir("./lib/mingw/winpthreads/include");
-        } 
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkUv(self: *Self, step: *LibExeObjStep) !void {
-        if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            step.linkSystemLibrary("iphlpapi");
-        }
-        if (UsePrebuiltUv) |path| {
-            step.addAssemblyFile(path);
-            return;
-        }
-
-        const lib = self.builder.addStaticLibrary("uv", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-
-        // From CMakeLists.txt
-        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_files.appendSlice(&.{
-            // common
-            "src/fs-poll.c",
-            "src/idna.c",
-            "src/inet.c",
-            "src/random.c",
-            "src/strscpy.c",
-            "src/threadpool.c",
-            "src/timer.c",
-            "src/uv-common.c",
-            "src/uv-data-getter-setters.c",
-            "src/version.c",
-        });
-        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
-            try c_files.appendSlice(&.{
-                "src/unix/async.c",
-                "src/unix/core.c",
-                "src/unix/dl.c",
-                "src/unix/fs.c",
-                "src/unix/getaddrinfo.c",
-                "src/unix/getnameinfo.c",
-                "src/unix/loop-watcher.c",
-                "src/unix/loop.c",
-                "src/unix/pipe.c",
-                "src/unix/poll.c",
-                "src/unix/process.c",
-                "src/unix/random-devurandom.c",
-                "src/unix/signal.c",
-                "src/unix/stream.c",
-                "src/unix/tcp.c",
-                "src/unix/thread.c",
-                "src/unix/tty.c",
-                "src/unix/udp.c",
-                "src/unix/proctitle.c",
-            });
-        }
-        if (self.target.getOsTag() == .linux) {
-            try c_files.appendSlice(&.{
-                // sys
-                "src/unix/linux-core.c",
-                "src/unix/linux-inotify.c",
-                "src/unix/linux-syscalls.c",
-                "src/unix/procfs-exepath.c",
-                "src/unix/random-getrandom.c",
-                "src/unix/random-sysctl-linux.c",
-                "src/unix/epoll.c",
-            });
-            try c_flags.appendSlice(&.{
-                "-D_GNU_SOURCE",
-                "-D_POSIX_C_SOURCE=200112",
-            });
-        } else if (self.target.getOsTag() == .macos) {
-            try c_files.appendSlice(&.{
-                "src/unix/bsd-ifaddrs.c",
-                "src/unix/kqueue.c",
-                "src/unix/random-getentropy.c",
-                "src/unix/darwin-proctitle.c",
-                "src/unix/darwin.c",
-                "src/unix/fsevents.c",
-            });
-            try c_flags.appendSlice(&.{
-                "-D_DARWIN_UNLIMITED_SELECT=1",
-                "-D_DARWIN_USE_64_BIT_INODE=1",
-                "-D_FILE_OFFSET_BITS=64",
-                "-D_LARGEFILE_SOURCE",
-            });
-        } else if (self.target.getOsTag() == .windows) {
-            try c_files.appendSlice(&.{
-                "src/win/loop-watcher.c",
-                "src/win/tcp.c",
-                "src/win/async.c",
-                "src/win/core.c",
-                "src/win/signal.c",
-                "src/win/snprintf.c",
-                "src/win/getnameinfo.c",
-                "src/win/fs.c",
-                "src/win/fs-event.c",
-                "src/win/getaddrinfo.c",
-                "src/win/handle.c",
-                "src/win/dl.c",
-                "src/win/udp.c",
-                "src/win/util.c",
-                "src/win/error.c",
-                "src/win/winapi.c",
-                "src/win/winsock.c",
-                "src/win/detect-wakeup.c",
-                "src/win/stream.c",
-                "src/win/tty.c",
-                "src/win/process-stdio.c",
-                "src/win/process.c",
-                "src/win/poll.c",
-                "src/win/thread.c",
-                "src/win/pipe.c",
-            });
-        }
-
-        for (c_files.items) |file| {
-            self.addCSourceFileFmt(lib, "./deps/libuv/{s}", .{file}, c_flags.items);
-        }
-
-        // libuv has UB in uv__write_req_update when the last buf->base has a null ptr.
-        lib.disable_sanitize_c = true;
-
-        lib.linkLibC();
-        lib.addIncludeDir("./deps/libuv/include");
-        lib.addIncludeDir("./deps/libuv/src");
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (self.target.isNativeOs()) {
-                // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls
-                // which doesn't exist in later mac libs.
-                lib.linkFramework("CoreServices");
-            } else {
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            }
-        }
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkSDL2(self: *Self, step: *LibExeObjStep) !void {
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            // "sdl2_config --static-libs" tells us what we need
-            if (!self.target.isNativeOs()) {
-                step.addFrameworkDir("/System/Library/Frameworks");
-                step.addLibPath("/usr/lib"); // To find libiconv.
-            }
-            step.linkFramework("Cocoa");
-            step.linkFramework("IOKit");
-            step.linkFramework("CoreAudio");
-            step.linkFramework("CoreVideo");
-            step.linkFramework("Carbon");
-            step.linkFramework("Metal");
-            step.linkFramework("ForceFeedback");
-            step.linkFramework("AudioToolbox");
-            step.linkFramework("GameController");
-            step.linkFramework("CFNetwork");
-            step.linkSystemLibrary("iconv");
-            step.linkSystemLibrary("m");
-            if (UsePrebuiltSDL and self.target.getCpuArch() == .x86_64) {
-                step.addAssemblyFile("./deps/prebuilt/mac64/libSDL2.a");
-                return;
-            }
-        } else if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            step.linkSystemLibrary("setupapi");
-            step.linkSystemLibrary("ole32");
-            step.linkSystemLibrary("oleaut32");
-            step.linkSystemLibrary("gdi32");
-            step.linkSystemLibrary("imm32");
-            step.linkSystemLibrary("version");
-        } else if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
-            if (UsePrebuiltSDL) {
-                const path = self.fromRoot("./deps/prebuilt/linux64/libSDL2.a");
-                step.addAssemblyFile(path);
-                return;
-            }
-        } else {
-            if (UsePrebuiltSDL) {
-                step.linkSystemLibrary("SDL2");
-                return;
-            }
-        }
-
-        const lib = self.builder.addStaticLibrary("SDL2", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        // Use SDL_config_minimal.h instead of relying on configure or CMake
-        // and add defines to make it work for most modern platforms.
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-
-        if (self.target.getOsTag() == .macos) {
-            try c_flags.appendSlice(&.{
-                // Silence warnings that are errors by default in objc source files. Noticed this in github ci.
-                "-Wno-deprecated-declarations",
-                "-Wno-unguarded-availability",
-            });
-        }
-
-        // Look at CMakeLists.txt.
-        var c_files = std.ArrayList([]const u8).init(self.builder.allocator);
-
-        try c_files.appendSlice(&.{
-            // General source files.
-            "SDL_log.c",
-            "SDL_hints.c",
-            "SDL_error.c",
-            "SDL_dataqueue.c",
-            "SDL.c",
-            "SDL_assert.c",
-            "atomic/SDL_spinlock.c",
-            "atomic/SDL_atomic.c",
-            "audio/SDL_wave.c",
-            "audio/SDL_mixer.c",
-            "audio/SDL_audiotypecvt.c",
-            "audio/SDL_audiodev.c",
-            "audio/SDL_audiocvt.c",
-            "audio/SDL_audio.c",
-            "audio/disk/SDL_diskaudio.c",
-            "audio/dsp/SDL_dspaudio.c",
-            "audio/sndio/SDL_sndioaudio.c",
-            "cpuinfo/SDL_cpuinfo.c",
-            "dynapi/SDL_dynapi.c",
-            "events/SDL_windowevents.c",
-            "events/SDL_touch.c",
-            "events/SDL_quit.c",
-            "events/SDL_mouse.c",
-            "events/SDL_keyboard.c",
-            "events/SDL_gesture.c",
-            "events/SDL_events.c",
-            "events/SDL_dropevents.c",
-            "events/SDL_displayevents.c",
-            "events/SDL_clipboardevents.c",
-            "events/imKStoUCS.c",
-            "file/SDL_rwops.c",
-            "haptic/SDL_haptic.c",
-            "hidapi/SDL_hidapi.c",
-            "libm/s_tan.c",
-            "libm/s_sin.c",
-            "libm/s_scalbn.c",
-            "libm/s_floor.c",
-            "libm/s_fabs.c",
-            "libm/s_cos.c",
-            "libm/s_copysign.c",
-            "libm/s_atan.c",
-            "libm/k_tan.c",
-            "libm/k_rem_pio2.c",
-            "libm/k_cos.c",
-            "libm/e_sqrt.c",
-            "libm/e_rem_pio2.c",
-            "libm/e_pow.c",
-            "libm/e_log.c",
-            "libm/e_log10.c",
-            "libm/e_fmod.c",
-            "libm/e_exp.c",
-            "libm/e_atan2.c",
-            "libm/k_sin.c",
-            "locale/SDL_locale.c",
-            "misc/SDL_url.c",
-            "power/SDL_power.c",
-            "render/SDL_yuv_sw.c",
-            "render/SDL_render.c",
-            "render/SDL_d3dmath.c",
-            "render/vitagxm/SDL_render_vita_gxm_tools.c",
-            "render/vitagxm/SDL_render_vita_gxm_memory.c",
-            "render/vitagxm/SDL_render_vita_gxm.c",
-            "render/software/SDL_triangle.c",
-            "render/software/SDL_rotate.c",
-            "render/software/SDL_render_sw.c",
-            "render/software/SDL_drawpoint.c",
-            "render/software/SDL_drawline.c",
-            "render/software/SDL_blendpoint.c",
-            "render/software/SDL_blendline.c",
-            "render/software/SDL_blendfillrect.c",
-            "render/psp/SDL_render_psp.c",
-            "render/opengl/SDL_shaders_gl.c",
-            "render/opengles/SDL_render_gles.c",
-            "render/opengles2/SDL_shaders_gles2.c",
-            "render/opengles2/SDL_render_gles2.c",
-            "render/opengl/SDL_render_gl.c",
-            "render/direct3d/SDL_shaders_d3d.c",
-            "render/direct3d/SDL_render_d3d.c",
-            "render/direct3d11/SDL_shaders_d3d11.c",
-            "render/direct3d11/SDL_render_d3d11.c",
-            "sensor/SDL_sensor.c",
-            "stdlib/SDL_strtokr.c",
-            "stdlib/SDL_stdlib.c",
-            "stdlib/SDL_qsort.c",
-            "stdlib/SDL_malloc.c",
-            "stdlib/SDL_iconv.c",
-            "stdlib/SDL_getenv.c",
-            "stdlib/SDL_crc32.c",
-            "stdlib/SDL_string.c",
-            "thread/SDL_thread.c",
-            "timer/SDL_timer.c",
-            "video/SDL_yuv.c",
-            "video/SDL_vulkan_utils.c",
-            "video/SDL_surface.c",
-            "video/SDL_stretch.c",
-            "video/SDL_shape.c",
-            "video/SDL_RLEaccel.c",
-            "video/SDL_rect.c",
-            "video/SDL_pixels.c",
-            "video/SDL_video.c",
-            "video/SDL_fillrect.c",
-            "video/SDL_egl.c",
-            "video/SDL_bmp.c",
-            "video/SDL_clipboard.c",
-            "video/SDL_blit_slow.c",
-            "video/SDL_blit_N.c",
-            "video/SDL_blit_copy.c",
-            "video/SDL_blit_auto.c",
-            "video/SDL_blit_A.c",
-            "video/SDL_blit.c",
-            "video/SDL_blit_0.c",
-            "video/SDL_blit_1.c",
-            "video/yuv2rgb/yuv_rgb.c",
-
-            // SDL_JOYSTICK
-            "joystick/SDL_joystick.c",
-            "joystick/SDL_gamecontroller.c",
-
-            // Dummy
-            "audio/dummy/SDL_dummyaudio.c",
-            "sensor/dummy/SDL_dummysensor.c",
-            "haptic/dummy/SDL_syshaptic.c",
-            "joystick/dummy/SDL_sysjoystick.c",
-            "video/dummy/SDL_nullvideo.c",
-            "video/dummy/SDL_nullframebuffer.c",
-            "video/dummy/SDL_nullevents.c",
-
-            // Steam
-            "joystick/steam/SDL_steamcontroller.c",
-
-            "joystick/hidapi/SDL_hidapi_rumble.c",
-            "joystick/hidapi/SDL_hidapijoystick.c",
-            "joystick/hidapi/SDL_hidapi_xbox360w.c",
-            "joystick/hidapi/SDL_hidapi_switch.c",
-            "joystick/hidapi/SDL_hidapi_steam.c",
-            "joystick/hidapi/SDL_hidapi_stadia.c",
-            "joystick/hidapi/SDL_hidapi_ps4.c",
-            "joystick/hidapi/SDL_hidapi_xboxone.c",
-            "joystick/hidapi/SDL_hidapi_xbox360.c",
-            "joystick/hidapi/SDL_hidapi_gamecube.c",
-            "joystick/hidapi/SDL_hidapi_ps5.c",
-            "joystick/hidapi/SDL_hidapi_luna.c",
-
-            "joystick/virtual/SDL_virtualjoystick.c",
-        });
-
-        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos) {
-            try c_files.appendSlice(&.{
-                // Threads
-                "thread/pthread/SDL_systhread.c",
-                "thread/pthread/SDL_systls.c",
-                "thread/pthread/SDL_syssem.c",
-                "thread/pthread/SDL_sysmutex.c",
-                "thread/pthread/SDL_syscond.c",
-            });
-        }
-
-        if (self.target.getOsTag() == .linux) {
-            try c_files.appendSlice(&.{
-                "core/unix/SDL_poll.c",
-                "core/linux/SDL_evdev.c",
-                "core/linux/SDL_evdev_kbd.c",
-                "core/linux/SDL_dbus.c",
-                "core/linux/SDL_ime.c",
-                "core/linux/SDL_udev.c",
-                "core/linux/SDL_threadprio.c",
-                // "core/linux/SDL_fcitx.c",
-                "core/linux/SDL_ibus.c",
-                "core/linux/SDL_evdev_capabilities.c",
-
-                "power/linux/SDL_syspower.c",
-                "haptic/linux/SDL_syshaptic.c",
-
-                "misc/unix/SDL_sysurl.c",
-                "timer/unix/SDL_systimer.c",
-                "locale/unix/SDL_syslocale.c",
-
-                "loadso/dlopen/SDL_sysloadso.c",
-
-                "filesystem/unix/SDL_sysfilesystem.c",
-
-                "video/x11/SDL_x11opengles.c",
-                "video/x11/SDL_x11messagebox.c",
-                "video/x11/SDL_x11touch.c",
-                "video/x11/SDL_x11mouse.c",
-                "video/x11/SDL_x11keyboard.c",
-                "video/x11/SDL_x11video.c",
-                "video/x11/edid-parse.c",
-                "video/x11/SDL_x11dyn.c",
-                "video/x11/SDL_x11framebuffer.c",
-                "video/x11/SDL_x11opengl.c",
-                "video/x11/SDL_x11modes.c",
-                "video/x11/SDL_x11shape.c",
-                "video/x11/SDL_x11window.c",
-                "video/x11/SDL_x11vulkan.c",
-                "video/x11/SDL_x11xfixes.c",
-                "video/x11/SDL_x11clipboard.c",
-                "video/x11/SDL_x11events.c",
-                "video/x11/SDL_x11xinput2.c",
-
-                "audio/alsa/SDL_alsa_audio.c",
-                "audio/pulseaudio/SDL_pulseaudio.c",
-                "joystick/linux/SDL_sysjoystick.c",
-            });
-        } else if (self.target.getOsTag() == .macos) {
-            try c_files.appendSlice(&.{
-                "joystick/darwin/SDL_iokitjoystick.c",
-                "haptic/darwin/SDL_syshaptic.c",
-
-                "video/cocoa/SDL_cocoametalview.m",
-                "video/cocoa/SDL_cocoaclipboard.m",
-                "video/cocoa/SDL_cocoashape.m",
-                "video/cocoa/SDL_cocoakeyboard.m",
-                "video/cocoa/SDL_cocoamessagebox.m",
-                "video/cocoa/SDL_cocoaevents.m",
-                "video/cocoa/SDL_cocoamouse.m",
-                "video/cocoa/SDL_cocoavideo.m",
-                "video/cocoa/SDL_cocoawindow.m",
-                "video/cocoa/SDL_cocoavulkan.m",
-                "video/cocoa/SDL_cocoaopengles.m",
-                "video/cocoa/SDL_cocoamodes.m",
-                "video/cocoa/SDL_cocoaopengl.m",
-                "file/cocoa/SDL_rwopsbundlesupport.m",
-                "render/metal/SDL_render_metal.m",
-                "filesystem/cocoa/SDL_sysfilesystem.m",
-                "audio/coreaudio/SDL_coreaudio.m",
-                "locale/macosx/SDL_syslocale.m",
-
-                // Currently, joystick support is disabled in SDL_config.h for macos since there were issues
-                // building in github ci and there is no cosmic joystick api atm.
-                // Once enabled, SDL_mfijoystick will have a compile error in github ci: cannot create __weak reference in file using manual reference counting
-                // This can be resolved by giving it "-fobjc-arc" cflag for just the one file.
-                // After that it turns out we'll need CoreHaptics but it's not always available and zig doesn't have a way to set weak frameworks yet:
-                // https://github.com/ziglang/zig/issues/10206
-                "joystick/iphoneos/SDL_mfijoystick.m",
-
-                "timer/unix/SDL_systimer.c",
-                "loadso/dlopen/SDL_sysloadso.c",
-                "misc/unix/SDL_sysurl.c",
-                "power/macosx/SDL_syspower.c",
-            });
-        } else if (self.target.getOsTag() == .windows) {
-            try c_files.appendSlice(&.{
-                "core/windows/SDL_xinput.c",
-                "core/windows/SDL_windows.c",
-                "core/windows/SDL_hid.c",
-                "misc/windows/SDL_sysurl.c",
-                "locale/windows/SDL_syslocale.c",
-                "sensor/windows/SDL_windowssensor.c",
-                "power/windows/SDL_syspower.c",
-                "video/windows/SDL_windowsmodes.c",
-                "video/windows/SDL_windowsclipboard.c",
-                "video/windows/SDL_windowsopengles.c",
-                "video/windows/SDL_windowsevents.c",
-                "video/windows/SDL_windowsvideo.c",
-                "video/windows/SDL_windowskeyboard.c",
-                "video/windows/SDL_windowsshape.c",
-                "video/windows/SDL_windowswindow.c",
-                "video/windows/SDL_windowsvulkan.c",
-                "video/windows/SDL_windowsmouse.c",
-                "video/windows/SDL_windowsopengl.c",
-                "video/windows/SDL_windowsframebuffer.c",
-                "video/windows/SDL_windowsmessagebox.c",
-                "joystick/windows/SDL_rawinputjoystick.c",
-                "joystick/windows/SDL_dinputjoystick.c",
-                "joystick/windows/SDL_xinputjoystick.c",
-                "joystick/windows/SDL_windows_gaming_input.c",
-                "joystick/windows/SDL_windowsjoystick.c",
-                "haptic/windows/SDL_windowshaptic.c",
-                "haptic/windows/SDL_xinputhaptic.c",
-                "haptic/windows/SDL_dinputhaptic.c",
-                "audio/winmm/SDL_winmm.c",
-                "audio/directsound/SDL_directsound.c",
-                "audio/wasapi/SDL_wasapi.c",
-                "audio/wasapi/SDL_wasapi_win32.c",
-                "timer/windows/SDL_systimer.c",
-                "thread/windows/SDL_sysmutex.c",
-                "thread/windows/SDL_systhread.c",
-                "thread/windows/SDL_syssem.c",
-                "thread/windows/SDL_systls.c",
-                "thread/windows/SDL_syscond_cv.c",
-                "thread/generic/SDL_systls.c",
-                "thread/generic/SDL_syssem.c",
-                "thread/generic/SDL_sysmutex.c",
-                "thread/generic/SDL_systhread.c",
-                "thread/generic/SDL_syscond.c",
-                "loadso/windows/SDL_sysloadso.c",
-                "filesystem/windows/SDL_sysfilesystem.c",
-            });
-        }
-
-        for (c_files.items) |file| {
-            self.addCSourceFileFmt(lib, "./deps/SDL/src/{s}", .{file}, c_flags.items);
-        }
-
-        lib.linkLibC();
-        // Look for our custom SDL_config.h.
-        lib.addIncludeDir("./lib/sdl");
-        // For local CMake generated config.
-        // lib.addIncludeDir("./deps/SDL/build/include");
-        lib.addIncludeDir("./deps/SDL/include");
-        if (self.target.getOsTag() == .linux) {
-            lib.addIncludeDir("/usr/include");
-            lib.addIncludeDir("/usr/include/x86_64-linux-gnu");
-            lib.addIncludeDir("/usr/include/dbus-1.0");
-            lib.addIncludeDir("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
-        } else if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (self.target.isNativeOs()) {
-                lib.linkFramework("CoreFoundation");
-            } else {
-                lib.addFrameworkDir("/System/Library/Frameworks");
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            }
-        }
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkZlib(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("zlib", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        const c_flags = &[_][]const u8{
-        };
-
-        const c_files = &[_][]const u8{
-            "inftrees.c",
-            "inflate.c",
-            "adler32.c",
-            "zutil.c",
-            "trees.c",
-            "gzclose.c",
-            "gzwrite.c",
-            "gzread.c",
-            "deflate.c",
-            "compress.c",
-            "crc32.c",
-            "infback.c",
-            "gzlib.c",
-            "uncompr.c",
-            "inffast.c",
-        };
-
-        for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/zlib/{s}", .{file}, c_flags);
-        }
-
-        lib.linkLibC();
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkNghttp2(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("nghttp2", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        const c_flags = &[_][]const u8{
-            "-DNGHTTP2_STATICLIB=1",
-        };
-
-        const c_files = &[_][]const u8{
-            // Copied from nghttp2/lib/CMakeLists.txt 
-            "nghttp2_pq.c",
-            "nghttp2_map.c",
-            "nghttp2_queue.c",
-            "nghttp2_frame.c",
-            "nghttp2_buf.c",
-            "nghttp2_stream.c",
-            "nghttp2_outbound_item.c",
-            "nghttp2_session.c",
-            "nghttp2_submit.c",
-            "nghttp2_helper.c",
-            "nghttp2_npn.c",
-            "nghttp2_hd.c",
-            "nghttp2_hd_huffman.c",
-            "nghttp2_hd_huffman_data.c",
-            "nghttp2_version.c",
-            "nghttp2_priority_spec.c",
-            "nghttp2_option.c",
-            "nghttp2_callbacks.c",
-            "nghttp2_mem.c",
-            "nghttp2_http.c",
-            "nghttp2_rcbuf.c",
-            "nghttp2_debug.c",
-        };
-
-        for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/nghttp2/lib/{s}", .{file}, c_flags);
-        }
-
-        // lib.disable_sanitize_c = true;
-
-        lib.linkLibC();
-        lib.addIncludeDir("./deps/nghttp2/lib/includes");
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkCurl(self: *Self, step: *LibExeObjStep) !void {
-        if (builtin.os.tag == .macos and self.target.isNativeOs()) {
-            step.linkFramework("SystemConfiguration");
-        } else if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            step.linkSystemLibrary("crypt32");
-        }
-        if (UsePrebuiltCurl) |path| {
-            step.addAssemblyFile(path);
-            return;
-        }
-
-        // TODO: Currently seeing BADF panics when doing fs syscalls when building/linking libcurl dynamically.
-        // Similar to this issue: https://github.com/ziglang/zig/issues/10375
-        // For now, just build a static lib.
-        // const lib = self.builder.addSharedLibrary("curl", null, .unversioned);
-
-        const lib = self.builder.addStaticLibrary("curl", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        // See config.status or lib/curl_config.h for generated defines from configure.
-        var c_flags = std.ArrayList([]const u8).init(self.builder.allocator);
-        try c_flags.appendSlice(&.{
-            // Indicates that we're building the lib not the tools.
-            "-DBUILDING_LIBCURL",
-
-            // Hides libcurl internal symbols (hide all symbols that aren't officially external).
-            "-DCURL_HIDDEN_SYMBOLS",
-
-            "-DCURL_STATICLIB",
-
-            "-DNGHTTP2_STATICLIB=1",
-
-            "-Wno-system-headers",
-        });
-
-        // Currently only linux and mac have custom configs.
-        if (self.target.getOsTag() == .linux or self.target.getOsTag() == .macos or self.target.getOsTag() == .windows) {
-            // Will make sources include curl_config.h in ./lib/curl
-            try c_flags.append("-DHAVE_CONFIG_H");
-        }
-
-        if (self.target.getOsTag() == .linux) {
-            // cpu-machine-OS
-            // eg. x86_64-pc-linux-gnu
-            const os_flag = try std.fmt.allocPrint(self.builder.allocator, "-DOS=\"{s}-pc-{s}-{s}\"", .{
-                @tagName(self.target.getCpuArch()),
-                @tagName(self.target.getOsTag()),
-                @tagName(self.target.getAbi()),
-            });
-            try c_flags.appendSlice(&.{
-                "-DTARGET_LINUX",
-                "-pthread",
-                "-Werror-implicit-function-declaration",
-                "-fvisibility=hidden",
-                // Move to curl_config.
-                os_flag,
-            });
-        }
-
-        const c_files = &[_][]const u8{
-            // Copied from curl/lib/Makefile.inc (LIB_CFILES)
-            "altsvc.c",
-            "amigaos.c",
-            "asyn-ares.c",
-            "asyn-thread.c",
-            "base64.c",
-            "bufref.c",
-            "c-hyper.c",
-            "conncache.c",
-            "connect.c",
-            "content_encoding.c",
-            "cookie.c",
-            "curl_addrinfo.c",
-            "curl_ctype.c",
-            "curl_des.c",
-            "curl_endian.c",
-            "curl_fnmatch.c",
-            "curl_get_line.c",
-            "curl_gethostname.c",
-            "curl_gssapi.c",
-            "curl_memrchr.c",
-            "curl_multibyte.c",
-            "curl_ntlm_core.c",
-            "curl_ntlm_wb.c",
-            "curl_path.c",
-            "curl_range.c",
-            "curl_rtmp.c",
-            "curl_sasl.c",
-            "curl_sspi.c",
-            "curl_threads.c",
-            "dict.c",
-            "doh.c",
-            "dotdot.c",
-            "dynbuf.c",
-            "easy.c",
-            "easygetopt.c",
-            "easyoptions.c",
-            "escape.c",
-            "file.c",
-            "fileinfo.c",
-            "formdata.c",
-            "ftp.c",
-            "ftplistparser.c",
-            "getenv.c",
-            "getinfo.c",
-            "gopher.c",
-            "hash.c",
-            "hmac.c",
-            "hostasyn.c",
-            "hostcheck.c",
-            "hostip.c",
-            "hostip4.c",
-            "hostip6.c",
-            "hostsyn.c",
-            "hsts.c",
-            "http.c",
-            "http2.c",
-            "http_chunks.c",
-            "http_digest.c",
-            "http_negotiate.c",
-            "http_ntlm.c",
-            "http_proxy.c",
-            "http_aws_sigv4.c",
-            "idn_win32.c",
-            "if2ip.c",
-            "imap.c",
-            "inet_ntop.c",
-            "inet_pton.c",
-            "krb5.c",
-            "ldap.c",
-            "llist.c",
-            "md4.c",
-            "md5.c",
-            "memdebug.c",
-            "mime.c",
-            "mprintf.c",
-            "mqtt.c",
-            "multi.c",
-            "netrc.c",
-            "non-ascii.c",
-            "nonblock.c",
-            "openldap.c",
-            "parsedate.c",
-            "pingpong.c",
-            "pop3.c",
-            "progress.c",
-            "psl.c",
-            "rand.c",
-            "rename.c",
-            "rtsp.c",
-            "select.c",
-            "sendf.c",
-            "setopt.c",
-            "sha256.c",
-            "share.c",
-            "slist.c",
-            "smb.c",
-            "smtp.c",
-            "socketpair.c",
-            "socks.c",
-            "socks_gssapi.c",
-            "socks_sspi.c",
-            "speedcheck.c",
-            "splay.c",
-            "strcase.c",
-            "strdup.c",
-            "strerror.c",
-            "strtok.c",
-            "strtoofft.c",
-            "system_win32.c",
-            "telnet.c",
-            "tftp.c",
-            "timeval.c",
-            "transfer.c",
-            "url.c",
-            "urlapi.c",
-            "version.c",
-            "version_win32.c",
-            "warnless.c",
-            "wildcard.c",
-            "x509asn1.c",
-
-            // Copied from curl/lib/Makefile.inc (LIB_VAUTH_CFILES)
-            "vauth/cleartext.c",
-            "vauth/cram.c",
-            "vauth/digest.c",
-            "vauth/digest_sspi.c",
-            "vauth/gsasl.c",
-            "vauth/krb5_gssapi.c",
-            "vauth/krb5_sspi.c",
-            "vauth/ntlm.c",
-            "vauth/ntlm_sspi.c",
-            "vauth/oauth2.c",
-            "vauth/spnego_gssapi.c",
-            "vauth/spnego_sspi.c",
-            "vauth/vauth.c",
-
-            // Copied from curl/lib/Makefile.inc (LIB_VTLS_CFILES)
-            "vtls/bearssl.c",
-            "vtls/gskit.c",
-            "vtls/gtls.c",
-            "vtls/keylog.c",
-            "vtls/mbedtls.c",
-            "vtls/mbedtls_threadlock.c",
-            "vtls/mesalink.c",
-            "vtls/nss.c",
-            "vtls/openssl.c",
-            "vtls/rustls.c",
-            "vtls/schannel.c",
-            "vtls/schannel_verify.c",
-            "vtls/sectransp.c",
-            "vtls/vtls.c",
-            "vtls/wolfssl.c",
-        };
-        for (c_files) |file| {
-            self.addCSourceFileFmt(lib, "./deps/curl/lib/{s}", .{file}, c_flags.items);
-        }
-
-        // lib.disable_sanitize_c = true;
-
-        lib.linkLibC();
-        if (self.target.getOsTag() == .linux) {
-            lib.addIncludeDir("./lib/curl/linux");
-        } else if (self.target.getOsTag() == .macos) {
-            lib.addIncludeDir("./lib/curl/macos");
-        } else if (self.target.getOsTag() == .windows) {
-            lib.addIncludeDir("./lib/curl/windows");
-        }
-        lib.addIncludeDir("./deps/curl/include");
-        lib.addIncludeDir("./deps/curl/lib");
-        // Use the same openssl config so curl knows what features it has.
-        lib.addIncludeDir("./lib/openssl/include");
-        lib.addIncludeDir("./deps/openssl/include");
-        lib.addIncludeDir("./deps/nghttp2/lib/includes");
-        lib.addIncludeDir("./deps/zlib");
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (!self.target.isNativeOs()) {
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-                lib.addFrameworkDir("/System/Library/Frameworks");
-            } 
-            lib.linkFramework("SystemConfiguration");
-        }
-        step.linkLibrary(lib);
-    }
-
     fn addCSourceFileFmt(self: *Self, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
         const path = std.fmt.allocPrint(self.builder.allocator, format, args) catch unreachable;
         lib.addCSourceFile(self.fromRoot(path), c_flags);
@@ -1690,10 +658,10 @@ const BuilderContext = struct {
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
 
-        lib.addIncludeDir(self.fromRoot("./deps/stb"));
+        lib.addIncludeDir(self.fromRoot("./lib/stb/vendor"));
         lib.linkLibC();
         const c_flags = &[_][]const u8{ "-DSTB_TRUETYPE_IMPLEMENTATION" };
-        lib.addCSourceFile(self.fromRoot("./lib/stbtt/stb_truetype.c"), c_flags);
+        lib.addCSourceFile(self.fromRoot("./lib/stb/stb_truetype.c"), c_flags);
         step.linkLibrary(lib);
     }
 
@@ -1702,13 +670,13 @@ const BuilderContext = struct {
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
 
-        lib.addIncludeDir(self.fromRoot("./deps/stb"));
+        lib.addIncludeDir(self.fromRoot("./lib/stb/vendor"));
         lib.linkLibC();
 
         const c_flags = &[_][]const u8{ "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
         const src_files: []const []const u8 = &.{
-            self.fromRoot("./lib/stbi/stb_image.c"),
-            self.fromRoot("./lib/stbi/stb_image_write.c")
+            self.fromRoot("./lib/stb/stb_image.c"),
+            self.fromRoot("./lib/stb/stb_image_write.c")
         };
         lib.addCSourceFiles(src_files, c_flags);
         step.linkLibrary(lib);
@@ -1723,9 +691,9 @@ const BuilderContext = struct {
             if (!self.target.isNative()) {
                 lib.addFrameworkDir("/System/Library/Frameworks");
                 lib.addSystemIncludeDir("/usr/include");
-                lib.linkFramework("CoreAudio");
                 lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             }
+            lib.linkFramework("CoreAudio");
         }
         // TODO: vorbis has UB when doing seekToPcmFrame.
         lib.disable_sanitize_c = true;
@@ -1857,7 +825,7 @@ const sdl_pkg = Pkg{
 fn addSDL(step: *LibExeObjStep) void {
     step.addPackage(sdl_pkg);
     step.linkLibC();
-    step.addIncludeDir("./deps/SDL/include");
+    step.addIncludeDir("./lib/sdl/vendor/include");
 }
 
 const openssl_pkg = Pkg{
@@ -1880,10 +848,10 @@ fn addH2O(step: *LibExeObjStep) void {
     pkg.dependencies = &.{uv_pkg, openssl_pkg};
     step.addPackage(pkg);
     step.addIncludeDir("./lib/h2o");
-    step.addIncludeDir("./deps/h2o/include");
-    step.addIncludeDir("./deps/h2o/deps/picotls/include");
-    step.addIncludeDir("./deps/h2o/deps/quicly/include");
-    step.addIncludeDir("./deps/openssl/include");
+    step.addIncludeDir("./lib/h2o/vendor/include");
+    step.addIncludeDir("./lib/h2o/vendor/deps/picotls/include");
+    step.addIncludeDir("./lib/h2o/vendor/deps/quicly/include");
+    step.addIncludeDir("./lib/openssl/vendor/include");
     if (step.target.getOsTag() == .windows) {
         step.addIncludeDir("./lib/mingw/win_posix/include");
         step.addIncludeDir("./lib/mingw/winpthreads/include");
@@ -1897,7 +865,7 @@ const uv_pkg = Pkg{
 
 fn addUv(step: *LibExeObjStep) void {
     step.addPackage(uv_pkg);
-    step.addIncludeDir("./deps/libuv/include");
+    step.addIncludeDir("./lib/uv/vendor/include");
 }
 
 const curl_pkg = Pkg{
@@ -1907,7 +875,7 @@ const curl_pkg = Pkg{
 
 fn addCurl(step: *LibExeObjStep) void {
     step.addPackage(curl_pkg);
-    step.addIncludeDir("./deps/curl/include/curl");
+    step.addIncludeDir("./lib/curl/vendor/include/curl");
 }
 
 const lyon_pkg = Pkg{
@@ -1927,7 +895,7 @@ const gl_pkg = Pkg{
 
 fn addGL(step: *LibExeObjStep) void {
     step.addPackage(gl_pkg);
-    step.addIncludeDir("./deps");
+    step.addIncludeDir("./lib/gl/vendor");
     step.linkLibC();
 }
 
@@ -1959,22 +927,22 @@ fn linkGL(step: *LibExeObjStep, target: std.zig.CrossTarget) void {
 
 const stbi_pkg = Pkg{
     .name = "stbi",
-    .path = FileSource.relative("./lib/stbi/stbi.zig"),
+    .path = FileSource.relative("./lib/stb/stbi.zig"),
 };
 
 fn addStbi(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbi_pkg);
-    step.addIncludeDir("./deps/stb");
+    step.addIncludeDir("./lib/stb/vendor");
 }
 
 const stbtt_pkg = Pkg{
     .name = "stbtt",
-    .path = FileSource.relative("./lib/stbtt/stbtt.zig"),
+    .path = FileSource.relative("./lib/stb/stbtt.zig"),
 };
 
 fn addStbtt(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbtt_pkg);
-    step.addIncludeDir("./deps/stb");
+    step.addIncludeDir("./lib/stb/vendor");
     step.linkLibC();
 }
 
@@ -2356,4 +1324,109 @@ fn getVersionString(is_official_build: bool) []const u8 {
     } else {
         return VersionName ++ "-Dev";
     }
+}
+
+fn buildLinkSDL2(step: *LibExeObjStep) void {
+    if (LibSdlPath) |path| {
+        sdl.linkLibPath(step, path);
+    } else {
+        const lib = sdl.create(step.builder, step.target, step.build_mode) catch unreachable;
+        sdl.linkLib(step, lib);
+    }
+}
+
+fn buildLinkSsl(step: *LibExeObjStep) void {
+    if (LibSslPath) |path| {
+        ssl.linkLibSslPath(step, path);
+    } else {
+        if (builtin.os.tag == .windows) {
+            step.addAssemblyFile("./deps/prebuilt/win64/ssl.lib");
+            return;
+        }
+        const lib = ssl.createSsl(step.builder, step.target, step.build_mode) catch unreachable;
+        ssl.linkLibSsl(step, lib);
+    }
+}
+
+fn buildLinkCrypto(step: *LibExeObjStep) void {
+    if (LibCryptoPath) |path| {
+        ssl.linkLibCryptoPath(step, path);
+    } else {
+        if (builtin.os.tag == .windows) {
+            // Can't build, too many args in build-lib will break zig :)
+            step.addAssemblyFile("./deps/prebuilt/win64/crypto.lib");
+            return;
+        }
+        const lib = ssl.createCrypto(step.builder, step.target, step.build_mode) catch unreachable;
+        ssl.linkLibCrypto(step, lib);
+    }
+}
+
+fn buildLinkZlib(step: *LibExeObjStep) void {
+    const lib = zlib.create(step.builder, step.target, step.build_mode) catch unreachable;
+    zlib.linkLib(step, lib);
+}
+
+fn buildLinkNghttp2(step: *LibExeObjStep) void {
+    const lib = http2.create(step.builder, step.target, step.build_mode) catch unreachable;
+    http2.linkLib(step, lib);
+}
+
+fn buildLinkCurl(step: *LibExeObjStep) void {
+    const b = step.builder;
+    if (LibCurlPath) |path| {
+        curl.linkLibPath(step, path);
+    } else {
+        const lib = curl.create(step.builder, step.target, step.build_mode, .{
+            // Use the same openssl config so curl knows what features it has.
+            .openssl_includes = &.{
+                fromRoot(b, "lib/openssl/include"),
+                fromRoot(b, "lib/openssl/vendor/include"),
+            },
+            .nghttp2_includes = &.{
+                fromRoot(b, "lib/nghttp2/vendor/lib/includes"),
+            },
+            .zlib_includes = &.{
+                fromRoot(b, "lib/zlib/vendor"),
+            },
+        }) catch unreachable;
+        curl.linkLib(step, lib);
+    }
+}
+
+fn buildLinkUv(step: *LibExeObjStep) void {
+    if (LibUvPath) |path| {
+        uv.linkLibPath(step, path);
+    } else {
+        const lib = uv.create(step.builder, step.target, step.build_mode) catch unreachable;
+        uv.linkLib(step, lib);
+    }
+}
+
+fn buildLinkH2O(step: *LibExeObjStep) void {
+    if (LibH2oPath) |path| {
+        h2o.linkLibPath(step, path);
+    } else {
+        const b = step.builder;
+        const lib = h2o.create(step.builder, step.target, step.build_mode, .{
+            .openssl_includes = &.{
+                fromRoot(b, "lib/openssl/vendor/include"),
+            },
+            .libuv_includes = &.{
+                fromRoot(b, "lib/uv/vendor/include"),
+            },
+            .zlib_includes = &.{
+                fromRoot(b, "lib/zlib/vendor"),
+            },
+        }) catch unreachable;
+        h2o.linkLib(step, lib);
+    }
+}
+
+fn root() []const u8 {
+    return (std.fs.path.dirname(@src().file) orelse unreachable);
+}
+
+fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
+    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
 }

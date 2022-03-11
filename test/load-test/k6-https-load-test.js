@@ -2,7 +2,7 @@ import http from 'k6/http'
 import { check } from 'k6'
 
 // This uses k6 go lib to run concurrent requests against cosmic server: cs-server.js
-// Run with: k6 run test/load-test/k6-http-load-test.js -s 30s:10
+// Run with: k6 run test/load-test/k6-https-load-test.js -s 30s:10
 
 // Goals of the test:
 // Use a testing tool that has reliable http request api and concurrency.

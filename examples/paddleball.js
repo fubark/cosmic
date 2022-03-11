@@ -2,7 +2,6 @@
 // None of the algorithms or designs are recommended in your own games but it should at
 // least show you how to use the Cosmic API.
 
-// TODO: Use proper collision detection.
 // TODO: Use Cosmic UI when it's done.
 // TODO: Reorganize code.
 
@@ -52,6 +51,8 @@ class Game {
 
         this.mainPaddle = false
         this.balls = false
+        this.ballCount = 0
+        this.brickCount = 0
 
         // for super ball mode
         this.startTime = 0
@@ -110,8 +111,6 @@ class Game {
         this.countUp = true
         this.count = 0.25 // for bgColor effect, dont want it to be 0 (too dark)
         this.bricks = false
-        this.closestIntersectSide = false
-        this.closestIntersectPoint = {} // init for instance
         this.scratchLine = {}
         this.BRICKS_WIDTH = 0
         this.BRICKS_HEIGHT = 0
@@ -178,6 +177,13 @@ class Game {
         }
 
         this.startGame()
+    }
+
+    endBall(ball) {
+        if (!ball.dead) {
+            this.ballCount -= 1
+            ball.dead = true
+        }
     }
 
     startLoop() {
@@ -311,36 +317,17 @@ class Game {
             }
         }
 
-        var noMoreBricks = true // if it finds a brick that isn't dead it is set to false
-        var noMoreBalls = true
         for (i = 0; i < this.balls.length; i++) {
             var paddleLine = this.mainPaddle.paddleLine
-            this.balls[i].update(deltaMs, paddleLine)
-
-            if (this.balls[i].dead) {
-                continue
-            }
-
-            noMoreBalls = false
-
-            // ball interaction with backupPaddle
-            if (this.backupPaddle) {
-                if (this.balls[i].bounds.y2 >= Game.BACKUP_PADDLE_Y) {
-                    this.balls[i].directionRad = -this.balls[i].directionRad
-                    Game.sound.playSound(Game.sound.PADDLE_HIT)
-                    this.backupPaddle = false // backup paddle is one time use only
-                }
-            }
-
-            noMoreBricks = this.ballBrickCollision(this.balls[i])
+            this.balls[i].update(deltaMs)
         }
 
-        if (noMoreBalls) {
+        if (this.ballCount == 0) {
             this.bgChange = Game.NORMAL_BGCHANGE_SPEED; // go back to original change speed
             this.startWatch = false
             this.gameOver = true
-        } else if (noMoreBricks) {
-            // if there really is nomore bricks, then goto next level
+        } else if (this.brickCount == 0) {
+            // No more bricks, goto next level.
             this.levelComplete()
         }
 
@@ -666,7 +653,6 @@ class Game {
         this.powerupCount = 0; // start in the beginning of indice
         // check how many objects to create
         var bricksPerLine = 1;
-        var that = this;
 
         const data = cs.files.readText(`${root}/assets/paddleball/${level}.txt`);
         if (data == null) {
@@ -679,6 +665,7 @@ class Game {
 
         var ch;
         var brickCount = 0;
+        let targetBrickCount = 0
         var ballCount = 0;
 
         var brickRows = 0;
@@ -693,22 +680,27 @@ class Game {
                 if (ch == 'B' || ch == 'M') {
                     brickRows = row;
                     brickCount++;
+                    if (ch == 'B') {
+                        targetBrickCount += 1
+                    }
                 }
                 if (ch == 'O') {
                     ballCount++;
                 }
             }
         }
-        that.bricks = [];
+        this.brickCount = targetBrickCount
+        this.ballCount = ballCount
+        this.bricks = [];
         for (i = 0; i < brickRows; i++) {
             row = [];
             for (var j = 0; j < bricksPerLine; j++) {
                 row.push(false);
             }
-            that.bricks.push(row);
+            this.bricks.push(row);
         }
-        that.powerups = []; // there should be as many ups as there are bricks
-        that.balls = [];
+        this.powerups = []; // there should be as many ups as there are bricks
+        this.balls = [];
 
         // create the objects
         var lineCount = 0;
@@ -721,30 +713,32 @@ class Game {
             for (i = 0; i < line.length; i++) {
                 ch = line.charAt(i);
                 if (ch == 'B') {
-                    that.bricks[row - 1][i] = createBrick(i * Game.BRICKS_WIDTH, lineCount * Game.BRICKS_HEIGHT,
+                    this.bricks[row - 1][i] = createBrick(i * Game.BRICKS_WIDTH, lineCount * Game.BRICKS_HEIGHT,
                         Game.BRICKS_WIDTH, Game.BRICKS_HEIGHT);
                     brickCount++;
                 }
                 if (ch == 'M') {
-                    that.bricks[row - 1][i] = createBrick(i * Game.BRICKS_WIDTH, lineCount * Game.BRICKS_HEIGHT,
+                    this.bricks[row - 1][i] = createBrick(i * Game.BRICKS_WIDTH, lineCount * Game.BRICKS_HEIGHT,
                         Game.BRICKS_WIDTH, Game.BRICKS_HEIGHT);
-                    that.bricks[row - 1][i].metal = true;
+                    this.bricks[row - 1][i].metal = true;
                     brickCount++;
                 }
                 if (ch == 'O') {
-                    that.balls[ballCount] = createBall(i * Game.BRICKS_WIDTH + (Game.BRICKS_WIDTH / 2),
+                    this.balls[ballCount] = createBall(i * Game.BRICKS_WIDTH + (Game.BRICKS_WIDTH / 2),
                         lineCount * Game.BRICKS_HEIGHT + (Game.BRICKS_HEIGHT / 2), 0.4);
+                    // this.balls[ballCount] = createBall(i * Game.BRICKS_WIDTH + (Game.BRICKS_WIDTH / 2),
+                    //     lineCount * Game.BRICKS_HEIGHT + (Game.BRICKS_HEIGHT / 2), 0.1);
                     ballCount++;
                 }
             }
             lineCount++;
         }
 
-        that.mainPaddle = createPaddle(Game.PWIDTH / 10, Game.BACKUP_PADDLE_Y - 60, 80, 10);
+        this.mainPaddle = new Game.paddle(Game.PWIDTH / 10, Game.BACKUP_PADDLE_Y - 60, 80, 10)
 
-        that.level = level;
+        this.level = level;
 
-        that.transitions.startShowStage(level);
+        this.transitions.startShowStage(level);
     }
 
     drawMiniStage(g, x, y) {
@@ -884,17 +878,8 @@ class Game {
 
         Game.sound.playSound(Game.sound.BRICK_HIT);
         this.score = this.score + 10;
-        this.bricks[row][col] = false;
-    }
-
-    brickExists(row, col) {
-        if (row < 0 || row >= this.bricks.length) {
-            return false;
-        }
-        if (col < 0 || col >= this.bricks[0].length) {
-            return false;
-        }
-        return this.bricks[row][col];
+        this.bricks[row][col] = false
+        this.brickCount -= 1
     }
 
     onHandTouchEnd(e) {
@@ -994,13 +979,15 @@ class Game {
         }
     }
 
+    // Will only collide with the closest brick.
     ballBrickCollision(ball) {
-        this.closestIntersectSide = false;
-        var closestBrickRow = 0;
-        var closestBrickCol = 0;
-        var closestIntersectDistance = Number.MAX_VALUE;
+        let lowContact = { x: 0, y: 0 }
+        let lowSide = false
+        let lowBrickRow = 0
+        let lowBrickCol = 0
+        let lowDist = Number.MAX_VALUE
 
-        var ballLine = ball.intersectLine;
+        var ballLine = ball.pathLine
 
         var ballStartTileX = Math.floor(ballLine.x1 / Game.BRICKS_WIDTH);
         var ballStartTileY = Math.floor(ballLine.y1 / Game.BRICKS_HEIGHT);
@@ -1026,14 +1013,16 @@ class Game {
             maxTileY = ballStartTileY + 1;
         }
 
-        var noMoreBricks = true;
-        for (var row = 0; row < this.bricks.length; row++) {
-            for (var col = 0; col < this.bricks[0].length; col++) {
+        minTileX = Math.max(0, minTileX)
+        maxTileX = Math.min(this.bricks[0].length-1, maxTileX)
+        minTileY = Math.max(0, minTileY)
+        maxTileY = Math.min(this.bricks.length-1, Math.max(0, maxTileY))
+
+        // Only check bricks that are around the ball
+        for (let row = minTileY; row <= maxTileY; row++) {
+            for (let col = minTileX; col <= maxTileX; col++) {
                 if (!this.bricks[row][col]) {
-                    continue;
-                }
-                if (!this.bricks[row][col].metal) {
-                    noMoreBricks = false;
+                    continue
                 }
 
                 var brickBounds = this.bricks[row][col].bounds;
@@ -1042,158 +1031,125 @@ class Game {
                 var brickRight = brickBounds.x2;
                 var brickBottom = brickBounds.y2;
 
-                if (col < minTileX) {
-                    continue;
-                } else if (col > maxTileX) {
-                    continue;
+                if (!circleToAABB(ball.x, ball.y, Ball.SIZE/2, brickBounds.x1, brickBounds.y1, brickBounds.x2, brickBounds.y2)) {
+                    continue
                 }
 
-                if (row < minTileY) {
-                    continue;
-                } else if (row > maxTileY) {
-                    continue;
-                }
+                // Check which side.
+                let contact = false
+                let dist = 0.0
 
-                var checkBrickBottom = false;
-                var checkBrickTop = false;
-                var checkBrickLeft = false;
-                var checkBrickRight = false;
-
-                if (ballLine.y1 < brickTop) {
-                    if (row > 0 && !this.brickExists(row - 1, col)) {
-                        checkBrickTop = true;
+                // Bottom.
+                if (ball.lastY > brickBottom) {
+                    this.scratchLine = {
+                        x1: brickLeft - Ball.SIZE/2, y1: brickBottom + Ball.SIZE/2,
+                        x2: brickRight + Ball.SIZE/2, y2: brickBottom + Ball.SIZE/2,
                     }
-                } else if (ballLine.y1 > brickBottom) {
-                    if (!this.brickExists(row + 1, col)) {
-                        checkBrickBottom = true;
-                    }
-                }
-                if (ballLine.x1 < brickLeft) {
-                    if (col > 0 && !this.brickExists(row, col - 1)) {
-                        checkBrickLeft = true;
-                    }
-                } else if (ballLine.x1 > brickRight) {
-                    if (col < this.bricks[0].length - 1 && !this.brickExists(row, col + 1)) {
-                        checkBrickRight = true;
-                    }
-                }
-
-                var ballLineMiddleX = (ballLine.x1 + ballLine.x2) / 2;
-                var ballLineMiddleY = (ballLine.y1 + ballLine.y2) / 2;
-                var intersectionPoint = false;
-                var distance = 0.0;
-
-                if (checkBrickBottom) {
-                    this.scratchLine.x1 = brickLeft;
-                    this.scratchLine.y1 = brickBottom;
-                    this.scratchLine.x2 = brickRight;
-                    this.scratchLine.y2 = brickBottom;
-                    intersectionPoint = Game.misc.getIntersectionPointOfLines(ballLine, this.scratchLine);
-                    if (intersectionPoint) {
-                        distance = Game.misc.getPointDistance(ballLineMiddleX, ballLineMiddleY, intersectionPoint.x, intersectionPoint.y);
-                        if (distance < closestIntersectDistance) {
-                            closestIntersectDistance = distance;
-                            this.closestIntersectPoint.x = intersectionPoint.x;
-                            this.closestIntersectPoint.y = intersectionPoint.y;
-                            this.closestIntersectSide = Game.brickside.BOTTOM;
-                            closestBrickRow = row;
-                            closestBrickCol = col;
+                    contact = Game.misc.getInfLineIntersect(ballLine, this.scratchLine)
+                    if (contact.onLine1) {
+                        dist = Game.misc.getPointDistance(ball.lastX, ball.lastY, contact.x, contact.y)
+                        if (dist < lowDist) {
+                            lowDist = dist
+                            lowContact = { x: contact.x, y: contact.y }
+                            lowSide = Game.brickside.BOTTOM
+                            lowBrickRow = row
+                            lowBrickCol = col
                         }
                     }
                 }
 
-                if (checkBrickTop) {
-                    this.scratchLine.x1 = brickLeft;
-                    this.scratchLine.y1 = brickTop;
-                    this.scratchLine.x2 = brickRight;
-                    this.scratchLine.y2 = brickTop;
-                    intersectionPoint = Game.misc.getIntersectionPointOfLines(ballLine, this.scratchLine);
-                    if (intersectionPoint) {
-                        distance = Game.misc.getPointDistance(ballLineMiddleX, ballLineMiddleY, intersectionPoint.x, intersectionPoint.y);
-                        if (distance < closestIntersectDistance) {
-                            closestIntersectDistance = distance;
-                            this.closestIntersectPoint.x = intersectionPoint.x;
-                            this.closestIntersectPoint.y = intersectionPoint.y;
-                            this.closestIntersectSide = Game.brickside.TOP;
-                            closestBrickRow = row;
-                            closestBrickCol = col;
+                // Top.
+                if (ball.lastY < brickTop) {
+                    this.scratchLine = {
+                        x1: brickLeft - Ball.SIZE/2, y1: brickTop - Ball.SIZE/2,
+                        x2: brickRight + Ball.SIZE/2, y2: brickTop - Ball.SIZE/2,
+                    }
+                    contact = Game.misc.getInfLineIntersect(ballLine, this.scratchLine)
+                    if (contact.onLine1) {
+                        dist = Game.misc.getPointDistance(ball.lastX, ball.lastY, contact.x, contact.y)
+                        if (dist < lowDist) {
+                            lowDist = dist
+                            lowContact = { x: contact.x, y: contact.y }
+                            lowSide = Game.brickside.TOP
+                            lowBrickRow = row
+                            lowBrickCol = col
                         }
                     }
                 }
 
-                if (checkBrickLeft) {
-                    this.scratchLine.x1 = brickLeft;
-                    this.scratchLine.y1 = brickTop;
-                    this.scratchLine.x2 = brickLeft;
-                    this.scratchLine.y2 = brickBottom;
-                    intersectionPoint = Game.misc.getIntersectionPointOfLines(ballLine, this.scratchLine);
-                    if (intersectionPoint) {
-                        distance = Game.misc.getPointDistance(ballLineMiddleX, ballLineMiddleY, intersectionPoint.x, intersectionPoint.y);
-                        if (distance < closestIntersectDistance) {
-                            closestIntersectDistance = distance;
-                            this.closestIntersectPoint.x = intersectionPoint.x;
-                            this.closestIntersectPoint.y = intersectionPoint.y;
-                            this.closestIntersectSide = Game.brickside.LEFT;
-                            closestBrickRow = row;
-                            closestBrickCol = col;
+                // Left.
+                if (ball.lastX < brickLeft) {
+                    this.scratchLine = {
+                        x1: brickLeft - Ball.SIZE/2, y1: brickTop - Ball.SIZE/2,
+                        x2: brickLeft - Ball.SIZE/2, y2: brickBottom + Ball.SIZE/2,
+                    }
+                    contact = Game.misc.getInfLineIntersect(ballLine, this.scratchLine)
+                    if (contact.onLine1) {
+                        dist = Game.misc.getPointDistance(ball.lastX, ball.lastY, contact.x, contact.y)
+                        if (dist < lowDist) {
+                            lowDist = dist
+                            lowContact = { x: contact.x, y: contact.y }
+                            lowSide = Game.brickside.LEFT
+                            lowBrickRow = row
+                            lowBrickCol = col
                         }
                     }
                 }
 
-                if (checkBrickRight) {
-                    this.scratchLine.x1 = brickRight;
-                    this.scratchLine.y1 = brickTop;
-                    this.scratchLine.x2 = brickRight;
-                    this.scratchLine.y2 = brickBottom;
-                    intersectionPoint = Game.misc.getIntersectionPointOfLines(ballLine, this.scratchLine);
-                    if (intersectionPoint) {
-                        distance = Game.misc.getPointDistance(ballLineMiddleX, ballLineMiddleY, intersectionPoint.x, intersectionPoint.y);
-                        if (distance < closestIntersectDistance) {
-                            closestIntersectDistance = distance;
-                            this.closestIntersectPoint.x = intersectionPoint.x;
-                            this.closestIntersectPoint.y = intersectionPoint.y;
-                            this.closestIntersectSide = Game.brickside.RIGHT;
-                            closestBrickRow = row;
-                            closestBrickCol = col;
+                // Right.
+                if (ball.lastX > brickRight) {
+                    this.scratchLine = {
+                        x1: brickRight + Ball.SIZE/2, y1: brickTop - Ball.SIZE/2,
+                        x2: brickRight + Ball.SIZE/2, y2: brickBottom + Ball.SIZE/2,
+                    }
+                    contact = Game.misc.getInfLineIntersect(ballLine, this.scratchLine)
+                    if (contact.onLine1) {
+                        dist = Game.misc.getPointDistance(ball.lastX, ball.lastY, contact.x, contact.y)
+                        if (dist < lowDist) {
+                            lowDist = dist
+                            lowContact = { x: contact.x, y: contact.y }
+                            lowSide = Game.brickside.RIGHT
+                            lowBrickRow = row
+                            lowBrickCol = col
                         }
                     }
                 }
             }
         }
 
-        if (this.closestIntersectSide !== false) {
-            if (this.bricks[closestBrickRow][closestBrickCol].metal || !this.isSuper) {
-                if (this.closestIntersectSide == Game.brickside.TOP) {
-                    ball.setMotionFromCollision(this.closestIntersectPoint.x, this.closestIntersectPoint.y - Ball.BALL_SIZE / 2, -ball.directionRad);
-                } else if (this.closestIntersectSide == Game.brickside.BOTTOM) {
-                    ball.setMotionFromCollision(this.closestIntersectPoint.x, this.closestIntersectPoint.y + Ball.BALL_SIZE / 2, -ball.directionRad);
-                } else if (this.closestIntersectSide == Game.brickside.LEFT) {
-                    ball.setMotionFromCollision(this.closestIntersectPoint.x - Ball.BALL_SIZE / 2, this.closestIntersectPoint.y, -ball.directionRad + Math.PI);
-                } else if (this.closestIntersectSide == Game.brickside.RIGHT) {
-                    ball.setMotionFromCollision(this.closestIntersectPoint.x + Ball.BALL_SIZE / 2, this.closestIntersectPoint.y, -ball.directionRad + Math.PI);
+        if (lowSide !== false) {
+            if (this.bricks[lowBrickRow][lowBrickCol].metal || !this.isSuper) {
+                if (lowSide == Game.brickside.TOP) {
+                    ball.setMotion(lowContact.x, lowContact.y, -ball.dir)
+                } else if (lowSide == Game.brickside.BOTTOM) {
+                    ball.setMotion(lowContact.x, lowContact.y, -ball.dir)
+                } else if (lowSide == Game.brickside.LEFT) {
+                    ball.setMotion(lowContact.x, lowContact.y, -ball.dir + Math.PI)
+                } else if (lowSide == Game.brickside.RIGHT) {
+                    ball.setMotion(lowContact.x, lowContact.y, -ball.dir + Math.PI)
                 }
             }
 
-            if (this.bricks[closestBrickRow][closestBrickCol].metal) {
-                Game.sound.playSound(Game.sound.METAL_HIT);
+            if (this.bricks[lowBrickRow][lowBrickCol].metal) {
+                Game.sound.playSound(Game.sound.METAL_HIT)
             } else {
-                this.hitBrick(closestBrickRow, closestBrickCol);
+                this.hitBrick(lowBrickRow, lowBrickCol)
             }
 
-            // this is important for super balls because they may cover more distance each frame, so this catches 1 and more brick collisions
-            return this.ballBrickCollision(ball);
+            if (this.isSuper) {
+                // Since super mode keeps going,
+                // continue to check for bricks since the collision will only choose one brick at a time.
+    -           this.ballBrickCollision(ball)
+            }
         }
-
-        return noMoreBricks;
     }
 }
 
 class Ball {
     static SHADOW_MAX = 40
-    static BALL_SIZE = 16
+    static SIZE = 16
     static PADDLE_SPEED_INC = 0.003
     static SUPER_SPEED_INC = 0.25
-    static INTERSECT_OFFSET_LENGTH = Ball.BALL_SIZE / 2
     static MIN_PADDLE_BOUNCE_RAD = Math.PI / 8
     static MAX_PADDLE_BOUNCE_RAD = 7 * Math.PI / 8
 
@@ -1201,25 +1157,22 @@ class Ball {
         this.supermode = false
         this.x = 0.0; this.y = 0.0; this.lastX = 0.0; this.lastY = 0.0;
         this.speed = 0.0;
-        this.width = 0
-        this.height = 0
-        this.directionRad = 0.0
+        this.width = Ball.SIZE
+        this.height = Ball.SIZE
+
+        // In radians.
+        this.dir = 0.0
+
         this.dead = false
-        this.bounds = false
-        this.shadows = 0
-        this.shadowsX = false
-        this.shadowsY = false
-        this.shadowCount = 0
-        this.intersectLine = false
+        this.bounds = {}
+        this.pathLine = {}
     }
 
-    updateIntersectLine() {
-        var intersectOffsetX = Ball.INTERSECT_OFFSET_LENGTH * Math.cos(this.directionRad)
-        var intersectOffsetY = Ball.INTERSECT_OFFSET_LENGTH * -Math.sin(this.directionRad)
-        this.intersectLine.x1 = this.lastX
-        this.intersectLine.y1 = this.lastY
-        this.intersectLine.x2 = this.x + intersectOffsetX
-        this.intersectLine.y2 = this.y + intersectOffsetY
+    updatePathLine() {
+        this.pathLine.x1 = this.lastX
+        this.pathLine.y1 = this.lastY
+        this.pathLine.x2 = this.x
+        this.pathLine.y2 = this.y
     }
 
     updateBounds() {
@@ -1229,86 +1182,96 @@ class Ball {
         this.bounds.y2 = Math.floor(this.y + this.height / 2)
     }
 
-    setMotionFromCollision(x, y, directionRad) {
+    setMotion(x, y, dir) {
         this.x = x
         this.y = y
         this.updateBounds()
-        this.directionRad = directionRad
-        this.updateIntersectLine()
+        this.dir = dir
+        this.updatePathLine()
     }
 
     changeSpeed(change) {
         this.speed = this.speed + change
     }
 
-    update(deltaMs, paddleLine) {
+    update(deltaMs) {
         if (this.dead) {
             return
         }
-        this.lastX = this.x
-        this.lastY = this.y
 
-        var distance = deltaMs * this.speed
-        this.x += Math.cos(this.directionRad) * distance
-        this.y -= Math.sin(this.directionRad) * distance
+        const targetDist = deltaMs * this.speed
 
-        this.updateBounds()
-        this.updateIntersectLine()
-
-        // ball shadow
-        // int newshadows = Math.floor(speed * 3);
-        var newshadows = 10
-        if (newshadows != this.shadows) {
-            this.shadows = newshadows;
-            this.shadowsX[this.shadows - 1] = Math.floor(this.x);
-            this.shadowsY[this.shadows - 1] = Math.floor(this.y);
-        }
-        if (this.shadowCount > this.shadows - 1) {
-            this.shadowCount = this.shadows - 1;
-        }
-        this.shadowsX[this.shadowCount] = Math.floor(this.x);
-        this.shadowsY[this.shadowCount] = Math.floor(this.y);
-        if (this.shadowCount == this.shadows) {
-            this.shadowCount = 0;
-        }
-        if (this.y < this.height / 2) {
-            this.setMotionFromCollision(this.x, this.height / 2, -this.directionRad);
-        }
-        if (this.x < this.width / 2) {
-            this.setMotionFromCollision(this.width / 2, this.y, -this.directionRad + Math.PI);
-        }
-        if (this.x > Game.PWIDTH - this.width / 2) {
-            this.setMotionFromCollision(Game.PWIDTH - this.width / 2, this.y, -this.directionRad + Math.PI);
-        }
-        if (this.y > Game.ROOM_BOTTOM_Y) {
-            this.dead = true;
-        }
-
-        // in case ball hit back from backup paddle
-        var shouldDoPaddleCollision = Math.sin(this.directionRad) < 0;
-        var intersectionPoint = Game.misc.getIntersectionPointOfLines(this.intersectLine, paddleLine);
-        if (shouldDoPaddleCollision && intersectionPoint) {
-            var intersectX = intersectionPoint.x;
-            var paddleWidth = paddleLine.x2 - paddleLine.x1;
-            var intersectXRatio = (paddleLine.x2 - intersectX) / paddleWidth;
-
-            var newDir = Ball.MIN_PADDLE_BOUNCE_RAD + intersectXRatio * (Ball.MAX_PADDLE_BOUNCE_RAD - Ball.MIN_PADDLE_BOUNCE_RAD);
-            this.setMotionFromCollision(intersectX, intersectionPoint.y - Ball.BALL_SIZE / 2, newDir);
-            Game.sound.playSound(Game.sound.PADDLE_HIT);
-            if (!this.supermode) {
-                this.speed = this.speed + Ball.PADDLE_SPEED_INC;
+        // Keep performing collision detection until target distance is reached.
+        let dist = 0
+        while (dist < targetDist) {
+            let nextDist = Ball.SIZE
+            if (dist + nextDist > targetDist) {
+                nextDist = targetDist - dist + 0.001
             }
-        }
-    }
+            dist += nextDist
+            this.lastX = this.x
+            this.lastY = this.y
+            this.x += Math.cos(this.dir) * nextDist
+            this.y -= Math.sin(this.dir) * nextDist
 
-    renderShadow(g) {
-        if (this.supermode) {
-            g.fillColor(Color.orange)
-        } else {
-            g.fillColor(Color.white)
-        }
-        for (var i = 0; i < this.shadows; i++) {
-            g.circleSector(this.shadowsX[i], this.shadowsY[i], (Ball.BALL_SIZE - 2) / 2, 0, 2 * Math.PI)
+            this.updateBounds()
+            this.updatePathLine()
+
+            // Room collision.
+            if (this.y < this.height / 2) {
+                const contact = Game.misc.getLineIntersect(this.pathLine, { x1: 0, y1: this.height/2, x2: Game.PWIDTH, y2: this.height/2 })
+                this.setMotion(contact.x, contact.y, -this.dir)
+            }
+            if (this.x < this.width / 2) {
+                const contact = Game.misc.getLineIntersect(this.pathLine, { x1: this.width/2, y1: 0, x2: this.width/2, y2: Game.PHEIGHT })
+                this.setMotion(contact.x, contact.y, -this.dir + Math.PI)
+            }
+            if (this.x > Game.PWIDTH - this.width / 2) {
+                const contact = Game.misc.getLineIntersect(this.pathLine, { x1: Game.PWIDTH - this.width/2, y1: 0, x2: Game.PWIDTH - this.width/2, y2: Game.PHEIGHT })
+                this.setMotion(Game.PWIDTH - this.width / 2, this.y, -this.dir + Math.PI)
+            }
+            if (this.y > Game.ROOM_BOTTOM_Y) {
+                game.endBall(this)
+                break
+            }
+
+            // Paddle collision.
+            // Only check up direction since the ball can hit the backup bar.
+            let shouldDoPaddleCollision = Math.sin(this.dir) < 0
+            if (shouldDoPaddleCollision) {
+                const paddleLine = game.mainPaddle.paddleLine
+                const paddleLineC = {
+                    // Account for corners with height of paddle.
+                    x1: paddleLine.x1 - game.mainPaddle.height/2, y1: paddleLine.y1 - Ball.SIZE / 2,
+                    x2: paddleLine.x2 + game.mainPaddle.height/2, y2: paddleLine.y2 - Ball.SIZE / 2
+                }
+                let contact = Game.misc.getLineIntersect(this.pathLine, paddleLineC)
+                if (contact) {
+                    let contactX = contact.x
+                    let paddleWidth = paddleLineC.x2 - paddleLineC.x1
+                    let intersectXRatio = (paddleLineC.x2 - contactX) / paddleWidth
+
+                    let newDir = Ball.MIN_PADDLE_BOUNCE_RAD + intersectXRatio * (Ball.MAX_PADDLE_BOUNCE_RAD - Ball.MIN_PADDLE_BOUNCE_RAD)
+                    this.setMotion(contactX, contact.y, newDir)
+                    Game.sound.playSound(Game.sound.PADDLE_HIT)
+                    if (!this.supermode) {
+                        this.speed = this.speed + Ball.PADDLE_SPEED_INC
+                    }
+                    continue
+                }
+            }
+
+            // Backup paddle collision.
+            if (game.backupPaddle) {
+                if (this.y >= Game.BACKUP_PADDLE_Y) {
+                    this.setMotion(this.x, this.y, -this.dir);
+                    Game.sound.playSound(Game.sound.PADDLE_HIT)
+                    // backup paddle is one time use only
+                    game.backupPaddle = false
+                }
+            }
+
+            game.ballBrickCollision(this)
         }
     }
 
@@ -1319,8 +1282,8 @@ class Ball {
             g.fillColor(Color.white)
         }
         g.strokeColor(Color.black)
-        g.circleSector(this.x, this.y, Ball.BALL_SIZE / 2, 0, 2 * Math.PI)
-        g.circleArc(this.x, this.y, Ball.BALL_SIZE / 2, 0, 2 * Math.PI)
+        g.circleSector(this.x, this.y, Ball.SIZE / 2, 0, 2 * Math.PI)
+        g.circleArc(this.x, this.y, Ball.SIZE / 2, 0, 2 * Math.PI)
     };
 
     render(g) {
@@ -1374,8 +1337,14 @@ Game.sound = {
     }
 }
 
+// TODO: Rename to util.
 Game.misc = {
-    getIntersectionPointOfInfiniteLines(line1StartX, line1StartY, line1EndX, line1EndY,
+    getInfLineIntersect(line1, line2) {
+        return Game.misc.getInfLineIntersect2(line1.x1, line1.y1, line1.x2, line1.y2,
+            line2.x1, line2.y1, line2.x2, line2.y2)
+    },
+
+    getInfLineIntersect2(line1StartX, line1StartY, line1EndX, line1EndY,
         line2StartX, line2StartY, line2EndX, line2EndY) {
         // if the lines intersect,
         // the result contains the x and y of the intersection (treating the lines as infinite) and
@@ -1417,11 +1386,8 @@ Game.misc = {
         // if line1 and line2 are segments, they intersect if both of the above are true
         return result;
     },
-    getIntersectionPointOfLines(line1, line2) {
-        var result = Game.misc.getIntersectionPointOfInfiniteLines(
-            line1.x1, line1.y1, line1.x2, line1.y2,
-            line2.x1, line2.y1, line2.x2, line2.y2
-        );
+    getLineIntersect(line1, line2) {
+        var result = Game.misc.getInfLineIntersect(line1, line2)
         if (result.onLine1 && result.onLine2) {
             return result;
         } else {
@@ -1439,13 +1405,20 @@ Game.misc = {
     }
 }
 
-Game.paddle = {
-    x: 0, y: 0, width: 0, height: 0,
-    initWidth: 0,
-    bounds: false,
-    paddleLine: false,
-    inc: 0,
-    change: 0,
+Game.paddle = class {
+
+    constructor(x, y, width, height) {
+        this.x = x
+        this.y = y
+        this.initWidth = width
+        this.width = width
+        this.height = height
+        this.bounds = {}
+        this.paddleLine = {}
+        this.inc = 0
+        this.change = Game.PWIDTH / 80
+    }
+
     update() {
         this.bounds.x1 = this.x;
         this.bounds.y1 = this.y;
@@ -1455,21 +1428,24 @@ Game.paddle = {
         this.paddleLine.y1 = this.y;
         this.paddleLine.x2 = this.x + this.width;
         this.paddleLine.y2 = this.y;
-    },
+    }
+
     incSize() {
         if (this.inc < 10) {
             this.inc++;
             this.x = this.x - this.change;
             this.width = this.width + this.change * 2;
         }
-    },
+    }
+
     decSize() {
         if (this.inc > 0) {
             this.inc--;
             this.x = this.x + this.change;
             this.width = this.width - this.change * 2;
         }
-    },
+    }
+
     moveTo(centerX) {
         this.x = centerX - this.width / 2;
         if (this.x < 0) {
@@ -1478,7 +1454,8 @@ Game.paddle = {
         if (this.x + this.width > Game.PWIDTH) {
             this.x = Game.PWIDTH - this.width;
         }
-    },
+    }
+
     render(g) {
         g.fillColor(Color.green)
         g.rect(this.bounds.x1, this.bounds.y1, this.bounds.x2 - this.bounds.x1, this.bounds.y2 - this.bounds.y1);
@@ -1733,26 +1710,8 @@ function createPowerup(x, y, speed) {
     return powerup;
 }
 
-function createPaddle(x, y, width, height) {
-    var paddle = Object.create(Game.paddle);
-    paddle.x = x;
-    paddle.y = y;
-    paddle.width = width;
-    paddle.height = height;
-    paddle.initWidth = width;
-    paddle.bounds = {};
-    paddle.paddleLine = {};
-    paddle.change = Game.PWIDTH / 80;
-    return paddle;
-}
-
 function createBall(x, y, speed) {
     var ball = new Ball()
-    ball.supermode = false;
-    ball.intersectLine = {};
-    ball.bounds = {};
-    ball.width = Ball.BALL_SIZE;
-    ball.height = Ball.BALL_SIZE;
     ball.speed = speed;
     var random = Math.floor(Math.random() * 4);
     var dir = 0;
@@ -1766,18 +1725,9 @@ function createBall(x, y, speed) {
         dir = 7 * Math.PI / 4;
     }
 
-    ball.setMotionFromCollision(x, y, dir);
+    ball.setMotion(x, y, dir);
 
     ball.dead = false;
-    ball.shadows = 10;
-    ball.shadowsX = new Array();
-    ball.shadowsY = new Array();
-    ball.shadowCount = 0;
-    for (var i = 0; i < ball.shadows; i++) {
-        ball.shadowsX.push(x);
-        ball.shadowsY.push(y);
-    }
-
     return ball;
 }
 
@@ -1921,11 +1871,10 @@ w.onResize(e => {
 })
 
 w.onUpdate(g => {
-    if (game.done) {
-        return
+    if (!game.done) {
+        const deltaMs = w.getLastFrameDuration() / 1000
+        game.update(deltaMs)
     }
-    const deltaMs = w.getLastFrameDuration() / 1000
-    game.update(deltaMs)
     game.render(g)
 })
 
@@ -1941,13 +1890,26 @@ w.onUpdate(g => {
 // $('#canvas').bind('touchmove', this.onHandTouchMove)
 
 w.onMouseUp(e => {
-    if (e.clicks == 1) {
-        game.onMouseClick(e.x, e.y)
+    if (!game.done) {
+        if (e.clicks == 1) {
+            game.onMouseClick(e.x, e.y)
+        }
     }
 })
 
 w.onMouseMove(e => {
-    game.onMouseMove(e.x, e.y)
+    if (!game.done) {
+        game.onMouseMove(e.x, e.y)
+    }
 })
 
 Game.persistence.saveSettings(true)
+
+function circleToAABB(cx, cy, cr, x1, y1, x2, y2) {
+	const bx = Math.min(Math.max(x1, cx), x2)
+    const by = Math.min(Math.max(y1, cy), y2)
+	const cb_x = cx - bx
+    const cb_y = cy - by
+    const d = cb_x * cb_x + cb_y * cb_y
+	return d < cr * cr
+}
