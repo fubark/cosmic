@@ -11,8 +11,8 @@ on:
   push:
     branches:
       - master
-    paths:
-      - '!.github/**'
+    paths-ignore:
+      - '.github/**'
 # Cancel previous job if it's running.
 concurrency:
   group: latest
