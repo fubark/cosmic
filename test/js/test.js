@@ -189,8 +189,38 @@ testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () => {
     }
 })
 
-test('cs.files.resolvePath', () => {
-    eq(fs.resolvePath('foo/../bar'), fs.resolvePath('bar'))
+test('cs.files.expandPath', () => {
+    eq(fs.expandPath('foo/../bar'), fs.cwd() + '/bar')
+})
+
+testIsolated('cs.files.realPath', async () => {
+    eq(fs.realPath('does_not_exist'), null)
+    eq(errCode(), CsError.FileNotFound)
+
+    fs.writeText('foo.txt', '')
+    fs.symLink('foo-link.txt', 'foo.txt')
+    try {
+        eq(fs.realPath('foo-link.txt'), fs.cwd() + '/foo.txt')
+    } finally {
+        fs.remove('foo-link.txt')
+        fs.remove('foo.txt')
+    }
+})
+
+testIsolated('cs.files.symLink', async() => {
+    fs.writeText('foo.txt', '')
+    fs.symLink('foo-link.txt', 'foo.txt')
+    eq(fs.symLink('foo-link.txt', 'foo.txt'), null)
+    eq(errCode(), CsError.PathExists)
+    try {
+        // TODO: getPathInfo doesn't detect symlink
+        // eq(fs.getPathInfo('foo-link.txt').kind, fs.FileKind.symLink)
+        fs.writeText('foo-link.txt', 'hello')
+        eq(fs.readText('foo.txt'), 'hello')
+    } finally {
+        fs.remove('foo-link.txt')
+        fs.remove('foo.txt')
+    }
 })
 
 test('cs.files.copy', () => {
@@ -246,11 +276,12 @@ testIsolated('cs.files.moveAsync', async () => {
 })
 
 test('cs.files.cwd', () => {
-    eq(fs.cwd(), fs.resolvePath('.'));
+    eq(fs.cwd(), fs.expandPath('.'));
 })
 
 test('cs.files.getPathInfo', () => {
     eq(fs.getPathInfo('foo.txt'), null)
+    eq(errCode(), CsError.FileNotFound)
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.getPathInfo('foo.txt').kind, fs.FileKind.file)
@@ -260,7 +291,12 @@ test('cs.files.getPathInfo', () => {
 })
 
 testIsolated('cs.files.getPathInfoAsync', async () => {
-    eq(await fs.getPathInfoAsync('foo.txt'), null)
+    try {
+        await fs.getPathInfoAsync('foo.txt')
+        t.fail('Expected error.')
+    } catch (err) {
+        eq(err.code, CsError.FileNotFound)
+    }
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq((await fs.getPathInfoAsync('foo.txt')).kind, fs.FileKind.file)

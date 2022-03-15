@@ -917,6 +917,7 @@ pub const RuntimeContext = struct {
         const iso = self.isolate;
         const ctx = self.context.inner;
         switch (Type) {
+            void => return self.js_undefined.handle,
             i16 => return iso.initIntegerI32(native_val).handle,
             u8 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
@@ -2452,6 +2453,7 @@ pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.me
 pub const CsError = error {
     NoError,
     FileNotFound,
+    PathExists,
     IsDir,
     InvalidFormat,
     Unsupported,

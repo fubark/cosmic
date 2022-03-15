@@ -454,8 +454,17 @@ pub const cs_files = struct {
 
     /// Returns info about a file, folder, or special object at a given path.
     /// @param path
-    pub fn getPathInfo(path: []const u8) ?PathInfo {
-        const stat = std.fs.cwd().statFile(path) catch return null;
+    pub fn getPathInfo(path: []const u8) Error!PathInfo {
+        // TODO: statFile opens the file first so it doesn't detect symlink.
+        const stat = std.fs.cwd().statFile(path) catch |err| {
+            return switch (err) {
+                error.FileNotFound => error.FileNotFound,
+                else => {
+                    log.debug("unknown error: {}", .{err});
+                    unreachable;
+                },
+            };
+        };
         return PathInfo{
             .kind = @intToEnum(FileKind, @enumToInt(stat.kind)),
             .atime = @intCast(F64SafeUint, @divFloor(stat.atime, 1_000_000)),
@@ -610,12 +619,47 @@ pub const cs_files = struct {
         return runtime.invokeFuncAsync(rt, removeDir, args);
     }
 
-    /// Resolves '..' in the path and returns an absolute path.
-    /// Currently does not resolve home '~'.
+    /// Expands relative pathing such as '..' from the cwd and returns an absolute path.
+    /// See realPath to resolve symbolic links.
     /// @param path
-    pub fn resolvePath(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
-        const res = std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
+    pub fn expandPath(rt: *RuntimeContext, path: []const u8) ds.Box([]const u8) {
+        const res = std.fs.path.resolve(rt.alloc, &.{path}) catch |err| {
+            log.debug("unknown error: {}", .{err});
+            unreachable;
+        };
         return ds.Box([]const u8).init(rt.alloc, res);
+    }
+
+    /// Expands relative pathing from the cwd and resolves symbolic links.
+    /// Returns the canonicalized absolute path.
+    /// Path provided must point to a filesystem object.
+    /// @param path
+    pub fn realPath(rt: *RuntimeContext, path: []const u8) Error!ds.Box([]const u8) {
+        const res = std.fs.realpathAlloc(rt.alloc, path) catch |err| {
+            return switch (err) {
+                error.FileNotFound => error.FileNotFound,
+                else => {
+                    log.debug("unknown error: {}", .{err});
+                    unreachable;
+                },
+            };
+        };
+        return ds.Box([] const u8).init(rt.alloc, res);
+    }
+
+    /// Creates a symbolic link (a soft link) at symPath to an existing or nonexisting file at targetPath.
+    /// @param symPath
+    /// @param targetPath
+    pub fn symLink(sym_path: []const u8, target_path: []const u8) Error!void {
+        std.os.symlink(target_path, sym_path) catch |err| {
+            return switch(err) {
+                error.PathAlreadyExists => error.PathExists,
+                else => {
+                    log.debug("unknown error: {}", .{err});
+                    unreachable;
+                },
+            };
+        };
     }
 };
 
@@ -1249,6 +1293,7 @@ pub const cs_core = struct {
         pub const Default = .NotAnError;
         NoError,
         FileNotFound,
+        PathExists,
         IsDir,
         InvalidFormat,
         Unsupported,

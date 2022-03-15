@@ -249,7 +249,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(files, "ensurePath", api.cs_files.ensurePath);
     ctx.setConstFuncT(files, "pathExists", api.cs_files.pathExists);
     ctx.setConstFuncT(files, "removeDir", api.cs_files.removeDir);
-    ctx.setConstFuncT(files, "resolvePath", api.cs_files.resolvePath);
+    ctx.setConstFuncT(files, "expandPath", api.cs_files.expandPath);
+    ctx.setConstFuncT(files, "realPath", api.cs_files.realPath);
+    ctx.setConstFuncT(files, "symLink", api.cs_files.symLink);
     ctx.setConstFuncT(files, "copy", api.cs_files.copy);
     ctx.setConstFuncT(files, "move", api.cs_files.move);
     ctx.setConstFuncT(files, "cwd", api.cs_files.cwd);
@@ -279,7 +281,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setProp(filekind, "characterDevice", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.characterDevice)));
     ctx.setProp(filekind, "directory", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.directory)));
     ctx.setProp(filekind, "namedPipe", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.namedPipe)));
-    ctx.setProp(filekind, "symlink", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.symLink)));
+    ctx.setProp(filekind, "symLink", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.symLink)));
     ctx.setProp(filekind, "file", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.file)));
     ctx.setProp(filekind, "unixDomainSocket", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.unixDomainSocket)));
     ctx.setProp(filekind, "whiteout", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.whiteout)));
@@ -468,7 +470,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         const cs_err = iso.initObjectTemplateDefault();
         ctx.setProp(cs_err, "NoError", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.NoError)));
         ctx.setProp(cs_err, "FileNotFound", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.FileNotFound)));
+        ctx.setProp(cs_err, "PathExists", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.PathExists)));
         ctx.setProp(cs_err, "IsDir", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.IsDir)));
+        ctx.setProp(cs_err, "InvalidFormat", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.InvalidFormat)));
+        ctx.setProp(cs_err, "Unsupported", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unsupported)));
         ctx.setConstProp(cs_core, "CsError", cs_err);
     }
     ctx.setConstProp(cs, "core", cs_core);
