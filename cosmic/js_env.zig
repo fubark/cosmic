@@ -258,20 +258,20 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
 
-    ctx.setConstFuncT(files, "readAsync", api.cs_files.readAsync);
-    ctx.setConstFuncT(files, "readTextAsync", api.cs_files.readTextAsync);
-    ctx.setConstFuncT(files, "writeAsync", api.cs_files.writeAsync);
-    ctx.setConstFuncT(files, "writeTextAsync", api.cs_files.writeTextAsync);
-    ctx.setConstFuncT(files, "appendAsync", api.cs_files.appendAsync);
-    ctx.setConstFuncT(files, "appendTextAsync", api.cs_files.appendTextAsync);
-    ctx.setConstFuncT(files, "removeAsync", api.cs_files.removeAsync);
-    ctx.setConstFuncT(files, "removeDirAsync", api.cs_files.removeDirAsync);
-    ctx.setConstFuncT(files, "ensurePathAsync", api.cs_files.ensurePathAsync);
-    ctx.setConstFuncT(files, "pathExistsAsync", api.cs_files.pathExistsAsync);
-    ctx.setConstFuncT(files, "copyAsync", api.cs_files.copyAsync);
-    ctx.setConstFuncT(files, "moveAsync", api.cs_files.moveAsync);
-    ctx.setConstFuncT(files, "getPathInfoAsync", api.cs_files.getPathInfoAsync);
-    ctx.setConstFuncT(files, "listDirAsync", api.cs_files.listDirAsync);
+    ctx.setConstFuncT(files, "_readAsync", api.cs_files.readAsync);
+    ctx.setConstFuncT(files, "_readTextAsync", api.cs_files.readTextAsync);
+    ctx.setConstFuncT(files, "_writeAsync", api.cs_files.writeAsync);
+    ctx.setConstFuncT(files, "_writeTextAsync", api.cs_files.writeTextAsync);
+    ctx.setConstFuncT(files, "_appendAsync", api.cs_files.appendAsync);
+    ctx.setConstFuncT(files, "_appendTextAsync", api.cs_files.appendTextAsync);
+    ctx.setConstFuncT(files, "_removeAsync", api.cs_files.removeAsync);
+    ctx.setConstFuncT(files, "_removeDirAsync", api.cs_files.removeDirAsync);
+    ctx.setConstFuncT(files, "_ensurePathAsync", api.cs_files.ensurePathAsync);
+    ctx.setConstFuncT(files, "_pathExistsAsync", api.cs_files.pathExistsAsync);
+    ctx.setConstFuncT(files, "_copyAsync", api.cs_files.copyAsync);
+    ctx.setConstFuncT(files, "_moveAsync", api.cs_files.moveAsync);
+    ctx.setConstFuncT(files, "_getPathInfoAsync", api.cs_files.getPathInfoAsync);
+    ctx.setConstFuncT(files, "_listDirAsync", api.cs_files.listDirAsync);
     // TODO: chmod op
 
     const filekind = iso.initObjectTemplateDefault();
@@ -293,9 +293,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", api.cs_http.get);
-    ctx.setConstFuncT(http, "getAsync", api.cs_http.getAsync);
+    ctx.setConstFuncT(http, "_getAsync", api.cs_http.getAsync);
     ctx.setConstFuncT(http, "post", api.cs_http.post);
-    ctx.setConstFuncT(http, "postAsync", api.cs_http.postAsync);
+    ctx.setConstFuncT(http, "_postAsync", api.cs_http.postAsync);
     ctx.setConstFuncT(http, "_request", api.cs_http.request);
     ctx.setConstFuncT(http, "_requestAsync", api.cs_http.requestAsync);
     ctx.setConstFuncT(http, "serveHttp", api.cs_http.serveHttp);
@@ -495,41 +495,12 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs, "input", cs_input);
 
     const res = iso.initContext(global, null);
-    res.enter();
-    defer res.exit();
-
-    // const rt_global = res.getGlobal();
-    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(iso, "cs")).castToObject();
-
-    {
-        // Run api_init.js
-        var exec_res: v8x.ExecuteResult = undefined;
-        defer exec_res.deinit();
-        const origin = v8.String.initUtf8(iso, "api_init.js");
-        v8x.executeString(rt.alloc, iso, res, api_init, origin, &exec_res);
-        if (!exec_res.success) {
-            errorFmt("{s}", .{exec_res.err.?});
-            unreachable;
-        }
-    }
-
-    if (rt.is_test_env) {
-        // Run test_init.js
-        var exec_res: v8x.ExecuteResult = undefined;
-        defer exec_res.deinit();
-        const origin = v8.String.initUtf8(iso, "test_init.js");
-        v8x.executeString(rt.alloc, iso, res, test_init, origin, &exec_res);
-        if (!exec_res.success) {
-            errorFmt("{s}", .{exec_res.err.?});
-            unreachable;
-        }
-    }
 
     // Attach rt pointer for callbacks that don't have user data. eg. ResolveModuleCallback
     res.setEmbedderData(0, rt_data);
 
+    // const rt_global = res.getGlobal();
+    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(iso, "cs")).castToObject();
+
     return res;
 }
-
-const api_init = @embedFile("snapshots/api_init.js");
-const test_init = @embedFile("snapshots/test_init.js");

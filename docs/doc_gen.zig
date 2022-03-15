@@ -32,21 +32,7 @@ const modules: []const ModuleId = &.{
     "cs_worker",
 };
 
-pub fn main() !void {
-    // Fast temporary memory allocator.
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const args = try process.argsAlloc(alloc);
-    defer process.argsFree(alloc, args);
-
-    if (args.len == 1) {
-        printFmt("Provide directory path.\n", .{});
-        process.exit(0);
-    }
-    var arg_idx: usize = 1;
-    const docs_path = nextArg(args, &arg_idx).?;
+pub fn generate(alloc: std.mem.Allocator, docs_path: []const u8) !void {
     try std.fs.cwd().makePath(docs_path);
 
     // Copy over assets.
@@ -853,12 +839,6 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         \\  hljs.highlightAll();
         \\</script>
     );
-}
-
-fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
-    if (idx.* >= args.len) return null;
-    defer idx.* += 1;
-    return args[idx.*];
 }
 
 const DocVersion = struct {

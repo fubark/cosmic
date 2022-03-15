@@ -35,6 +35,11 @@ const DevModeContext = devmode.DevModeContext;
 
 pub const PromiseId = u32;
 
+// Js init scripts.
+const api_init = @embedFile("snapshots/api_init.js");
+const gen_api_init = @embedFile("snapshots/gen_api.js"); // Generated. Not tracked by git.
+const test_init = @embedFile("snapshots/test_init.js");
+
 // Keep a global rt for debugging and prototyping.
 pub var global: *RuntimeContext = undefined;
 
@@ -297,6 +302,46 @@ pub const RuntimeContext = struct {
 
         self.context = v8.Persistent(v8.Context).init(iso, js_env.initContext(self, iso));
         self.global = iso.initPersistent(v8.Object, self.context.inner.getGlobal());
+
+        const ctx = self.getContext();
+        ctx.enter();
+        defer ctx.exit();
+
+        {
+            // Run api_init.js
+            var exec_res: v8x.ExecuteResult = undefined;
+            defer exec_res.deinit();
+            const origin = v8.String.initUtf8(iso, "api_init.js");
+            v8x.executeString(self.alloc, iso, ctx, api_init, origin, &exec_res);
+            if (!exec_res.success) {
+                self.errorFmt("{s}", .{exec_res.err.?});
+                unreachable;
+            }
+        }
+
+        {
+            // Run gen_api.js
+            var exec_res: v8x.ExecuteResult = undefined;
+            defer exec_res.deinit();
+            const origin = v8.String.initUtf8(iso, "gen_api.js");
+            v8x.executeString(self.alloc, iso, ctx, gen_api_init, origin, &exec_res);
+            if (!exec_res.success) {
+                self.errorFmt("{s}", .{exec_res.err.?});
+                unreachable;
+            }
+        }
+
+        if (self.is_test_env) {
+            // Run test_init.js
+            var exec_res: v8x.ExecuteResult = undefined;
+            defer exec_res.deinit();
+            const origin = v8.String.initUtf8(iso, "test_init.js");
+            v8x.executeString(self.alloc, iso, ctx, test_init, origin, &exec_res);
+            if (!exec_res.success) {
+                self.errorFmt("{s}", .{exec_res.err.?});
+                unreachable;
+            }
+        }
     }
 
     fn initUv(self: *Self) void {

@@ -213,7 +213,7 @@ pub fn build(b: *Builder) !void {
             .link_v8 = false,
             .link_mock = true,
             .static_link = static_link,
-            .path = "docs/doc_gen.zig",
+            .path = "tools/gen.zig",
             .filter = filter,
             .mode = mode,
             .target = target,
@@ -225,7 +225,7 @@ pub fn build(b: *Builder) !void {
         _ctx.buildLinkMock(step);
         const run = step.run();
         run.addArgs(args);
-        b.step("gen-docs", "Generate docs").dependOn(&run.step);
+        b.step("gen", "Generate tool.").dependOn(&run.step);
     }
 
     {
