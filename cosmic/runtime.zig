@@ -1074,7 +1074,8 @@ pub const RuntimeContext = struct {
                     const start = self.cb_f32_buf.items.len;
                     self.cb_f32_buf.resize(start + len) catch unreachable;
                     while (i < len) : (i += 1) {
-                        self.cb_f32_buf.items[start + i] = obj.getAtIndex(ctx, i).toF32(ctx) catch return error.CantConvert;
+                        const child_val = obj.getAtIndex(ctx, i) catch return error.CantConvert;
+                        self.cb_f32_buf.items[start + i] = child_val.toF32(ctx) catch return error.CantConvert;
                     }
                     return self.cb_f32_buf.items[start..];
                 } else return error.CantConvert;
@@ -1148,9 +1149,10 @@ pub const RuntimeContext = struct {
                     const num_keys = keys.length();
                     var i: u32 = 0;
                     while (i < num_keys) {
-                        const native_key = v8x.allocValueAsUtf8(self.alloc, self.isolate, ctx, keys_obj.getAtIndex(ctx, i));
-                        if (self.getNativeValue([]const u8, keys_obj.getAtIndex(ctx, i))) |child_native_val| {
-                            native_val.put(native_key, child_native_val) catch unreachable;
+                        const key = keys_obj.getAtIndex(ctx, i) catch return error.CantConvert;
+                        const key_str = v8x.allocValueAsUtf8(self.alloc, self.isolate, ctx, key);
+                        if (self.getNativeValue([]const u8, key)) |child_native_val| {
+                            native_val.put(key_str, child_native_val) catch unreachable;
                         } else |_| {}
                     }
                     return native_val;
@@ -1181,11 +1183,15 @@ pub const RuntimeContext = struct {
                             const Fields = std.meta.fields(T);
                             inline for (Fields) |Field| {
                                 if (@typeInfo(Field.field_type) == .Optional) {
-                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
-                                    const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
-                                    @field(native_val, Field.name) = self.getNativeValue2(ChildType, js_val) orelse null;
+                                    const child_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name)) catch return error.CantConvert;
+                                    const Child = comptime @typeInfo(Field.field_type).Optional.child;
+                                    if (child_val.isNullOrUndefined()) {
+                                        @field(native_val, Field.name) = null;
+                                    } else {
+                                        @field(native_val, Field.name) = self.getNativeValue2(Child, child_val);
+                                    }
                                 } else {
-                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name));
+                                    const js_val = obj.getValue(ctx, self.isolate.initStringUtf8(Field.name)) catch return error.CantConvert;
                                     if (self.getNativeValue2(Field.field_type, js_val)) |child_value| {
                                         @field(native_val, Field.name) = child_value;
                                     }
@@ -2066,9 +2072,9 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                     .is_data_rt = false,
                 }), extra_data);
 
-                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected) catch unreachable;
 
-                if (promise.getState() == v8.PromiseState.kRejected or promise.getState() == v8.PromiseState.kFulfilled) {
+                if (promise.getState() == .kRejected or promise.getState() == .kFulfilled) {
                     // If the initial async call is already fullfilled or rejected,
                     // we'll need to run microtasks manually to run our handlers.
                     iso.performMicrotasksCheckpoint();

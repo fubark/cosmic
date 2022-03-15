@@ -2,7 +2,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 const v8 = @import("v8");
 
-const log = stdx.log.scoped(.v8_util);
+const log = stdx.log.scoped(.v8x);
 
 pub const ExecuteResult = struct {
     const Self = @This();
@@ -255,8 +255,7 @@ fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, va
                 writer.writeAll("{ ") catch unreachable;
                 var i: u32 = 0;
                 while (i < num_props) : (i += 1) {
-                    const prop = props.castTo(v8.Object).getAtIndex(ctx, i);
-                    const value = obj.getValue(ctx, prop);
+                    const prop = props.castTo(v8.Object).getAtIndex(ctx, i) catch continue;
                     _ = appendValueAsUtf8(buf, iso, ctx, prop);
                     writer.writeAll(": ") catch unreachable;
                     allocValueDump2(buf, iso, ctx, value, level + 1, level_max);

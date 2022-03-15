@@ -1950,7 +1950,7 @@ pub const cs_test = struct {
                     .is_data_rt = false,
                 }), extra_data);
 
-                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected) catch unreachable;
             } else {
                 const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);

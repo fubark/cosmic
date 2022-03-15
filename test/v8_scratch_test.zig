@@ -2,10 +2,12 @@ const std = @import("std");
 const stdx = @import("stdx");
 const v8 = @import("v8");
 const t = stdx.testing;
+
+const v8x = @import("../cosmic/v8x.zig");
 const log = stdx.log.scoped(.v8_scratch);
 
 // Playground to test v8 code.
-// Run with: zig build test-file -Dpath="test/v8_scratch_test.zig"
+// Run with: zig build test-file -Dpath="test/v8_scratch_test.zig" -Dv8
 
 test {
     t.setLogLevel(.debug);
@@ -31,6 +33,12 @@ test {
     var hscope: v8.HandleScope = undefined;
     hscope.init(iso);
     defer hscope.deinit();
+
+    const global = iso.initObjectTemplateDefault();
+
+    const ctx = iso.initContext(global, null);
+    ctx.enter();
+    defer ctx.exit();
 
     // Body.
 }
