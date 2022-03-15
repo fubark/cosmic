@@ -143,7 +143,9 @@ pub fn allocExceptionStackTraceString(alloc: std.mem.Allocator, iso: v8.Isolate,
     _ = appendValueAsUtf8(&buf, iso, ctx, exception);
     writer.writeAll("\n") catch unreachable;
 
-    appendStackTraceString(&buf, iso, v8.Exception.getStackTrace(exception));
+    if (v8.Exception.getStackTrace(exception)) |trace| {
+        appendStackTraceString(&buf, iso, trace);
+    }
 
     return buf.toOwnedSlice();
 }

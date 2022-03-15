@@ -1058,8 +1058,10 @@ pub const RuntimeContext = struct {
         };
     }
 
+    // TODO: Rename to getNativeArgValue to indicate it's meant to be used with converting from js callback args.
     /// Converts a js value to a target native type.
     /// Slice-like types depend on temporary buffers.
+    /// This can't easily reuse runtime.getNativeValue since we are using temporary buffers, and objects/arrays can have nested children.
     /// Returns an error if conversion failed.
     pub fn getNativeValue(self: *Self, comptime T: type, val: anytype) !T {
         const ctx = self.getContext();
@@ -2395,11 +2397,10 @@ fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
     defer rt.alloc.free(test_name);
 
     rt.num_isolated_tests_finished += 1;
-    const str = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
-    defer rt.alloc.free(str);
 
-    // TODO: Show stack trace.
-    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+    const trace_str = allocExceptionJsStackTraceString(rt, val);
+    defer rt.alloc.free(trace_str);
+    rt.printFmt("Test Failed: \"{s}\"\n{s}", .{test_name, trace_str});
 }
 
 fn passIsolatedTest(rt: *RuntimeContext) void {
@@ -2602,4 +2603,150 @@ fn deinitV8() void {
         platform.deinit();
         g_platform = null;
     }
+}
+
+/// v8.StackTrace/v8.StackFrame are limited and not as rich as the js stack trace API.
+/// JsStackTrace will contain data from CallSiteInfos passed into js Error.prepareStackTrace.
+/// See api_init.js on how Error.prepareStackTrace is set up.
+const JsStackTrace = struct {
+    const Self = @This();
+
+    frames: []const JsStackFrame,
+
+    fn deinit(self: Self, alloc: std.mem.Allocator) void {
+        for (self.frames) |frame| {
+            frame.deinit(alloc);
+        }
+        alloc.free(self.frames);
+    }
+};
+
+const JsStackFrame = struct {
+    const Self = @This();
+
+    url: []const u8,
+    func_name: ?[]const u8,
+    line_num: u32,
+    col_num: u32,
+    is_constructor: bool,
+    is_async: bool,
+
+    fn deinit(self: Self, alloc: std.mem.Allocator) void {
+        alloc.free(self.url);
+        if (self.func_name) |name| {
+            alloc.free(name);
+        }
+    }
+};
+
+pub fn appendJsStackTraceString(buf: *std.ArrayList(u8), trace: JsStackTrace) void {
+    const writer = buf.writer();
+    for (trace.frames) |frame| {
+        writer.writeAll("    at ") catch unreachable;
+        if (frame.is_async) {
+            writer.writeAll("async ") catch unreachable;
+        }
+        if (frame.func_name) |name| {
+            writer.print("{s} ", .{ name }) catch unreachable;
+        }
+        writer.print("{s}:{}:{}\n", .{ frame.url, frame.line_num, frame.col_num }) catch unreachable;
+    }
+}
+
+pub fn allocExceptionJsStackTraceString(rt: *RuntimeContext, exception: v8.Value) []const u8 {
+    const alloc = rt.alloc;
+    const iso = rt.isolate;
+    const ctx = rt.getContext();
+
+    var hscope: v8.HandleScope = undefined;
+    hscope.init(iso);
+    defer hscope.deinit();
+
+    var buf = std.ArrayList(u8).init(alloc);
+    const writer = buf.writer();
+
+    _ = v8x.appendValueAsUtf8(&buf, iso, ctx, exception);
+    writer.writeAll("\n") catch unreachable;
+
+    // Access js stack property to invoke Error.prepareStackTrace
+    if (exception.isObject()) {
+        const exception_o = exception.castTo(v8.Object);
+        if (exception_o.getValue(ctx, iso.initStringUtf8("stack"))) |stack| {
+            if (stack.isString()) {
+                if (exception_o.getValue(ctx, iso.initStringUtf8("__frames"))) |frames| {
+                    if (frames.isArray()) {
+                        // Convert to JsStackTrace
+                        const trace = JsStackTrace{
+                            .frames = getNativeValue(alloc, iso, ctx, []const JsStackFrame, frames) catch &.{},
+                        };
+                        defer trace.deinit(alloc);
+                        appendJsStackTraceString(&buf, trace);
+                    }
+                } else |_| {}
+            }
+        } else |_| {}
+    }
+
+    return buf.toOwnedSlice();
+}
+
+/// Converts a js value to a target native type without a RuntimeContext.
+fn getNativeValue(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, comptime Target: type, val: v8.Value) !Target {
+    switch (Target) {
+        bool => return val.toBool(iso),
+        u32 => return val.toU32(ctx),
+        []const u8 => {
+            return v8x.allocValueAsUtf8(alloc, iso, ctx, val);
+        },
+        else => {
+            if (@typeInfo(Target) == .Struct) {
+                if (val.isObject()) {
+                    const obj = val.castTo(v8.Object);
+                    var res: Target = undefined;
+                    if (comptime hasAllOptionalFields(Target)) {
+                        res = .{};
+                    }
+                    const Fields = std.meta.fields(Target);
+                    inline for (Fields) |Field| {
+                        if (@typeInfo(Field.field_type) == .Optional) {
+                            const child_val = obj.getValue(ctx, iso.initStringUtf8(Field.name)) catch return error.CantConvert;
+                            const ChildType = comptime @typeInfo(Field.field_type).Optional.child;
+                            if (child_val.isNullOrUndefined()) {
+                                @field(res, Field.name) = null;
+                            } else {
+                                @field(res, Field.name) = getNativeValue2(alloc, iso, ctx, ChildType, child_val);
+                            }
+                        } else {
+                            const js_val = obj.getValue(ctx, iso.initStringUtf8(Field.name)) catch return error.CantConvert;
+                            if (getNativeValue2(alloc, iso, ctx, Field.field_type, js_val)) |child_value| {
+                                @field(res, Field.name) = child_value;
+                            }
+                        }
+                    }
+                    return res;
+                } else return error.CantConvert;
+            } else if (@typeInfo(Target) == .Pointer) {
+                if (@typeInfo(Target).Pointer.size == .Slice) {
+                    const Child = @typeInfo(Target).Pointer.child;
+                    if (val.isArray()) {
+                        const len = val.castTo(v8.Array).length();
+                        const buf = alloc.alloc(Child, len) catch unreachable;
+                        errdefer alloc.free(buf);
+                        const val_o = val.castTo(v8.Object);
+                        var i: u32 = 0;
+                        while (i < len) : (i += 1) {
+                            const child_val = val_o.getAtIndex(ctx, i) catch return error.CantConvert;
+                            buf[i] = getNativeValue(alloc, iso, ctx, Child, child_val) catch return error.CantConvert;
+                        }
+                        return buf;
+                    } else return error.CantConvert;
+                }
+            }
+            comptime @compileError(std.fmt.comptimePrint("Unsupported conversion from {s} to {s}", .{ @typeName(@TypeOf(val)), @typeName(Target) }));
+        }
+    }
+}
+
+fn getNativeValue2(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, comptime Target: type, val: v8.Value) ?Target {
+    return getNativeValue(alloc, iso, ctx, Target, val) catch return null;
 }
