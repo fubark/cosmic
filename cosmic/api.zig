@@ -42,6 +42,8 @@ const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
+const adapter = @import("adapter.zig");
+const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 
 // TODO: Once https://github.com/ziglang/zig/issues/8259 is resolved, use comptime to set param names.
 
@@ -767,9 +769,9 @@ pub const cs_http = struct {
 
     /// @param url
     /// @param options
-    pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
+    pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) PromiseSkipJsGen {
         const opts = mb_opts orelse RequestOptions{};
-        return requestAsyncInternal(rt, url, opts, true);
+        return .{ .inner = requestAsyncInternal(rt, url, opts, true) };
     }
 
     pub const RequestMethod = enum {

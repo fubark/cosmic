@@ -32,6 +32,8 @@ const EventDispatcher = stdx.events.EventDispatcher;
 const NullId = stdx.ds.CompactNull(u32);
 const devmode = @import("devmode.zig");
 const DevModeContext = devmode.DevModeContext;
+const adapter = @import("adapter.zig");
+const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 
 pub const PromiseId = u32;
 
@@ -971,6 +973,7 @@ pub const RuntimeContext = struct {
             v8.Object,
             v8.Array,
             v8.Promise => return native_val.handle,
+            PromiseSkipJsGen => return native_val.inner.handle,
             []const u8 => {
                 return iso.initStringUtf8(native_val).handle;
             },
