@@ -3,6 +3,11 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 
 const runtime = @import("../cosmic/runtime.zig");
+const RuntimeContext = runtime.RuntimeContext;
+const main = @import("../cosmic/main.zig");
+const env_ns = @import("../cosmic/env.zig");
+const Environment = env_ns.Environment;
+const WriterIface = env_ns.WriterIface;
 const log = stdx.log.scoped(.behavior_test);
 
 // For tests that need to verify what the runtime is doing.
@@ -11,7 +16,7 @@ const log = stdx.log.scoped(.behavior_test);
 
 test "behavior: JS syntax error prints stack trace to stderr" {
     {
-        const res = run(
+        const res = runScript(
             \\class {
         );
         defer res.deinit();
@@ -26,7 +31,7 @@ test "behavior: JS syntax error prints stack trace to stderr" {
     }
     {
         // Case where v8 returns the same message start/end column indicator.
-        const res = run(
+        const res = runScript(
             \\class Foo {
             \\    x: 0
         );
@@ -43,7 +48,7 @@ test "behavior: JS syntax error prints stack trace to stderr" {
 }
 
 test "behavior: JS main script runtime error prints stack trace to stderr" {
-    const res = run(
+    const res = runScript(
         \\foo
     );
     defer res.deinit();
@@ -56,7 +61,7 @@ test "behavior: JS main script runtime error prints stack trace to stderr" {
 }
 
 test "behavior: puts, print, dump prints to stdout" {
-    const res = run(
+    const res = runScript(
         \\puts('foo')
         \\puts({ a: 123 })
         \\print('foo\n')
@@ -98,17 +103,29 @@ const RunResult = struct {
     }
 };
 
-fn run(source: []const u8) RunResult {
+fn runCmd(cmd: []const []const u8, env: Environment) RunResult {
     var stdout_capture = std.ArrayList(u8).init(t.alloc);
     var stdout_writer = stdout_capture.writer();
     var stderr_capture = std.ArrayList(u8).init(t.alloc);
     var stderr_writer = stderr_capture.writer();
     var success = true;
-    runtime.runUserMainAbs(t.alloc, "/test.js", false, .{
-        .main_script_override = source,
-        .err_writer = runtime.WriterIface.init(&stderr_writer),
-        .out_writer = runtime.WriterIface.init(&stdout_writer),
-    }) catch {
+
+    const S = struct {
+        fn exit(code: u8) void {
+            _ = code;
+            // Nop.
+        }
+    };
+
+    var env_ = Environment{
+        .main_script_override = env.main_script_override,
+        .main_script_origin = "/test.js",
+        .err_writer = WriterIface.init(&stderr_writer),
+        .out_writer = WriterIface.init(&stdout_writer),
+        .exit_fn = S.exit,
+    };
+
+    main.runMain(cmd, &env_) catch {
         success = false;
     };
     return RunResult{
@@ -116,4 +133,14 @@ fn run(source: []const u8) RunResult {
         .stdout = stdout_capture.toOwnedSlice(),
         .stderr = stderr_capture.toOwnedSlice(),
     };
+}
+
+fn runScript(source: []const u8) RunResult {
+    return runCmd(&.{"cosmic", "test.js"}, .{
+        .main_script_override = source,
+    });
+}
+
+fn root() []const u8 {
+    return (std.fs.path.dirname(@src().file) orelse unreachable);
 }

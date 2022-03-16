@@ -36,8 +36,6 @@ const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
 const Uint8Array = runtime.Uint8Array;
 const CsWindow = runtime.CsWindow;
-const printFmt = runtime.printFmt;
-const errorFmt = runtime.errorFmt;
 const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
@@ -1020,7 +1018,7 @@ pub const cs_core = struct {
                 else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(0));
             defer rt.alloc.free(str);
             if (!DevMode or DevModeToStdout) {
-                rt.printFmt("{s}", .{str});
+                rt.env.printFmt("{s}", .{str});
             }
             if (DevMode) {
                 rt.dev_ctx.printFmt("{s}", .{str});
@@ -1033,7 +1031,7 @@ pub const cs_core = struct {
                 else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             if (!DevMode or DevModeToStdout) {
-                rt.printFmt(" {s}", .{str});
+                rt.env.printFmt(" {s}", .{str});
             }
             if (DevMode) {
                 rt.dev_ctx.printFmt(" {s}", .{str});
@@ -1047,7 +1045,7 @@ pub const cs_core = struct {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, false, false);
-        rt.printFmt("\n", .{});
+        rt.env.printFmt("\n", .{});
     }
 
     pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
@@ -1055,7 +1053,7 @@ pub const cs_core = struct {
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, true, false);
         if (DevModeToStdout) {
-            rt.printFmt("\n", .{});
+            rt.env.printFmt("\n", .{});
         }
         rt.dev_ctx.print("\n");
     }
@@ -1066,7 +1064,7 @@ pub const cs_core = struct {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, false, true);
-        rt.printFmt("\n", .{});
+        rt.env.printFmt("\n", .{});
     }
 
     pub fn dump_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
@@ -1074,7 +1072,7 @@ pub const cs_core = struct {
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, true, true);
         if (DevModeToStdout) {
-            rt.printFmt("\n", .{});
+            rt.env.printFmt("\n", .{});
         }
         rt.dev_ctx.print("\n");
     }
@@ -1146,14 +1144,14 @@ pub const cs_core = struct {
         writer.writeAll("\n") catch unreachable;
         
         v8x.appendStackTraceString(&buf, rt.isolate, trace);
-        errorFmt("{s}", .{buf.items});
-        std.os.exit(1);
+        rt.env.errorFmt("{s}", .{buf.items});
+        rt.env.exit(1);
     }
 
     /// Terminate the program with a code. Use code=0 for a successful exit and a positive value for an error exit.
     /// @param code
-    pub fn exit(code: u8) void {
-        std.os.exit(code);
+    pub fn exit(rt: *RuntimeContext, code: u8) void {
+        rt.env.exit(code);
     }
 
     /// Returns the last error code. API calls that return null will set their error code to be queried by errCode() and errString().
@@ -1954,7 +1952,7 @@ pub const cs_test = struct {
             } else {
                 const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
-                printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+                rt.env.printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
             }
         } else {
             // Sync test.
@@ -1963,7 +1961,7 @@ pub const cs_test = struct {
             } else {
                 const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
-                printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+                rt.env.printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
             }
         }
     }
@@ -2042,7 +2040,7 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const str = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
     defer rt.alloc.free(str);
 
-    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+    rt.env.printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
 }
 
 fn passAsyncTest(rt: *RuntimeContext) void {

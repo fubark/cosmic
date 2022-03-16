@@ -34,6 +34,7 @@ const devmode = @import("devmode.zig");
 const DevModeContext = devmode.DevModeContext;
 const adapter = @import("adapter.zig");
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
+const Environment = @import("env.zig").Environment;
 
 pub const PromiseId = u32;
 
@@ -45,16 +46,6 @@ const test_init = @embedFile("snapshots/test_init.js");
 // Keep a global rt for debugging and prototyping.
 pub var global: *RuntimeContext = undefined;
 
-const RuntimeOptions = struct {
-    // Overrides the main script source instead of doing a file read. Used for testing.
-    main_script_override: ?[]const u8 = null,
-
-    // Writes with custom interface instead of stderr. Used for testing.
-    err_writer: ?WriterIfaceWrapper = null,
-
-    // Writes with custom interface instead of stdout. Only available with builtin.is_test.
-    out_writer: ?WriterIfaceWrapper = null,
-};
 
 // Manages runtime resources.
 // Used by V8 callback functions.
@@ -165,7 +156,7 @@ pub const RuntimeContext = struct {
 
     get_native_val_err: anyerror,
 
-    opts: RuntimeOptions,
+    env: *Environment,
 
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
@@ -173,7 +164,7 @@ pub const RuntimeContext = struct {
         main_script_path: []const u8,
         is_test_env: bool,
         dev_mode: bool,
-        opts: RuntimeOptions,
+        env: *Environment,
     ) void {
         self.* = .{
             .alloc = alloc,
@@ -237,7 +228,7 @@ pub const RuntimeContext = struct {
 
             .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
             .get_native_val_err = undefined,
-            .opts = opts,
+            .env = env,
         };
 
         self.main_wakeup.init() catch unreachable;
@@ -316,7 +307,7 @@ pub const RuntimeContext = struct {
             const origin = v8.String.initUtf8(iso, "api_init.js");
             v8x.executeString(self.alloc, iso, ctx, api_init, origin, &exec_res);
             if (!exec_res.success) {
-                self.errorFmt("{s}", .{exec_res.err.?});
+                self.env.errorFmt("{s}", .{exec_res.err.?});
                 unreachable;
             }
         }
@@ -328,7 +319,7 @@ pub const RuntimeContext = struct {
             const origin = v8.String.initUtf8(iso, "gen_api.js");
             v8x.executeString(self.alloc, iso, ctx, gen_api_init, origin, &exec_res);
             if (!exec_res.success) {
-                self.errorFmt("{s}", .{exec_res.err.?});
+                self.env.errorFmt("{s}", .{exec_res.err.?});
                 unreachable;
             }
         }
@@ -340,7 +331,7 @@ pub const RuntimeContext = struct {
             const origin = v8.String.initUtf8(iso, "test_init.js");
             v8x.executeString(self.alloc, iso, ctx, test_init, origin, &exec_res);
             if (!exec_res.success) {
-                self.errorFmt("{s}", .{exec_res.err.?});
+                self.env.errorFmt("{s}", .{exec_res.err.?});
                 unreachable;
             }
         }
@@ -493,28 +484,32 @@ pub const RuntimeContext = struct {
         return self.context.inner;
     }
 
+    fn runModuleScriptFile(self: *Self, abs_path: []const u8) !RunModuleScriptResult {
+        if (self.env.main_script_override) |src_override| {
+            return self.runModuleScript(abs_path, self.env.main_script_origin orelse abs_path, src_override);
+        } else {
+            const src = try std.fs.cwd().readFileAlloc(self.alloc, abs_path, 1e9);
+            defer self.alloc.free(src);
+            return self.runModuleScript(abs_path, abs_path, src);
+        }
+    }
+
+    /// origin_str is an identifier for this script and is what is displayed in stack traces.
+    /// Normally it is set to the abs_path but somtimes it can be different (eg. for in memory scripts for tests)
+    /// Even though the src is provided, abs_path is still needed to set up import path resolving.
     /// Returns a result with a success flag.
     /// If a js exception was thrown, the stack trace is printed to stderr and also attached to the result.
-    fn runModuleScript(self: *Self, abs_path: []const u8) !RunModuleScriptResult {
-        const alloc = self.alloc;
+    fn runModuleScript(self: *Self, abs_path: []const u8, origin_str: []const u8, src: []const u8) !RunModuleScriptResult {
         const iso = self.isolate;
-        const origin_path = iso.initStringUtf8(abs_path);
 
-        const js_src = b: {
-            if (self.opts.main_script_override) |src_override| {
-                break :b self.isolate.initStringUtf8(src_override);
-            } else {
-                const src = try std.fs.cwd().readFileAlloc(alloc, abs_path, 1e9);
-                defer self.alloc.free(src);
-                break :b self.isolate.initStringUtf8(src);
-            }
-        };
+        const js_origin_str = iso.initStringUtf8(origin_str);
+        const js_src = iso.initStringUtf8(src);
 
         var try_catch: v8.TryCatch = undefined;
         try_catch.init(iso);
         defer try_catch.deinit();
 
-        var origin = v8.ScriptOrigin.init(iso, origin_path.toValue(), 
+        var origin = v8.ScriptOrigin.init(iso, js_origin_str.toValue(), 
             0, 0, false, -1, null, false, false, true, null,
         );
 
@@ -525,7 +520,7 @@ pub const RuntimeContext = struct {
 
         const mod = v8.ScriptCompiler.compileModule(self.isolate, &mod_src, .kNoCompileOptions, .kNoCacheNoReason) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            self.errorFmt("{s}", .{trace_str});
+            self.env.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
                 .success = false,
                 .js_err_trace = trace_str,
@@ -614,7 +609,7 @@ pub const RuntimeContext = struct {
 
         const success = mod.instantiate(self.getContext(), S.resolveModule) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            self.errorFmt("{s}", .{trace_str});
+            self.env.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
                 .success = false,
                 .js_err_trace = null,
@@ -627,7 +622,7 @@ pub const RuntimeContext = struct {
 
         const res = mod.evaluate(self.getContext()) catch {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
-            self.errorFmt("{s}", .{trace_str});
+            self.env.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
                 .success = false,
                 .js_err_trace = trace_str,
@@ -668,7 +663,7 @@ pub const RuntimeContext = struct {
     }
 
     fn runMainScript(self: *Self) !RunModuleScriptResult {
-        return try self.runModuleScript(self.main_script_path);
+        return try self.runModuleScriptFile(self.main_script_path);
     }
 
     /// Destroys the resource owned by the handle and marks it as deinited.
@@ -676,7 +671,7 @@ pub const RuntimeContext = struct {
     pub fn startDeinitResourceHandle(self: *Self, id: ResourceId) void {
         const handle = self.resources.getPtrAssumeExists(id);
         if (handle.deinited) {
-            log.err("Already deinited", .{});
+            log.debug("Already deinited", .{});
             unreachable;
         }
         switch (handle.tag) {
@@ -756,7 +751,7 @@ pub const RuntimeContext = struct {
             const js_msg = v8.Message{ .handle = message.? };
             const err_str = v8x.allocPrintMessageStackTrace(rt.alloc, rt.isolate, rt.getContext(), js_msg, "Uncaught Exception");
             defer rt.alloc.free(err_str);
-            rt.errorFmt("\n{s}", .{err_str});
+            rt.env.errorFmt("\n{s}", .{err_str});
             rt.received_uncaught_exception = true;
             if (rt.dev_mode) {
                 rt.dev_ctx.enterJsErrorState(rt, err_str);
@@ -1288,28 +1283,6 @@ pub const RuntimeContext = struct {
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
-
-    /// Normally prints to stderr. Can be overridden with RuntimeOptions.err_writer.
-    fn errorFmt(self: Self, comptime format: []const u8, args: anytype) void {
-        if (self.opts.err_writer) |writer| {
-            std.fmt.format(writer, format, args) catch unreachable;
-        } else {
-            const stderr = std.io.getStdErr().writer();
-            stderr.print(format, args) catch unreachable;
-        }
-    }
-
-    /// Normally prints to stdout. Can be overriden with RuntimeOptions.out_writer.
-    pub fn printFmt(self: Self, comptime format: []const u8, args: anytype) void {
-        if (builtin.is_test) {
-            if (self.opts.out_writer) |writer| {
-                std.fmt.format(writer, format, args) catch unreachable;
-                return;
-            }
-        }
-        const stdout = std.io.getStdOut().writer();
-        stdout.print(format, args) catch unreachable;
-    }
 };
 
 fn hasAllOptionalFields(comptime T: type) bool {
@@ -1419,10 +1392,10 @@ fn promiseRejectCallback(c_msg: v8.C_PromiseRejectMessage) callconv(.C) void {
     }
 }
 
-fn reportUncaughtPromiseRejections() void {
+fn reportUncaughtPromiseRejections(env: *Environment) void {
     var iter = uncaught_promise_errors.valueIterator();
     while (iter.next()) |err_str| {
-        errorFmt("Uncaught promise rejection: {s}\n", .{err_str.*});
+        env.errorFmt("Uncaught promise rejection: {s}\n", .{err_str.*});
     }
 }
 
@@ -1784,22 +1757,12 @@ pub fn onFreeResource(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
     external.rt.destroyResourceHandle(external.res_id);
 }
 
-pub fn errorFmt(comptime format: []const u8, args: anytype) void {
-    const stderr = std.io.getStdErr().writer();
-    stderr.print(format, args) catch unreachable;
-}
-
-pub fn printFmt(comptime format: []const u8, args: anytype) void {
-    const stdout = std.io.getStdOut().writer();
-    stdout.print(format, args) catch unreachable;
-}
-
-pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, opts: RuntimeOptions) !bool {
+pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, env: *Environment) !bool {
     // Measure total time.
     const timer = try std.time.Timer.start();
     defer {
         const duration = timer.read();
-        printFmt("time: {}ms\n", .{duration / @floatToInt(u64, 1e6)});
+        env.printFmt("time: {}ms\n", .{duration / @floatToInt(u64, 1e6)});
     }
 
     _ = curl.initDefault();
@@ -1819,7 +1782,7 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, opts: Runtime
     defer alloc.free(abs_path);
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, true, false, opts);
+    rt.init(alloc, platform, abs_path, true, false, env);
     rt.enter();
     defer {
         shutdownRuntime(&rt);
@@ -1844,11 +1807,11 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, opts: Runtime
         runIsolatedTests(&rt);
     }
 
-    reportUncaughtPromiseRejections();
+    reportUncaughtPromiseRejections(rt.env);
 
     // Test results.
-    printFmt("Passed: {d}\n", .{rt.num_tests_passed});
-    printFmt("Tests: {d}\n", .{rt.num_tests});
+    rt.env.printFmt("Passed: {d}\n", .{rt.num_tests_passed});
+    rt.env.printFmt("Tests: {d}\n", .{rt.num_tests});
 
     return rt.num_tests_passed == rt.num_tests;
 }
@@ -1865,7 +1828,7 @@ fn restart(rt: *RuntimeContext) !void {
     rt.dev_ctx.dev_window = rt.active_window; // Set dev_window so deinit skips this window resource.
     const win = rt.dev_ctx.dev_window.?.window;
     const dev_ctx = rt.dev_ctx;
-    const opts = rt.opts;
+    const env = rt.env;
 
     // Shutdown runtime.
     shutdownRuntime(rt);
@@ -1873,7 +1836,7 @@ fn restart(rt: *RuntimeContext) !void {
     rt.deinit();
 
     // Start runtime again with saved context.
-    rt.init(alloc, platform, main_script_path, false, true, opts);
+    rt.init(alloc, platform, main_script_path, false, true, env);
     rt.enter();
 
     // Reuse dev context.
@@ -1912,7 +1875,8 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     rt.uv_poller.close_flag.store(true, .Release);
 
     // Make uv poller wake up with dummy update.
-    _ = uv.uv_async_send(rt.uv_dummy_async);
+    var res = uv.uv_async_send(rt.uv_dummy_async);
+    uv.assertNoError(res);
 
     // uv poller might be waiting for wakeup.
     rt.uv_poller.setPollReady();
@@ -1942,7 +1906,7 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     };
     uv.uv_walk(rt.uv_loop, S.closeHandle, null);
     while (uv.uv_run(rt.uv_loop, uv.UV_RUN_NOWAIT) > 0) {}
-    const res = uv.uv_loop_close(rt.uv_loop);
+    res = uv.uv_loop_close(rt.uv_loop);
     if (res == uv.UV_EBUSY) {
         @panic("Did not expect more work.");
     }
@@ -2082,7 +2046,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
             } else {
                 const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
-                errorFmt("Test: {s}\n{s}", .{ case.name, err_str });
+                rt.env.errorFmt("Test: {s}\n{s}", .{ case.name, err_str });
                 break;
             }
             next_test += 1;
@@ -2107,18 +2071,15 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
     // Check for any js uncaught exceptions from calling into js.
     if (v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch)) |err_str| {
         defer rt.alloc.free(err_str);
-        errorFmt("Uncaught Exception:\n{s}", .{ err_str });
+        rt.env.errorFmt("Uncaught Exception:\n{s}", .{ err_str });
     }
 }
 
 /// src_path is absolute or relative to the cwd.
-pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: bool, opts: RuntimeOptions) !void {
-    const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
+pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: bool, env: *Environment) !void {
+    const abs_path = try std.fs.path.resolve(alloc, &.{ src_path });
     defer alloc.free(abs_path);
-    try runUserMainAbs(alloc, abs_path, dev_mode, opts);
-}
 
-pub fn runUserMainAbs(alloc: std.mem.Allocator, src_abs_path: []const u8, dev_mode: bool, opts: RuntimeOptions) !void {
     _ = curl.initDefault();
     defer curl.deinit();
 
@@ -2133,7 +2094,7 @@ pub fn runUserMainAbs(alloc: std.mem.Allocator, src_abs_path: []const u8, dev_mo
     const platform = ensureV8Platform();
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, src_abs_path, false, dev_mode, opts);
+    rt.init(alloc, platform, abs_path, false, dev_mode, env);
     rt.enter();
     defer {
         shutdownRuntime(&rt);
@@ -2162,7 +2123,7 @@ pub fn runUserMainAbs(alloc: std.mem.Allocator, src_abs_path: []const u8, dev_mo
         rt.dev_ctx.dev_window = res.ptr;
 
         // Start watching the main script.
-        rt.dev_ctx.initWatcher(&rt, src_abs_path);
+        rt.dev_ctx.initWatcher(&rt, abs_path);
     }
 
     const res = try rt.runMainScript();
@@ -2176,12 +2137,12 @@ pub fn runUserMainAbs(alloc: std.mem.Allocator, src_abs_path: []const u8, dev_mo
         }
     }
 
-    // Check if we need to enter an app loop.
+    // Check whether to start off with a realtime loop or event loop.
     if (!dev_mode) {
         if (rt.num_windows > 0) {
             runUserLoop(&rt, false);
         } else {
-            // For now we assume the user won't use a realtime loop with event loop.
+            // TODO: Detect need for realtime loop (eg. on creation of a window) and switch to runUserLoop.
             while (true) {
                 if (pollMainEventLoop(&rt)) {
                     processMainEventLoop(&rt);
@@ -2406,7 +2367,7 @@ fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
 
     const trace_str = allocExceptionJsStackTraceString(rt, val);
     defer rt.alloc.free(trace_str);
-    rt.printFmt("Test Failed: \"{s}\"\n{s}", .{test_name, trace_str});
+    rt.env.printFmt("Test Failed: \"{s}\"\n{s}", .{test_name, trace_str});
 }
 
 fn passIsolatedTest(rt: *RuntimeContext) void {
@@ -2555,35 +2516,6 @@ fn handleSdlWindowResized(rt: *RuntimeContext, event: sdl.SDL_WindowEvent) void 
         }
     }
 }
-
-const WriterIfaceWrapper = std.io.Writer(WriterIface, anyerror, WriterIface.write);
-
-pub const WriterIface = struct {
-    const Self = @This();
-
-    ptr: *anyopaque,
-    write_inner: fn(*anyopaque, []const u8) anyerror!usize,
-
-    pub fn init(writer_ptr: anytype) WriterIfaceWrapper {
-        const Ptr = @TypeOf(writer_ptr);
-        const Gen = struct {
-            fn write_(ptr_: *anyopaque, data: []const u8) anyerror!usize {
-                const self = stdx.mem.ptrCastAlign(Ptr, ptr_);
-                return self.write(data);
-            }
-        };
-        return .{
-            .context = .{
-                .ptr = writer_ptr,
-                .write_inner = Gen.write_,
-            },
-        };
-    }
-
-    fn write(self: Self, data: []const u8) anyerror!usize {
-        return try self.write_inner(self.ptr, data);
-    }
-};
 
 // The v8 platform is stored as a global since after it's deinited,
 // we can no longer reinit v8. See v8.deinitV8/v8.deinitV8Platform.

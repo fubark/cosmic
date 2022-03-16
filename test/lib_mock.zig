@@ -442,3 +442,4 @@ export fn ma_sound_get_cursor_in_pcm_frames() void {}
 export fn v8__Value__IsBigInt() void {}
 export fn SDL_PushEvent() void {}
 export fn v8__Function__GetName() void {}
+export fn v8__Value__IsNullOrUndefined() void {}

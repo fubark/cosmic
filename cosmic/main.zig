@@ -13,9 +13,8 @@ const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
-const printFmt = runtime.printFmt;
-const errorFmt = runtime.errorFmt;
 const log = stdx.log.scoped(.main);
+const Environment = @import("env.zig").Environment;
 
 // Cosmic main. Common entry point for cli and gui.
 pub fn main() !void {
@@ -27,9 +26,16 @@ pub fn main() !void {
     const args = try process.argsAlloc(alloc);
     defer process.argsFree(alloc, args);
 
+    var env = Environment{};
+    try runMain(args, &env);
+}
+
+// main is extracted with cli args and options to facilitate testing.
+pub fn runMain(args: []const []const u8, env: *Environment) !void {
     if (args.len == 1) {
-        repl();
-        process.exit(0);
+        repl(env);
+        env.exit(0);
+        return;
     }
 
     // Skip exe path arg.
@@ -37,76 +43,80 @@ pub fn main() !void {
 
     const cmd = nextArg(args, &arg_idx).?;
     if (string.eq(cmd, "cli")) {
-        repl();
-        process.exit(0);
+        repl(env);
+        env.exit(0);
     } else if (string.eq(cmd, "dev")) {
         const src_path = nextArg(args, &arg_idx) orelse {
-            abortFmt("Expected path to main source file.", .{});
+            env.abortFmt("Expected path to main source file.", .{});
+            return;
         };
-        try runAndExit(src_path, true);
+        try runAndExit(src_path, true, env);
     } else if (string.eq(cmd, "run")) {
         const src_path = nextArg(args, &arg_idx) orelse {
-            abortFmt("Expected path to main source file.", .{});
+            env.abortFmt("Expected path to main source file.", .{});
+            return;
         };
-        try runAndExit(src_path, false);
+        try runAndExit(src_path, false, env);
     } else if (string.eq(cmd, "test")) {
         const src_path = nextArg(args, &arg_idx) orelse {
-            abortFmt("Expected path to main source file.", .{});
+            env.abortFmt("Expected path to main source file.", .{});
+            return;
         };
-        try testAndExit(src_path);
+        try testAndExit(src_path, env);
     } else if (string.eq(cmd, "help")) {
-        usage();
-        process.exit(0);
+        usage(env);
+        env.exit(0);
     } else if (string.eq(cmd, "version")) {
-        version();
-        process.exit(0);
+        version(env);
+        env.exit(0);
     } else if (string.eq(cmd, "shell")) {
-        repl();
-        process.exit(0);
+        repl(env);
+        env.exit(0);
     } else {
         // Assume param is a js file.
         const src_path = cmd;
-        try runAndExit(src_path, false);
+        try runAndExit(src_path, false, env);
     }
 }
 
-fn testAndExit(src_path: []const u8) !void {
+fn testAndExit(src_path: []const u8, env: *Environment) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    const passed = runtime.runTestMain(alloc, src_path, .{}) catch |err| {
+    const passed = runtime.runTestMain(alloc, src_path, env) catch |err| {
         stdx.heap.deinitDefaultAllocator();
         if (err == error.FileNotFound) {
-            abortFmt("File not found: {s}", .{src_path});
+            env.abortFmt("File not found: {s}", .{src_path});
         } else {
-            abortFmt("Encountered error: {}", .{err});
+            env.abortFmt("Encountered error: {}", .{err});
         }
+        return;
     };
     stdx.heap.deinitDefaultAllocator();
     if (passed) {
-        process.exit(0);
+        env.exit(0);
     } else {
-        process.exit(1);
+        env.exit(1);
     }
 }
 
-fn runAndExit(src_path: []const u8, dev_mode: bool) !void {
+fn runAndExit(src_path: []const u8, dev_mode: bool, env: *Environment) !void {
     const alloc = stdx.heap.getDefaultAllocator();
-    defer stdx.heap.deinitDefaultAllocator();
 
-    runtime.runUserMain(alloc, src_path, dev_mode, .{}) catch |err| {
+    runtime.runUserMain(alloc, src_path, dev_mode, env) catch |err| {
         stdx.heap.deinitDefaultAllocator();
-        if (err == error.FileNotFound) {
-            abortFmt("File not found: {s}", .{src_path});
-        } else {
-            abortFmt("Encountered error: {}", .{err});
+        switch (err) {
+            error.FileNotFound => env.abortFmt("File not found: {s}", .{src_path}),
+            error.MainScriptError => {},
+            else => env.abortFmt("Encountered error: {}", .{err}),
         }
+        return err;
     };
     stdx.heap.deinitDefaultAllocator();
-    process.exit(0);
+    env.exit(0);
 }
 
-fn repl() void {
+fn repl(env: *Environment) void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
@@ -141,14 +151,14 @@ fn repl() void {
 
     const origin = iso.initStringUtf8("(shell)");
 
-    printFmt(
+    env.printFmt(
         \\Cosmic ({s})
         \\exit with Ctrl+D or "exit()"
         \\
     , .{build_options.VersionName});
 
     while (true) {
-        printFmt("\n> ", .{});
+        env.printFmt("\n> ", .{});
         if (getInput(&input_buf)) |input| {
             if (string.eq(input, "exit()")) {
                 break;
@@ -158,9 +168,9 @@ fn repl() void {
             defer res.deinit();
             v8x.executeString(alloc, iso, ctx, input, origin, &res);
             if (res.success) {
-                printFmt("{s}", .{res.result.?});
+                env.printFmt("{s}", .{res.result.?});
             } else {
-                printFmt("{s}", .{res.err.?});
+                env.printFmt("{s}", .{res.err.?});
             }
 
             while (platform.pumpMessageLoop(iso, false)) {
@@ -168,7 +178,7 @@ fn repl() void {
             }
             // log.info("input: {s}", .{input});
         } else {
-            printFmt("\n", .{});
+            env.printFmt("\n", .{});
             return;
         }
     }
@@ -208,21 +218,15 @@ const main_usage =
     \\
 ;
 
-fn usage() void {
-    printFmt("{s}\n", .{main_usage});
+fn usage(env: *Environment) void {
+    env.printFmt("{s}\n", .{main_usage});
 }
 
-fn version() void {
-    printFmt("cosmic {s}\nv8 {s}\n", .{ build_options.VersionName, v8.getVersion() });
+fn version(env: *Environment) void {
+    env.printFmt("cosmic {s}\nv8 {s}\n", .{ build_options.VersionName, v8.getVersion() });
 }
 
-pub fn abortFmt(comptime format: []const u8, args: anytype) noreturn {
-    errorFmt(format, args);
-    errorFmt("\n", .{});
-    process.exit(1);
-}
-
-fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
+fn nextArg(args: []const []const u8, idx: *usize) ?[]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
