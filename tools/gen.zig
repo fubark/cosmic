@@ -2,7 +2,6 @@ const std = @import("std");
 const process = std.process;
 
 const runtime = @import("../cosmic/runtime.zig");
-const printFmt = runtime.printFmt;
 const doc_gen = @import("../docs/doc_gen.zig");
 const js_gen = @import("../cosmic/js_gen.zig");
 
@@ -48,4 +47,9 @@ fn nextArg(args: []const []const u8, idx: *usize) ?[]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
+}
+
+fn printFmt(comptime format: []const u8, args: anytype) void {
+    const stdout = std.io.getStdOut().writer();
+    stdout.print(format, args) catch unreachable;
 }

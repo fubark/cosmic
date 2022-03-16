@@ -34,6 +34,7 @@ const devmode = @import("devmode.zig");
 const DevModeContext = devmode.DevModeContext;
 const adapter = @import("adapter.zig");
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
+const FuncData = adapter.FuncData;
 const Environment = @import("env.zig").Environment;
 
 pub const PromiseId = u32;
@@ -1647,7 +1648,7 @@ fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
 
 const ResourceListId = u32;
 pub const ResourceId = u32;
-const ResourceTag = enum {
+pub const ResourceTag = enum {
     CsWindow,
     CsHttpServer,
     Dummy,
@@ -2273,7 +2274,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     }
 }
 
-const WeakHandleId = u32;
+pub const WeakHandleId = u32;
 
 const WeakHandle = struct {
     const Self = @This();
@@ -2299,7 +2300,7 @@ const WeakHandle = struct {
     }
 };
 
-const WeakHandleTag = enum {
+pub const WeakHandleTag = enum {
     DrawCommandList,
     Sound,
     Null,
@@ -2426,49 +2427,7 @@ const ExternalResourceHandle = struct {
     res_id: ResourceId,
 };
 
-/// Converted from a js object that has a weak handle id in their first internal field.
-pub fn Handle(comptime Tag: WeakHandleTag) type {
-    return struct {
-        pub const Handle = true;
-
-        id: WeakHandleId,
-        ptr: WeakHandlePtr(Tag),
-        obj: v8.Object,
-    };
-}
-
-/// Converted from a js function's this object that has a weak handle id in their first internal field.
-pub fn ThisHandle(comptime Tag: WeakHandleTag) type {
-    return struct {
-        pub const ThisHandle = true;
-
-        id: WeakHandleId,
-        ptr: WeakHandlePtr(Tag),
-        obj: v8.Object,
-    };
-}
-
-/// This is converted from a js object that has a resource id in their first internal field.
-pub fn ThisResource(comptime Tag: ResourceTag) type {
-    return struct {
-        pub const ThisResource = true;
-
-        res_id: ResourceId,
-        res: *Resource(Tag),
-        obj: v8.Object,
-    };
-}
-
-pub const This = struct {
-    obj: v8.Object,
-};
-
-// Attached function data.
-pub const Data = struct {
-    val: v8.Value,
-};
-
-fn reportIsolatedTestFailure(data: Data, val: v8.Value) void {
+fn reportIsolatedTestFailure(data: FuncData, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 

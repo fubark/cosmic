@@ -346,17 +346,18 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: s
     // arg_names are currently empty.
     // https://github.com/ziglang/zig/issues/8259
 
-    inline for (FuncInfo.func_arg_field_idxs) |Idx| {
-        const Field = ArgFields[Idx];
-        const BaseType = if (@typeInfo(Field.field_type) == .Optional) @typeInfo(Field.field_type).Optional.child else Field.field_type;
-        try params.append(.{
-            .param_name = "",
-            //.param_name = FnDecl.data.Fn.arg_names[Idx],
-            .type_name = getJsTypeName(BaseType),
-            .type_decl_mod = null,
-            .optional = @typeInfo(Field.field_type) == .Optional,
-        });
-        // log.debug("{s}", .{@typeName(Field.field_type)});
+    inline for (ArgFields) |Field, i| {
+        if (FuncInfo.param_tags[i] == .Param) {
+            const BaseType = if (@typeInfo(Field.field_type) == .Optional) @typeInfo(Field.field_type).Optional.child else Field.field_type;
+            try params.append(.{
+                .param_name = "",
+                //.param_name = FnDecl.data.Fn.arg_names[Idx],
+                .type_name = getJsTypeName(BaseType),
+                .type_decl_mod = null,
+                .optional = @typeInfo(Field.field_type) == .Optional,
+            });
+            // log.debug("{s}", .{@typeName(Field.field_type)});
+        }
     }
     func.params = params.toOwnedSlice();
 

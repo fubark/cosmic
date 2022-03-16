@@ -26,12 +26,8 @@ const RuntimeValue = runtime.RuntimeValue;
 const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
 const F64SafeUint = runtime.F64SafeUint;
-const ThisResource = runtime.ThisResource;
-const ThisHandle = runtime.ThisHandle;
 const Error = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
-const This = runtime.This;
-const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
 const Uint8Array = runtime.Uint8Array;
@@ -42,6 +38,10 @@ const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
 const adapter = @import("adapter.zig");
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
+const This = adapter.This;
+const ThisResource = adapter.ThisResource;
+const ThisHandle = adapter.ThisHandle;
+const FuncData = adapter.FuncData;
 
 // TODO: Once https://github.com/ziglang/zig/issues/8259 is resolved, use comptime to set param names.
 
@@ -2028,7 +2028,7 @@ pub const cs_test = struct {
 pub const cs_worker = struct {
 };
 
-fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
+fn reportAsyncTestFailure(data: FuncData, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
