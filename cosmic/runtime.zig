@@ -154,6 +154,13 @@ pub const RuntimeContext = struct {
 
     modules: std.AutoHashMap(u32, ModuleInfo),
 
+    // Holds the main script module if it was compiled successfully.
+    main_script_mod: ?v8.Persistent(v8.Module),
+
+    // Whether the main script is done with top level awaits.
+    // This doesn't mean that the process is done since some resources can keep it alive (eg. a window)
+    main_script_done: bool,
+
     get_native_val_err: anyerror,
 
     env: *Environment,
@@ -227,6 +234,8 @@ pub const RuntimeContext = struct {
             .hscope = undefined,
 
             .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
+            .main_script_mod = null,
+            .main_script_done = false,
             .get_native_val_err = undefined,
             .env = env,
         };
@@ -460,6 +469,10 @@ pub const RuntimeContext = struct {
         self.default_obj_t.deinit();
         self.global.deinit();
 
+        if (self.main_script_mod) |*mod| {
+            mod.deinit();
+        }
+
         // Deinit isolate after exiting.
         self.exit();
         self.context.deinit();
@@ -522,7 +535,9 @@ pub const RuntimeContext = struct {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
             self.env.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
-                .success = false,
+                .state = .Failed,
+                .mod = null,
+                .eval = null,
                 .js_err_trace = trace_str,
             };
         };
@@ -611,8 +626,10 @@ pub const RuntimeContext = struct {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
             self.env.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
-                .success = false,
-                .js_err_trace = null,
+                .state = .Failed,
+                .mod = iso.initPersistent(v8.Module, mod),
+                .eval = null,
+                .js_err_trace = trace_str,
             };
         };
         if (!success) {
@@ -624,24 +641,74 @@ pub const RuntimeContext = struct {
             const trace_str = v8x.allocPrintTryCatchStackTrace(self.alloc, self.isolate, self.getContext(), try_catch).?;
             self.env.errorFmt("{s}", .{trace_str});
             return RunModuleScriptResult{
-                .success = false,
+                .state = .Failed,
+                .mod = iso.initPersistent(v8.Module, mod),
+                .eval = null,
                 .js_err_trace = trace_str,
             };
         };
+        // res is a promise that resolves to undefined if successful and rejects to an exception object on error.
         _ = res;
-        if (mod.getStatus() == .kErrored) {
-            const trace_str = v8x.allocExceptionStackTraceString(self.alloc, self.isolate, self.getContext(), mod.getException());
-            self.errorFmt("{s}", .{trace_str});
-            return RunModuleScriptResult{
-                .success = false,
-                .js_err_trace = trace_str,
-            };
+        switch (mod.getStatus()) {
+            .kErrored => {
+                const trace_str = allocExceptionJsStackTraceString(self, mod.getException());
+                self.env.errorFmt("{s}", .{trace_str});
+                return RunModuleScriptResult{
+                    .state = .Failed,
+                    .mod = iso.initPersistent(v8.Module, mod),
+                    .eval = iso.initPersistent(v8.Promise, res.castTo(v8.Promise)),
+                    .js_err_trace = trace_str,
+                };
+            },
+            .kEvaluated => {
+                const res_p = res.castTo(v8.Promise);
+                switch (res_p.getState()) {
+                    .kFulfilled => {
+                        return RunModuleScriptResult{
+                            .state = .Success,
+                            .mod = iso.initPersistent(v8.Module, mod),
+                            .eval = iso.initPersistent(v8.Promise, res_p),
+                            .js_err_trace = null,
+                        };
+                    },
+                    .kPending => {
+                        // Attempt to pump the v8 event loop once to see if it can finish the script.
+                        // If not, the script is using the worker or evented io and needs to continue with the main event loop.
+                        processV8EventLoop(self);
+                        switch (res_p.getState()) {
+                            .kRejected => {
+                                const trace_str = allocExceptionJsStackTraceString(self, mod.getException());
+                                self.env.errorFmt("{s}", .{trace_str});
+                                return RunModuleScriptResult{
+                                    .state = .Failed,
+                                    .mod = iso.initPersistent(v8.Module, mod),
+                                    .eval = iso.initPersistent(v8.Promise, res_p),
+                                    .js_err_trace = trace_str,
+                                };
+                            },
+                            .kFulfilled => {
+                                return RunModuleScriptResult{
+                                    .state = .Success,
+                                    .mod = iso.initPersistent(v8.Module, mod),
+                                    .eval = iso.initPersistent(v8.Promise, res_p),
+                                    .js_err_trace = null,
+                                };
+                            },
+                            .kPending => {
+                                return RunModuleScriptResult{
+                                    .state = .Pending,
+                                    .mod = iso.initPersistent(v8.Module, mod),
+                                    .eval = iso.initPersistent(v8.Promise, res_p),
+                                    .js_err_trace = null,
+                                };
+                            },
+                        }
+                    },
+                    else => unreachable,
+                }
+            },
+            else => unreachable,
         }
-        processV8EventLoop(self);
-        return RunModuleScriptResult{
-            .success = true,
-            .js_err_trace = null,
-        };
     }
 
     fn runScript(self: *Self, abs_path: []const u8) !void {
@@ -1790,10 +1857,19 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, env: *Environ
         rt.deinit();
     }
 
-    const res = try rt.runMainScript();
+    var res = try rt.runMainScript();
     defer res.deinit(rt.alloc);
-    if (!res.success) {
-        return error.MainScriptError;
+    if (res.mod) |mod| {
+        rt.main_script_mod = mod;
+        res.mod = null;
+    }
+    switch (res.state) {
+        .Failed => {
+            rt.main_script_done = true;
+            return error.MainScriptError;
+        },
+        .Success => rt.main_script_done = true,
+        .Pending => rt.main_script_done = false,
     }
 
     while (rt.num_async_tests_finished < rt.num_async_tests) {
@@ -1855,12 +1931,25 @@ fn restart(rt: *RuntimeContext) !void {
     // Reinit watcher
     rt.dev_ctx.initWatcher(rt, main_script_path);
 
-    const run_res = try rt.runMainScript();
+    var run_res = try rt.runMainScript();
     defer run_res.deinit(rt.alloc);
-    if (!run_res.success) {
-        rt.dev_ctx.enterJsErrorState(rt, run_res.js_err_trace.?);
-    } else {
-        rt.dev_ctx.enterJsSuccessState();
+    if (run_res.mod) |mod| {
+        rt.main_script_mod = mod;
+        run_res.mod = null;
+    }
+    switch (run_res.state) {
+        .Failed => {
+            rt.main_script_done = true;
+            rt.dev_ctx.enterJsErrorState(rt, run_res.js_err_trace.?);
+        },
+        .Success => {
+            rt.main_script_done = true;
+            rt.dev_ctx.enterJsSuccessState();
+        },
+        .Pending => {
+            rt.main_script_done = false;
+            rt.dev_ctx.enterJsSuccessState();
+        },
     }
 }
 
@@ -1942,6 +2031,11 @@ const IsolatedTest = struct {
 /// Returns whether there are pending events in libuv or the work queue.
 inline fn hasPendingEvents(rt: *RuntimeContext) bool {
     // log.debug("hasPending {} {} {} {}", .{rt.uv_loop.active_handles, rt.uv_loop.active_reqs.count, rt.uv_loop.closing_handles !=null, rt.work_queue.hasUnfinishedTasks()});
+
+    // Always return true if main script is still pending (eg. top level await new Promise(() => {}))
+    if (!rt.main_script_done) {
+        return true;
+    }
 
     // There will at least be 1 active handle (the dummy async handle used to do interrupts from main thread).
     // uv handle checks is based on uv_loop_alive():
@@ -2126,14 +2220,32 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
         rt.dev_ctx.initWatcher(&rt, abs_path);
     }
 
-    const res = try rt.runMainScript();
+    var res = try rt.runMainScript();
     defer res.deinit(rt.alloc);
-
-    if (!res.success) {
-        if (!dev_mode) {
-            return error.MainScriptError;
-        } else {
-            rt.dev_ctx.enterJsErrorState(&rt, res.js_err_trace.?);
+    if (res.mod) |mod| {
+        rt.main_script_mod = mod;
+        res.mod = null;
+    }
+    switch (res.state) {
+        .Failed => {
+            if (!dev_mode) {
+                return error.MainScriptError;
+            } else {
+                rt.main_script_done = true;
+                rt.dev_ctx.enterJsErrorState(&rt, res.js_err_trace.?);
+            }
+        },
+        .Success => {
+            rt.main_script_done = true;
+        },
+        .Pending => {
+            // Since module has a handler for top level async calls, it won't trigger the uncaught exception callback.
+            // Attach then and catch handlers to handle the final outcome.
+            rt.main_script_done = false;
+            const data = rt.isolate.initExternal(&rt);
+            const on_fulfill = v8.Function.initWithData(rt.getContext(), gen.genJsFuncSync(handleMainModuleScriptSuccess), data);
+            const on_reject = v8.Function.initWithData(rt.getContext(), gen.genJsFuncSync(handleMainModuleScriptError), data);
+            _ = res.eval.?.inner.thenAndCatch(rt.getContext(), on_fulfill, on_reject) catch unreachable;
         }
     }
 
@@ -2496,12 +2608,34 @@ pub fn createWeakHandle(rt: *RuntimeContext, comptime Tag: WeakHandleTag, ptr: W
 const RunModuleScriptResult = struct {
     const Self = @This();
 
-    success: bool,
+    const State = enum {
+        Pending,
+        Success,
+        Failed,
+    };
+
+    // This only reflects the state after returning from runModuleScript.
+    // To query the module eval state, check the eval promise.
+    state: State,
+
+    // If Failed, mod can be null if it failed on the compile step.
+    mod: ?v8.Persistent(v8.Module),
+
+    // The eval promise. Will resolve to undefined or reject with error.
+    eval: ?v8.Persistent(v8.Promise),
+
+    // If Failed, js_err_trace will be present.
     js_err_trace: ?[]const u8,
 
-    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
         if (self.js_err_trace) |trace| {
             alloc.free(trace);
+        }
+        if (self.mod) |*mod_| {
+            mod_.deinit();
+        }
+        if (self.eval) |*eval_| {
+            eval_.deinit();
         }
     }
 };
@@ -2687,4 +2821,28 @@ fn getNativeValue(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, co
 
 fn getNativeValue2(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, comptime Target: type, val: v8.Value) ?Target {
     return getNativeValue(alloc, iso, ctx, Target, val) catch return null;
+}
+
+fn handleMainModuleScriptError(rt: *RuntimeContext, val: v8.Value) void {
+    const err_str = allocExceptionJsStackTraceString(rt, val);
+    defer rt.alloc.free(err_str);
+    rt.env.errorFmt("{s}", .{err_str});
+
+    rt.main_script_done = true;
+    if (rt.dev_mode) {
+        rt.dev_ctx.enterJsErrorState(rt, err_str);
+    }
+
+    const res = uv.uv_async_send(rt.uv_dummy_async);
+    uv.assertNoError(res);
+}
+
+fn handleMainModuleScriptSuccess(rt: *RuntimeContext) void {
+    rt.main_script_done = true;
+    if (rt.dev_mode) {
+        rt.dev_ctx.enterJsSuccessState();
+    }
+
+    const res = uv.uv_async_send(rt.uv_dummy_async);
+    uv.assertNoError(res);
 }

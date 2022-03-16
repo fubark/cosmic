@@ -26,6 +26,20 @@ test('esm imports', () => {
     eq(bar, 2)
 })
 
+// Even though JsStackTrace is what gets reported to stderr, make sure that Error.stack has a similar stack trace.
+// This would test the return value of the custom Error.prepareStackTrace in api_init.js
+test('Error.stack', () => {
+    const err = new Error('boom')
+    const lines = err.stack.split('\n')
+    const frames = err.__frames
+    eq(lines.length, 3)
+    eq(lines[0], 'Error: boom')
+    assert(lines[1].startsWith('    at'))
+    assert(lines[1].endsWith(`test.js:${frames[0].line_num}:${frames[0].col_num}`))
+    assert(lines[2].startsWith('    at'))
+    assert(lines[2].endsWith(`test.js:${frames[1].line_num}:${frames[1].col_num}`))
+})
+
 test('errCode and errString', () => {
     clearError()
     var err = errCode()

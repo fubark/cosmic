@@ -48,16 +48,44 @@ test "behavior: JS syntax error prints stack trace to stderr" {
 }
 
 test "behavior: JS main script runtime error prints stack trace to stderr" {
-    const res = runScript(
-        \\foo
-    );
-    defer res.deinit();
-    try t.eq(res.success, false);
-    try t.eqStr(res.stderr,
-        \\ReferenceError: foo is not defined
-        \\    at /test.js:1:1
-        \\
-    );
+    {
+        const res = runScript(
+            \\foo
+        );
+        defer res.deinit();
+        try t.eq(res.success, false);
+        try t.eqStr(res.stderr,
+            \\ReferenceError: foo is not defined
+            \\    at /test.js:1:1
+            \\
+        );
+    }
+    {
+        // Async stack trace chain that fails in native async function.
+        const res = runScript(
+            \\async function foo2() {
+            \\    await cs.files.getPathInfoAsync('does_not_exist')
+            \\}
+            \\async function foo1() {
+            \\    await foo2()
+            \\}
+            \\await foo1()
+        );
+        defer res.deinit();
+        try t.eq(res.success, true);
+        var first_frame: []const u8 = undefined;
+        defer t.alloc.free(first_frame);
+        const stderr_rest = extractLine(res.stderr, 1, &first_frame);
+        defer t.alloc.free(stderr_rest);
+        try t.expect(std.mem.startsWith(u8, first_frame, "    at cs.files.getPathInfoAsync gen_api.js"));
+        try t.eqStr(stderr_rest,
+            \\ApiError: FileNotFound
+            \\    at async foo2 /test.js:2:5
+            \\    at async foo1 /test.js:5:5
+            \\    at async /test.js:7:1
+            \\
+        );
+    }
 }
 
 test "behavior: puts, print, dump prints to stdout" {
@@ -143,4 +171,20 @@ fn runScript(source: []const u8) RunResult {
 
 fn root() []const u8 {
     return (std.fs.path.dirname(@src().file) orelse unreachable);
+}
+
+fn extractLine(str: []const u8, idx: u32, out: *[]const u8) []const u8 {
+    var iter = std.mem.split(u8, str, "\n");
+    var rest = std.ArrayList([]const u8).init(t.alloc);
+    defer rest.deinit();
+    var i: u32 = 0;
+    while (iter.next()) |line| {
+        if (i == idx) {
+            out.* = t.alloc.dupe(u8, line) catch unreachable;
+        } else {
+            rest.append(line) catch unreachable;
+        }
+        i += 1;
+    }
+    return std.mem.join(t.alloc, "\n", rest.items) catch unreachable;
 }
