@@ -63,6 +63,8 @@ test "behavior: puts, print, dump prints to stdout" {
         \\print({ a: 123 }, '\n')
         \\dump('foo')
         \\dump({ a: 123 })
+        \\dump(function foo() {})
+        \\dump(() => {})
     );
     defer res.deinit();
     try t.eq(res.success, true);
@@ -77,6 +79,8 @@ test "behavior: puts, print, dump prints to stdout" {
         \\[object Object] 
         \\"foo"
         \\{ a: 123 }
+        \\(Function: foo)
+        \\(Function)
         \\
     );
 }
