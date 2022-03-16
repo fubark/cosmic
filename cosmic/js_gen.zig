@@ -37,6 +37,11 @@ fn genApiSupplementJs(alloc: std.mem.Allocator) []const u8 {
     pkg_to_ns.put("cs_window", "window") catch unreachable;
     pkg_to_ns.put("cs_worker", "worker") catch unreachable;
 
+    writer.print(
+        \\"use strict";
+        \\
+    , .{}) catch unreachable;
+
     inline for (Packages) |Pkg| {
         const PkgDecls = comptime std.meta.declarations(Pkg);
         inline for (PkgDecls) |PkgDecl| {

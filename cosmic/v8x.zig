@@ -36,11 +36,15 @@ pub fn executeString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context,
 
     var context = iso.getCurrentContext();
 
+    // TODO: Since, only init scripts are executed as non esm scripts, we are currently prepending "use strict"; manually.
+    //       If we do turn this back on, we'd need to compile with a detailed source param that specifies a line offset
+    //       or the stack traces will be off by one.
     // Since es modules are in strict mode it makes sense that everything else should also be in strict mode.
     // Append 'use strict'; There isn't an internal api to enable it.
     // Append void 0 so empty source still evaluates to undefined.
-    const final_src = stdx.string.concat(alloc, &[_][]const u8{ "'use strict';void 0;\n", src }) catch unreachable;
-    defer alloc.free(final_src);
+    // const final_src = stdx.string.concat(alloc, &[_][]const u8{ "'use strict';void 0;\n", src }) catch unreachable;
+    // defer alloc.free(final_src);
+    const final_src = src;
 
     const js_src = v8.String.initUtf8(iso, final_src);
 

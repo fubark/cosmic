@@ -60,7 +60,7 @@
     }
 
     cs.files.walkDirAsync = async function* (path) {
-        const entries = await cs.files.listDirAsync(path)
+        const entries = await cs.files.listDirAsync(path).catch(err => { throw new ApiError(err) })
         if (entries === null) {
             return
         }
@@ -91,7 +91,7 @@
     }
 
     cs.http.requestAsync = async function(method, url) {
-        const resp = await cs.http._requestAsync(method, url)
+        const resp = await cs.http._requestAsync(method, url).catch(err => { throw new ApiError(err) })
         const headers = resp.headers
         resp.headers = new Map()
         for (const h of headers) {
