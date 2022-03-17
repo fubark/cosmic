@@ -33,8 +33,8 @@ const cs_graphics = @import("api_graphics.zig").cs_graphics;
 const v8x = @import("v8x.zig");
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
-// A parent HandleScope should persist the values we create in here until the end of the script execution.
-// At this point rt.v8_ctx should be assumed to be undefined since we haven't created a v8.Context yet.
+/// Initializes the js global context. Sets up modules and binds api functions.
+/// A parent HandleScope should capture and clean up any redundant v8 vars created here.
 pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const ctx = ContextBuilder{
         .rt = rt,
@@ -50,6 +50,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const handle_class = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
     handle_class.inner.setInternalFieldCount(2);
     rt.handle_class = handle_class;
+
+    // Runtime-context template.
+    // First field contains rt pointer.
+    // Second field contains a custom pointer or value.
+    // Used to create function data when the functions don't accept a user object param. eg. Promise fulfill/reject callbacks.
+    rt.rt_ctx_tmpl = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
+    rt.rt_ctx_tmpl.inner.setInternalFieldCount(2);
 
     // GenericObject
     rt.default_obj_t = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));

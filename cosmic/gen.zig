@@ -11,7 +11,7 @@ const adapter = @import("adapter.zig");
 const This = adapter.This;
 const ThisResource = adapter.ThisResource;
 const FuncData = adapter.FuncData;
-const FuncDataPtr = adapter.FuncDataPtr;
+const FuncDataUserPtr = adapter.FuncDataUserPtr;
 const CsError = runtime.CsError;
 const RuntimeValue = runtime.RuntimeValue;
 const PromiseId = runtime.PromiseId;
@@ -124,15 +124,15 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
             }
 
             var native_args: ArgTypesT = undefined;
-            inline for (ArgFields) |field, i| {
+            inline for (ArgFields) |Field, i| {
                 switch (FuncInfo.param_tags[i]) {
-                    .This => @field(native_args, field.name) = This{ .obj = info.getThis() },
+                    .This => @field(native_args, Field.name) = This{ .obj = info.getThis() },
                     .ThisResource => {
-                        const Ptr = stdx.meta.FieldType(field.field_type, .res);
+                        const Ptr = stdx.meta.FieldType(Field.field_type, .res);
                         const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
                         const handle = rt.resources.getAssumeExists(res_id);
                         if (!handle.deinited) {
-                            @field(native_args, field.name) = field.field_type{
+                            @field(native_args, Field.name) = Field.field_type{
                                 .res = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
                                 .res_id = res_id,
                                 .obj = info.getThis(),
@@ -143,12 +143,12 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         }
                     },
                     .ThisHandle => {
-                        const Ptr = stdx.meta.FieldType(field.field_type, .ptr);
+                        const Ptr = comptime stdx.meta.FieldType(Field.field_type, .ptr);
                         const this = info.getThis();
                         const handle_id = @intCast(u32, @ptrToInt(this.getInternalField(0).castTo(v8.External).get()));
                         const handle = rt.weak_handles.getAssumeExists(handle_id);
                         if (handle.tag != .Null) {
-                            @field(native_args, field.name) = field.field_type{
+                            @field(native_args, Field.name) = Field.field_type{
                                 .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
                                 .id = handle_id,
                                 .obj = this,
@@ -158,19 +158,25 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                             return;
                         }
                     },
-                    .FuncData => @field(native_args, field.name) = .{ .val = info.getData() },
-                    .FuncDataPtr => @field(native_args, field.name) = stdx.mem.ptrCastAlign(field.field_type, info.getData().castTo(v8.External).get()),
+                    .FuncData => @field(native_args, Field.name) = .{ .val = info.getData() },
+                    .FuncDataUserPtr => {
+                        const Ptr = comptime stdx.meta.FieldType(Field.field_type, .ptr);
+                        const ptr = info.getData().castTo(v8.Object).getInternalField(1).castTo(v8.External).get();
+                        @field(native_args, Field.name) = Field.field_type{
+                            .ptr = stdx.mem.ptrCastAlign(Ptr, ptr),
+                        };
+                    },
                     .ThisPtr => {
-                        const Ptr = field.field_type;
+                        const Ptr = Field.field_type;
                         const ptr = @ptrToInt(info.getThis().getInternalField(0).castTo(v8.External).get());
                         if (ptr > 0) {
-                            @field(native_args, field.name) = @intToPtr(Ptr, ptr);
+                            @field(native_args, Field.name) = @intToPtr(Ptr, ptr);
                         } else {
                             v8x.throwErrorException(iso, "Native handle expired");
                             return;
                         }
                     },
-                    .RuntimePtr => @field(native_args, field.name) = rt,
+                    .RuntimePtr => @field(native_args, Field.name) = rt,
                     else => {},
                 }
             }
@@ -304,7 +310,7 @@ const ParamFieldTag = enum {
     // Pointer is converted from this->getInternalField(0)
     ThisPtr,
     FuncData,
-    FuncDataPtr,
+    FuncDataUserPtr,
     RuntimePtr,
     Param,
 };
@@ -341,8 +347,8 @@ pub fn getJsFuncInfo(comptime param_fields: []const std.builtin.TypeInfo.StructF
             param_tags[i] = .ThisPtr;
         } else if (field.field_type == FuncData) {
             param_tags[i] = .FuncData;
-        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "FuncDataPtr")) {
-            param_tags[i] = .FuncDataPtr;
+        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "FuncDataUserPtr")) {
+            param_tags[i] = .FuncDataUserPtr;
         } else if (field.field_type == *RuntimeContext) {
             param_tags[i] = .RuntimePtr;
         } else {

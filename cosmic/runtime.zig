@@ -35,6 +35,7 @@ const DevModeContext = devmode.DevModeContext;
 const adapter = @import("adapter.zig");
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 const FuncData = adapter.FuncData;
+const FuncDataUserPtr = adapter.FuncDataUserPtr;
 const Environment = @import("env.zig").Environment;
 
 pub const PromiseId = u32;
@@ -66,6 +67,7 @@ pub const RuntimeContext = struct {
     color_class: v8.Persistent(v8.FunctionTemplate),
     sound_class: v8.Persistent(v8.ObjectTemplate),
     handle_class: v8.Persistent(v8.ObjectTemplate),
+    rt_ctx_tmpl: v8.Persistent(v8.ObjectTemplate),
     default_obj_t: v8.Persistent(v8.ObjectTemplate),
 
     /// Collection of mappings from id to resource handles.
@@ -185,6 +187,7 @@ pub const RuntimeContext = struct {
             .http_server_class = undefined,
             .image_class = undefined,
             .handle_class = undefined,
+            .rt_ctx_tmpl = undefined,
             .sound_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
@@ -466,6 +469,7 @@ pub const RuntimeContext = struct {
         self.image_class.deinit();
         self.color_class.deinit();
         self.handle_class.deinit();
+        self.rt_ctx_tmpl.deinit();
         self.sound_class.deinit();
         self.default_obj_t.deinit();
         self.global.deinit();
@@ -2121,9 +2125,7 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
                 const data = iso.initExternal(rt);
                 const on_fulfilled = v8.Function.initWithData(ctx, gen.genJsFuncSync(passIsolatedTest), data);
 
-                const tmpl = iso.initObjectTemplateDefault();
-                tmpl.setInternalFieldCount(2);
-                const extra_data = tmpl.initInstance(ctx);
+                const extra_data = rt.rt_ctx_tmpl.inner.initInstance(ctx);
                 extra_data.setInternalField(0, data);
                 extra_data.setInternalField(1, iso.initStringUtf8(case.name));
                 const on_rejected = v8.Function.initWithData(ctx, gen.genJsFunc(reportIsolatedTestFailure, .{

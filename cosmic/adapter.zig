@@ -51,10 +51,11 @@ pub const FuncData = struct {
     val: v8.Value,
 };
 
-/// Contains a pointer converted from v8.Function data assuming the data was a v8.External.
-pub fn FuncDataPtr(comptime Ptr: type) type {
+/// Contains a pointer converted from v8.Function data's second internal field.
+/// The first internal field is reserved for the rt pointer.
+pub fn FuncDataUserPtr(comptime Ptr: type) type {
     return struct {
-        const FuncDataPtr = true;
+        pub const FuncDataUserPtr = true;
 
         ptr: Ptr,
     };
