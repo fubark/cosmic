@@ -2620,6 +2620,16 @@ pub fn ensureV8Platform() v8.Platform {
         const platform = v8.Platform.initDefault(0, true);
         v8.initV8Platform(platform);
         v8.initV8();
+
+        const S = struct {
+            fn handleDcheck(file: [*c]const u8, line: c_int, msg: [*c]const u8) callconv(.C) void {
+                log.debug("v8 dcheck {s}:{} {s}", .{file, line, msg});
+                // Just panic and print zig's stack trace.
+                unreachable;
+            }
+        };
+        // Override v8 debug assert reporting.
+        v8.setDcheckFunction(S.handleDcheck);
         g_platform = platform;
     }
     return g_platform.?;
