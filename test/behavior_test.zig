@@ -1,5 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const build_options = @import("build_options");
+const v8 = @import("v8");
 const t = stdx.testing;
 
 const runtime = @import("../cosmic/runtime.zig");
@@ -118,6 +120,133 @@ test "behavior: puts, print, dump prints to stdout" {
     );
 }
 
+test "behavior: CLI help, version, command usages." {
+    {
+        // "cosmic" prints out main usage.
+        const res = runCmd(&.{"cosmic"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.expect(std.mem.startsWith(u8, res.stdout, "Usage: cosmic [command] [options]"));
+    }
+    {
+        // "cosmic help" prints out main usage.
+        const res = runCmd(&.{"cosmic", "help"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.expect(std.mem.startsWith(u8, res.stdout, "Usage: cosmic [command] [options]"));
+    }
+    {
+        // "cosmic version" prints out the version and v8 version.
+        const res = runCmd(&.{"cosmic", "version"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        const exp_version = try std.fmt.allocPrint(t.alloc, 
+            \\cosmic {s}
+            \\v8 {s}
+            \\
+            , .{ build_options.VersionName, v8.getVersion() }
+        );
+        defer t.alloc.free(exp_version);
+        try t.eqStr(res.stdout, exp_version);
+    }
+    {
+        // "cosmic run -h" prints out usage.
+        const res = runCmd(&.{"cosmic", "run", "-h"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic run [src-path]
+            \\       cosmic [src-path]
+            \\
+            \\Run a js file.
+            \\
+        );
+    }
+    {
+        // "cosmic run --help" prints out usage.
+        const res = runCmd(&.{"cosmic", "run", "--help"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic run [src-path]
+            \\       cosmic [src-path]
+            \\
+            \\Run a js file.
+            \\
+        );
+    }
+    {
+        // "cosmic dev -h" prints out usage.
+        const res = runCmd(&.{"cosmic", "dev", "-h"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic dev [src-path]
+            \\
+            \\Run a js file in dev mode.
+            \\Dev mode enables hot reloading of your scripts whenever they are modified.
+            \\It also includes a HUD for viewing debug output and running commands.
+            \\
+        );
+    }
+    {
+        // "cosmic test -h" prints out usage.
+        const res = runCmd(&.{"cosmic", "test", "-h"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic test [src-path]
+            \\
+            \\Run a js file with the test runner.
+            \\Test runner also includes an additional API module `cs.test`
+            \\which is not available during normal execution with `cosmic run`.
+            \\A short test report will be printed at the end.
+            \\Any test failure will result in a non 0 exit code.
+            \\
+        );
+    }
+    {
+        // "cosmic shell -h" prints out usage.
+        const res = runCmd(&.{"cosmic", "shell", "-h"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic shell
+            \\
+            \\Starts a limited shell for experimenting.
+            \\TODO: Run the shell over the cosmic runtime.
+            \\
+        );
+    }
+    {
+        // "cosmic http -h" prints out usage.
+        const res = runCmd(&.{"cosmic", "http", "-h"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic http [dir-path] [port=8081]
+            \\
+            \\Starts an HTTP server over a public folder at [dir-path].
+            \\Default port is 8081.
+            \\
+        );
+    }
+    {
+        // "cosmic https -h" prints out usage.
+        const res = runCmd(&.{"cosmic", "https", "-h"}, .{});
+        defer res.deinit();
+        try t.eq(res.success, true);
+        try t.eqStr(res.stdout,
+            \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
+            \\
+            \\Starts an HTTPS server over a public folder at [dir-path].
+            \\Must provide a public key and private key to enable a secure communication.
+            \\Default port is 8081.
+            \\
+        );
+    }
+}
+
 const RunResult = struct {
     const Self = @This();
 
@@ -153,7 +282,7 @@ fn runCmd(cmd: []const []const u8, env: Environment) RunResult {
         .exit_fn = S.exit,
     };
 
-    main.runMain(cmd, &env_) catch {
+    main.runMain(t.alloc, cmd, &env_) catch {
         success = false;
     };
     return RunResult{

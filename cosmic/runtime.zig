@@ -2615,7 +2615,7 @@ fn handleSdlWindowResized(rt: *RuntimeContext, event: sdl.SDL_WindowEvent) void 
 var g_platform: ?v8.Platform = null;
 
 /// Returns global v8 platform. Initializes if needed.
-fn ensureV8Platform() v8.Platform {
+pub fn ensureV8Platform() v8.Platform {
     if (g_platform == null) {
         const platform = v8.Platform.initDefault(0, true);
         v8.initV8Platform(platform);
