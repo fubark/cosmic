@@ -157,8 +157,8 @@ pub const RuntimeContext = struct {
 
     modules: std.AutoHashMap(u32, ModuleInfo),
 
-    // Holds the main script module if it was compiled successfully.
-    main_script_mod: ?v8.Persistent(v8.Module),
+    // Holds the result of running the main script.
+    run_main_script_res: ?RunModuleScriptResult,
 
     // Whether the main script is done with top level awaits.
     // This doesn't mean that the process is done since some resources can keep it alive (eg. a window)
@@ -238,7 +238,7 @@ pub const RuntimeContext = struct {
             .hscope = undefined,
 
             .modules = std.AutoHashMap(u32, ModuleInfo).init(alloc),
-            .main_script_mod = null,
+            .run_main_script_res = null,
             .main_script_done = false,
             .get_native_val_err = undefined,
             .env = env,
@@ -474,8 +474,8 @@ pub const RuntimeContext = struct {
         self.default_obj_t.deinit();
         self.global.deinit();
 
-        if (self.main_script_mod) |*mod| {
-            mod.deinit();
+        if (self.run_main_script_res) |*res| {
+            res.deinit(self.alloc);
         }
 
         // Deinit isolate after exiting.
@@ -1862,18 +1862,14 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, env: *Environ
         rt.deinit();
     }
 
-    var res = try rt.runMainScript();
-    defer res.deinit(rt.alloc);
-    if (res.mod) |mod| {
-        rt.main_script_mod = mod;
-        res.mod = null;
-    }
+    const res = try rt.runMainScript();
+    rt.run_main_script_res = res;
     switch (res.state) {
         .Failed => {
-            rt.main_script_done = true;
+            rt.finishMainScript();
             return error.MainScriptError;
         },
-        .Success => rt.main_script_done = true,
+        .Success => rt.finishMainScript(),
         .Pending => rt.main_script_done = false,
     }
 
@@ -1937,18 +1933,14 @@ fn restart(rt: *RuntimeContext) !void {
     rt.dev_ctx.initWatcher(rt, main_script_path);
 
     var run_res = try rt.runMainScript();
-    defer run_res.deinit(rt.alloc);
-    if (run_res.mod) |mod| {
-        rt.main_script_mod = mod;
-        run_res.mod = null;
-    }
+    rt.run_main_script_res = run_res;
     switch (run_res.state) {
         .Failed => {
-            rt.main_script_done = true;
+            rt.finishMainScript();
             rt.dev_ctx.enterJsErrorState(rt, run_res.js_err_trace.?);
         },
         .Success => {
-            rt.main_script_done = true;
+            rt.finishMainScript();
             rt.dev_ctx.enterJsSuccessState();
         },
         .Pending => {
@@ -2262,22 +2254,18 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
     }
 
     var res = try rt.runMainScript();
-    defer res.deinit(rt.alloc);
-    if (res.mod) |mod| {
-        rt.main_script_mod = mod;
-        res.mod = null;
-    }
+    rt.run_main_script_res = res;
     switch (res.state) {
         .Failed => {
+            rt.finishMainScript();
             if (!dev_mode) {
                 return error.MainScriptError;
             } else {
-                rt.main_script_done = true;
                 rt.dev_ctx.enterJsErrorState(&rt, res.js_err_trace.?);
             }
         },
         .Success => {
-            rt.main_script_done = true;
+            rt.finishMainScript();
         },
         .Pending => {
             // Since module has a handler for top level async calls, it won't trigger the uncaught exception callback.
