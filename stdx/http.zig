@@ -129,6 +129,8 @@ pub fn deinit() void {
         }
     }
     sock_handles.deinit();
+
+    timer_inited = false;
 }
 
 pub const RequestMethod = enum {

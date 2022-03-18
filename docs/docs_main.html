@@ -96,10 +96,10 @@ cosmic cosmic/examples/demo.js
 <p>Creates a single binary executable for your app at foo.js. This feature is not implemented yet.</p>
 <p>You'll also be able to target the Web as a platform and it will generate the html/js bundle you'll need.</p>
 <p>Eventually you'll be able to create an executable for a foreign target platform!</p>
-<div><b>cosmic serve-http</b> ./public</div>
-<p>Starts hosting a HTTP web server over your static files in the public directory. This feature is not implemented yet.</p>
-<div><b>cosmic serve-https</b> ./public my.crt my.key</div>
-<p>Like serve-http but secure. You'll need to supply your public and private keys. This feature is not implemented yet.</p>
+<div><b>cosmic http</b> ./public 8081</div>
+<p>Starts hosting a HTTP web server over your static files in the public directory.</p>
+<div><b>cosmic https</b> ./public my.crt my.key 8081</div>
+<p>Like `cosmic http` but secure. You'll need to supply your public and private keys.</p>
 <div><b>cosmic shell</b></div>
 <p>Starts a shell where you can do some quick calculations or experiment before creating a script. This is the default command if no source files are provided.</p>
 <div><b>cosmic *more*</b></div>

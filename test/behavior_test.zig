@@ -242,7 +242,7 @@ test "behavior: CLI help, version, command usages." {
             \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
             \\
             \\Starts an HTTPS server over a public folder at [dir-path].
-            \\Must provide a public key and private key to enable secure communication.
+            \\Paths to public and private keys must be absolute or relative to the public folder path.
             \\Default port is 8081.
             \\
         );
@@ -250,6 +250,12 @@ test "behavior: CLI help, version, command usages." {
 }
 
 test "behavior: 'cosmic http' starts an HTTP server" {
+    const cwd = try std.fs.path.resolve(t.alloc, &.{});
+    defer {
+        std.os.chdir(cwd) catch unreachable;
+        t.alloc.free(cwd);
+    }
+
     const Context = struct {
         const Self = @This();
 
@@ -261,7 +267,7 @@ test "behavior: 'cosmic http' starts an HTTP server" {
         fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) void {
             const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
             var res = rt.evalModuleScript(
-                \\const res = await cs.http.getAsync('http://127.0.0.1:8081/index.html')
+                \\const res = await cs.http.getAsync('http://localhost:8081/index.html')
                 \\cs.test.eq(res, `<html>
                 \\<head>
                 \\    <link rel="stylesheet" href="style.css">
@@ -301,7 +307,75 @@ test "behavior: 'cosmic http' starts an HTTP server" {
     try t.eq(res.success, true);
     try t.eq(ctx.passed, true);
     try t.eqStr(res.stdout,
-        \\Server started on port 8081.
+        \\HTTP server started on port 8081.
+        \\GET /index.html [200]
+        \\
+    );
+}
+
+test "behavior: 'cosmic https' starts an HTTPS server" {
+    const cwd = try std.fs.path.resolve(t.alloc, &.{});
+    defer {
+        std.os.chdir(cwd) catch unreachable;
+        t.alloc.free(cwd);
+    }
+
+    const Context = struct {
+        const Self = @This();
+
+        passed: bool = false,
+    };
+    var ctx: Context = .{};
+
+    t.setLogLevel(.debug);
+
+    const S = struct {
+        fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) void {
+            const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
+            var res = rt.evalModuleScript(
+                \\const res = await cs.http.requestAsync('https://localhost:8081/index.html', {
+                \\    certFile: './localhost.crt',
+                \\})
+                \\cs.test.eq(res.body, `<html>
+                \\<head>
+                \\    <link rel="stylesheet" href="style.css">
+                \\</head>
+                \\<body>
+                \\    <img src="logo.png" />
+                \\    <p>Hello World!</p>
+                \\</body>
+                \\</html>
+                \\`)
+            ) catch unreachable;
+            defer res.deinit(rt.alloc);
+
+            rt.attachPromiseHandlers(res.eval.?.inner, ctx_, onEvalSuccess, onEvalFailure) catch unreachable;
+        }
+        fn onEvalSuccess(ctx_: *Context, rt: *RuntimeContext, _: v8.Value) void {
+            ctx_.passed = true;
+            rt.requestShutdown();
+        }
+        // fn onEvalFailure(ctx_: FuncDataUserPtr(*Context), rt: *RuntimeContext, err: v8.Value) void {
+        fn onEvalFailure(ctx_: *Context, rt: *RuntimeContext, err: v8.Value) void {
+            const trace_str = runtime.allocExceptionJsStackTraceString(rt, err);
+            defer rt.alloc.free(trace_str);
+            rt.env.errorFmt("{s}", .{trace_str});
+
+            ctx_.passed = false;
+            rt.requestShutdown();
+        }
+    };
+
+    const res = runCmd(&.{"cosmic", "https", "./test/assets", "./localhost.crt", "./localhost.key", "8081"}, .{
+        .on_main_script_done = S.onMainScriptDone,
+        .on_main_script_done_ctx = &ctx,
+    });
+    defer res.deinit();
+
+    try t.eq(res.success, true);
+    try t.eq(ctx.passed, true);
+    try t.eqStr(res.stdout,
+        \\HTTPS server started on port 8081.
         \\GET /index.html [200]
         \\
     );
@@ -346,7 +420,8 @@ fn runCmd(cmd: []const []const u8, env: Environment) RunResult {
     };
     defer env_.deinit(t.alloc);
 
-    main.runMain(t.alloc, cmd, &env_) catch {
+    main.runMain(t.alloc, cmd, &env_) catch |err| {
+        std.debug.print("run error: {}\n", .{err});
         success = false;
     };
     return RunResult{

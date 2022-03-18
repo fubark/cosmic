@@ -758,13 +758,16 @@ pub const cs_http = struct {
 
             fn onCurlFailure(ptr: *anyopaque, curle_err: u32) void {
                 const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr).*;
-                switch (curle_err) {
-                    curl.CURLE_COULDNT_CONNECT => onFailure(ctx, error.ConnectFailed),
-                    else => {
+                const cs_err = switch (curle_err) {
+                    curl.CURLE_COULDNT_CONNECT => error.ConnectFailed,
+                    curl.CURLE_PEER_FAILED_VERIFICATION => error.CertVerify,
+                    curl.CURLE_SSL_CACERT_BADFILE => error.CertBadFile,
+                    else => b: {
                         log.debug("unknown error: {}", .{curle_err});
-                        onFailure(ctx, error.Unknown);
+                        break :b error.Unknown;
                     },
-                }
+                };
+                onFailure(ctx, cs_err);
             }
         };
 
@@ -883,11 +886,16 @@ pub const cs_http = struct {
     /// @param port
     /// @param certPath
     /// @param keyPath
-    pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
+    pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) Error!v8.Object {
         const handle = rt.createCsHttpServerResource();
         const server = handle.ptr;
         server.init(rt);
-        try server.startHttps(host, port, cert_path, key_path);
+        server.startHttps(host, port, cert_path, key_path) catch |err| switch (err) {
+            else => {
+                log.debug("unknown error: {}", .{err});
+                return error.Unknown;
+            }
+        };
 
         const ctx = rt.getContext();
         const js_handle = rt.http_server_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
@@ -1300,6 +1308,8 @@ pub const cs_core = struct {
         PathExists,
         IsDir,
         ConnectFailed,
+        CertVerify,
+        CertBadFile,
         InvalidFormat,
         Unsupported,
         Unknown,

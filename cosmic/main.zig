@@ -125,7 +125,7 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
             env.main_script_origin = "(in-memory: http-main.js)";
             env.main_script_override = http_main;
             env.user_ctx_json = try std.fmt.allocPrint(alloc, 
-                \\{{ "port": {} }}
+                \\{{ "port": {}, "https": false }}
                 , .{ port });
             try runAndExit("http-main.js", false, env);
         }
@@ -134,6 +134,32 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
             printUsage(env, https_usage);
             env.exit(0);
         } else {
+            const public_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected public directory path.", .{});
+                return;
+            };
+            const public_key_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected public key path.", .{});
+                return;
+            };
+            const private_key_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected private key path.", .{});
+                return;
+            };
+
+            const abs_path = try std.fs.path.resolve(alloc, &.{ public_path });
+            defer alloc.free(abs_path);
+            try std.os.chdir(abs_path);
+
+            const port_str = nextArg(args, &arg_idx) orelse "8081";
+            const port = try std.fmt.parseInt(u32, port_str, 10);
+
+            env.main_script_origin = "(in-memory: http-main.js)";
+            env.main_script_override = http_main;
+            env.user_ctx_json = try std.fmt.allocPrint(alloc, 
+                \\{{ "port": {}, "https": true, "certPath": "{s}", "keyPath": "{s}" }}
+                , .{ port, public_key_path, private_key_path });
+            try runAndExit("http-main.js", false, env);
         }
     } else if (string.eq(cmd, "help")) {
         printUsage(env, main_usage);
@@ -355,13 +381,20 @@ const https_usage =
     \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
     \\
     \\Starts an HTTPS server over a public folder at [dir-path].
-    \\Must provide a public key and private key to enable secure communication.
+    \\Paths to public and private keys must be absolute or relative to the public folder path.
     \\Default port is 8081.
     \\
     ;
 
 const http_main = 
-    \\const s = cs.http.serveHttp('127.0.0.1', user.port)
+    \\let s
+    \\if (user.https) {
+    \\    s = cs.http.serveHttps('127.0.0.1', user.port, user.certPath, user.keyPath)
+    \\    puts(`HTTPS server started on port ${user.port}.`)
+    \\} else {
+    \\    s = cs.http.serveHttp('127.0.0.1', user.port)
+    \\    puts(`HTTP server started on port ${user.port}.`)
+    \\}
     \\s.setHandler((req, resp) => {
     \\    if (req.method != 'GET') {
     \\        return false
@@ -383,5 +416,4 @@ const http_main =
     \\        return false
     \\    }
     \\})
-    \\puts(`Server started on port ${user.port}.`)
     ;

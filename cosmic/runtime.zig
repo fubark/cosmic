@@ -2601,6 +2601,8 @@ pub const CsError = error {
     IsDir,
     InvalidFormat,
     ConnectFailed,
+    CertVerify,
+    CertBadFile,
     Unsupported,
     Unknown,
 };
