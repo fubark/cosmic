@@ -204,7 +204,11 @@ testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () => {
 })
 
 test('cs.files.expandPath', () => {
-    eq(fs.expandPath('foo/../bar'), fs.cwd() + '/bar')
+    if (getOs() == Os.windows) {
+        eq(fs.expandPath('foo/../bar'), fs.cwd() + '\\bar')
+    } else {
+        eq(fs.expandPath('foo/../bar'), fs.cwd() + '/bar')
+    }
 })
 
 testIsolated('cs.files.realPath', async () => {
