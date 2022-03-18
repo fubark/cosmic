@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const builtin = @import("builtin");
 const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
@@ -33,8 +34,8 @@ const cs_graphics = @import("api_graphics.zig").cs_graphics;
 const v8x = @import("v8x.zig");
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
-// A parent HandleScope should persist the values we create in here until the end of the script execution.
-// At this point rt.v8_ctx should be assumed to be undefined since we haven't created a v8.Context yet.
+/// Initializes the js global context. Sets up modules and binds api functions.
+/// A parent HandleScope should capture and clean up any redundant v8 vars created here.
 pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const ctx = ContextBuilder{
         .rt = rt,
@@ -50,6 +51,13 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     const handle_class = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
     handle_class.inner.setInternalFieldCount(2);
     rt.handle_class = handle_class;
+
+    // Runtime-context template.
+    // First field contains rt pointer.
+    // Second field contains a custom pointer or value.
+    // Used to create function data when the functions don't accept a user object param. eg. Promise fulfill/reject callbacks.
+    rt.rt_ctx_tmpl = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
+    rt.rt_ctx_tmpl.inner.setInternalFieldCount(2);
 
     // GenericObject
     rt.default_obj_t = v8.Persistent(v8.ObjectTemplate).init(iso, v8.ObjectTemplate.initDefault(iso));
@@ -249,7 +257,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(files, "ensurePath", api.cs_files.ensurePath);
     ctx.setConstFuncT(files, "pathExists", api.cs_files.pathExists);
     ctx.setConstFuncT(files, "removeDir", api.cs_files.removeDir);
-    ctx.setConstFuncT(files, "resolvePath", api.cs_files.resolvePath);
+    ctx.setConstFuncT(files, "expandPath", api.cs_files.expandPath);
+    ctx.setConstFuncT(files, "realPath", api.cs_files.realPath);
+    ctx.setConstFuncT(files, "symLink", api.cs_files.symLink);
     ctx.setConstFuncT(files, "copy", api.cs_files.copy);
     ctx.setConstFuncT(files, "move", api.cs_files.move);
     ctx.setConstFuncT(files, "cwd", api.cs_files.cwd);
@@ -258,20 +268,20 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     // ctx.setConstFuncT(files, "openFile", files_OpenFile);
     ctx.setConstProp(cs, "files", files);
 
-    ctx.setConstFuncT(files, "readAsync", api.cs_files.readAsync);
-    ctx.setConstFuncT(files, "readTextAsync", api.cs_files.readTextAsync);
-    ctx.setConstFuncT(files, "writeAsync", api.cs_files.writeAsync);
-    ctx.setConstFuncT(files, "writeTextAsync", api.cs_files.writeTextAsync);
-    ctx.setConstFuncT(files, "appendAsync", api.cs_files.appendAsync);
-    ctx.setConstFuncT(files, "appendTextAsync", api.cs_files.appendTextAsync);
-    ctx.setConstFuncT(files, "removeAsync", api.cs_files.removeAsync);
-    ctx.setConstFuncT(files, "removeDirAsync", api.cs_files.removeDirAsync);
-    ctx.setConstFuncT(files, "ensurePathAsync", api.cs_files.ensurePathAsync);
-    ctx.setConstFuncT(files, "pathExistsAsync", api.cs_files.pathExistsAsync);
-    ctx.setConstFuncT(files, "copyAsync", api.cs_files.copyAsync);
-    ctx.setConstFuncT(files, "moveAsync", api.cs_files.moveAsync);
-    ctx.setConstFuncT(files, "getPathInfoAsync", api.cs_files.getPathInfoAsync);
-    ctx.setConstFuncT(files, "listDirAsync", api.cs_files.listDirAsync);
+    ctx.setConstFuncT(files, "_readAsync", api.cs_files.readAsync);
+    ctx.setConstFuncT(files, "_readTextAsync", api.cs_files.readTextAsync);
+    ctx.setConstFuncT(files, "_writeAsync", api.cs_files.writeAsync);
+    ctx.setConstFuncT(files, "_writeTextAsync", api.cs_files.writeTextAsync);
+    ctx.setConstFuncT(files, "_appendAsync", api.cs_files.appendAsync);
+    ctx.setConstFuncT(files, "_appendTextAsync", api.cs_files.appendTextAsync);
+    ctx.setConstFuncT(files, "_removeAsync", api.cs_files.removeAsync);
+    ctx.setConstFuncT(files, "_removeDirAsync", api.cs_files.removeDirAsync);
+    ctx.setConstFuncT(files, "_ensurePathAsync", api.cs_files.ensurePathAsync);
+    ctx.setConstFuncT(files, "_pathExistsAsync", api.cs_files.pathExistsAsync);
+    ctx.setConstFuncT(files, "_copyAsync", api.cs_files.copyAsync);
+    ctx.setConstFuncT(files, "_moveAsync", api.cs_files.moveAsync);
+    ctx.setConstFuncT(files, "_getPathInfoAsync", api.cs_files.getPathInfoAsync);
+    ctx.setConstFuncT(files, "_listDirAsync", api.cs_files.listDirAsync);
     // TODO: chmod op
 
     const filekind = iso.initObjectTemplateDefault();
@@ -279,7 +289,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setProp(filekind, "characterDevice", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.characterDevice)));
     ctx.setProp(filekind, "directory", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.directory)));
     ctx.setProp(filekind, "namedPipe", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.namedPipe)));
-    ctx.setProp(filekind, "symlink", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.symLink)));
+    ctx.setProp(filekind, "symLink", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.symLink)));
     ctx.setProp(filekind, "file", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.file)));
     ctx.setProp(filekind, "unixDomainSocket", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.unixDomainSocket)));
     ctx.setProp(filekind, "whiteout", iso.initIntegerU32(@enumToInt(api.cs_files.FileKind.whiteout)));
@@ -293,9 +303,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     http_constructor.setClassName(iso.initStringUtf8("http"));
     const http = iso.initObjectTemplate(http_constructor);
     ctx.setConstFuncT(http, "get", api.cs_http.get);
-    ctx.setConstFuncT(http, "getAsync", api.cs_http.getAsync);
+    ctx.setConstFuncT(http, "_getAsync", api.cs_http.getAsync);
     ctx.setConstFuncT(http, "post", api.cs_http.post);
-    ctx.setConstFuncT(http, "postAsync", api.cs_http.postAsync);
+    ctx.setConstFuncT(http, "_postAsync", api.cs_http.postAsync);
     ctx.setConstFuncT(http, "_request", api.cs_http.request);
     ctx.setConstFuncT(http, "_requestAsync", api.cs_http.requestAsync);
     ctx.setConstFuncT(http, "serveHttp", api.cs_http.serveHttp);
@@ -335,7 +345,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
     ctx.setConstProp(cs, "http", http);
 
-    if (rt.is_test_env) {
+    if (rt.is_test_env or builtin.is_test) {
         // cs.test
         const cs_test = iso.initObjectTemplateDefault();
 
@@ -468,7 +478,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         const cs_err = iso.initObjectTemplateDefault();
         ctx.setProp(cs_err, "NoError", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.NoError)));
         ctx.setProp(cs_err, "FileNotFound", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.FileNotFound)));
+        ctx.setProp(cs_err, "PathExists", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.PathExists)));
         ctx.setProp(cs_err, "IsDir", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.IsDir)));
+        ctx.setProp(cs_err, "ConnectFailed", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.ConnectFailed)));
+        ctx.setProp(cs_err, "CertVerify", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CertVerify)));
+        ctx.setProp(cs_err, "CertBadFile", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CertBadFile)));
+        ctx.setProp(cs_err, "InvalidFormat", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.InvalidFormat)));
+        ctx.setProp(cs_err, "Unsupported", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unsupported)));
+        ctx.setProp(cs_err, "Unknown", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unknown)));
         ctx.setConstProp(cs_core, "CsError", cs_err);
     }
     ctx.setConstProp(cs, "core", cs_core);
@@ -495,41 +512,12 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstProp(cs, "input", cs_input);
 
     const res = iso.initContext(global, null);
-    res.enter();
-    defer res.exit();
-
-    // const rt_global = res.getGlobal();
-    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(iso, "cs")).castToObject();
-
-    {
-        // Run api_init.js
-        var exec_res: v8x.ExecuteResult = undefined;
-        defer exec_res.deinit();
-        const origin = v8.String.initUtf8(iso, "api_init.js");
-        v8x.executeString(rt.alloc, iso, res, api_init, origin, &exec_res);
-        if (!exec_res.success) {
-            errorFmt("{s}", .{exec_res.err.?});
-            unreachable;
-        }
-    }
-
-    if (rt.is_test_env) {
-        // Run test_init.js
-        var exec_res: v8x.ExecuteResult = undefined;
-        defer exec_res.deinit();
-        const origin = v8.String.initUtf8(iso, "test_init.js");
-        v8x.executeString(rt.alloc, iso, res, test_init, origin, &exec_res);
-        if (!exec_res.success) {
-            errorFmt("{s}", .{exec_res.err.?});
-            unreachable;
-        }
-    }
 
     // Attach rt pointer for callbacks that don't have user data. eg. ResolveModuleCallback
     res.setEmbedderData(0, rt_data);
 
+    // const rt_global = res.getGlobal();
+    // const rt_cs = rt_global.getValue(res, v8.String.initUtf8(iso, "cs")).castToObject();
+
     return res;
 }
-
-const api_init = @embedFile("snapshots/api_init.js");
-const test_init = @embedFile("snapshots/test_init.js");

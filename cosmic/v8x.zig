@@ -2,7 +2,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 const v8 = @import("v8");
 
-const log = stdx.log.scoped(.v8_util);
+const log = stdx.log.scoped(.v8x);
 
 pub const ExecuteResult = struct {
     const Self = @This();
@@ -36,11 +36,15 @@ pub fn executeString(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context,
 
     var context = iso.getCurrentContext();
 
+    // TODO: Since, only init scripts are executed as non esm scripts, we are currently prepending "use strict"; manually.
+    //       If we do turn this back on, we'd need to compile with a detailed source param that specifies a line offset
+    //       or the stack traces will be off by one.
     // Since es modules are in strict mode it makes sense that everything else should also be in strict mode.
     // Append 'use strict'; There isn't an internal api to enable it.
     // Append void 0 so empty source still evaluates to undefined.
-    const final_src = stdx.string.concat(alloc, &[_][]const u8{ "'use strict';void 0;\n", src }) catch unreachable;
-    defer alloc.free(final_src);
+    // const final_src = stdx.string.concat(alloc, &[_][]const u8{ "'use strict';void 0;\n", src }) catch unreachable;
+    // defer alloc.free(final_src);
+    const final_src = src;
 
     const js_src = v8.String.initUtf8(iso, final_src);
 
@@ -143,7 +147,9 @@ pub fn allocExceptionStackTraceString(alloc: std.mem.Allocator, iso: v8.Isolate,
     _ = appendValueAsUtf8(&buf, iso, ctx, exception);
     writer.writeAll("\n") catch unreachable;
 
-    appendStackTraceString(&buf, iso, v8.Exception.getStackTrace(exception));
+    if (v8.Exception.getStackTrace(exception)) |trace| {
+        appendStackTraceString(&buf, iso, trace);
+    }
 
     return buf.toOwnedSlice();
 }
@@ -215,11 +221,11 @@ pub fn allocStringAsUtf8(alloc: std.mem.Allocator, iso: v8.Isolate, str: v8.Stri
 /// Custom dump format that shows top 2 level children.
 pub fn allocValueDump(alloc: std.mem.Allocator, iso: v8.Isolate, ctx: v8.Context, val: v8.Value) []const u8 {
     var buf = std.ArrayList(u8).init(alloc);
-    allocValueDump2(&buf, iso, ctx, val, 0, 2);
+    allocValueDump2(alloc, &buf, iso, ctx, val, 0, 2);
     return buf.toOwnedSlice();
 }
 
-fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, val: v8.Value, level: u32, level_max: u32) void {
+fn allocValueDump2(alloc: std.mem.Allocator, buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, val: v8.Value, level: u32, level_max: u32) void {
     if (val.isString()) {
         const writer = buf.writer();
         writer.writeAll("\"") catch unreachable;
@@ -234,8 +240,11 @@ fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, va
                 writer.writeAll("[ ") catch unreachable;
                 var i: u32 = 0;
                 while (i < num_elems) : (i += 1) {
-                    const elem = val.castTo(v8.Object).getAtIndex(ctx, i);
-                    allocValueDump2(buf, iso, ctx, elem, level + 1, level_max);
+                    if (val.castTo(v8.Object).getAtIndex(ctx, i)) |elem| {
+                        allocValueDump2(alloc, buf, iso, ctx, elem, level + 1, level_max);
+                    } else |_| {
+                        writer.writeAll("(error)") catch unreachable;
+                    }
                     if (i + 1 < num_elems) {
                         writer.writeAll(", ") catch unreachable;
                     }
@@ -244,6 +253,19 @@ fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, va
             } else writer.writeAll("[]") catch unreachable;
         } else buf.writer().writeAll("(Array)") catch unreachable;
     } else if (val.isObject()) {
+        if (val.isFunction()) {
+            const func = val.castTo(v8.Function);
+            const name = allocValueAsUtf8(alloc, iso, ctx, func.getName());
+            defer alloc.free(name);
+            if (name.len == 0) {
+                buf.appendSlice("(Function)") catch unreachable;
+            } else {
+                buf.appendSlice("(Function: ") catch unreachable;
+                buf.appendSlice(name) catch unreachable;
+                buf.appendSlice(")") catch unreachable;
+            }
+            return;
+        }
         if (level < level_max) {
             const writer = buf.writer();
             const obj = val.castTo(v8.Object);
@@ -253,11 +275,14 @@ fn allocValueDump2(buf: *std.ArrayList(u8), iso: v8.Isolate, ctx: v8.Context, va
                 writer.writeAll("{ ") catch unreachable;
                 var i: u32 = 0;
                 while (i < num_props) : (i += 1) {
-                    const prop = props.castTo(v8.Object).getAtIndex(ctx, i);
-                    const value = obj.getValue(ctx, prop);
+                    const prop = props.castTo(v8.Object).getAtIndex(ctx, i) catch continue;
                     _ = appendValueAsUtf8(buf, iso, ctx, prop);
                     writer.writeAll(": ") catch unreachable;
-                    allocValueDump2(buf, iso, ctx, value, level + 1, level_max);
+                    if (obj.getValue(ctx, prop)) |value| {
+                        allocValueDump2(alloc, buf, iso, ctx, value, level + 1, level_max);
+                    } else |_| {
+                        writer.writeAll("(error)") catch unreachable;
+                    }
                     if (i + 1 < num_props) {
                         writer.writeAll(", ") catch unreachable;
                     }

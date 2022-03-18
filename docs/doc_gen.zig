@@ -32,21 +32,7 @@ const modules: []const ModuleId = &.{
     "cs_worker",
 };
 
-pub fn main() !void {
-    // Fast temporary memory allocator.
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const args = try process.argsAlloc(alloc);
-    defer process.argsFree(alloc, args);
-
-    if (args.len == 1) {
-        printFmt("Provide directory path.\n", .{});
-        process.exit(0);
-    }
-    var arg_idx: usize = 1;
-    const docs_path = nextArg(args, &arg_idx).?;
+pub fn generate(alloc: std.mem.Allocator, docs_path: []const u8) !void {
     try std.fs.cwd().makePath(docs_path);
 
     // Copy over assets.
@@ -360,17 +346,18 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: s
     // arg_names are currently empty.
     // https://github.com/ziglang/zig/issues/8259
 
-    inline for (FuncInfo.func_arg_field_idxs) |Idx| {
-        const Field = ArgFields[Idx];
-        const BaseType = if (@typeInfo(Field.field_type) == .Optional) @typeInfo(Field.field_type).Optional.child else Field.field_type;
-        try params.append(.{
-            .param_name = "",
-            //.param_name = FnDecl.data.Fn.arg_names[Idx],
-            .type_name = getJsTypeName(BaseType),
-            .type_decl_mod = null,
-            .optional = @typeInfo(Field.field_type) == .Optional,
-        });
-        // log.debug("{s}", .{@typeName(Field.field_type)});
+    inline for (ArgFields) |Field, i| {
+        if (FuncInfo.param_tags[i] == .Param) {
+            const BaseType = if (@typeInfo(Field.field_type) == .Optional) @typeInfo(Field.field_type).Optional.child else Field.field_type;
+            try params.append(.{
+                .param_name = "",
+                //.param_name = FnDecl.data.Fn.arg_names[Idx],
+                .type_name = getJsTypeName(BaseType),
+                .type_decl_mod = null,
+                .optional = @typeInfo(Field.field_type) == .Optional,
+            });
+            // log.debug("{s}", .{@typeName(Field.field_type)});
+        }
     }
     func.params = params.toOwnedSlice();
 
@@ -641,6 +628,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         ctx.write("<li><a href=\"index.html#about\">About</a></li>");
         ctx.write("<li><a href=\"index.html#start\">Getting Started</a></li>");
         ctx.write("<li><a href=\"index.html#tools\">Tools</a></li>");
+        ctx.write("<li><a href=\"index.html#tutorial\">Tutorials</a></li>");
         ctx.write("<li><a href=\"index.html#community\">Community</a></li>");
         ctx.write("</ul></section>");
 
@@ -853,12 +841,6 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         \\  hljs.highlightAll();
         \\</script>
     );
-}
-
-fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
-    if (idx.* >= args.len) return null;
-    defer idx.* += 1;
-    return args[idx.*];
 }
 
 const DocVersion = struct {

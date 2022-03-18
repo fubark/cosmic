@@ -15,8 +15,8 @@ const uv = @import("lib/uv/lib.zig");
 const h2o = @import("lib/h2o/lib.zig");
 
 const VersionName = "v0.1";
-const DepsRevision = "6fcef92f0f3e4fa4c3d00f4767802b35fea0b309";
-const V8_Revision = "9.9.115";
+const DepsRevision = "5c31d18797ccb0c71adaf6a31beab53a8c070b5c";
+const V8_Revision = "9.9.115.9";
 
 // Debugging:
 // Set to true to show generated build-lib and other commands created from execFromStep.
@@ -213,7 +213,7 @@ pub fn build(b: *Builder) !void {
             .link_v8 = false,
             .link_mock = true,
             .static_link = static_link,
-            .path = "docs/doc_gen.zig",
+            .path = "tools/gen.zig",
             .filter = filter,
             .mode = mode,
             .target = target,
@@ -225,7 +225,7 @@ pub fn build(b: *Builder) !void {
         _ctx.buildLinkMock(step);
         const run = step.run();
         run.addArgs(args);
-        b.step("gen-docs", "Generate docs").dependOn(&run.step);
+        b.step("gen", "Generate tool.").dependOn(&run.step);
     }
 
     {

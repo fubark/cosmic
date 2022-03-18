@@ -26,6 +26,20 @@ test('esm imports', () => {
     eq(bar, 2)
 })
 
+// Even though JsStackTrace is what gets reported to stderr, make sure that Error.stack has a similar stack trace.
+// This would test the return value of the custom Error.prepareStackTrace in api_init.js
+test('Error.stack', () => {
+    const err = new Error('boom')
+    const lines = err.stack.split('\n')
+    const frames = err.__frames
+    eq(lines.length, 3)
+    eq(lines[0], 'Error: boom')
+    assert(lines[1].startsWith('    at'))
+    assert(lines[1].endsWith(`test.js:${frames[0].line_num}:${frames[0].col_num}`))
+    assert(lines[2].startsWith('    at'))
+    assert(lines[2].endsWith(`test.js:${frames[1].line_num}:${frames[1].col_num}`))
+})
+
 test('errCode and errString', () => {
     clearError()
     var err = errCode()
@@ -189,8 +203,48 @@ testIsolated('cs.files.ensurePathAsync, cs.files.pathExistsAsync', async () => {
     }
 })
 
-test('cs.files.resolvePath', () => {
-    eq(fs.resolvePath('foo/../bar'), fs.resolvePath('bar'))
+test('cs.files.expandPath', () => {
+    if (getOs() == Os.windows) {
+        eq(fs.expandPath('foo/../bar'), fs.cwd() + '\\bar')
+    } else {
+        eq(fs.expandPath('foo/../bar'), fs.cwd() + '/bar')
+    }
+})
+
+testIsolated('cs.files.realPath', async () => {
+    // TODO: Currently disabled on windows until symLink is implemented.
+    if (getOs() != Os.windows) {
+        eq(fs.realPath('does_not_exist'), null)
+        eq(errCode(), CsError.FileNotFound)
+
+        fs.writeText('foo.txt', '')
+        fs.symLink('foo-link.txt', 'foo.txt')
+        try {
+            eq(fs.realPath('foo-link.txt'), fs.cwd() + '/foo.txt')
+        } finally {
+            fs.remove('foo-link.txt')
+            fs.remove('foo.txt')
+        }
+    }
+})
+
+testIsolated('cs.files.symLink', async() => {
+    // TODO: Currently disabled on windows until symLink is implemented.
+    if (getOs() != Os.windows) {
+        fs.writeText('foo.txt', '')
+        fs.symLink('foo-link.txt', 'foo.txt')
+        eq(fs.symLink('foo-link.txt', 'foo.txt'), null)
+        eq(errCode(), CsError.PathExists)
+        try {
+            // TODO: getPathInfo doesn't detect symlink
+            // eq(fs.getPathInfo('foo-link.txt').kind, fs.FileKind.symLink)
+            fs.writeText('foo-link.txt', 'hello')
+            eq(fs.readText('foo.txt'), 'hello')
+        } finally {
+            fs.remove('foo-link.txt')
+            fs.remove('foo.txt')
+        }
+    }
 })
 
 test('cs.files.copy', () => {
@@ -246,11 +300,12 @@ testIsolated('cs.files.moveAsync', async () => {
 })
 
 test('cs.files.cwd', () => {
-    eq(fs.cwd(), fs.resolvePath('.'));
+    eq(fs.cwd(), fs.expandPath('.'));
 })
 
 test('cs.files.getPathInfo', () => {
     eq(fs.getPathInfo('foo.txt'), null)
+    eq(errCode(), CsError.FileNotFound)
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq(fs.getPathInfo('foo.txt').kind, fs.FileKind.file)
@@ -260,7 +315,12 @@ test('cs.files.getPathInfo', () => {
 })
 
 testIsolated('cs.files.getPathInfoAsync', async () => {
-    eq(await fs.getPathInfoAsync('foo.txt'), null)
+    try {
+        await fs.getPathInfoAsync('foo.txt')
+        t.fail('Expected error.')
+    } catch (err) {
+        eq(err.code, CsError.FileNotFound)
+    }
     eq(fs.writeText('foo.txt', 'foo'), true)
     try {
         eq((await fs.getPathInfoAsync('foo.txt')).kind, fs.FileKind.file)
@@ -362,20 +422,19 @@ test('cs.http.request', () => {
     contains(resp.text(), 'Zig is a general-purpose programming language')
 });
 
-// TODO: Revisit, works but has memory leak.
-// testIsolated('cs.http.requestAsync', async () => {
-//     try {
-//         const resp = await cs.http.requestAsync('https://127.0.0.1')
-//         t.fail('expected exception')
-//     } catch (err) {
-//         contains(err.message, 'ConnectFailed')
-//     }
-// 
-//     const resp = await cs.http.requestAsync('https://ziglang.org')
-//     eq(resp.status, 200)
-//     eq(resp.getHeader('content-type'), 'text/html')
-//     contains(resp.text(), 'Zig is a general-purpose programming language')
-// });
+testIsolated('cs.http.requestAsync', async () => {
+    try {
+        await cs.http.requestAsync('https://127.0.0.1')
+        t.fail('expected exception')
+    } catch (err) {
+        eq(err.code, CsError.ConnectFailed)
+    }
+
+    const resp = await cs.http.requestAsync('https://ziglang.org')
+    eq(resp.status, 200)
+    eq(resp.getHeader('content-type'), 'text/html')
+    contains(resp.text(), 'Zig is a general-purpose programming language')
+})
 
 testIsolated('cs.http.serveHttp', async () => {
     const s = cs.http.serveHttp('127.0.0.1', 3000)

@@ -13,9 +13,8 @@ const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
-const printFmt = runtime.printFmt;
-const errorFmt = runtime.errorFmt;
 const log = stdx.log.scoped(.main);
+const Environment = @import("env.zig").Environment;
 
 // Cosmic main. Common entry point for cli and gui.
 pub fn main() !void {
@@ -27,100 +26,207 @@ pub fn main() !void {
     const args = try process.argsAlloc(alloc);
     defer process.argsFree(alloc, args);
 
+    var env = Environment{};
+    defer env.deinit(alloc);
+    try runMain(alloc, args, &env);
+}
+
+const Flags = struct {
+    help: bool = false,
+};
+
+fn parseFlags(alloc: std.mem.Allocator, args: []const []const u8, flags: *Flags) []const []const u8 {
+    var rest_args = std.ArrayList([]const u8).init(alloc);
+    for (args) |arg| {
+        if (std.mem.startsWith(u8, arg, "-")) {
+            if (std.mem.eql(u8, arg, "-h")) {
+                flags.help = true;
+            } else if (std.mem.eql(u8, arg, "--help")) {
+                flags.help = true;
+            }
+        } else {
+            const arg_dupe = alloc.dupe(u8, arg) catch unreachable;
+            rest_args.append(arg_dupe) catch unreachable;
+        }
+    }
+    return rest_args.toOwnedSlice();
+}
+
+// main is extracted with cli args and options to facilitate testing.
+pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *Environment) !void {
+    var flags = Flags{};
+    const args = parseFlags(alloc, orig_args, &flags);
+    defer {
+        for (args) |arg| {
+            alloc.free(arg);
+        }
+        alloc.free(args);
+    }
+
     if (args.len == 1) {
-        repl();
-        process.exit(0);
+        printUsage(env, main_usage);
+        env.exit(0);
+        return;
     }
 
     // Skip exe path arg.
     var arg_idx: usize = 1;
 
     const cmd = nextArg(args, &arg_idx).?;
-    if (string.eq(cmd, "cli")) {
-        repl();
-        process.exit(0);
-    } else if (string.eq(cmd, "dev")) {
-        const src_path = nextArg(args, &arg_idx) orelse {
-            abortFmt("Expected path to main source file.", .{});
-        };
-        try runAndExit(src_path, true);
+    if (string.eq(cmd, "dev")) {
+        if (flags.help) {
+            printUsage(env, dev_usage);
+            env.exit(0);
+        } else {
+            const src_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected path to main source file.", .{});
+                return;
+            };
+            try runAndExit(src_path, true, env);
+        }
     } else if (string.eq(cmd, "run")) {
-        const src_path = nextArg(args, &arg_idx) orelse {
-            abortFmt("Expected path to main source file.", .{});
-        };
-        try runAndExit(src_path, false);
+        if (flags.help) {
+            printUsage(env, run_usage);
+            env.exit(0);
+        } else {
+            const src_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected path to main source file.", .{});
+                return;
+            };
+            try runAndExit(src_path, false, env);
+        }
     } else if (string.eq(cmd, "test")) {
-        const src_path = nextArg(args, &arg_idx) orelse {
-            abortFmt("Expected path to main source file.", .{});
-        };
-        try testAndExit(src_path);
+        if (flags.help) {
+            printUsage(env, test_usage);
+            env.exit(0);
+        } else {
+            const src_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected path to main source file.", .{});
+                return;
+            };
+            try testAndExit(src_path, env);
+        }
+    } else if (string.eq(cmd, "http")) {
+        if (flags.help) {
+            printUsage(env, http_usage);
+            env.exit(0);
+        } else {
+            const public_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected public directory path.", .{});
+                return;
+            };
+            const abs_path = try std.fs.path.resolve(alloc, &.{ public_path });
+            defer alloc.free(abs_path);
+            try std.os.chdir(abs_path);
+
+            const port_str = nextArg(args, &arg_idx) orelse "8081";
+            const port = try std.fmt.parseInt(u32, port_str, 10);
+
+            env.main_script_origin = "(in-memory: http-main.js)";
+            env.main_script_override = http_main;
+            env.user_ctx_json = try std.fmt.allocPrint(alloc, 
+                \\{{ "port": {}, "https": false }}
+                , .{ port });
+            try runAndExit("http-main.js", false, env);
+        }
+    } else if (string.eq(cmd, "https")) {
+        if (flags.help) {
+            printUsage(env, https_usage);
+            env.exit(0);
+        } else {
+            const public_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected public directory path.", .{});
+                return;
+            };
+            const public_key_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected public key path.", .{});
+                return;
+            };
+            const private_key_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected private key path.", .{});
+                return;
+            };
+
+            const abs_path = try std.fs.path.resolve(alloc, &.{ public_path });
+            defer alloc.free(abs_path);
+            try std.os.chdir(abs_path);
+
+            const port_str = nextArg(args, &arg_idx) orelse "8081";
+            const port = try std.fmt.parseInt(u32, port_str, 10);
+
+            env.main_script_origin = "(in-memory: http-main.js)";
+            env.main_script_override = http_main;
+            env.user_ctx_json = try std.fmt.allocPrint(alloc, 
+                \\{{ "port": {}, "https": true, "certPath": "{s}", "keyPath": "{s}" }}
+                , .{ port, public_key_path, private_key_path });
+            try runAndExit("http-main.js", false, env);
+        }
     } else if (string.eq(cmd, "help")) {
-        usage();
-        process.exit(0);
+        printUsage(env, main_usage);
+        env.exit(0);
     } else if (string.eq(cmd, "version")) {
-        version();
-        process.exit(0);
+        version(env);
+        env.exit(0);
     } else if (string.eq(cmd, "shell")) {
-        repl();
-        process.exit(0);
+        if (flags.help) {
+            printUsage(env, shell_usage);
+            env.exit(0);
+        } else {
+            repl(env);
+            env.exit(0);
+        }
     } else {
         // Assume param is a js file.
         const src_path = cmd;
-        try runAndExit(src_path, false);
+        try runAndExit(src_path, false, env);
     }
 }
 
-fn testAndExit(src_path: []const u8) !void {
+fn testAndExit(src_path: []const u8, env: *Environment) !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    const passed = runtime.runTestMain(alloc, src_path, .{}) catch |err| {
+    const passed = runtime.runTestMain(alloc, src_path, env) catch |err| {
         stdx.heap.deinitDefaultAllocator();
         if (err == error.FileNotFound) {
-            abortFmt("File not found: {s}", .{src_path});
+            env.abortFmt("File not found: {s}", .{src_path});
         } else {
-            abortFmt("Encountered error: {}", .{err});
+            env.abortFmt("Encountered error: {}", .{err});
         }
+        return;
     };
     stdx.heap.deinitDefaultAllocator();
     if (passed) {
-        process.exit(0);
+        env.exit(0);
     } else {
-        process.exit(1);
+        env.exit(1);
     }
 }
 
-fn runAndExit(src_path: []const u8, dev_mode: bool) !void {
+fn runAndExit(src_path: []const u8, dev_mode: bool, env: *Environment) !void {
     const alloc = stdx.heap.getDefaultAllocator();
-    defer stdx.heap.deinitDefaultAllocator();
 
-    runtime.runUserMain(alloc, src_path, dev_mode, .{}) catch |err| {
+    runtime.runUserMain(alloc, src_path, dev_mode, env) catch |err| {
         stdx.heap.deinitDefaultAllocator();
-        if (err == error.FileNotFound) {
-            abortFmt("File not found: {s}", .{src_path});
-        } else {
-            abortFmt("Encountered error: {}", .{err});
+        switch (err) {
+            error.FileNotFound => env.abortFmt("File not found: {s}", .{src_path}),
+            error.MainScriptError => {},
+            else => env.abortFmt("Encountered error: {}", .{err}),
         }
+        return err;
     };
     stdx.heap.deinitDefaultAllocator();
-    process.exit(0);
+    env.exit(0);
 }
 
-fn repl() void {
+fn repl(env: *Environment) void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
     var input_buf = std.ArrayList(u8).init(alloc);
     defer input_buf.deinit();
 
-    const platform = v8.Platform.initDefault(0, true);
-    defer platform.deinit();
-
-    v8.initV8Platform(platform);
-    defer v8.deinitV8Platform();
-
-    v8.initV8();
-    defer _ = v8.deinitV8();
+    const platform = runtime.ensureV8Platform();
 
     var params = v8.initCreateParams();
     params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
@@ -141,14 +247,14 @@ fn repl() void {
 
     const origin = iso.initStringUtf8("(shell)");
 
-    printFmt(
+    env.printFmt(
         \\Cosmic ({s})
         \\exit with Ctrl+D or "exit()"
         \\
     , .{build_options.VersionName});
 
     while (true) {
-        printFmt("\n> ", .{});
+        env.printFmt("\n> ", .{});
         if (getInput(&input_buf)) |input| {
             if (string.eq(input, "exit()")) {
                 break;
@@ -158,9 +264,9 @@ fn repl() void {
             defer res.deinit();
             v8x.executeString(alloc, iso, ctx, input, origin, &res);
             if (res.success) {
-                printFmt("{s}", .{res.result.?});
+                env.printFmt("{s}", .{res.result.?});
             } else {
-                printFmt("{s}", .{res.err.?});
+                env.printFmt("{s}", .{res.err.?});
             }
 
             while (platform.pumpMessageLoop(iso, false)) {
@@ -168,7 +274,7 @@ fn repl() void {
             }
             // log.info("input: {s}", .{input});
         } else {
-            printFmt("\n", .{});
+            env.printFmt("\n", .{});
             return;
         }
     }
@@ -188,42 +294,126 @@ fn getInput(input_buf: *std.ArrayList(u8)) ?[]const u8 {
     return input_buf.items;
 }
 
-const main_usage =
-    \\Usage: cosmic [command] [options]
-    \\
-    \\Commands:
-    \\
-    \\  dev              Starts dev mode on a JS source file.
-    \\  cli              Starts a REPL session.
-    \\  run              Runs a JS source file.
-    \\  test             Starts the test runner on JS source files.
-    \\  exe              TODO: Packages source files into a single binary executable.
-    \\
-    \\  help             Print this help and exit
-    \\  version          Print version number and exit
-    \\
-    \\General Options:
-    \\
-    \\  -h, --help       Print command-specific usage.
-    \\
-;
-
-fn usage() void {
-    printFmt("{s}\n", .{main_usage});
+fn printUsage(env: *Environment, usage: []const u8) void {
+    env.printFmt("{s}", .{usage});
 }
 
-fn version() void {
-    printFmt("cosmic {s}\nv8 {s}\n", .{ build_options.VersionName, v8.getVersion() });
+fn version(env: *Environment) void {
+    env.printFmt("cosmic {s}\nv8 {s}\n", .{ build_options.VersionName, v8.getVersion() });
 }
 
-pub fn abortFmt(comptime format: []const u8, args: anytype) noreturn {
-    errorFmt(format, args);
-    errorFmt("\n", .{});
-    process.exit(1);
-}
-
-fn nextArg(args: [][]const u8, idx: *usize) ?[]const u8 {
+fn nextArg(args: []const []const u8, idx: *usize) ?[]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
 }
+
+const main_usage =
+    \\Usage: cosmic [command] [options]
+    \\
+    \\Main:
+    \\
+    \\  dev              Runs a JS source file in dev mode.
+    \\  run              Runs a JS source file.
+    \\  test             Runs a JS source file with the test runner.
+    \\  shell            Starts a shell session.
+    \\  exe              TODO: Packages source files into a single binary executable.
+    \\
+    \\Tools:
+    \\
+    \\  http             Starts an HTTP server over a directory.
+    \\  https            Starts an HTTPS server over a directory.
+    \\
+    \\Help:
+    \\
+    \\  help             Print main usage.
+    \\  version          Print version.
+    \\  [command] -h     Print command-specific usage.
+    \\  [command] --help 
+    \\
+    ;
+
+const run_usage = 
+    \\Usage: cosmic run [src-path]
+    \\       cosmic [src-path]
+    \\
+    \\Run a js file.
+    \\
+    ;
+
+const dev_usage = 
+    \\Usage: cosmic dev [src-path]
+    \\
+    \\Run a js file in dev mode.
+    \\Dev mode enables hot reloading of your scripts whenever they are modified.
+    \\It also includes a HUD for viewing debug output and running commands.
+    \\
+    ;
+
+const test_usage = 
+    \\Usage: cosmic test [src-path]
+    \\
+    \\Run a js file with the test runner.
+    \\Test runner also includes an additional API module `cs.test`
+    \\which is not available during normal execution with `cosmic run`.
+    \\A short test report will be printed at the end.
+    \\Any test failure will result in a non 0 exit code.
+    \\
+    ;
+
+const shell_usage =
+    \\Usage: cosmic shell
+    \\
+    \\Starts a limited shell for experimenting.
+    \\TODO: Run the shell over the cosmic runtime.
+    \\
+    ;
+
+const http_usage = 
+    \\Usage: cosmic http [dir-path] [port=8081]
+    \\
+    \\Starts an HTTP server over a public folder at [dir-path].
+    \\Default port is 8081.
+    \\
+    ;
+
+const https_usage = 
+    \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
+    \\
+    \\Starts an HTTPS server over a public folder at [dir-path].
+    \\Paths to public and private keys must be absolute or relative to the public folder path.
+    \\Default port is 8081.
+    \\
+    ;
+
+const http_main = 
+    \\let s
+    \\if (user.https) {
+    \\    s = cs.http.serveHttps('127.0.0.1', user.port, user.certPath, user.keyPath)
+    \\    puts(`HTTPS server started on port ${user.port}.`)
+    \\} else {
+    \\    s = cs.http.serveHttp('127.0.0.1', user.port)
+    \\    puts(`HTTP server started on port ${user.port}.`)
+    \\}
+    \\s.setHandler((req, resp) => {
+    \\    if (req.method != 'GET') {
+    \\        return false
+    \\    }
+    \\    const path = req.path.substring(1)
+    \\    const content = cs.files.read(path)
+    \\    if (content != null) {
+    \\        resp.setStatus(200)
+    \\        if (path.endsWith('.html')) {
+    \\            resp.setHeader('content-type', 'text/html; charset=utf-8')
+    \\        } else {
+    \\            resp.setHeader('content-type', 'text/plain; charset=utf-8')
+    \\        }
+    \\        resp.sendBytes(content)
+    \\        puts(`GET ${req.path} [200]`)
+    \\        return true
+    \\    } else {
+    \\        puts(`GET ${req.path} [404]`)
+    \\        return false
+    \\    }
+    \\})
+    ;

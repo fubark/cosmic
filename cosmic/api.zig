@@ -26,22 +26,22 @@ const RuntimeValue = runtime.RuntimeValue;
 const ResourceId = runtime.ResourceId;
 const PromiseId = runtime.PromiseId;
 const F64SafeUint = runtime.F64SafeUint;
-const ThisResource = runtime.ThisResource;
-const ThisHandle = runtime.ThisHandle;
 const Error = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
-const This = runtime.This;
-const Data = runtime.Data;
 const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
 const Uint8Array = runtime.Uint8Array;
 const CsWindow = runtime.CsWindow;
-const printFmt = runtime.printFmt;
-const errorFmt = runtime.errorFmt;
 const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
+const adapter = @import("adapter.zig");
+const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
+const This = adapter.This;
+const ThisResource = adapter.ThisResource;
+const ThisHandle = adapter.ThisHandle;
+const FuncData = adapter.FuncData;
 
 // TODO: Once https://github.com/ziglang/zig/issues/8259 is resolved, use comptime to set param names.
 
@@ -452,8 +452,17 @@ pub const cs_files = struct {
 
     /// Returns info about a file, folder, or special object at a given path.
     /// @param path
-    pub fn getPathInfo(path: []const u8) ?PathInfo {
-        const stat = std.fs.cwd().statFile(path) catch return null;
+    pub fn getPathInfo(path: []const u8) Error!PathInfo {
+        // TODO: statFile opens the file first so it doesn't detect symlink.
+        const stat = std.fs.cwd().statFile(path) catch |err| {
+            return switch (err) {
+                error.FileNotFound => error.FileNotFound,
+                else => {
+                    log.debug("unknown error: {}", .{err});
+                    unreachable;
+                },
+            };
+        };
         return PathInfo{
             .kind = @intToEnum(FileKind, @enumToInt(stat.kind)),
             .atime = @intCast(F64SafeUint, @divFloor(stat.atime, 1_000_000)),
@@ -608,12 +617,50 @@ pub const cs_files = struct {
         return runtime.invokeFuncAsync(rt, removeDir, args);
     }
 
-    /// Resolves '..' in the path and returns an absolute path.
-    /// Currently does not resolve home '~'.
+    /// Expands relative pathing such as '..' from the cwd and returns an absolute path.
+    /// See realPath to resolve symbolic links.
     /// @param path
-    pub fn resolvePath(rt: *RuntimeContext, path: []const u8) ?ds.Box([]const u8) {
-        const res = std.fs.path.resolve(rt.alloc, &.{path}) catch return null;
+    pub fn expandPath(rt: *RuntimeContext, path: []const u8) ds.Box([]const u8) {
+        const res = std.fs.path.resolve(rt.alloc, &.{path}) catch |err| {
+            log.debug("unknown error: {}", .{err});
+            unreachable;
+        };
         return ds.Box([]const u8).init(rt.alloc, res);
+    }
+
+    /// Expands relative pathing from the cwd and resolves symbolic links.
+    /// Returns the canonicalized absolute path.
+    /// Path provided must point to a filesystem object.
+    /// @param path
+    pub fn realPath(rt: *RuntimeContext, path: []const u8) Error!ds.Box([]const u8) {
+        const res = std.fs.realpathAlloc(rt.alloc, path) catch |err| {
+            return switch (err) {
+                error.FileNotFound => error.FileNotFound,
+                else => {
+                    log.debug("unknown error: {}", .{err});
+                    unreachable;
+                },
+            };
+        };
+        return ds.Box([] const u8).init(rt.alloc, res);
+    }
+
+    /// Creates a symbolic link (a soft link) at symPath to an existing or nonexisting file at targetPath.
+    /// @param symPath
+    /// @param targetPath
+    pub fn symLink(sym_path: []const u8, target_path: []const u8) Error!void {
+        if (builtin.os.tag == .windows) {
+            return error.Unsupported;
+        }
+        std.os.symlink(target_path, sym_path) catch |err| {
+            return switch(err) {
+                error.PathAlreadyExists => error.PathExists,
+                else => {
+                    log.debug("unknown error: {}", .{err});
+                    unreachable;
+                },
+            };
+        };
     }
 };
 
@@ -706,20 +753,24 @@ pub const cs_http = struct {
                 resp.deinit(ctx.rt.alloc);
             }
 
-            fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
+            fn onFailure(ctx: RuntimeValue(PromiseId), err: Error) void {
                 const _promise_id = ctx.inner;
-                runtime.rejectPromise(ctx.rt, _promise_id, err);
+                const js_err = runtime.createPromiseError(ctx.rt, err);
+                runtime.rejectPromise(ctx.rt, _promise_id, js_err);
             }
 
             fn onCurlFailure(ptr: *anyopaque, curle_err: u32) void {
                 const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr).*;
-                switch (curle_err) {
-                    curl.CURLE_COULDNT_CONNECT => onFailure(ctx, error.ConnectFailed),
-                    else => {
-                        log.debug("TODO: Handle curl async error: {}", .{curle_err});
-                        onFailure(ctx, error.RequestFailed);
+                const cs_err = switch (curle_err) {
+                    curl.CURLE_COULDNT_CONNECT => error.ConnectFailed,
+                    curl.CURLE_PEER_FAILED_VERIFICATION => error.CertVerify,
+                    curl.CURLE_SSL_CACERT_BADFILE => error.CertBadFile,
+                    else => b: {
+                        log.debug("unknown error: {}", .{curle_err});
+                        break :b error.Unknown;
                     },
-                }
+                };
+                onFailure(ctx, cs_err);
             }
         };
 
@@ -731,7 +782,12 @@ pub const cs_http = struct {
         const std_opts = toStdRequestOptions(opts);
 
         // Catch any immediate errors as well as async errors.
-        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess, S.onCurlFailure) catch |err| S.onFailure(ctx, err);
+        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess, S.onCurlFailure) catch |err| switch (err) {
+            else => {
+                log.debug("unknown error: {}", .{err});
+                S.onFailure(ctx, error.Unknown);
+            }
+        };
 
         return promise;
     }
@@ -767,9 +823,9 @@ pub const cs_http = struct {
 
     /// @param url
     /// @param options
-    pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) v8.Promise {
+    pub fn requestAsync(rt: *RuntimeContext, url: []const u8, mb_opts: ?RequestOptions) PromiseSkipJsGen {
         const opts = mb_opts orelse RequestOptions{};
-        return requestAsyncInternal(rt, url, opts, true);
+        return .{ .inner = requestAsyncInternal(rt, url, opts, true) };
     }
 
     pub const RequestMethod = enum {
@@ -833,11 +889,16 @@ pub const cs_http = struct {
     /// @param port
     /// @param certPath
     /// @param keyPath
-    pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) !v8.Object {
+    pub fn serveHttps(rt: *RuntimeContext, host: []const u8, port: u16, cert_path: []const u8, key_path: []const u8) Error!v8.Object {
         const handle = rt.createCsHttpServerResource();
         const server = handle.ptr;
         server.init(rt);
-        try server.startHttps(host, port, cert_path, key_path);
+        server.startHttps(host, port, cert_path, key_path) catch |err| switch (err) {
+            else => {
+                log.debug("unknown error: {}", .{err});
+                return error.Unknown;
+            }
+        };
 
         const ctx = rt.getContext();
         const js_handle = rt.http_server_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
@@ -974,7 +1035,7 @@ pub const cs_core = struct {
                 else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(0));
             defer rt.alloc.free(str);
             if (!DevMode or DevModeToStdout) {
-                rt.printFmt("{s}", .{str});
+                rt.env.printFmt("{s}", .{str});
             }
             if (DevMode) {
                 rt.dev_ctx.printFmt("{s}", .{str});
@@ -987,7 +1048,7 @@ pub const cs_core = struct {
                 else v8x.allocValueAsUtf8(rt.alloc, iso, ctx, info.getArg(i));
             defer rt.alloc.free(str);
             if (!DevMode or DevModeToStdout) {
-                rt.printFmt(" {s}", .{str});
+                rt.env.printFmt(" {s}", .{str});
             }
             if (DevMode) {
                 rt.dev_ctx.printFmt(" {s}", .{str});
@@ -1001,7 +1062,7 @@ pub const cs_core = struct {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, false, false);
-        rt.printFmt("\n", .{});
+        rt.env.printFmt("\n", .{});
     }
 
     pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
@@ -1009,7 +1070,7 @@ pub const cs_core = struct {
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, true, false);
         if (DevModeToStdout) {
-            rt.printFmt("\n", .{});
+            rt.env.printFmt("\n", .{});
         }
         rt.dev_ctx.print("\n");
     }
@@ -1020,7 +1081,7 @@ pub const cs_core = struct {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, false, true);
-        rt.printFmt("\n", .{});
+        rt.env.printFmt("\n", .{});
     }
 
     pub fn dump_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
@@ -1028,7 +1089,7 @@ pub const cs_core = struct {
         const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, true, true);
         if (DevModeToStdout) {
-            rt.printFmt("\n", .{});
+            rt.env.printFmt("\n", .{});
         }
         rt.dev_ctx.print("\n");
     }
@@ -1100,14 +1161,14 @@ pub const cs_core = struct {
         writer.writeAll("\n") catch unreachable;
         
         v8x.appendStackTraceString(&buf, rt.isolate, trace);
-        errorFmt("{s}", .{buf.items});
-        std.os.exit(1);
+        rt.env.errorFmt("{s}", .{buf.items});
+        rt.env.exit(1);
     }
 
     /// Terminate the program with a code. Use code=0 for a successful exit and a positive value for an error exit.
     /// @param code
-    pub fn exit(code: u8) void {
-        std.os.exit(code);
+    pub fn exit(rt: *RuntimeContext, code: u8) void {
+        rt.env.exit(code);
     }
 
     /// Returns the last error code. API calls that return null will set their error code to be queried by errCode() and errString().
@@ -1247,9 +1308,14 @@ pub const cs_core = struct {
         pub const Default = .NotAnError;
         NoError,
         FileNotFound,
+        PathExists,
         IsDir,
+        ConnectFailed,
+        CertVerify,
+        CertBadFile,
         InvalidFormat,
         Unsupported,
+        Unknown,
         NotAnError,
     };
 
@@ -1903,11 +1969,11 @@ pub const cs_test = struct {
                     .is_data_rt = false,
                 }), extra_data);
 
-                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected);
+                _ = promise.thenAndCatch(ctx, on_fulfilled, on_rejected) catch unreachable;
             } else {
                 const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
-                printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+                rt.env.printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
             }
         } else {
             // Sync test.
@@ -1916,7 +1982,7 @@ pub const cs_test = struct {
             } else {
                 const err_str = v8x.allocPrintTryCatchStackTrace(rt.alloc, iso, ctx, try_catch).?;
                 defer rt.alloc.free(err_str);
-                printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
+                rt.env.printFmt("Test: {s}\n{s}", .{ name_dupe, err_str });
             }
         }
     }
@@ -1983,7 +2049,7 @@ pub const cs_test = struct {
 pub const cs_worker = struct {
 };
 
-fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
+fn reportAsyncTestFailure(data: FuncData, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
     const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
@@ -1995,7 +2061,7 @@ fn reportAsyncTestFailure(data: Data, val: v8.Value) void {
     const str = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), val);
     defer rt.alloc.free(str);
 
-    printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
+    rt.env.printFmt("Test Failed: \"{s}\"\n{s}\n", .{test_name, str});
 }
 
 fn passAsyncTest(rt: *RuntimeContext) void {
