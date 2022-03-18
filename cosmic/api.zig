@@ -750,9 +750,10 @@ pub const cs_http = struct {
                 resp.deinit(ctx.rt.alloc);
             }
 
-            fn onFailure(ctx: RuntimeValue(PromiseId), err: anyerror) void {
+            fn onFailure(ctx: RuntimeValue(PromiseId), err: Error) void {
                 const _promise_id = ctx.inner;
-                runtime.rejectPromise(ctx.rt, _promise_id, err);
+                const js_err = runtime.createPromiseError(ctx.rt, err);
+                runtime.rejectPromise(ctx.rt, _promise_id, js_err);
             }
 
             fn onCurlFailure(ptr: *anyopaque, curle_err: u32) void {
@@ -760,8 +761,8 @@ pub const cs_http = struct {
                 switch (curle_err) {
                     curl.CURLE_COULDNT_CONNECT => onFailure(ctx, error.ConnectFailed),
                     else => {
-                        log.debug("TODO: Handle curl async error: {}", .{curle_err});
-                        onFailure(ctx, error.RequestFailed);
+                        log.debug("unknown error: {}", .{curle_err});
+                        onFailure(ctx, error.Unknown);
                     },
                 }
             }
@@ -775,7 +776,12 @@ pub const cs_http = struct {
         const std_opts = toStdRequestOptions(opts);
 
         // Catch any immediate errors as well as async errors.
-        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess, S.onCurlFailure) catch |err| S.onFailure(ctx, err);
+        stdx.http.requestAsync(rt.alloc, url, std_opts, ctx, S.onSuccess, S.onCurlFailure) catch |err| switch (err) {
+            else => {
+                log.debug("unknown error: {}", .{err});
+                S.onFailure(ctx, error.Unknown);
+            }
+        };
 
         return promise;
     }
@@ -1293,8 +1299,10 @@ pub const cs_core = struct {
         FileNotFound,
         PathExists,
         IsDir,
+        ConnectFailed,
         InvalidFormat,
         Unsupported,
+        Unknown,
         NotAnError,
     };
 

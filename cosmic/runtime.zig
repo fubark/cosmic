@@ -2452,6 +2452,17 @@ const Promise = struct {
     task_id: u32,
 };
 
+// TODO: Since Cosmic uses the js stack trace api,
+// it might be faster to return a plain object with the code and msg.
+pub fn createPromiseError(rt: *RuntimeContext, err: CsError) v8.Value {
+    const iso = rt.isolate;
+    const api_err = std.meta.stringToEnum(api.cs_core.CsError, @errorName(err)).?;
+    const err_msg = api.cs_core.errString(api_err);
+    const js_err = v8.Exception.initError(iso.initStringUtf8(err_msg));
+    _ = js_err.castTo(v8.Object).setValue(rt.getContext(), iso.initStringUtf8("code"), iso.initIntegerU32(@enumToInt(api_err)));
+    return js_err;
+}
+
 pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) v8.Promise {
     const ClosureTask = tasks.ClosureTask(func);
     const task = ClosureTask{
@@ -2471,11 +2482,8 @@ pub fn invokeFuncAsync(rt: *RuntimeContext, comptime func: anytype, args: std.me
         }
         fn onFailure(ctx_: RuntimeValue(PromiseId), err_: anyerror) void {
             const _promise_id = ctx_.inner;
-            if (std.meta.stringToEnum(api.cs_core.CsError, @errorName(err_))) |cs_err| {
-                const iso_ = ctx_.rt.isolate;
-                const err_msg = api.cs_core.errString(cs_err);
-                const js_err = v8.Exception.initError(iso_.initStringUtf8(err_msg));
-                _ = js_err.castTo(v8.Object).setValue(ctx_.rt.getContext(), iso_.initStringUtf8("code"), v8.Integer.initU32(iso_, @enumToInt(cs_err)));
+            if (std.meta.stringToEnum(api.cs_core.CsError, @errorName(err_))) |_| {
+                const js_err = createPromiseError(ctx_.rt, @errSetCast(CsError, err_));
                 rejectPromise(ctx_.rt, _promise_id, js_err);
             } else {
                 rejectPromise(ctx_.rt, _promise_id, err_);
@@ -2497,7 +2505,9 @@ pub const CsError = error {
     PathExists,
     IsDir,
     InvalidFormat,
+    ConnectFailed,
     Unsupported,
+    Unknown,
 };
 
 /// Double precision can represent a 53 bit significand. 

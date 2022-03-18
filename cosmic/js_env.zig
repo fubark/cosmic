@@ -479,8 +479,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setProp(cs_err, "FileNotFound", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.FileNotFound)));
         ctx.setProp(cs_err, "PathExists", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.PathExists)));
         ctx.setProp(cs_err, "IsDir", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.IsDir)));
+        ctx.setProp(cs_err, "ConnectFailed", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.ConnectFailed)));
         ctx.setProp(cs_err, "InvalidFormat", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.InvalidFormat)));
         ctx.setProp(cs_err, "Unsupported", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unsupported)));
+        ctx.setProp(cs_err, "Unknown", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unknown)));
         ctx.setConstProp(cs_core, "CsError", cs_err);
     }
     ctx.setConstProp(cs, "core", cs_core);

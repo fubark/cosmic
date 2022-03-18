@@ -443,3 +443,4 @@ export fn v8__Value__IsBigInt() void {}
 export fn SDL_PushEvent() void {}
 export fn v8__Function__GetName() void {}
 export fn v8__Value__IsNullOrUndefined() void {}
+export fn v8__base__SetDcheckFunction() void {}
