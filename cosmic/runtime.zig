@@ -105,6 +105,7 @@ pub const RuntimeContext = struct {
     vec2_buf: std.ArrayList(Vec2),
 
     // Whether this was invoked from "cosmic test"
+    // TODO: Rename to is_test_runner
     is_test_env: bool,
 
     // Test runner.
@@ -133,6 +134,9 @@ pub const RuntimeContext = struct {
     uv_poller: UvPoller,
 
     received_uncaught_exception: bool,
+
+    // Used in test callbacks to shutdown the runtime.
+    requested_shutdown: bool,
 
     timer: Timer,
 
@@ -225,6 +229,7 @@ pub const RuntimeContext = struct {
             .uv_dummy_async = undefined,
             .uv_poller = undefined,
             .received_uncaught_exception = false,
+            .requested_shutdown = false,
             .last_err = error.NoError,
             .timer = undefined,
             .dev_mode = dev_mode,
@@ -313,6 +318,13 @@ pub const RuntimeContext = struct {
         ctx.enter();
         defer ctx.exit();
 
+        // Attach user context from json string.
+        if (self.env.user_ctx_json) |json| {
+            const json_str = iso.initStringUtf8(json);
+            const json_val = v8.Json.parse(ctx, json_str) catch unreachable;
+            _ = self.global.inner.setValue(ctx, iso.initStringUtf8("user"), json_val);
+        }
+
         {
             // Run api_init.js
             var exec_res: v8x.ExecuteResult = undefined;
@@ -337,7 +349,7 @@ pub const RuntimeContext = struct {
             }
         }
 
-        if (self.is_test_env) {
+        if (self.is_test_env or builtin.is_test) {
             // Run test_init.js
             var exec_res: v8x.ExecuteResult = undefined;
             defer exec_res.deinit();
@@ -1355,6 +1367,60 @@ pub const RuntimeContext = struct {
             _ = cb.inner.call(ctx, self.active_window.js_window, &.{ js_event });
         }
     }
+
+    pub fn evalModuleScript(self: *Self, js: []const u8) !RunModuleScriptResult {
+        return self.runModuleScript("/eval", "eval", js);
+    }
+
+    pub fn attachPromiseHandlers(
+        self: *Self,
+        p: v8.Promise,
+        ctx_ptr: anytype,
+        comptime on_success: fn (@TypeOf(ctx_ptr), *RuntimeContext, v8.Value) void,
+        comptime on_failure: fn (@TypeOf(ctx_ptr), *RuntimeContext, v8.Value) void,
+    ) !void {
+        const Ptr = @TypeOf(ctx_ptr);
+        const S = struct {
+            fn onSuccess(rt: *RuntimeContext, ctx: FuncDataUserPtr(Ptr), val: v8.Value) void {
+                on_success(ctx.ptr, rt, val);
+            }
+            fn onFailure(rt: *RuntimeContext, ctx: FuncDataUserPtr(Ptr), val: v8.Value) void {
+                on_failure(ctx.ptr, rt, val);
+            }
+        };
+        const rt_val = self.isolate.initExternal(self);
+        const data = self.rt_ctx_tmpl.inner.initInstance(self.getContext());
+        data.setInternalField(0, rt_val);
+        const ctx_val = self.isolate.initExternal(ctx_ptr);
+        data.setInternalField(1, ctx_val);
+        const js_on_success = v8.Function.initWithData(self.getContext(), gen.genJsFunc(S.onSuccess, .{
+            .asyncify = false,
+            .is_data_rt = false,
+        }), data);
+        const js_on_failure = v8.Function.initWithData(self.getContext(), gen.genJsFunc(S.onFailure, .{
+            .asyncify = false,
+            .is_data_rt = false,
+        }), data);
+        _ = try p.thenAndCatch(self.getContext(), js_on_success, js_on_failure);
+    }
+
+    /// Currently only used in test env where a callback wants to end the runtime.
+    pub fn requestShutdown(self: *Self) void {
+        if (builtin.is_test) {
+            self.requested_shutdown = true;
+            const res = uv.uv_async_send(self.uv_dummy_async);
+            uv.assertNoError(res);
+        }
+    }
+
+    pub fn finishMainScript(self: *Self) void {
+        self.main_script_done = true;
+        if (builtin.is_test) {
+            if (self.env.on_main_script_done) |handler| {
+                handler(self.env.on_main_script_done_ctx, self);
+            }
+        }
+    }
 };
 
 fn hasAllOptionalFields(comptime T: type) bool {
@@ -2285,6 +2351,9 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
         } else {
             // TODO: Detect need for realtime loop (eg. on creation of a window) and switch to runUserLoop.
             while (true) {
+                if (builtin.is_test and rt.requested_shutdown) {
+                    break;
+                }
                 if (pollMainEventLoop(&rt)) {
                     processMainEventLoop(&rt);
                     continue;

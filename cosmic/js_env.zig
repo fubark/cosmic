@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const builtin = @import("builtin");
 const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
@@ -344,7 +345,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
     ctx.setConstProp(cs, "http", http);
 
-    if (rt.is_test_env) {
+    if (rt.is_test_env or builtin.is_test) {
         // cs.test
         const cs_test = iso.initObjectTemplateDefault();
 

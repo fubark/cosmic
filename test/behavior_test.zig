@@ -11,6 +11,8 @@ const env_ns = @import("../cosmic/env.zig");
 const Environment = env_ns.Environment;
 const WriterIface = env_ns.WriterIface;
 const log = stdx.log.scoped(.behavior_test);
+const adapter = @import("../cosmic/adapter.zig");
+const FuncDataUserPtr = adapter.FuncDataUserPtr;
 
 // For tests that need to verify what the runtime is doing.
 // Not completely E2E tests (eg. writing to stderr is intercepted) but close enough.
@@ -240,11 +242,69 @@ test "behavior: CLI help, version, command usages." {
             \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
             \\
             \\Starts an HTTPS server over a public folder at [dir-path].
-            \\Must provide a public key and private key to enable a secure communication.
+            \\Must provide a public key and private key to enable secure communication.
             \\Default port is 8081.
             \\
         );
     }
+}
+
+test "behavior: 'cosmic http' starts an HTTP server" {
+    const Context = struct {
+        const Self = @This();
+
+        passed: bool = false,
+    };
+    var ctx: Context = .{};
+
+    const S = struct {
+        fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) void {
+            const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
+            var res = rt.evalModuleScript(
+                \\const res = await cs.http.getAsync('http://127.0.0.1:8081/index.html')
+                \\cs.test.eq(res, `<html>
+                \\<head>
+                \\    <link rel="stylesheet" href="style.css">
+                \\</head>
+                \\<body>
+                \\    <img src="logo.png" />
+                \\    <p>Hello World!</p>
+                \\</body>
+                \\</html>
+                \\`)
+            ) catch unreachable;
+            defer res.deinit(rt.alloc);
+
+            rt.attachPromiseHandlers(res.eval.?.inner, ctx_, onEvalSuccess, onEvalFailure) catch unreachable;
+        }
+        fn onEvalSuccess(ctx_: *Context, rt: *RuntimeContext, _: v8.Value) void {
+            ctx_.passed = true;
+            rt.requestShutdown();
+        }
+        // fn onEvalFailure(ctx_: FuncDataUserPtr(*Context), rt: *RuntimeContext, err: v8.Value) void {
+        fn onEvalFailure(ctx_: *Context, rt: *RuntimeContext, err: v8.Value) void {
+            const trace_str = runtime.allocExceptionJsStackTraceString(rt, err);
+            defer rt.alloc.free(trace_str);
+            rt.env.errorFmt("{s}", .{trace_str});
+
+            ctx_.passed = false;
+            rt.requestShutdown();
+        }
+    };
+
+    const res = runCmd(&.{"cosmic", "http", "./test/assets", "8081"}, .{
+        .on_main_script_done = S.onMainScriptDone,
+        .on_main_script_done_ctx = &ctx,
+    });
+    defer res.deinit();
+
+    try t.eq(res.success, true);
+    try t.eq(ctx.passed, true);
+    try t.eqStr(res.stdout,
+        \\Server started on port 8081.
+        \\GET /index.html [200]
+        \\
+    );
 }
 
 const RunResult = struct {
@@ -279,9 +339,12 @@ fn runCmd(cmd: []const []const u8, env: Environment) RunResult {
         .main_script_origin = "/test.js",
         .err_writer = WriterIface.init(&stderr_writer),
         .out_writer = WriterIface.init(&stdout_writer),
+        .on_main_script_done = env.on_main_script_done,
+        .on_main_script_done_ctx = env.on_main_script_done_ctx,
         .exit_fn = S.exit,
         .pump_rt_on_graceful_shutdown = true,
     };
+    defer env_.deinit(t.alloc);
 
     main.runMain(t.alloc, cmd, &env_) catch {
         success = false;

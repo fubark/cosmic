@@ -8,10 +8,13 @@ const runtime = @import("runtime.zig");
 pub const Environment = struct {
     const Self = @This();
 
-    // Overrides the main script source instead of doing a file read. Used for testing.
+    // Overrides the main script source instead of doing a file read. Used for testing and embedded main scripts.
     main_script_override: ?[]const u8 = null,
 
     main_script_origin: ?[]const u8 = null,
+
+    // Attach user context after creating the js global context. Assigned value should be duped.
+    user_ctx_json: ?[]const u8 = null,
 
     // Writes with custom interface instead of stderr. Used for testing.
     err_writer: ?WriterIfaceWrapper = null,
@@ -20,6 +23,7 @@ pub const Environment = struct {
     out_writer: ?WriterIfaceWrapper = null,
 
     on_main_script_done: ?fn (ctx: ?*anyopaque, rt: *runtime.RuntimeContext) void = null,
+    on_main_script_done_ctx: ?*anyopaque = null,
 
     exit_fn: ?fn (code: u8) void = null,
 
@@ -34,6 +38,12 @@ pub const Environment = struct {
     // Tests may also requestShutdown on the runtime when resources are still active which would end
     // up queuing more events that need to be processed.
     pump_rt_on_graceful_shutdown: bool = false,
+
+    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+        if (self.user_ctx_json) |json| {
+            alloc.free(json);
+        }
+    }
 
     pub fn exit(self: Self, code: u8) void {
         if (builtin.is_test) {

@@ -27,6 +27,7 @@ pub fn main() !void {
     defer process.argsFree(alloc, args);
 
     var env = Environment{};
+    defer env.deinit(alloc);
     try runMain(alloc, args, &env);
 }
 
@@ -110,6 +111,23 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
             printUsage(env, http_usage);
             env.exit(0);
         } else {
+            const public_path = nextArg(args, &arg_idx) orelse {
+                env.abortFmt("Expected public directory path.", .{});
+                return;
+            };
+            const abs_path = try std.fs.path.resolve(alloc, &.{ public_path });
+            defer alloc.free(abs_path);
+            try std.os.chdir(abs_path);
+
+            const port_str = nextArg(args, &arg_idx) orelse "8081";
+            const port = try std.fmt.parseInt(u32, port_str, 10);
+
+            env.main_script_origin = "(in-memory: http-main.js)";
+            env.main_script_override = http_main;
+            env.user_ctx_json = try std.fmt.allocPrint(alloc, 
+                \\{{ "port": {} }}
+                , .{ port });
+            try runAndExit("http-main.js", false, env);
         }
     } else if (string.eq(cmd, "https")) {
         if (flags.help) {
@@ -337,7 +355,33 @@ const https_usage =
     \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
     \\
     \\Starts an HTTPS server over a public folder at [dir-path].
-    \\Must provide a public key and private key to enable a secure communication.
+    \\Must provide a public key and private key to enable secure communication.
     \\Default port is 8081.
     \\
+    ;
+
+const http_main = 
+    \\const s = cs.http.serveHttp('127.0.0.1', user.port)
+    \\s.setHandler((req, resp) => {
+    \\    if (req.method != 'GET') {
+    \\        return false
+    \\    }
+    \\    const path = req.path.substring(1)
+    \\    const content = cs.files.read(path)
+    \\    if (content != null) {
+    \\        resp.setStatus(200)
+    \\        if (path.endsWith('.html')) {
+    \\            resp.setHeader('content-type', 'text/html; charset=utf-8')
+    \\        } else {
+    \\            resp.setHeader('content-type', 'text/plain; charset=utf-8')
+    \\        }
+    \\        resp.sendBytes(content)
+    \\        puts(`GET ${req.path} [200]`)
+    \\        return true
+    \\    } else {
+    \\        puts(`GET ${req.path} [404]`)
+    \\        return false
+    \\    }
+    \\})
+    \\puts(`Server started on port ${user.port}.`)
     ;
