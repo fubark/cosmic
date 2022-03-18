@@ -208,32 +208,38 @@ test('cs.files.expandPath', () => {
 })
 
 testIsolated('cs.files.realPath', async () => {
-    eq(fs.realPath('does_not_exist'), null)
-    eq(errCode(), CsError.FileNotFound)
+    // TODO: Currently disabled on windows until symLink is implemented.
+    if (getOs() != Os.windows) {
+        eq(fs.realPath('does_not_exist'), null)
+        eq(errCode(), CsError.FileNotFound)
 
-    fs.writeText('foo.txt', '')
-    fs.symLink('foo-link.txt', 'foo.txt')
-    try {
-        eq(fs.realPath('foo-link.txt'), fs.cwd() + '/foo.txt')
-    } finally {
-        fs.remove('foo-link.txt')
-        fs.remove('foo.txt')
+        fs.writeText('foo.txt', '')
+        fs.symLink('foo-link.txt', 'foo.txt')
+        try {
+            eq(fs.realPath('foo-link.txt'), fs.cwd() + '/foo.txt')
+        } finally {
+            fs.remove('foo-link.txt')
+            fs.remove('foo.txt')
+        }
     }
 })
 
 testIsolated('cs.files.symLink', async() => {
-    fs.writeText('foo.txt', '')
-    fs.symLink('foo-link.txt', 'foo.txt')
-    eq(fs.symLink('foo-link.txt', 'foo.txt'), null)
-    eq(errCode(), CsError.PathExists)
-    try {
-        // TODO: getPathInfo doesn't detect symlink
-        // eq(fs.getPathInfo('foo-link.txt').kind, fs.FileKind.symLink)
-        fs.writeText('foo-link.txt', 'hello')
-        eq(fs.readText('foo.txt'), 'hello')
-    } finally {
-        fs.remove('foo-link.txt')
-        fs.remove('foo.txt')
+    // TODO: Currently disabled on windows until symLink is implemented.
+    if (getOs() != Os.windows) {
+        fs.writeText('foo.txt', '')
+        fs.symLink('foo-link.txt', 'foo.txt')
+        eq(fs.symLink('foo-link.txt', 'foo.txt'), null)
+        eq(errCode(), CsError.PathExists)
+        try {
+            // TODO: getPathInfo doesn't detect symlink
+            // eq(fs.getPathInfo('foo-link.txt').kind, fs.FileKind.symLink)
+            fs.writeText('foo-link.txt', 'hello')
+            eq(fs.readText('foo.txt'), 'hello')
+        } finally {
+            fs.remove('foo-link.txt')
+            fs.remove('foo.txt')
+        }
     }
 })
 

@@ -649,6 +649,9 @@ pub const cs_files = struct {
     /// @param symPath
     /// @param targetPath
     pub fn symLink(sym_path: []const u8, target_path: []const u8) Error!void {
+        if (builtin.os.tag == .windows) {
+            return error.Unsupported;
+        }
         std.os.symlink(target_path, sym_path) catch |err| {
             return switch(err) {
                 error.PathAlreadyExists => error.PathExists,
