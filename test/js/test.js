@@ -412,20 +412,19 @@ test('cs.http.request', () => {
     contains(resp.text(), 'Zig is a general-purpose programming language')
 });
 
-// TODO: Revisit, works but has memory leak.
-// testIsolated('cs.http.requestAsync', async () => {
-//     try {
-//         const resp = await cs.http.requestAsync('https://127.0.0.1')
-//         t.fail('expected exception')
-//     } catch (err) {
-//         contains(err.message, 'ConnectFailed')
-//     }
-// 
-//     const resp = await cs.http.requestAsync('https://ziglang.org')
-//     eq(resp.status, 200)
-//     eq(resp.getHeader('content-type'), 'text/html')
-//     contains(resp.text(), 'Zig is a general-purpose programming language')
-// });
+testIsolated('cs.http.requestAsync', async () => {
+    try {
+        await cs.http.requestAsync('https://127.0.0.1')
+        t.fail('expected exception')
+    } catch (err) {
+        eq(err.code, CsError.ConnectFailed)
+    }
+
+    const resp = await cs.http.requestAsync('https://ziglang.org')
+    eq(resp.status, 200)
+    eq(resp.getHeader('content-type'), 'text/html')
+    contains(resp.text(), 'Zig is a general-purpose programming language')
+})
 
 testIsolated('cs.http.serveHttp', async () => {
     const s = cs.http.serveHttp('127.0.0.1', 3000)

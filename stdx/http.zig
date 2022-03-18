@@ -60,6 +60,10 @@ const SockHandle = struct {
     // Once this becomes 0, start to close this handle.
     num_active_reqs: u32,
 
+    /// During the uv closing state, onOpenSocket may request to reuse the same sockfd again.
+    /// This flag will skip destroying the handle on uv closed callback.
+    skip_destroy_on_uv_close: bool,
+
     pub fn init(self: *Self, sockfd: std.os.socket_t) void {
         self.* = .{
             .poll = undefined,
@@ -69,6 +73,7 @@ const SockHandle = struct {
             .ready = false,
             .num_active_reqs = 0,
             .sockfd_closed = false,
+            .skip_destroy_on_uv_close = false,
         };
         const c_sockfd = if (builtin.os.tag == .windows) @ptrToInt(sockfd) else sockfd;
         const res = uv.uv_poll_init_socket(curlm_uvloop, &self.poll, c_sockfd);
@@ -196,7 +201,13 @@ fn onOpenSocket(client_ptr: ?*anyopaque, purpose: curl.curlsocktype, addr: *curl
         entry.value_ptr.*.init(sockfd);
     } else {
         if (entry.value_ptr.*.sockfd_closed) {
-            @panic("Did not expect to reuse a closed sockfd");
+            // Since the handle still exists and the sockfd is in a closed state,
+            // it means the uv_close on the poll hasn't finished yet. Finish the closing with a uv_run.
+            // Set skip_destroy_on_uv_close so the uv_close callback doesn't remove the handle.
+            entry.value_ptr.*.skip_destroy_on_uv_close = true;
+            _ = uv.uv_run(curlm_uvloop, uv.UV_RUN_NOWAIT);
+            // Reinit a closed sockfd handle.
+            entry.value_ptr.*.init(sockfd);
         }
     }
     // Mark as ready, any onSocket callback from now on is related to the request.
@@ -284,6 +295,9 @@ const AsyncRequestHandle = struct {
         CurlM.assertNoError(res);
         self.ch.deinit();
         self.alloc.free(@ptrCast([*]u8, self.cb_ctx)[0..self.cb_ctx_size]);
+        self.header_ctx.headers_buf.deinit();
+        self.header_ctx.header_data_buf.deinit();
+        self.buf.deinit();
     }
 
     fn destroy(self: *Self) void {
@@ -322,8 +336,10 @@ fn onUvPolled(ptr: [*c]uv.uv_poll_t, status: c_int, events: c_int) callconv(.C) 
 fn onUvClosePoll(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
     // log.debug("uv close poll", .{});
     const sock_h = @ptrCast(*SockHandle, ptr);
-    _ = sock_handles.remove(sock_h.sockfd);
-    galloc.destroy(sock_h);
+    if (!sock_h.skip_destroy_on_uv_close) {
+        _ = sock_handles.remove(sock_h.sockfd);
+        galloc.destroy(sock_h);
+    }
 }
 
 fn onCurlPush(parent: *curl.CURL, h: *curl.CURL, num_headers: usize, headers: *curl.curl_pushheaders, userp: ?*anyopaque) callconv(.C) c_int {
