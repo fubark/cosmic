@@ -2817,3 +2817,10 @@ fn handleMainModuleScriptSuccess(rt: *RuntimeContext) void {
     const res = uv.uv_async_send(rt.uv_dummy_async);
     uv.assertNoError(res);
 }
+
+/// Override libc assert fail handler to abort with zig stack trace.
+/// Some dependencies like libuv use it.
+export fn __assert_fail(assertion: [*c]const u8, file: [*c]const u8, line: c_uint, function: [*c]const u8) callconv(.C) void {
+    log.debug("libc assert failed: {s} {s}:{}, Assertion: {s}", .{function, file, line, assertion});
+    unreachable;
+}
