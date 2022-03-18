@@ -86,6 +86,12 @@ jobs:
         with:
           version: 0.9.0
 
+      - name: Setup script.
+        uses: actions/github-script@v5
+        with:
+          script: |
+            core.exportVariable('SHORT_SHA', context.sha.substring(0, 7))
+
       - name: Get version.
         if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
         run: |
@@ -118,17 +124,20 @@ jobs:
       - name: Get prebuilt v8.
         run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
 
+      - name: Generate js API supplement.
+        run: zig build gen -Darg="api-js" -Darg="cosmic/snapshots/gen_api.js"
+
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
         run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
-      - name: Build.
-        run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
-
       - name: Test behavior.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
         run: zig build test-behavior ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+
+      - name: Build.
+        run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Test js behavior.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
@@ -179,6 +188,7 @@ jobs:
 
     outputs:
       version: ${{ env.BUILD_VERSION }}
+      short_sha: ${{ env.SHORT_SHA }}
 
   release:
     needs: build
@@ -189,6 +199,13 @@ jobs:
         with:
           name: bin
 
+      - name: Rename with version.
+        run: |
+          mv cosmic-windows-x64.zip cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+          mv cosmic-linux-x64.zip cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+          mv cosmic-macos-x64.zip cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+          mv cosmic-macos-arm64.zip cosmic-macos-arm64${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+
       - name: Github Release.
         uses: marvinpinto/action-automatic-releases@latest
         with:
@@ -197,10 +214,10 @@ jobs:
           prerelease: false
           title: ${{ needs.build.outputs.version }}
           files: |
-            cosmic-windows-x64.zip
-            cosmic-linux-x64.zip
-            cosmic-macos-x64.zip
-            cosmic-macos-arm64.zip
+            cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+            cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+            cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+            cosmic-macos-arm64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
 
   dispatch:
     needs: release

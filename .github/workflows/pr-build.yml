@@ -99,17 +99,20 @@ jobs:
       - name: Get prebuilt v8.
         run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
 
+      - name: Generate js API supplement.
+        run: zig build gen -Darg="api-js" -Darg="cosmic/snapshots/gen_api.js"
+
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
         run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
-      - name: Build.
-        run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
-
       - name: Test behavior.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
         run: zig build test-behavior ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+
+      - name: Build.
+        run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Test js behavior.
         if: env.BUILD_TARGET != 'aarch64-macos-gnu'
