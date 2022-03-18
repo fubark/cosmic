@@ -204,7 +204,7 @@ jobs:
           mv cosmic-windows-x64.zip cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
           mv cosmic-linux-x64.zip cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
           mv cosmic-macos-x64.zip cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-          mv cosmic-macos-arm64.zip cosmic-macos-arm64${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+          mv cosmic-macos-arm64.zip cosmic-macos-arm64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
 
       - name: Github Release.
         uses: marvinpinto/action-automatic-releases@latest
