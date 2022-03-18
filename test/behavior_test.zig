@@ -280,6 +280,7 @@ fn runCmd(cmd: []const []const u8, env: Environment) RunResult {
         .err_writer = WriterIface.init(&stderr_writer),
         .out_writer = WriterIface.init(&stdout_writer),
         .exit_fn = S.exit,
+        .pump_rt_on_graceful_shutdown = true,
     };
 
     main.runMain(t.alloc, cmd, &env_) catch {

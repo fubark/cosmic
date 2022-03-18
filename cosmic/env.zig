@@ -23,6 +23,18 @@ pub const Environment = struct {
 
     exit_fn: ?fn (code: u8) void = null,
 
+    // When executing the runtime normally, it's nice to be able to shutdown as quickly as possible.
+    // If the user script contains explicit exit statements, there is no graceful shutdown.
+    // If the user script completes with no more outstanding events, there is a graceful shutdown and
+    // this flag determines if the runtime should do some event pumping for a brief period after resources have started deiniting.
+    // This is turned off by default since under normal conditions, no resources should still be active when reaching graceful shutdown
+    // so it's preferable to exit quickly and not risk being delayed for some rare edge case.
+    // During testing however, it's important to clean up a runtime fully between tests
+    // so that it can discover memory leaks and incorrect deinit behavior.
+    // Tests may also requestShutdown on the runtime when resources are still active which would end
+    // up queuing more events that need to be processed.
+    pump_rt_on_graceful_shutdown: bool = false,
+
     pub fn exit(self: Self, code: u8) void {
         if (builtin.is_test) {
             if (self.exit_fn) |func| {

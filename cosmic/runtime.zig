@@ -1964,6 +1964,21 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
         rt.dev_ctx.close();
     }
 
+    // Start deiniting resources so they queue up their final events.
+    // Resources like the http server will need some time to close out their connections.
+    var iter = rt.resources.nodes.iterator();
+    while (iter.nextPtr()) |it| {
+        const res_id = iter.idx - 1;
+        if (!it.data.deinited) {
+            rt.startDeinitResourceHandle(res_id);
+        }
+    }
+
+    if (rt.env.pump_rt_on_graceful_shutdown) {
+        // Pump events for 3 seconds before force closing everything.
+        pumpMainEventLoopFor(rt, 3000);
+    }
+
     rt.timer.close();
 
     rt.uv_poller.close_flag.store(true, .Release);
@@ -2054,6 +2069,29 @@ inline fn hasPendingEvents(rt: *RuntimeContext) bool {
             rt.uv_loop.active_reqs.count > 0 or
             rt.uv_loop.closing_handles != null or 
             rt.work_queue.hasUnfinishedTasks();
+    }
+}
+
+/// Pumps the main event loop for a given period in milliseconds.
+/// This is useful if the runtime needs to shutdown gracefully and still meet a deadline to exit the process.
+fn pumpMainEventLoopFor(rt: *RuntimeContext, max_ms: u32) void {
+    const timer = std.time.Timer.start() catch unreachable;
+
+    // The implementation is very similar to pollMainEventLoop/processMainEventLoop,
+    // except we check against a timer during the poll step.
+    while (hasPendingEvents(rt)) {
+        const elapsed_ms = timer.read()/1000000;
+        if (elapsed_ms > max_ms) {
+            return;
+        }
+        // Keep timeout low (200ms) so we can return and check against the timer.
+        const Timeout = 200 * 1e6;
+        const wait_res = rt.main_wakeup.timedWait(Timeout);
+        rt.main_wakeup.reset();
+        if (wait_res == .timed_out) {
+            continue;
+        }
+        processMainEventLoop(rt);
     }
 }
 
