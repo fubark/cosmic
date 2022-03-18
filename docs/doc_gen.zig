@@ -628,6 +628,7 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         ctx.write("<li><a href=\"index.html#about\">About</a></li>");
         ctx.write("<li><a href=\"index.html#start\">Getting Started</a></li>");
         ctx.write("<li><a href=\"index.html#tools\">Tools</a></li>");
+        ctx.write("<li><a href=\"index.html#tutorial\">Tutorials</a></li>");
         ctx.write("<li><a href=\"index.html#community\">Community</a></li>");
         ctx.write("</ul></section>");
 

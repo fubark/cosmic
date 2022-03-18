@@ -25,7 +25,7 @@
 </p>
 <ul>
     <li>
-        <b>Importing:</b> Code/dependencies will be imported as ES modules from local and the web. This is currently not implemented but it is a priority.
+        <b>Importing:</b> Code/dependencies will be imported as ES modules from local and the web.
         Support for node npm packages is a non goal and will only be considered depending on demand.
     </li>
     <li>
@@ -37,8 +37,7 @@
     <li>
         <b>Errors:</b> Synchronous API functions won't throw exceptions for expected errors.
         null will be returned instead and a follow up errCode() or errString() will get you info about the error.
-        Exceptions are evil and should be avoided when possible.
-        Async promises will be rejected with the error info. errCode and errString are not currently implemented but they are priority features.
+        Async promises will be rejected with the errString() as the message and errCode() in Error.code.
     </li>
 </ul>
 <p>
@@ -101,9 +100,41 @@ cosmic cosmic/examples/demo.js
 <div><b>cosmic https</b> ./public my.crt my.key 8081</div>
 <p>Like `cosmic http` but secure. You'll need to supply your public and private keys.</p>
 <div><b>cosmic shell</b></div>
-<p>Starts a shell where you can do some quick calculations or experiment before creating a script. This is the default command if no source files are provided.</p>
+<p>Starts a shell where you can do some quick calculations or experiment before creating a script.</p>
 <div><b>cosmic *more*</b></div>
 <p>Do you think we're missing something? Voice your opinion on Discord or open an issue on Github!</p>
+
+<a href="#" id="tutorial"></a>
+<h3>Tutorials</h3>
+<p>Tutorials and learning material will be posted up when they are available.</p>
+
+<h6>Windowing</h6>
+
+<h6>2D Graphics</h6>
+
+<h6>UI and Widgets</h6>
+
+<h6>3D Graphics</h6>
+
+<h6>Input</h6>
+
+<h6>Sound</h6>
+
+<h6>Importing</h6>
+
+<h6>Error handling</h6>
+
+<h6>Async</h6>
+
+<h6>Dev Mode</h6>
+
+<h6>IntelliSense</h6>
+
+<h6>Testing</h6>
+
+<h6>WASM</h6>
+
+<h6>Exporting</h6>
 
 <a href="#" id="community"></a>
 <h3>Community</h3>
