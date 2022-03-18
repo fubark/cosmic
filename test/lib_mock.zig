@@ -445,3 +445,4 @@ export fn v8__Function__GetName() void {}
 export fn v8__Value__IsNullOrUndefined() void {}
 export fn v8__base__SetDcheckFunction() void {}
 export fn v8__JSON__Parse() void {}
+export fn SDL_GL_GetProcAddress() void {}
