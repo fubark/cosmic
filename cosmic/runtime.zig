@@ -2605,6 +2605,7 @@ pub const CsError = error {
     ConnectFailed,
     CertVerify,
     CertBadFile,
+    CantResolveHost,
     Unsupported,
     Unknown,
 };

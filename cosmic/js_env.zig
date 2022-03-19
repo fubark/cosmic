@@ -483,6 +483,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setProp(cs_err, "ConnectFailed", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.ConnectFailed)));
         ctx.setProp(cs_err, "CertVerify", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CertVerify)));
         ctx.setProp(cs_err, "CertBadFile", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CertBadFile)));
+        ctx.setProp(cs_err, "CantResolveHost", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CantResolveHost)));
         ctx.setProp(cs_err, "InvalidFormat", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.InvalidFormat)));
         ctx.setProp(cs_err, "Unsupported", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unsupported)));
         ctx.setProp(cs_err, "Unknown", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unknown)));

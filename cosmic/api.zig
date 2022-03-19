@@ -765,8 +765,9 @@ pub const cs_http = struct {
                     curl.CURLE_COULDNT_CONNECT => error.ConnectFailed,
                     curl.CURLE_PEER_FAILED_VERIFICATION => error.CertVerify,
                     curl.CURLE_SSL_CACERT_BADFILE => error.CertBadFile,
+                    curl.CURLE_COULDNT_RESOLVE_HOST => error.CantResolveHost,
                     else => b: {
-                        log.debug("unknown error: {}", .{curle_err});
+                        log.debug("curl unknown error: {}", .{curle_err});
                         break :b error.Unknown;
                     },
                 };
@@ -1313,6 +1314,7 @@ pub const cs_core = struct {
         ConnectFailed,
         CertVerify,
         CertBadFile,
+        CantResolveHost,
         InvalidFormat,
         Unsupported,
         Unknown,
