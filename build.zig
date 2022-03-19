@@ -26,15 +26,10 @@ const PrintCommands = false;
 const LibV8Path: ?[]const u8 = null;
 const LibSdlPath: ?[]const u8 = null;
 const LibSslPath: ?[]const u8 = null;
-// const LibSslPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
 const LibCryptoPath: ?[]const u8 = null;
-// const LibCryptoPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libcrypto.a";
 const LibCurlPath: ?[]const u8 = null;
-// const LibCurlPath: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
 const LibUvPath: ?[]const u8 = null;
-// const LibUvPath: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 const LibH2oPath: ?[]const u8 = null;
-// const LibH2oPath: ?[]const u8 = "/Users/fubar/dev/h2o";
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
