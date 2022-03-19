@@ -127,3 +127,36 @@ pub const SizedPtr = struct {
         alloc.free(slice);
     }
 };
+
+/// The ptr or slice inside should be freed depending on the flag.
+/// Use case: Sometimes a branching condition returns heap or non-heap memory. The deinit logic can just skip non-heap memory.
+pub fn MaybeOwned(comptime PtrOrSlice: type) type {
+    return struct {
+        inner: PtrOrSlice,
+        owned: bool,
+
+        pub fn initOwned(inner: PtrOrSlice) @This() {
+            return .{
+                .inner = inner,
+                .owned = true,
+            };
+        }
+
+        pub fn initUnowned(inner: PtrOrSlice) @This() {
+            return .{
+                .inner = inner,
+                .owned = false,
+            };
+        }
+
+        pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+            if (self.owned) {
+                if (@typeInfo(PtrOrSlice) == .Pointer and @typeInfo(PtrOrSlice).Pointer.size == .Slice) {
+                    alloc.free(self.inner);
+                } else {
+                    alloc.destroy(self.inner);
+                }
+            }
+        }
+    };
+}

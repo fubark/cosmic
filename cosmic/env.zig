@@ -22,7 +22,7 @@ pub const Environment = struct {
     // Writes with custom interface instead of stdout. Only available with builtin.is_test.
     out_writer: ?WriterIfaceWrapper = null,
 
-    on_main_script_done: ?fn (ctx: ?*anyopaque, rt: *runtime.RuntimeContext) void = null,
+    on_main_script_done: ?fn (ctx: ?*anyopaque, rt: *runtime.RuntimeContext) anyerror!void = null,
     on_main_script_done_ctx: ?*anyopaque = null,
 
     exit_fn: ?fn (code: u8) void = null,

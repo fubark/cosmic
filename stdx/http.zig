@@ -17,6 +17,9 @@ const EventDispatcher = @import("events.zig").EventDispatcher;
 // Testing http2 direct: "curl http://127.0.0.1:3000/hello -v --http2-prior-knowledge"
 // It's useful to turn on CURLOPT_VERBOSE to see request/response along with log statements in this file.
 
+/// Log curl requests in debug mode.
+const CurlVerbose = false and builtin.mode == .Debug;
+
 // Dedicated curl handle for synchronous requests. Reuse for connection pool.
 var curl_h: Curl = undefined;
 
@@ -674,7 +677,9 @@ pub fn request(alloc: std.mem.Allocator, url: []const u8, opts: RequestOptions) 
 }
 
 fn setCurlOptions(alloc: std.mem.Allocator, ch: Curl, url: [:0]const u8, header_list: *?*curl.curl_slist, opts: RequestOptions) !void {
-    // ch.mustSetOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
+    if (CurlVerbose) {
+        ch.mustSetOption(curl.CURLOPT_VERBOSE, @intCast(c_int, 1));
+    }
     ch.mustSetOption(curl.CURLOPT_URL, url.ptr);
     ch.mustSetOption(curl.CURLOPT_SSL_VERIFYPEER, @intCast(c_long, 1));
     ch.mustSetOption(curl.CURLOPT_SSL_VERIFYHOST, @intCast(c_long, 1));

@@ -119,14 +119,16 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
             defer alloc.free(abs_path);
             try std.os.chdir(abs_path);
 
-            const port_str = nextArg(args, &arg_idx) orelse "8081";
-            const port = try std.fmt.parseInt(u32, port_str, 10);
+            const host_port_str = nextArg(args, &arg_idx) orelse ":";
+            const host_port = stdx.net.parseHostPort(host_port_str) catch return error.ParseHostPort;
+            const host = host_port.host orelse "127.0.0.1";
+            const port = host_port.port orelse 8081;
 
             env.main_script_origin = "(in-memory: http-main.js)";
             env.main_script_override = http_main;
             env.user_ctx_json = try std.fmt.allocPrint(alloc, 
-                \\{{ "port": {}, "https": false }}
-                , .{ port });
+                \\{{ "host": "{s}", "port": {}, "https": false }}
+                , .{ host, port });
             try runAndExit("http-main.js", false, env);
         }
     } else if (string.eq(cmd, "https")) {
@@ -151,14 +153,16 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
             defer alloc.free(abs_path);
             try std.os.chdir(abs_path);
 
-            const port_str = nextArg(args, &arg_idx) orelse "8081";
-            const port = try std.fmt.parseInt(u32, port_str, 10);
+            const host_port_str = nextArg(args, &arg_idx) orelse ":";
+            const host_port = stdx.net.parseHostPort(host_port_str) catch return error.ParseHostPort;
+            const host = host_port.host orelse "127.0.0.1";
+            const port = host_port.port orelse 8081;
 
             env.main_script_origin = "(in-memory: http-main.js)";
             env.main_script_override = http_main;
             env.user_ctx_json = try std.fmt.allocPrint(alloc, 
-                \\{{ "port": {}, "https": true, "certPath": "{s}", "keyPath": "{s}" }}
-                , .{ port, public_key_path, private_key_path });
+                \\{{ "host": "{s}", "port": {}, "https": true, "certPath": "{s}", "keyPath": "{s}" }}
+                , .{ host, port, public_key_path, private_key_path });
             try runAndExit("http-main.js", false, env);
         }
     } else if (string.eq(cmd, "help")) {
@@ -370,30 +374,34 @@ const shell_usage =
     ;
 
 const http_usage = 
-    \\Usage: cosmic http [dir-path] [port=8081]
+    \\Usage: cosmic http [dir-path] [addr=127.0.0.1:8081]
     \\
-    \\Starts an HTTP server over a public folder at [dir-path].
-    \\Default port is 8081.
+    \\Starts an HTTP server binding to the address [addr] and serve files from the public directory root at [dir-path].
+    \\[addr] contains a host and port separated by `:`. The host is optional and defaults to `127.0.0.1`.
+    \\The port is optional and defaults to 8081.
     \\
     ;
 
 const https_usage = 
-    \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
+    \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=127.0.0.1:8081]
     \\
-    \\Starts an HTTPS server over a public folder at [dir-path].
-    \\Paths to public and private keys must be absolute or relative to the public folder path.
-    \\Default port is 8081.
+    \\Starts an HTTPS server binding to the address [addr] and serve files from the public directory root at [dir-path].
+    \\Paths to public and private keys must be absolute or relative to the public root path.
+    \\[addr] contains a host and port separated by `:`. The host is optional and defaults to `127.0.0.1`.
+    \\The port is optional and defaults to 8081.
     \\
     ;
 
 const http_main = 
     \\let s
     \\if (user.https) {
-    \\    s = cs.http.serveHttps('127.0.0.1', user.port, user.certPath, user.keyPath)
-    \\    puts(`HTTPS server started on port ${user.port}.`)
+    \\    s = cs.http.serveHttps(user.host, user.port, user.certPath, user.keyPath)
+    \\    const addr = s.getBindAddress()
+    \\    puts(`HTTPS server started. Binded to ${addr.host}:${addr.port}.`)
     \\} else {
-    \\    s = cs.http.serveHttp('127.0.0.1', user.port)
-    \\    puts(`HTTP server started on port ${user.port}.`)
+    \\    s = cs.http.serveHttp(user.host, user.port)
+    \\    const addr = s.getBindAddress()
+    \\    puts(`HTTP server started. Binded to ${addr.host}:${addr.port}.`)
     \\}
     \\s.setHandler((req, resp) => {
     \\    if (req.method != 'GET') {
@@ -405,6 +413,10 @@ const http_main =
     \\        resp.setStatus(200)
     \\        if (path.endsWith('.html')) {
     \\            resp.setHeader('content-type', 'text/html; charset=utf-8')
+    \\        } else if (path.endsWith('.css')) {
+    \\            resp.setHeader('content-type', 'text/css; charset=utf-8')
+    \\        } else if (path.endsWith('.js')) {
+    \\            resp.setHeader('content-type', 'text/javascript; charset=utf-8')
     \\        } else {
     \\            resp.setHeader('content-type', 'text/plain; charset=utf-8')
     \\        }

@@ -774,7 +774,7 @@ pub const RuntimeContext = struct {
                 if (self.num_windows > 0) {
                     if (self.active_window == stdx.mem.ptrCastAlign(*CsWindow, handle.ptr)) {
                         // TODO: Revisit this. For now just pick the last available window.
-                        const list_id = self.getListId(handle.tag);
+                        const list_id = self.getResourceListId(handle.tag);
                         if (self.resources.findInList(list_id, {}, findFirstActiveResource)) |res_id| {
                             self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getAssumeExists(res_id).ptr);
                         }
@@ -841,6 +841,18 @@ pub const RuntimeContext = struct {
                 rt.dev_ctx.enterJsErrorState(rt, err_str);
             }
         }
+    }
+
+    pub fn allocResourceIdsByTag(self: Self, tag: ResourceTag) []const ResourceId {
+        const list = self.getResourceListId(tag);
+        var cur_res = self.resources.getListHead(list).?;
+        cur_res = self.resources.getNextIdNoCheck(cur_res);
+        var res = std.ArrayList(ResourceId).init(self.alloc);
+        while (cur_res != NullId) {
+            res.append(cur_res) catch unreachable;
+            cur_res = self.resources.getNextIdNoCheck(cur_res);
+        }
+        return res.toOwnedSlice();
     }
 
     pub fn getResourcePtr(self: *Self, comptime Tag: ResourceTag, res_id: ResourceId) ?*Resource(Tag) {
@@ -932,7 +944,7 @@ pub const RuntimeContext = struct {
         if (res.tag != .Dummy) {
             self.alloc.destroy(res.external_handle);
 
-            const list_id = self.getListId(res.tag);
+            const list_id = self.getResourceListId(res.tag);
             if (self.resources.findInList(list_id, res_id, findPrevResource)) |prev_id| {
                 // Remove from resources.
                 _ = self.resources.removeNext(prev_id) catch unreachable;
@@ -950,7 +962,7 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn getListId(self: *Self, tag: ResourceTag) ResourceListId {
+    fn getResourceListId(self: Self, tag: ResourceTag) ResourceListId {
         switch (tag) {
             .CsWindow => return self.window_resource_list,
             .CsHttpServer => return self.generic_resource_list,
@@ -1419,7 +1431,7 @@ pub const RuntimeContext = struct {
         self.main_script_done = true;
         if (builtin.is_test) {
             if (self.env.on_main_script_done) |handler| {
-                handler(self.env.on_main_script_done_ctx, self);
+                handler(self.env.on_main_script_done_ctx, self) catch unreachable;
             }
         }
     }

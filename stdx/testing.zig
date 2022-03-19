@@ -7,6 +7,10 @@ pub fn expect(pred: bool) !void {
     try std.testing.expect(pred);
 }
 
+pub fn expectError(act_err_union: anytype, exp: anyerror) !void {
+    return std.testing.expectError(exp, act_err_union);
+}
+
 pub fn eq(act: anytype, exp: @TypeOf(act)) !void {
     try std.testing.expectEqual(exp, act);
 }
