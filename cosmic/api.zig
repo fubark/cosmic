@@ -37,6 +37,7 @@ const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
 const adapter = @import("adapter.zig");
+const RtTempStruct = adapter.RtTempStruct;
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 const This = adapter.This;
 const ThisResource = adapter.ThisResource;
@@ -950,6 +951,24 @@ pub const cs_http = struct {
             rt.resources.getPtrAssumeExists(this.res_id).on_deinit_cb = cb;
             rt.startDeinitResourceHandle(this.res_id);
             return promise;
+        }
+
+        pub fn getBindAddress(rt: *RuntimeContext, this: ThisResource(.CsHttpServer)) RtTempStruct(Address) {
+            const addr = this.res.allocBindAddress(rt.alloc);
+            return RtTempStruct(Address).init(.{
+                .host = addr.host,
+                .port = addr.port,
+            });
+        }
+    };
+
+    pub const Address = struct {
+        host: []const u8,
+        port: u32,
+
+        /// @internal
+        pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+            alloc.free(self.host);
         }
     };
 

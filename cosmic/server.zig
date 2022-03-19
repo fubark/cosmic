@@ -70,6 +70,20 @@ pub const HttpServer = struct {
         _ = self;
     }
 
+    pub fn allocBindAddress(self: Self, alloc: std.mem.Allocator) Address {
+        var addr: uv.sockaddr = undefined;
+        var namelen: c_int = @sizeOf(@TypeOf(addr));
+        const res = uv.uv_tcp_getsockname(&self.listen_handle, &addr, &namelen);
+        uv.assertNoError(res);
+
+        const port = std.mem.readIntBig(u16, addr.sa_data[0..2]);
+        const host = std.fmt.allocPrint(alloc, "{}.{}.{}.{}", .{addr.sa_data[2], addr.sa_data[3], addr.sa_data[4], addr.sa_data[5]}) catch unreachable;
+        return .{
+            .host = host,
+            .port = port,
+        };
+    }
+
     /// This is just setting up the uv socket listener. Does not set up for http or https.
     fn startListener(self: *Self, host: []const u8, port: u16) !void {
         const rt = self.rt;
@@ -428,3 +442,12 @@ fn getStatusReason(code: u32) []const u8 {
         else => unreachable,
     }
 }
+
+const Address = struct {
+    host: []const u8,
+    port: u16,
+
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.host);
+    }
+};

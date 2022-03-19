@@ -327,6 +327,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "setHandler", api.cs_http.Server.setHandler);
         ctx.setConstFuncT(proto, "requestClose", api.cs_http.Server.requestClose);
         ctx.setConstFuncT(proto, "closeAsync", api.cs_http.Server.closeAsync);
+        ctx.setConstFuncT(proto, "getBindAddress", api.cs_http.Server.getBindAddress);
 
         ctx.setConstProp(http, "Server", server_class);
         rt.http_server_class = v8.Persistent(v8.FunctionTemplate).init(iso, server_class);
