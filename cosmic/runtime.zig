@@ -1104,6 +1104,8 @@ pub const RuntimeContext = struct {
                         return self.getJsValuePtr(native_val.slice);
                     } else if (@hasDecl(Type, "ManagedStruct")) {
                         return self.getJsValuePtr(native_val.val);
+                    } else if (@hasDecl(Type, "RtTempStruct")) {
+                        return self.getJsValuePtr(native_val.inner);
                     } else {
                         // Generic struct to js object.
                         // TODO: Is it more performant to initialize from an object template if we know the fields beforehand?

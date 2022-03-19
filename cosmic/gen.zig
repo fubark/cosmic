@@ -488,6 +488,8 @@ fn freeNativeValue(alloc: std.mem.Allocator, native_val: anytype) void {
                     native_val.deinit();
                 } else if (@hasDecl(Type, "ManagedStruct")) {
                     native_val.deinit();
+                } else if (@hasDecl(Type, "RtTempStruct")) {
+                    native_val.deinit(alloc);
                 }
             }
         }
