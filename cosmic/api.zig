@@ -1745,7 +1745,7 @@ pub const cs_input = struct {
 
     pub const KeyDownEvent = struct {
         key: Key,
-        keyChar: []const u8,
+        printChar: []const u8,
         isRepeat: bool,
         shiftDown: bool,
         ctrlDown: bool,
@@ -1755,7 +1755,7 @@ pub const cs_input = struct {
 
     pub const KeyUpEvent = struct {
         key: Key,
-        keyChar: []const u8,
+        printChar: []const u8,
         shiftDown: bool,
         ctrlDown: bool,
         altDown: bool,
@@ -1871,9 +1871,10 @@ fn eint(e: anytype) @typeInfo(@TypeOf(e)).Enum.tag_type {
 }
 
 pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
+    const js_print_char = if (e.getPrintChar()) |print_char| Ascii[print_char..print_char+1] else "";
     return .{
         .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
-        .keyChar = Ascii[e.getKeyChar()..e.getKeyChar()+1],
+        .printChar = js_print_char,
         .isRepeat = e.is_repeat,
         .shiftDown = e.isShiftPressed(),
         .ctrlDown = e.isControlPressed(),
@@ -1883,9 +1884,10 @@ pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
 }
 
 pub fn fromStdKeyUpEvent(e: input.KeyUpEvent) cs_input.KeyUpEvent {
+    const js_print_char = if (e.getPrintChar()) |print_char| Ascii[print_char..print_char+1] else "";
     return .{
         .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
-        .keyChar = Ascii[e.getKeyChar()..e.getKeyChar()+1],
+        .printChar = js_print_char,
         .shiftDown = e.isShiftPressed(),
         .ctrlDown = e.isControlPressed(),
         .altDown = e.isAltPressed(),

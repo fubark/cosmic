@@ -113,12 +113,16 @@ const AltMask = 2;
 const MetaMask = 1;
 
 const MaxCodes = 223;
-const KeyCharMap = b: {
+const PrintableCharMap = b: {
     var map: [MaxCodes][2]u8 = undefined;
     const S = struct {
         map: *[MaxCodes][2]u8,
         fn set(self: *@This(), code: KeyCode, shift: bool, char: u8) void {
             self.map[@enumToInt(code)][@boolToInt(shift)] = char;
+        }
+        fn setBoth(self: *@This(), code: KeyCode, char: u8) void {
+            self.map[@enumToInt(code)][0] = char;
+            self.map[@enumToInt(code)][1] = char;
         }
     };
 
@@ -160,8 +164,8 @@ const KeyCharMap = b: {
     s.set(.Minus, true, '_');
     s.set(.Equal, false, '=');
     s.set(.Equal, true, '+');
-    s.set(.Space, false, ' ');
-    s.set(.Space, true, ' ');
+    s.setBoth(.Space, ' ');
+    s.setBoth(.Enter, '\n');
 
     var i: u16 = @enumToInt(KeyCode.A);
     while (i <= @enumToInt(KeyCode.Z)) : (i += 1) {
@@ -209,10 +213,11 @@ pub const KeyDownEvent = struct {
         };
     }
 
-    // Returns the ascii char. Returns 0 if it's not a visible char.
-    pub fn getKeyChar(self: Self) u8 {
+    /// Returns the printable ascii char. Returns null if it's not a visible char.
+    pub fn getPrintChar(self: Self) ?u8 {
         const shift_idx = @boolToInt((self.mods & ShiftMask) == ShiftMask);
-        return KeyCharMap[@enumToInt(self.code)][shift_idx];
+        const res = PrintableCharMap[@enumToInt(self.code)][shift_idx];
+        if (res != 0) return res else return null;
     }
 
     pub fn isShiftPressed(self: Self) bool {
@@ -267,10 +272,11 @@ pub const KeyUpEvent = struct {
         };
     }
 
-    // Returns the ascii char. Returns 0 if it's not a visible char.
-    pub fn getKeyChar(self: Self) u8 {
+    /// Returns the printable ascii char. Returns null if it's not a visible char.
+    pub fn getPrintChar(self: Self) ?u8 {
         const shift_idx = @boolToInt((self.mods & ShiftMask) == ShiftMask);
-        return KeyCharMap[@enumToInt(self.code)][shift_idx];
+        const res = PrintableCharMap[@enumToInt(self.code)][shift_idx];
+        if (res != 0) return res else return null;
     }
 
     pub fn isShiftPressed(self: Self) bool {
@@ -290,11 +296,15 @@ pub const KeyUpEvent = struct {
     }
 };
 
-test "KeyUpEvent.getKeyChar" {
+test "KeyUpEvent.getPrintChar" {
     const S = struct {
-        fn case(code: KeyCode, shift: bool, expected: u8) !void {
+        fn case(code: KeyCode, shift: bool, expected: ?u8) !void {
             const mods: u8 = if (shift) ShiftMask else 0;
-            try t.eq(KeyUpEvent.initWithMods(code, mods).getKeyChar(), expected);
+            if (expected == null) {
+                try t.eq(KeyUpEvent.initWithMods(code, mods).getPrintChar(), expected);
+            } else {
+                try t.eq(KeyUpEvent.initWithMods(code, mods).getPrintChar().?, expected.?);
+            }
         }
     };
     const case = S.case;
@@ -347,4 +357,6 @@ test "KeyUpEvent.getKeyChar" {
     try case(.Equal, true, '+');
     try case(.Space, false, ' ');
     try case(.Space, true, ' ');
+    try case(.Backspace, false, null);
+    try case(.Enter, false, '\n');
 }
