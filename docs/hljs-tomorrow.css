@@ -2,45 +2,84 @@
 /* https://jmblog.github.io/color-themes-for-google-code-highlightjs */
 /* Original theme - https://github.com/chriskempson/tomorrow-theme */
 /* https://jmblog.github.io/color-themes-for-google-code-highlightjs */
-.tomorrow-comment, pre .hljs-comment {
+.tomorrow-comment,
+:root[data-theme="light"] pre .hljs-comment {
   color: #8e908c;
 }
 
-pre .hljs-title {
+:root[data-theme="light"] pre .hljs-title {
   color: #4d4d4c;
 }
 
-.tomorrow-red, pre .hljs-variable, pre .hljs-attribute, pre .hljs-tag, pre .hljs-regexp, pre .hljs-ruby .hljs-constant, pre .hljs-xml .hljs-tag .hljs-title, pre .hljs-xml .hljs-pi, pre .hljs-xml .hljs-doctype, pre .hljs-html .hljs-doctype, pre .hljs-css .hljs-id, pre .hljs-css .hljs-class, pre .hljs-css .hljs-pseudo {
+.tomorrow-red,
+:root[data-theme="light"] pre .hljs-variable,
+:root[data-theme="light"] pre .hljs-attribute,
+:root[data-theme="light"] pre .hljs-tag,
+:root[data-theme="light"] pre .hljs-regexp,
+:root[data-theme="light"] pre .hljs-ruby .hljs-constant,
+:root[data-theme="light"] pre .hljs-xml .hljs-tag .hljs-title,
+:root[data-theme="light"] pre .hljs-xml .hljs-pi,
+:root[data-theme="light"] pre .hljs-xml .hljs-doctype,
+:root[data-theme="light"] pre .hljs-html .hljs-doctype,
+:root[data-theme="light"] pre .hljs-css .hljs-id,
+:root[data-theme="light"] pre .hljs-css .hljs-class,
+:root[data-theme="light"] pre .hljs-css .hljs-pseudo {
   color: #c82829;
 }
 
-.tomorrow-orange, pre .hljs-number, pre .hljs-preprocessor, pre .hljs-built_in, pre .hljs-literal, pre .hljs-params, pre .hljs-constant {
+.tomorrow-orange,
+:root[data-theme="light"] pre .hljs-number,
+:root[data-theme="light"] pre .hljs-preprocessor,
+:root[data-theme="light"] pre .hljs-built_in,
+:root[data-theme="light"] pre .hljs-literal,
+:root[data-theme="light"] pre .hljs-params,
+:root[data-theme="light"] pre .hljs-constant {
   color: #f5871f;
 }
 
-.tomorrow-yellow, pre .hljs-class, pre .hljs-ruby .hljs-class .hljs-title, pre .hljs-css .hljs-rules .hljs-attribute {
+.tomorrow-yellow,
+:root[data-theme="light"] pre .hljs-class,
+:root[data-theme="light"] pre .hljs-ruby .hljs-class .hljs-title,
+:root[data-theme="light"] pre .hljs-css .hljs-rules .hljs-attribute {
   color: #eab700;
 }
 
-.tomorrow-green, pre .hljs-string, pre .hljs-value, pre .hljs-inheritance, pre .hljs-header, pre .hljs-ruby .hljs-symbol, pre .hljs-xml .hljs-cdata {
+.tomorrow-green,
+:root[data-theme="light"] pre .hljs-string,
+:root[data-theme="light"] pre .hljs-value,
+:root[data-theme="light"] pre .hljs-inheritance,
+:root[data-theme="light"] pre .hljs-header,
+:root[data-theme="light"] pre .hljs-ruby .hljs-symbol,
+:root[data-theme="light"] pre .hljs-xml .hljs-cdata {
   color: #718c00;
 }
 
-.tomorrow-aqua, pre .hljs-css .hljs-hexcolor {
+.tomorrow-aqua,
+:root[data-theme="light"] pre .hljs-css .hljs-hexcolor {
   color: #3e999f;
 }
 
-.tomorrow-blue, pre .hljs-function, pre .hljs-python .hljs-decorator, pre .hljs-python .hljs-title, pre .hljs-ruby .hljs-function .hljs-title, pre .hljs-ruby .hljs-title .hljs-keyword, pre .hljs-perl .hljs-sub, pre .hljs-javascript .hljs-title, pre .hljs-coffeescript .hljs-title {
+.tomorrow-blue,
+:root[data-theme="light"] pre .hljs-function,
+:root[data-theme="light"] pre .hljs-python .hljs-decorator,
+:root[data-theme="light"] pre .hljs-python .hljs-title,
+:root[data-theme="light"] pre .hljs-ruby .hljs-function .hljs-title,
+:root[data-theme="light"] pre .hljs-ruby .hljs-title .hljs-keyword,
+:root[data-theme="light"] pre .hljs-perl .hljs-sub,
+:root[data-theme="light"] pre .hljs-javascript .hljs-title,
+:root[data-theme="light"] pre .hljs-coffeescript .hljs-title {
   color: #4271ae;
 }
 
-.tomorrow-purple, pre .hljs-keyword, pre .hljs-javascript .hljs-function {
+.tomorrow-purple,
+:root[data-theme="light"] pre .hljs-keyword,
+:root[data-theme="light"] pre .hljs-javascript .hljs-function {
   color: #8959a8;
 }
 
-pre code {
+:root[data-theme="light"] pre code {
 /*  display: block;*/
-  background: white;
+  background: var(--background-color);
   color: #4d4d4c;
   font-family: Menlo, Monaco, Consolas, monospace;
   line-height: 1.5;
