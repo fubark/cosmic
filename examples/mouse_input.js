@@ -1,6 +1,6 @@
 const Button = cs.input.MouseButton
 
-const w = cs.window.create('Demo', 1200, 720)
+const w = cs.window.create(1200, 720, 'Demo')
 
 w.onMouseDown(e => {
     if (e.button == Button.left) {

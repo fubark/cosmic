@@ -1,6 +1,6 @@
 const Key = cs.input.Key
 
-const w = cs.window.create('Demo', 1200, 720)
+const w = cs.window.create(1200, 720, 'Demo')
 
 w.onKeyDown(e => {
     puts('key down', e.key, e.keyChar, e.isRepeat, e.shiftDown)

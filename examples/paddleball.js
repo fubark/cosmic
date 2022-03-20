@@ -1864,7 +1864,7 @@ const game = new Game()
 game.init(500, 850)
 game.startLoop()
 
-const w = cs.window.create('PaddleBall', game.width, game.height)
+const w = cs.window.create(game.width, game.height, 'PaddleBall')
 
 w.onResize(e => {
     game.initSize(e.width, e.height)

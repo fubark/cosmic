@@ -1,4 +1,4 @@
-const w = cs.window.create('Demo', 1200, 720)
+const w = cs.window.create(1200, 720, 'Demo')
 
 const Color = cs.graphics.Color
 
