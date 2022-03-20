@@ -850,7 +850,9 @@ const sdl_pkg = Pkg{
 };
 
 fn addSDL(step: *LibExeObjStep) void {
-    step.addPackage(sdl_pkg);
+    var pkg = sdl_pkg;
+    pkg.dependencies = &.{ stdx_pkg };
+    step.addPackage(pkg);
     step.linkLibC();
     step.addIncludeDir("./lib/sdl/vendor/include");
 }
@@ -1016,10 +1018,13 @@ fn addGraphics(step: *std.build.LibExeObjStep) void {
     var lyon = lyon_pkg;
     lyon.dependencies = &.{stdx_pkg};
 
+    var sdl_ = sdl_pkg;
+    sdl_.dependencies = &.{stdx_pkg};
+
     var gl = gl_pkg;
     gl.dependencies = &.{ sdl_pkg, stdx_pkg };
 
-    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_pkg, stdx_pkg, lyon };
+    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon };
     step.addPackage(pkg);
 }
 
