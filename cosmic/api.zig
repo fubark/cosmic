@@ -1145,18 +1145,28 @@ pub const cs_core = struct {
     }
 
     /// Returns the absolute path of the main script.
-    pub fn getMainScriptPath(rt: *RuntimeContext) []const u8 {
-        return rt.main_script_path;
+    pub fn getMainScriptPath(rt: *RuntimeContext) Error![]const u8 {
+        if (rt.main_script_path) |path| {
+            return path;
+        } else {
+            log.debug("Did not expect null main script path.", .{});
+            return error.Unknown;
+        }
     }
 
     /// Returns the absolute path of the main script's directory. Does not include an ending slash.
     /// This is useful if you have additional source or assets that depends on the location of your main script.
-    pub fn getMainScriptDir(rt: *RuntimeContext) []const u8 {
-        return std.fs.path.dirname(rt.main_script_path) orelse unreachable;
+    pub fn getMainScriptDir(rt: *RuntimeContext) Error![]const u8 {
+        if (rt.main_script_path) |path| {
+            return std.fs.path.dirname(path) orelse unreachable;
+        } else {
+            log.debug("Did not expect null main script path.", .{});
+            return error.Unknown;
+        }
     }
 
     /// Given an app name, returns the platform's app directory to read/write files to.
-    /// This does not ensure that the directory exists. See ensurePath.
+    /// This does not ensure that the directory exists. See cs.files.ensurePath.
     pub fn getAppDir(rt: *RuntimeContext, app_name: []const u8) ?ds.Box([]const u8) {
         const dir = std.fs.getAppDataDir(rt.alloc, app_name) catch return null;
         return ds.Box([]const u8).init(rt.alloc, dir);

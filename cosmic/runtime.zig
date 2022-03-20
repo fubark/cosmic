@@ -94,7 +94,7 @@ pub const RuntimeContext = struct {
     active_window: *CsWindow,
 
     // Absolute path of the main script.
-    main_script_path: []const u8,
+    main_script_path: ?[]const u8,
 
     // This is used to store native string slices copied from v8.String for use in the immediate native callback functions.
     // It will automatically clear at the pre callback step if the current size is too large.
@@ -175,9 +175,7 @@ pub const RuntimeContext = struct {
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
         platform: v8.Platform,
-        main_script_path: []const u8,
-        is_test_env: bool,
-        dev_mode: bool,
+        config: RuntimeConfig,
         env: *Environment,
     ) void {
         self.* = .{
@@ -203,7 +201,7 @@ pub const RuntimeContext = struct {
             .num_windows = 0,
             .active_window = undefined,
             .global = undefined,
-            .main_script_path = alloc.dupe(u8, main_script_path) catch unreachable,
+            .main_script_path = null,
             .cb_str_buf = std.ArrayList(u8).init(alloc),
             .cb_f32_buf = std.ArrayList(f32).init(alloc),
             .vec2_buf = std.ArrayList(Vec2).init(alloc),
@@ -213,7 +211,7 @@ pub const RuntimeContext = struct {
             .js_false = undefined,
             .js_true = undefined,
 
-            .is_test_env = is_test_env,
+            .is_test_env = config.is_test_runner,
             .num_tests = 0,
             .num_tests_passed = 0,
             .num_async_tests = 0,
@@ -232,7 +230,7 @@ pub const RuntimeContext = struct {
             .requested_shutdown = false,
             .last_err = error.NoError,
             .timer = undefined,
-            .dev_mode = dev_mode,
+            .dev_mode = config.is_dev_mode,
             .dev_ctx = undefined,
             .event_dispatcher = undefined,
 
@@ -325,40 +323,15 @@ pub const RuntimeContext = struct {
             _ = self.global.inner.setValue(ctx, iso.initStringUtf8("user"), json_val);
         }
 
-        {
-            // Run api_init.js
-            var exec_res: v8x.ExecuteResult = undefined;
-            defer exec_res.deinit();
-            const origin = v8.String.initUtf8(iso, "api_init.js");
-            v8x.executeString(self.alloc, iso, ctx, api_init, origin, &exec_res);
-            if (!exec_res.success) {
-                self.env.errorFmt("{s}", .{exec_res.err.?});
-                unreachable;
-            }
-        }
+        // Run api_init.js
+        self.runScript("api_init.js", api_init) catch unreachable;
 
-        {
-            // Run gen_api.js
-            var exec_res: v8x.ExecuteResult = undefined;
-            defer exec_res.deinit();
-            const origin = v8.String.initUtf8(iso, "gen_api.js");
-            v8x.executeString(self.alloc, iso, ctx, gen_api_init, origin, &exec_res);
-            if (!exec_res.success) {
-                self.env.errorFmt("{s}", .{exec_res.err.?});
-                unreachable;
-            }
-        }
+        // Run gen_api.js
+        self.runScript("gen_api.js", gen_api_init) catch unreachable;
 
         if (self.is_test_env or builtin.is_test) {
             // Run test_init.js
-            var exec_res: v8x.ExecuteResult = undefined;
-            defer exec_res.deinit();
-            const origin = v8.String.initUtf8(iso, "test_init.js");
-            v8x.executeString(self.alloc, iso, ctx, test_init, origin, &exec_res);
-            if (!exec_res.success) {
-                self.env.errorFmt("{s}", .{exec_res.err.?});
-                unreachable;
-            }
+            self.runScript("test_init.js", test_init) catch unreachable;
         }
     }
 
@@ -461,7 +434,9 @@ pub const RuntimeContext = struct {
         self.alloc.destroy(self.uv_dummy_async);
         self.alloc.destroy(self.uv_loop);
 
-        self.alloc.free(self.main_script_path);
+        if (self.main_script_path) |path| {
+            self.alloc.free(path);
+        }
 
         {
             var iter = self.modules.valueIterator();
@@ -728,26 +703,73 @@ pub const RuntimeContext = struct {
         }
     }
 
-    fn runScript(self: *Self, abs_path: []const u8) !void {
-        const origin = v8.String.initUtf8(self.isolate, abs_path);
-
+    fn runScriptFile(self: *Self, abs_path: []const u8) !void {
         const src = try std.fs.cwd().readFileAlloc(self.alloc, abs_path, 1e9);
         defer self.alloc.free(src);
+        return self.runScript(abs_path, src);
+    }
 
-        var res: v8x.ExecuteResult = undefined;
-        v8x.executeString(self.alloc, self.isolate, self.getContext(), src, origin, &res);
+    fn runScript(self: *Self, origin: []const u8, src: []const u8) !void {
+        const res = self.runScriptGetResult(origin, src);
         defer res.deinit();
-
-        processV8EventLoop(self);
-
         if (!res.success) {
-            self.errorFmt("{s}", .{res.err.?});
-            return error.MainScriptError;
+            self.env.errorFmt("{s}", .{res.err.?});
+            return error.RunScriptError;
         }
     }
 
-    fn runMainScript(self: *Self) !RunModuleScriptResult {
-        return try self.runModuleScriptFile(self.main_script_path);
+    pub fn runScriptGetResult(self: *Self, origin: []const u8, src: []const u8) v8x.ExecuteResult {
+        const js_origin = v8.String.initUtf8(self.isolate, origin);
+        var res: v8x.ExecuteResult = undefined;
+        v8x.executeString(self.alloc, self.isolate, self.getContext(), src, js_origin, &res);
+        return res;
+    }
+
+    fn runMainScript(self: *Self, abs_path: []const u8) !void {
+        self.main_script_path = self.alloc.dupe(u8, abs_path) catch unreachable;
+
+        if (self.dev_mode) {
+            // Start watching the main script.
+            self.dev_ctx.initWatcher(self, abs_path);
+        }
+
+        const res = try self.runModuleScriptFile(self.main_script_path.?);
+        self.run_main_script_res = res;
+
+        switch (res.state) {
+            .Failed => {
+                self.finishMainScript();
+                if (!self.dev_mode) {
+                    return error.MainScriptError;
+                } else {
+                    self.dev_ctx.enterJsErrorState(self, res.js_err_trace.?);
+                }
+            },
+            .Success => {
+                self.finishMainScript();
+                if (self.dev_mode) {
+                    self.dev_ctx.enterJsSuccessState();
+                }
+            },
+            .Pending => {
+                // Since module has a handler for top level async calls, it won't trigger the uncaught exception callback.
+                // Attach then and catch handlers to handle the final outcome.
+                self.main_script_done = false;
+                const data = self.isolate.initExternal(self);
+                const on_fulfill = v8.Function.initWithData(self.getContext(), gen.genJsFuncSync(handleMainModuleScriptSuccess), data);
+                const on_reject = v8.Function.initWithData(self.getContext(), gen.genJsFuncSync(handleMainModuleScriptError), data);
+                _ = res.eval.?.inner.thenAndCatch(self.getContext(), on_fulfill, on_reject) catch unreachable;
+
+                if (self.dev_mode) {
+                    self.dev_ctx.enterJsSuccessState();
+                }
+            }
+        }
+    }
+
+    pub fn wakeUpEventPoller(self: Self) void {
+        const res = uv.uv_async_send(self.uv_dummy_async);
+        uv.assertNoError(res);
     }
 
     /// Destroys the resource owned by the handle and marks it as deinited.
@@ -1917,41 +1939,19 @@ pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, env: *Environ
         env.printFmt("time: {}ms\n", .{duration / @floatToInt(u64, 1e6)});
     }
 
-    _ = curl.initDefault();
-    defer curl.deinit();
-
-    stdx.http.init(alloc);
-    defer stdx.http.deinit();
-
-    h2o.init();
-
-    initGlobal(alloc);
-    defer deinitGlobal();
-
-    const platform = ensureV8Platform();
-
     const abs_path = try std.fs.cwd().realpathAlloc(alloc, src_path);
     defer alloc.free(abs_path);
 
-    var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, true, false, env);
-    rt.enter();
-    defer {
-        shutdownRuntime(&rt);
-        rt.exit();
-        rt.deinit();
-    }
+    const config = RuntimeConfig{
+        .is_test_runner = true,
+        .is_dev_mode = false,
+    };
 
-    const res = try rt.runMainScript();
-    rt.run_main_script_res = res;
-    switch (res.state) {
-        .Failed => {
-            rt.finishMainScript();
-            return error.MainScriptError;
-        },
-        .Success => rt.finishMainScript(),
-        .Pending => rt.main_script_done = false,
-    }
+    var rt: RuntimeContext = undefined;
+    initGlobalRuntime(alloc, &rt, config, env);
+    defer deinitGlobalRuntime(alloc, &rt);
+
+    try rt.runMainScript(abs_path);
 
     while (rt.num_async_tests_finished < rt.num_async_tests) {
         if (pollMainEventLoop(&rt)) {
@@ -1980,8 +1980,17 @@ fn restart(rt: *RuntimeContext) !void {
     // Save context.
     const alloc = rt.alloc;
     const platform = rt.platform;
-    const main_script_path = alloc.dupe(u8, rt.main_script_path) catch unreachable;
-    defer alloc.free(main_script_path);
+
+    var main_script_path: ?[]const u8 = null;
+    if (rt.main_script_path) |path| {
+        main_script_path = alloc.dupe(u8, path) catch unreachable;
+    }
+    defer {
+        if (main_script_path) |path| {
+            alloc.free(path);
+        }
+    }
+
     rt.dev_ctx.dev_window = rt.active_window; // Set dev_window so deinit skips this window resource.
     const win = rt.dev_ctx.dev_window.?.window;
     const dev_ctx = rt.dev_ctx;
@@ -1993,7 +2002,11 @@ fn restart(rt: *RuntimeContext) !void {
     rt.deinit();
 
     // Start runtime again with saved context.
-    rt.init(alloc, platform, main_script_path, false, true, env);
+    const config = RuntimeConfig{
+        .is_test_runner = false,
+        .is_dev_mode = true,
+    };
+    rt.init(alloc, platform, config, env);
     rt.enter();
 
     // Reuse dev context.
@@ -2009,24 +2022,8 @@ fn restart(rt: *RuntimeContext) !void {
     rt.dev_ctx.cmdLog("Restarted.");
     rt.dev_ctx.dev_window = res.ptr;
 
-    // Reinit watcher
-    rt.dev_ctx.initWatcher(rt, main_script_path);
-
-    var run_res = try rt.runMainScript();
-    rt.run_main_script_res = run_res;
-    switch (run_res.state) {
-        .Failed => {
-            rt.finishMainScript();
-            rt.dev_ctx.enterJsErrorState(rt, run_res.js_err_trace.?);
-        },
-        .Success => {
-            rt.finishMainScript();
-            rt.dev_ctx.enterJsSuccessState();
-        },
-        .Pending => {
-            rt.main_script_done = false;
-            rt.dev_ctx.enterJsSuccessState();
-        },
+    if (main_script_path) |path| {
+        try rt.runMainScript(path);
     }
 }
 
@@ -2170,7 +2167,7 @@ fn pumpMainEventLoopFor(rt: *RuntimeContext, max_ms: u32) void {
 /// Waits until there is work to process.
 /// If true, a follow up processMainEventLoop should be called to do the work and reset the poller.
 /// If false, there are no more pending tasks, and the caller should exit the loop.
-fn pollMainEventLoop(rt: *RuntimeContext) bool {
+pub fn pollMainEventLoop(rt: *RuntimeContext) bool {
     while (hasPendingEvents(rt)) {
         // Wait for events.
         // log.debug("main thread wait", .{});
@@ -2185,7 +2182,7 @@ fn pollMainEventLoop(rt: *RuntimeContext) bool {
     return false;
 }
 
-fn processMainEventLoop(rt: *RuntimeContext) void {
+pub fn processMainEventLoop(rt: *RuntimeContext) void {
     // Resolve done tasks.
     rt.work_queue.processDone();
 
@@ -2282,32 +2279,48 @@ fn runIsolatedTests(rt: *RuntimeContext) void {
     }
 }
 
+pub const RuntimeConfig = struct {
+    is_test_runner: bool = false,
+    is_dev_mode: bool = false,
+};
+
+/// Initialize libs, deps, globals, and the runtime assumed to be global.
+/// This is intended to be the common setup for one global runtime.
+pub fn initGlobalRuntime(alloc: std.mem.Allocator, rt: *RuntimeContext, config: RuntimeConfig, env: *Environment) void {
+    _ = curl.initDefault();
+    stdx.http.init(alloc);
+    h2o.init();
+    initGlobal(alloc);
+
+    const platform = ensureV8Platform();
+
+    rt.init(alloc, platform, config, env);
+    rt.enter();
+}
+
+pub fn deinitGlobalRuntime(_: std.mem.Allocator, rt: *RuntimeContext) void {
+    shutdownRuntime(rt);
+    rt.exit();
+    rt.deinit();
+
+    deinitGlobal();
+    stdx.http.deinit();
+    curl.deinit();
+}
+
 /// src_path is absolute or relative to the cwd.
 pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: bool, env: *Environment) !void {
     const abs_path = try std.fs.path.resolve(alloc, &.{ src_path });
     defer alloc.free(abs_path);
 
-    _ = curl.initDefault();
-    defer curl.deinit();
-
-    stdx.http.init(alloc);
-    defer stdx.http.deinit();
-
-    h2o.init();
-
-    initGlobal(alloc);
-    defer deinitGlobal();
-
-    const platform = ensureV8Platform();
+    const config = RuntimeConfig{
+        .is_test_runner = false,
+        .is_dev_mode = dev_mode,
+    };
 
     var rt: RuntimeContext = undefined;
-    rt.init(alloc, platform, abs_path, false, dev_mode, env);
-    rt.enter();
-    defer {
-        shutdownRuntime(&rt);
-        rt.exit();
-        rt.deinit();
-    }
+    initGlobalRuntime(alloc, &rt, config, env);
+    defer deinitGlobalRuntime(alloc, &rt);
 
     if (dev_mode) {
         rt.dev_ctx.init(alloc, .{});
@@ -2328,35 +2341,9 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
         rt.active_window.show_dev_mode = true;
         rt.dev_ctx.cmdLog("Dev Mode started.");
         rt.dev_ctx.dev_window = res.ptr;
-
-        // Start watching the main script.
-        rt.dev_ctx.initWatcher(&rt, abs_path);
     }
 
-    var res = try rt.runMainScript();
-    rt.run_main_script_res = res;
-    switch (res.state) {
-        .Failed => {
-            rt.finishMainScript();
-            if (!dev_mode) {
-                return error.MainScriptError;
-            } else {
-                rt.dev_ctx.enterJsErrorState(&rt, res.js_err_trace.?);
-            }
-        },
-        .Success => {
-            rt.finishMainScript();
-        },
-        .Pending => {
-            // Since module has a handler for top level async calls, it won't trigger the uncaught exception callback.
-            // Attach then and catch handlers to handle the final outcome.
-            rt.main_script_done = false;
-            const data = rt.isolate.initExternal(&rt);
-            const on_fulfill = v8.Function.initWithData(rt.getContext(), gen.genJsFuncSync(handleMainModuleScriptSuccess), data);
-            const on_reject = v8.Function.initWithData(rt.getContext(), gen.genJsFuncSync(handleMainModuleScriptError), data);
-            _ = res.eval.?.inner.thenAndCatch(rt.getContext(), on_fulfill, on_reject) catch unreachable;
-        }
-    }
+    try rt.runMainScript(abs_path);
 
     // Check whether to start off with a realtime loop or event loop.
     if (!dev_mode) {
