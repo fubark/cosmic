@@ -13,6 +13,7 @@ const v8x = @import("v8x.zig");
 const js_env = @import("js_env.zig");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
+const RuntimeConfig = runtime.RuntimeConfig;
 const log = stdx.log.scoped(.main);
 const Environment = @import("env.zig").Environment;
 
@@ -176,7 +177,7 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
             printUsage(env, shell_usage);
             env.exit(0);
         } else {
-            repl(env);
+            repl(alloc, env);
             env.exit(0);
         }
     } else {
@@ -223,63 +224,93 @@ fn runAndExit(src_path: []const u8, dev_mode: bool, env: *Environment) !void {
     env.exit(0);
 }
 
-fn repl(env: *Environment) void {
-    const alloc = stdx.heap.getDefaultAllocator();
+fn repl(alloc: std.mem.Allocator, env: *Environment) void {
+    const ShellContext = struct {
+        env: *Environment,
+        alloc: std.mem.Allocator,
+        rt: *RuntimeContext,
+        done: bool,
+        input_script: ?[]const u8,
+    };
+
+    const S = struct {
+        fn runPrompt(ctx: *ShellContext) void {
+            var input_buf = std.ArrayList(u8).init(ctx.alloc);
+            defer input_buf.deinit();
+
+            const env_ = ctx.env;
+
+            env_.printFmt(
+                \\Cosmic ({s})
+                \\exit with Ctrl+D or "exit()"
+                \\
+                \\
+            , .{build_options.VersionName});
+
+            while (true) {
+                env_.printFmt("> ", .{});
+                if (getInput(&input_buf)) |input| {
+                    if (string.eq(input, "exit()")) {
+                        break;
+                    }
+                    ctx.input_script = ctx.alloc.dupe(u8, input) catch unreachable;
+                    ctx.rt.wakeUpEventPoller();
+                    // Busy wait until eval is done.
+                    while (ctx.input_script != null) {}
+                } else {
+                    env_.printFmt("\n", .{});
+                    break;
+                }
+            }
+            ctx.done = true;
+        }
+    };
+
+    const main_alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
 
-    var input_buf = std.ArrayList(u8).init(alloc);
-    defer input_buf.deinit();
+    const config = RuntimeConfig{
+        .is_test_runner = false,
+        .is_dev_mode = false,
+    };
 
-    const platform = runtime.ensureV8Platform();
+    var rt: RuntimeContext = undefined;
+    runtime.initGlobalRuntime(main_alloc, &rt, config, env);
+    defer runtime.deinitGlobalRuntime(main_alloc, &rt);
 
-    var params = v8.initCreateParams();
-    params.array_buffer_allocator = v8.createDefaultArrayBufferAllocator();
-    defer v8.destroyArrayBufferAllocator(params.array_buffer_allocator.?);
-    var iso = v8.Isolate.init(&params);
-    defer iso.deinit();
+    var ctx = ShellContext{
+        .env = env,
+        .alloc = alloc,
+        .done = false,
+        .rt = &rt,
+        .input_script = null,
+    };
 
-    iso.enter();
-    defer iso.exit();
+    // Starts a new thread for the input prompt since the runtime is not always event driven.
+    const thread = std.Thread.spawn(.{}, S.runPrompt, .{ &ctx }) catch unreachable;
+    _ = thread.setName("Prompt") catch {};
 
-    var hscope: v8.HandleScope = undefined;
-    hscope.init(iso);
-    defer hscope.deinit();
+    while (!ctx.done) {
+        // Keep polling indefinitely until exit signal from prompt.
+        const Timeout = 4 * 1e9;
+        const wait_res = rt.main_wakeup.timedWait(Timeout);
+        rt.main_wakeup.reset();
+        if (wait_res == .timed_out) {
+            continue;
+        }
+        runtime.processMainEventLoop(&rt);
 
-    var ctx = iso.initContext(null, null);
-    ctx.enter();
-    defer ctx.exit();
-
-    const origin = iso.initStringUtf8("(shell)");
-
-    env.printFmt(
-        \\Cosmic ({s})
-        \\exit with Ctrl+D or "exit()"
-        \\
-    , .{build_options.VersionName});
-
-    while (true) {
-        env.printFmt("\n> ", .{});
-        if (getInput(&input_buf)) |input| {
-            if (string.eq(input, "exit()")) {
-                break;
-            }
-
-            var res: v8x.ExecuteResult = undefined;
+        if (ctx.input_script) |script| {
+            // log.info("input: {s}", .{script});
+            const res = rt.runScriptGetResult("(eval)", script);
             defer res.deinit();
-            v8x.executeString(alloc, iso, ctx, input, origin, &res);
             if (res.success) {
-                env.printFmt("{s}", .{res.result.?});
+                env.printFmt("{s}\n", .{res.result.?});
             } else {
-                env.printFmt("{s}", .{res.err.?});
+                env.errorFmt("{s}\n", .{res.err.?});
             }
-
-            while (platform.pumpMessageLoop(iso, false)) {
-                @panic("Did not expect v8 event loop task");
-            }
-            // log.info("input: {s}", .{input});
-        } else {
-            env.printFmt("\n", .{});
-            return;
+            alloc.free(script);
+            ctx.input_script = null;
         }
     }
 }
@@ -368,8 +399,8 @@ const test_usage =
 const shell_usage =
     \\Usage: cosmic shell
     \\
-    \\Starts a limited shell for experimenting.
-    \\TODO: Run the shell over the cosmic runtime.
+    \\Starts the runtime with an interactive shell.
+    \\TODO: Support window API in the shell.
     \\
     ;
 

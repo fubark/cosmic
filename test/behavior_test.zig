@@ -216,8 +216,8 @@ test "behavior: CLI help, version, command usages." {
         try t.eqStr(res.stdout,
             \\Usage: cosmic shell
             \\
-            \\Starts a limited shell for experimenting.
-            \\TODO: Run the shell over the cosmic runtime.
+            \\Starts the runtime with an interactive shell.
+            \\TODO: Support window API in the shell.
             \\
         );
     }

@@ -282,6 +282,38 @@ pub fn build(b: *Builder) !void {
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
     }
 
+    {
+        var step = b.addLog("", .{});
+        var _ctx = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_audio = true,
+            .link_v8 = true,
+            .link_mock = false,
+            .static_link = static_link,
+            .path = "cosmic/main.zig",
+            .filter = filter,
+            .mode = mode,
+            .target = target,
+            .build_options = build_options,
+            .wsl = wsl,
+        };
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const exe = _ctx.createBuildExeStep();
+        const exe_install = _ctx.addInstallArtifact(exe);
+        step.step.dependOn(&exe_install.step);
+
+        const run = exe.run();
+        run.addArgs(&.{ "shell" });
+        step.step.dependOn(&run.step);
+        b.step("cosmic-shell", "Run cosmic in shell mode.").dependOn(&step.step);
+    }
+
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
     const whitelist_test = ctx.createTestExeStep();
     whitelist_test.setFilter("INCLUDE");
