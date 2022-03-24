@@ -1730,12 +1730,19 @@ fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
         if (rt.dev_ctx.dev_window != null) {
             // No user windows are active. Draw a default background.
             const g = rt.active_window.graphics;
+            g.pushState();
+            defer g.popState();
+            g.resetTransform();
             // Background.
             const Background = graphics.Color.init(30, 30, 30, 255);
             g.setFillColor(Background);
             g.fillRect(0, 0, @intToFloat(f32, rt.active_window.window.inner.width), @intToFloat(f32, rt.active_window.window.inner.height));
             devmode.renderDevHud(rt, rt.active_window);
         } else if (rt.active_window.show_dev_mode) {
+            const g = rt.active_window.graphics;
+            g.pushState();
+            defer g.popState();
+            g.resetTransform();
             devmode.renderDevHud(rt, rt.active_window);
         }
     }
