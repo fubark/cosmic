@@ -1015,7 +1015,7 @@ pub const cs_http = struct {
 pub const cs_core = struct {
 
     /// Whether print should also output to stdout in devmode.
-    const DevModeToStdout = false;
+    const DevModeToStdout = true;
 
     /// Returns an array of arguments used to start the process in the command line.
     pub fn getCliArgs(rt: *RuntimeContext) v8.Array {
