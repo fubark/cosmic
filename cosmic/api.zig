@@ -12,6 +12,7 @@ const Mock = t.Mock;
 const curl = @import("curl");
 const ma = @import("miniaudio");
 const Vec3 = stdx.math.Vec3;
+const sdl = @import("sdl");
 
 const audio = @import("audio.zig");
 const AudioEngine = audio.AudioEngine;
@@ -37,6 +38,7 @@ const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
 const adapter = @import("adapter.zig");
+const RtTempStruct = adapter.RtTempStruct;
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 const This = adapter.This;
 const ThisResource = adapter.ThisResource;
@@ -52,10 +54,10 @@ const FuncData = adapter.FuncData;
 pub const cs_window = struct {
 
     /// Creates a new window and returns the handle.
-    /// @param title
     /// @param width
     /// @param height
-    pub fn create(rt: *RuntimeContext, title: []const u8, width: u32, height: u32) v8.Object {
+    /// @param title
+    pub fn create(rt: *RuntimeContext, width: u32, height: u32, title: []const u8) v8.Object {
         if (rt.dev_mode and rt.dev_ctx.dev_window != null) {
             const S = struct {
                 var replaced_dev_window_before = false;
@@ -765,8 +767,9 @@ pub const cs_http = struct {
                     curl.CURLE_COULDNT_CONNECT => error.ConnectFailed,
                     curl.CURLE_PEER_FAILED_VERIFICATION => error.CertVerify,
                     curl.CURLE_SSL_CACERT_BADFILE => error.CertBadFile,
+                    curl.CURLE_COULDNT_RESOLVE_HOST => error.CantResolveHost,
                     else => b: {
-                        log.debug("unknown error: {}", .{curle_err});
+                        log.debug("curl unknown error: {}", .{curle_err});
                         break :b error.Unknown;
                     },
                 };
@@ -950,6 +953,24 @@ pub const cs_http = struct {
             rt.startDeinitResourceHandle(this.res_id);
             return promise;
         }
+
+        pub fn getBindAddress(rt: *RuntimeContext, this: ThisResource(.CsHttpServer)) RtTempStruct(Address) {
+            const addr = this.res.allocBindAddress(rt.alloc);
+            return RtTempStruct(Address).init(.{
+                .host = addr.host,
+                .port = addr.port,
+            });
+        }
+    };
+
+    pub const Address = struct {
+        host: []const u8,
+        port: u32,
+
+        /// @internal
+        pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+            alloc.free(self.host);
+        }
     };
 
     /// Provides an interface to the current response writer.
@@ -994,7 +1015,7 @@ pub const cs_http = struct {
 pub const cs_core = struct {
 
     /// Whether print should also output to stdout in devmode.
-    const DevModeToStdout = false;
+    const DevModeToStdout = true;
 
     /// Returns an array of arguments used to start the process in the command line.
     pub fn getCliArgs(rt: *RuntimeContext) v8.Array {
@@ -1125,21 +1146,54 @@ pub const cs_core = struct {
     }
 
     /// Returns the absolute path of the main script.
-    pub fn getMainScriptPath(rt: *RuntimeContext) []const u8 {
-        return rt.main_script_path;
+    pub fn getMainScriptPath(rt: *RuntimeContext) Error![]const u8 {
+        if (rt.main_script_path) |path| {
+            return path;
+        } else {
+            log.debug("Did not expect null main script path.", .{});
+            return error.Unknown;
+        }
     }
 
     /// Returns the absolute path of the main script's directory. Does not include an ending slash.
     /// This is useful if you have additional source or assets that depends on the location of your main script.
-    pub fn getMainScriptDir(rt: *RuntimeContext) []const u8 {
-        return std.fs.path.dirname(rt.main_script_path) orelse unreachable;
+    pub fn getMainScriptDir(rt: *RuntimeContext) Error![]const u8 {
+        if (rt.main_script_path) |path| {
+            return std.fs.path.dirname(path) orelse unreachable;
+        } else {
+            log.debug("Did not expect null main script path.", .{});
+            return error.Unknown;
+        }
     }
 
     /// Given an app name, returns the platform's app directory to read/write files to.
-    /// This does not ensure that the directory exists. See ensurePath.
+    /// This does not ensure that the directory exists. See cs.files.ensurePath.
     pub fn getAppDir(rt: *RuntimeContext, app_name: []const u8) ?ds.Box([]const u8) {
         const dir = std.fs.getAppDataDir(rt.alloc, app_name) catch return null;
         return ds.Box([]const u8).init(rt.alloc, dir);
+    }
+
+    /// Get the current clipboard text.
+    pub fn getClipboardText(rt: *RuntimeContext) Error!ds.Box([]const u8) {
+        // Requires video device to be initialized.
+        sdl.ensureVideoInit() catch return error.Unknown;
+        const text = sdl.SDL_GetClipboardText();
+        defer sdl.SDL_free(text);
+        const dupe = rt.alloc.dupe(u8, std.mem.span(text)) catch unreachable;
+        return ds.Box([]const u8).init(rt.alloc, dupe);
+    }
+
+    /// Set the current clipboard text.
+    /// @param text
+    pub fn setClipboardText(rt: *RuntimeContext, text: []const u8) Error!void {
+        sdl.ensureVideoInit() catch return error.Unknown;
+        const cstr = std.cstr.addNullByte(rt.alloc, text) catch unreachable;
+        defer rt.alloc.free(cstr);
+        const res = sdl.SDL_SetClipboardText(cstr);
+        if (res != 0) {
+            log.debug("unknown error: {} {s}", .{res, sdl.SDL_GetError()});
+            return error.Unknown;
+        }
     }
 
     /// Prints the current stack trace and exits the program with an error code.
@@ -1313,6 +1367,7 @@ pub const cs_core = struct {
         ConnectFailed,
         CertVerify,
         CertBadFile,
+        CantResolveHost,
         InvalidFormat,
         Unsupported,
         Unknown,
@@ -1724,7 +1779,7 @@ pub const cs_input = struct {
 
     pub const KeyDownEvent = struct {
         key: Key,
-        keyChar: []const u8,
+        printChar: []const u8,
         isRepeat: bool,
         shiftDown: bool,
         ctrlDown: bool,
@@ -1734,7 +1789,7 @@ pub const cs_input = struct {
 
     pub const KeyUpEvent = struct {
         key: Key,
-        keyChar: []const u8,
+        printChar: []const u8,
         shiftDown: bool,
         ctrlDown: bool,
         altDown: bool,
@@ -1850,9 +1905,10 @@ fn eint(e: anytype) @typeInfo(@TypeOf(e)).Enum.tag_type {
 }
 
 pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
+    const js_print_char = if (e.getPrintChar()) |print_char| Ascii[print_char..print_char+1] else "";
     return .{
         .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
-        .keyChar = Ascii[e.getKeyChar()..e.getKeyChar()+1],
+        .printChar = js_print_char,
         .isRepeat = e.is_repeat,
         .shiftDown = e.isShiftPressed(),
         .ctrlDown = e.isControlPressed(),
@@ -1862,9 +1918,10 @@ pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
 }
 
 pub fn fromStdKeyUpEvent(e: input.KeyUpEvent) cs_input.KeyUpEvent {
+    const js_print_char = if (e.getPrintChar()) |print_char| Ascii[print_char..print_char+1] else "";
     return .{
         .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
-        .keyChar = Ascii[e.getKeyChar()..e.getKeyChar()+1],
+        .printChar = js_print_char,
         .shiftDown = e.isShiftPressed(),
         .ctrlDown = e.isControlPressed(),
         .altDown = e.isAltPressed(),

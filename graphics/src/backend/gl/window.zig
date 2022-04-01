@@ -14,18 +14,6 @@ const Config = window.Config;
 const Mode = window.Mode;
 const log = stdx.log.scoped(.window_gl);
 
-var inited_sdl = false;
-
-pub fn ensureSdlInit() !void {
-    if (!inited_sdl) {
-        if (sdl.SDL_InitSubSystem(sdl.SDL_INIT_VIDEO) != 0) {
-            log.err("SDL_InitSubSystem: {s}", .{sdl.SDL_GetError()});
-            return error.FailedSdlInit;
-        }
-        inited_sdl = true;
-    }
-}
-
 pub const Window = struct {
     const Self = @This();
 
@@ -59,7 +47,7 @@ pub const Window = struct {
     initial_mvp: Mat4,
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
-        try ensureSdlInit();
+        try sdl.ensureVideoInit();
 
         var res: Window = undefined;
         const flags = getSdlWindowFlags(config);
@@ -92,7 +80,7 @@ pub const Window = struct {
     /// However, it could involve reorganizing how Graphics does rendering because not everything is shared.
     /// There doesn't seem to be a good reason to use GL's shared context so prefer the simpler method and don't create a new context here.
     pub fn initWithSharedContext(alloc: std.mem.Allocator, config: Config, existing_win: Self) !Self {
-        try ensureSdlInit();
+        try sdl.ensureVideoInit();
 
         var res: Window = undefined;
         const flags = getSdlWindowFlags(config);

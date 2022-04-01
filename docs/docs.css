@@ -1,6 +1,15 @@
-[data-theme="light"], :root:not([data-theme="dark"]) {
-	--h1-color: #2176FF;
-	--primary: #4169e1;
+:root[data-theme="light"] {
+    --h1-color: #2176FF;
+    --primary: #4169e1;
+    --primary-hover: #153185;
+    --primary-focus: #dddddd;
+}
+
+:root[data-theme="dark"] {
+    --primary: #869EFF;
+    --primary-hover: #3860ff;
+    --primary-focus: #222222;
+    --background-color: #151515;
 }
 
 @media (min-width: 992px) {
@@ -13,109 +22,109 @@
 }
 
 section.main-links li {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 aside.symbols > div {
-	height: calc(100% - 80px);
-	overflow-y: auto;
-	overflow-x: hidden;
+    height: calc(100% - 80px);
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 aside.symbols li {
-	font-size: 14px;
+    font-size: 14px;
 }
 
 aside.symbols li.indent {
-	padding-left: 30px;
+    padding-left: 30px;
 }
 
 div.docs .indent {
-	padding-left: 50px;
+    padding-left: 50px;
 }
 
 pre {
 }
 
 aside select {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 @media (min-width: 992px) {
-	aside > div {
-		position: fixed;
-	}
+    aside > div {
+        position: fixed;
+    }
 }
 
 .primary {
-	color: var(--primary);
+    color: var(--primary);
 }
 
 .secondary {
-	color: var(--secondary);
+    color: var(--secondary);
 }
 
 div.docs .type {
-	padding-bottom: 10px;
+    padding-bottom: 10px;
 }
 
 div.docs .func {
-	padding-bottom: 10px;
+    padding-bottom: 10px;
 }
 
 div.docs .type a {
-	pointer-events: none;
+    pointer-events: none;
 }
 
 div.docs .func a {
-	pointer-events: none;
+    pointer-events: none;
 }
 
 div.docs .method {
-	margin-left: 15px;
+    margin-left: 15px;
 }
 
 div.docs li {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 div.docs p {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 div.docs .field {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 @media (min-width: 992px) {
-	div.docs p.func-desc {
-		margin-bottom: 50px;
-	}
+    div.docs p.func-desc {
+        margin-bottom: 50px;
+    }
 }
 
 div.docs small {
-	font-size: 14px;
+    font-size: 14px;
 }
 
 div.docs .params {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 div.docs .return {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 mark.ns {
-	/*color: var(--primary);*/
-	font-size: 16px;
+    /*color: var(--primary);*/
+    font-size: 16px;
 }
 
 :root aside .category {
-	font-size: 16px;
+    font-size: 16px;
 }
 
 :root aside section {
-	margin-bottom: 20px;
+    margin-bottom: 20px;
 }
 
 :root aside li {
@@ -129,6 +138,39 @@ mark.ns {
 }
 
 :root > body {
-	--form-element-spacing-vertical: 0.25rem;
-	--form-element-spacing-horizontal: 0.5rem;
+    --form-element-spacing-vertical: 0.25rem;
+    --form-element-spacing-horizontal: 0.5rem;
+}
+
+div.top-nav {
+    position: fixed;
+    top: 0;
+    width: 100%;
+    background-color: var(--background-color);
+    border-bottom: 1px solid var(--muted-border-color);
+    padding: var(--spacing);
+}
+
+div.top-nav.grid {
+    grid-template-columns: repeat(auto-fit,minmax(0%,1fr));
+}
+
+div.top-nav h3 {
+    margin: 0px;
+}
+
+:root > body > main {
+    padding-top: calc(var(--spacing)*2 + 2.25rem + var(--spacing));
+}
+
+div.top-menu {
+    text-align: right;
+}
+
+/* Account for top nav offset. */
+a.nav-link {
+    display: block;
+    position: relative;
+    top: calc(var(--spacing)*-2 - 2.25rem - var(--spacing));
+    visibility: hidden;
 }

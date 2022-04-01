@@ -2,44 +2,83 @@
 /* https://jmblog.github.io/color-themes-for-google-code-highlightjs */
 /* Original theme - https://github.com/chriskempson/tomorrow-theme */
 /* https://jmblog.github.io/color-themes-for-google-code-highlightjs */
-.tomorrow-comment, pre .comment, pre .title {
-  color: #7285b7;
+.tomorrow-comment,
+:root[data-theme="dark"] pre .hljs-comment {
+  color: var(--primary);
 }
 
-.tomorrow-red, pre .variable, pre .attribute, pre .tag, pre .regexp, pre .ruby .constant, pre .xml .tag .title, pre .xml .pi, pre .xml .doctype, pre .html .doctype, pre .css .id, pre .css .class, pre .css .pseudo {
+.tomorrow-red,
+:root[data-theme="dark"] pre .hljs-variable,
+:root[data-theme="dark"] pre .hljs-attribute,
+:root[data-theme="dark"] pre .hljs-tag,
+:root[data-theme="dark"] pre .hljs-regexp,
+:root[data-theme="dark"] pre .hljs-ruby .hljs-constant,
+:root[data-theme="dark"] pre .hljs-xml .hljs-tag .hljs-title,
+:root[data-theme="dark"] pre .hljs-xml .hljs-pi,
+:root[data-theme="dark"] pre .hljs-xml .hljs-doctype,
+:root[data-theme="dark"] pre .hljs-html .hljs-doctype,
+:root[data-theme="dark"] pre .hljs-css .hljs-id,
+:root[data-theme="dark"] pre .hljs-css .hljs-class,
+:root[data-theme="dark"] pre .hljs-css .hljs-pseudo {
   color: #ff9da4;
 }
 
-.tomorrow-orange, pre .number, pre .preprocessor, pre .built_in, pre .literal, pre .params, pre .constant {
+.tomorrow-orange,
+:root[data-theme="dark"] pre .hljs-number,
+:root[data-theme="dark"] pre .hljs-preprocessor,
+:root[data-theme="dark"] pre .hljs-built_in,
+:root[data-theme="dark"] pre .hljs-literal,
+:root[data-theme="dark"] pre .hljs-params,
+:root[data-theme="dark"] pre .hljs-constant {
   color: #ffc58f;
 }
 
-.tomorrow-yellow, pre .class, pre .ruby .class .title, pre .css .rules .attribute {
+.tomorrow-yellow,
+:root[data-theme="dark"] pre .hljs-class,
+:root[data-theme="dark"] pre .hljs-ruby .hljs-class .hljs-title,
+:root[data-theme="dark"] pre .hljs-css .hljs-rules .hljs-attribute {
   color: #ffeead;
 }
 
-.tomorrow-green, pre .string, pre .value, pre .inheritance, pre .header, pre .ruby .symbol, pre .xml .cdata {
+.tomorrow-green,
+:root[data-theme="dark"] pre .hljs-string,
+:root[data-theme="dark"] pre .hljs-value,
+:root[data-theme="dark"] pre .hljs-inheritance,
+:root[data-theme="dark"] pre .hljs-header, 
+:root[data-theme="dark"] pre .hljs-ruby .hljs-symbol,
+:root[data-theme="dark"] pre .hljs-xml .hljs-cdata {
   color: #d1f1a9;
 }
 
-.tomorrow-aqua, pre .css .hexcolor {
+.tomorrow-aqua,
+:root[data-theme="dark"] pre .hljs-css .hljs-hexcolor {
   color: #99ffff;
 }
 
-.tomorrow-blue, pre .function, pre .python .decorator, pre .python .title, pre .ruby .function .title, pre .ruby .title .keyword, pre .perl .sub, pre .javascript .title, pre .coffeescript .title {
+.tomorrow-blue,
+:root[data-theme="dark"] pre .hljs-function,
+:root[data-theme="dark"] pre .hljs-python .hljs-decorator,
+:root[data-theme="dark"] pre .hljs-python .hljs-title,
+:root[data-theme="dark"] pre .hljs-ruby .hljs-function .hljs-title,
+:root[data-theme="dark"] pre .hljs-ruby .hljs-title .hljs-keyword,
+:root[data-theme="dark"] pre .hljs-perl .hljs-sub,
+:root[data-theme="dark"] pre .hljs-javascript .hljs-title,
+:root[data-theme="dark"] pre .hljs-coffeescript .hljs-title {
   color: #bbdaff;
 }
 
-.tomorrow-purple, pre .keyword, pre .javascript .function {
+.tomorrow-purple,
+:root[data-theme="dark"] pre .hljs-keyword,
+:root[data-theme="dark"] pre .hljs-javascript .hljs-function {
   color: #ebbbff;
 }
 
-pre code {
-  display: block;
-  background: #002451;
+:root[data-theme="dark"] pre code {
+  /* display: block; */
+  background: var(--background-color);
   color: white;
   font-family: Menlo, Monaco, Consolas, monospace;
   line-height: 1.5;
-  border: 1px solid #ccc;
+  border: 1px solid var(--muted-border-color);
   padding: 10px;
 }

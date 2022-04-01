@@ -22,7 +22,7 @@ pub const Environment = struct {
     // Writes with custom interface instead of stdout. Only available with builtin.is_test.
     out_writer: ?WriterIfaceWrapper = null,
 
-    on_main_script_done: ?fn (ctx: ?*anyopaque, rt: *runtime.RuntimeContext) void = null,
+    on_main_script_done: ?fn (ctx: ?*anyopaque, rt: *runtime.RuntimeContext) anyerror!void = null,
     on_main_script_done_ctx: ?*anyopaque = null,
 
     exit_fn: ?fn (code: u8) void = null,
@@ -38,6 +38,8 @@ pub const Environment = struct {
     // Tests may also requestShutdown on the runtime when resources are still active which would end
     // up queuing more events that need to be processed.
     pump_rt_on_graceful_shutdown: bool = false,
+
+    include_test_api: bool = false,
 
     pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         if (self.user_ctx_json) |json| {

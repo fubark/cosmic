@@ -1,8 +1,8 @@
 const color = cs.graphics.Color
 
-const main1 = cs.window.create('Main 1', 800, 600)
-const child = main1.createChild('Child', 400, 300)
-const main2 = cs.window.create('Main 2', 300, 400)
+const main1 = cs.window.create(800, 600, 'Main 1')
+const child = main1.createChild(400, 300, 'Child')
+const main2 = cs.window.create(300, 400, 'Main 2')
 main2.position(0, 0)
 
 main1.onUpdate(g => {

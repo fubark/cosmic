@@ -26,15 +26,10 @@ const PrintCommands = false;
 const LibV8Path: ?[]const u8 = null;
 const LibSdlPath: ?[]const u8 = null;
 const LibSslPath: ?[]const u8 = null;
-// const LibSslPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libssl.a";
 const LibCryptoPath: ?[]const u8 = null;
-// const LibCryptoPath: ?[]const u8 = "/usr/local/Cellar/openssl@3/3.0.1/lib/libcrypto.a";
 const LibCurlPath: ?[]const u8 = null;
-// const LibCurlPath: ?[]const u8 = "/Users/fubar/dev/curl/lib/.libs/libcurl.a";
 const LibUvPath: ?[]const u8 = null;
-// const LibUvPath: ?[]const u8 = "/Users/fubar/dev/libuv/build/libuv_a.a";
 const LibH2oPath: ?[]const u8 = null;
-// const LibH2oPath: ?[]const u8 = "/Users/fubar/dev/h2o";
 
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
@@ -285,6 +280,38 @@ pub fn build(b: *Builder) !void {
         const exe_install = _ctx.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
+    }
+
+    {
+        var step = b.addLog("", .{});
+        var _ctx = BuilderContext{
+            .builder = b,
+            .enable_tracy = tracy,
+            .link_net = true,
+            .link_graphics = true,
+            .link_audio = true,
+            .link_v8 = true,
+            .link_mock = false,
+            .static_link = static_link,
+            .path = "cosmic/main.zig",
+            .filter = filter,
+            .mode = mode,
+            .target = target,
+            .build_options = build_options,
+            .wsl = wsl,
+        };
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        const exe = _ctx.createBuildExeStep();
+        const exe_install = _ctx.addInstallArtifact(exe);
+        step.step.dependOn(&exe_install.step);
+
+        const run = exe.run();
+        run.addArgs(&.{ "shell" });
+        step.step.dependOn(&run.step);
+        b.step("cosmic-shell", "Run cosmic in shell mode.").dependOn(&step.step);
     }
 
     // Whitelist test is useful for running tests that were manually included with an INCLUDE prefix.
@@ -823,7 +850,9 @@ const sdl_pkg = Pkg{
 };
 
 fn addSDL(step: *LibExeObjStep) void {
-    step.addPackage(sdl_pkg);
+    var pkg = sdl_pkg;
+    pkg.dependencies = &.{ stdx_pkg };
+    step.addPackage(pkg);
     step.linkLibC();
     step.addIncludeDir("./lib/sdl/vendor/include");
 }
@@ -989,10 +1018,13 @@ fn addGraphics(step: *std.build.LibExeObjStep) void {
     var lyon = lyon_pkg;
     lyon.dependencies = &.{stdx_pkg};
 
+    var sdl_ = sdl_pkg;
+    sdl_.dependencies = &.{stdx_pkg};
+
     var gl = gl_pkg;
     gl.dependencies = &.{ sdl_pkg, stdx_pkg };
 
-    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_pkg, stdx_pkg, lyon };
+    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon };
     step.addPackage(pkg);
 }
 

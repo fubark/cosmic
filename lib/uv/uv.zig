@@ -81,6 +81,7 @@ pub extern fn uv_update_time(*uv_loop_t) void;
 pub extern fn uv_fs_event_init(loop: *uv_loop_t, handle: *uv_fs_event_t) c_int;
 pub extern fn uv_fs_event_start(handle: *uv_fs_event_t, cb: uv_fs_event_cb, path: [*c]const u8, flags: c_uint) c_int;
 pub extern fn uv_fs_event_stop(handle: *uv_fs_event_t) c_int;
+pub extern fn uv_tcp_getsockname(handle: *const uv_tcp_t, name: *c.struct_sockaddr, namelen: *c_int) c_int;
 
 pub fn assertNoError(code: c_int) void {
     if (code != 0) {

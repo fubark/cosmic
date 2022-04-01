@@ -3,6 +3,7 @@ const stdx = @import("stdx");
 const build_options = @import("build_options");
 const v8 = @import("v8");
 const t = stdx.testing;
+const uv = @import("uv");
 
 const runtime = @import("../cosmic/runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
@@ -160,6 +161,9 @@ test "behavior: CLI help, version, command usages." {
             \\Usage: cosmic run [src-path]
             \\       cosmic [src-path]
             \\
+            \\Flags:
+            \\  --test-api   Include the cs.test api.
+            \\
             \\Run a js file.
             \\
         );
@@ -173,6 +177,9 @@ test "behavior: CLI help, version, command usages." {
             \\Usage: cosmic run [src-path]
             \\       cosmic [src-path]
             \\
+            \\Flags:
+            \\  --test-api   Include the cs.test api.
+            \\
             \\Run a js file.
             \\
         );
@@ -184,6 +191,9 @@ test "behavior: CLI help, version, command usages." {
         try t.eq(res.success, true);
         try t.eqStr(res.stdout,
             \\Usage: cosmic dev [src-path]
+            \\
+            \\Flags:
+            \\  --test-api   Include the cs.test api.
             \\
             \\Run a js file in dev mode.
             \\Dev mode enables hot reloading of your scripts whenever they are modified.
@@ -215,8 +225,8 @@ test "behavior: CLI help, version, command usages." {
         try t.eqStr(res.stdout,
             \\Usage: cosmic shell
             \\
-            \\Starts a limited shell for experimenting.
-            \\TODO: Run the shell over the cosmic runtime.
+            \\Starts the runtime with an interactive shell.
+            \\TODO: Support window API in the shell.
             \\
         );
     }
@@ -226,10 +236,11 @@ test "behavior: CLI help, version, command usages." {
         defer res.deinit();
         try t.eq(res.success, true);
         try t.eqStr(res.stdout,
-            \\Usage: cosmic http [dir-path] [port=8081]
+            \\Usage: cosmic http [dir-path] [addr=127.0.0.1:8081]
             \\
-            \\Starts an HTTP server over a public folder at [dir-path].
-            \\Default port is 8081.
+            \\Starts an HTTP server binding to the address [addr] and serve files from the public directory root at [dir-path].
+            \\[addr] contains a host and port separated by `:`. The host is optional and defaults to `127.0.0.1`.
+            \\The port is optional and defaults to 8081.
             \\
         );
     }
@@ -239,17 +250,53 @@ test "behavior: CLI help, version, command usages." {
         defer res.deinit();
         try t.eq(res.success, true);
         try t.eqStr(res.stdout,
-            \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=8081]
+            \\Usage: cosmic https [dir-path] [public-key-path] [private-key-path] [port=127.0.0.1:8081]
             \\
-            \\Starts an HTTPS server over a public folder at [dir-path].
-            \\Paths to public and private keys must be absolute or relative to the public folder path.
-            \\Default port is 8081.
+            \\Starts an HTTPS server binding to the address [addr] and serve files from the public directory root at [dir-path].
+            \\Paths to public and private keys must be absolute or relative to the public root path.
+            \\[addr] contains a host and port separated by `:`. The host is optional and defaults to `127.0.0.1`.
+            \\The port is optional and defaults to 8081.
             \\
         );
     }
 }
 
-test "behavior: 'cosmic http' starts an HTTP server" {
+test "behavior: 'cosmic http' starts server with 'localhost' as host address." {
+    const cwd = try std.fs.path.resolve(t.alloc, &.{});
+    defer {
+        std.os.chdir(cwd) catch unreachable;
+        t.alloc.free(cwd);
+    }
+
+    const S = struct {
+        fn onMainScriptDone(_: ?*anyopaque, rt: *RuntimeContext) !void {
+            defer rt.requestShutdown();
+
+            const ids = rt.allocResourceIdsByTag(.CsHttpServer);
+            defer rt.alloc.free(ids);
+
+            try t.eq(ids.len, 1);
+            const server = rt.getResourcePtr(.CsHttpServer, ids[0]).?;
+            const addr = server.allocBindAddress(rt.alloc);
+            defer addr.deinit(rt.alloc);
+            try t.eqStr(addr.host, "127.0.0.1");
+            try t.eq(addr.port, 8081);
+        }
+    };
+
+    const res = runCmd(&.{"cosmic", "http", "./test/assets", "localhost:8081"}, .{
+        .on_main_script_done = S.onMainScriptDone,
+    });
+    defer res.deinit();
+
+    try t.eq(res.success, true);
+    try t.eqStr(res.stdout,
+        \\HTTP server started. Binded to 127.0.0.1:8081.
+        \\
+    );
+}
+
+test "behavior: 'cosmic http' starts an HTTP server and handles request" {
     const cwd = try std.fs.path.resolve(t.alloc, &.{});
     defer {
         std.os.chdir(cwd) catch unreachable;
@@ -264,7 +311,7 @@ test "behavior: 'cosmic http' starts an HTTP server" {
     var ctx: Context = .{};
 
     const S = struct {
-        fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) void {
+        fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) !void {
             const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
             var res = rt.evalModuleScript(
                 \\const res = await cs.http.getAsync('http://localhost:8081/index.html')
@@ -298,7 +345,7 @@ test "behavior: 'cosmic http' starts an HTTP server" {
         }
     };
 
-    const res = runCmd(&.{"cosmic", "http", "./test/assets", "8081"}, .{
+    const res = runCmd(&.{"cosmic", "http", "./test/assets", ":8081"}, .{
         .on_main_script_done = S.onMainScriptDone,
         .on_main_script_done_ctx = &ctx,
     });
@@ -307,13 +354,13 @@ test "behavior: 'cosmic http' starts an HTTP server" {
     try t.eq(res.success, true);
     try t.eq(ctx.passed, true);
     try t.eqStr(res.stdout,
-        \\HTTP server started on port 8081.
+        \\HTTP server started. Binded to 127.0.0.1:8081.
         \\GET /index.html [200]
         \\
     );
 }
 
-test "behavior: 'cosmic https' starts an HTTPS server" {
+test "behavior: 'cosmic https' starts an HTTPS server and handles request." {
     const cwd = try std.fs.path.resolve(t.alloc, &.{});
     defer {
         std.os.chdir(cwd) catch unreachable;
@@ -327,10 +374,8 @@ test "behavior: 'cosmic https' starts an HTTPS server" {
     };
     var ctx: Context = .{};
 
-    t.setLogLevel(.debug);
-
     const S = struct {
-        fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) void {
+        fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) !void {
             const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
             var res = rt.evalModuleScript(
                 \\const res = await cs.http.requestAsync('https://localhost:8081/index.html', {
@@ -366,7 +411,7 @@ test "behavior: 'cosmic https' starts an HTTPS server" {
         }
     };
 
-    const res = runCmd(&.{"cosmic", "https", "./test/assets", "./localhost.crt", "./localhost.key", "8081"}, .{
+    const res = runCmd(&.{"cosmic", "https", "./test/assets", "./localhost.crt", "./localhost.key", ":8081"}, .{
         .on_main_script_done = S.onMainScriptDone,
         .on_main_script_done_ctx = &ctx,
     });
@@ -375,7 +420,7 @@ test "behavior: 'cosmic https' starts an HTTPS server" {
     try t.eq(res.success, true);
     try t.eq(ctx.passed, true);
     try t.eqStr(res.stdout,
-        \\HTTPS server started on port 8081.
+        \\HTTPS server started. Binded to 127.0.0.1:8081.
         \\GET /index.html [200]
         \\
     );

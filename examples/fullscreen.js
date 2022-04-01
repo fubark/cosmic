@@ -1,4 +1,4 @@
-const w = cs.window.create('Demo', 800, 600)
+const w = cs.window.create(800, 600, 'Demo')
 
 // Please note this is a dedicated full screen mode so you won't have
 // the usual alt tab and window shortcuts provided by your operating system.

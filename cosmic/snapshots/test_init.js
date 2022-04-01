@@ -72,11 +72,17 @@
     }
 
     function format(o) {
+        // Detect circular refs.
+        let refs = new WeakMap()
         return JSON.stringify(o, (key, value) => {
             if (typeof value === 'object') {
                 if (value === null) {
                     return value
                 }
+                if (refs.has(value)) {
+                    return '(Circular)'
+                }
+                refs.set(value, true)
                 // Recreate the object with keys sorted.
                 return Object.keys(value).sort().reduce((obj, key) => {
                     obj[key] = value[key]

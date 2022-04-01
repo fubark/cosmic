@@ -1,4 +1,6 @@
 const std = @import("std");
+const stdx = @import("stdx");
+const log_ = stdx.log.scoped(.sdl);
 
 // c header imports should be wrapped in a common zig file that others import. See: https://github.com/ziglang/zig/issues/3394
 const c = @cImport({
@@ -14,4 +16,16 @@ pub fn createWindow(alloc: std.mem.Allocator, title: []const u8, x: c_int, y: c_
     const title_null = std.cstr.addNullByte(alloc, title) catch unreachable;
     defer alloc.free(title_null);
     return c.SDL_CreateWindow(title_null, x, y, w, h, flags);
+}
+
+var inited_video = false;
+
+pub fn ensureVideoInit() !void {
+    if (!inited_video) {
+        if (c.SDL_InitSubSystem(c.SDL_INIT_VIDEO) != 0) {
+            log_.err("SDL_InitSubSystem Video: {s}", .{c.SDL_GetError()});
+            return error.FailedSdlInit;
+        }
+        inited_video = true;
+    }
 }

@@ -327,6 +327,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "setHandler", api.cs_http.Server.setHandler);
         ctx.setConstFuncT(proto, "requestClose", api.cs_http.Server.requestClose);
         ctx.setConstFuncT(proto, "closeAsync", api.cs_http.Server.closeAsync);
+        ctx.setConstFuncT(proto, "getBindAddress", api.cs_http.Server.getBindAddress);
 
         ctx.setConstProp(http, "Server", server_class);
         rt.http_server_class = v8.Persistent(v8.FunctionTemplate).init(iso, server_class);
@@ -345,7 +346,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
     ctx.setConstProp(cs, "http", http);
 
-    if (rt.is_test_env or builtin.is_test) {
+    if (rt.is_test_env or builtin.is_test or rt.env.include_test_api) {
         // cs.test
         const cs_test = iso.initObjectTemplateDefault();
 
@@ -459,6 +460,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     ctx.setConstFuncT(cs_core, "getMainScriptPath", api.cs_core.getMainScriptPath);
     ctx.setConstFuncT(cs_core, "getMainScriptDir", api.cs_core.getMainScriptDir);
     ctx.setConstFuncT(cs_core, "getAppDir", api.cs_core.getAppDir);
+    ctx.setConstFuncT(cs_core, "getClipboardText", api.cs_core.getClipboardText);
+    ctx.setConstFuncT(cs_core, "setClipboardText", api.cs_core.setClipboardText);
     ctx.setConstFuncT(cs_core, "panic", api.cs_core.panic);
     ctx.setConstFuncT(cs_core, "exit", api.cs_core.exit);
     ctx.setConstFuncT(cs_core, "getOs", api.cs_core.getOs);
@@ -483,6 +486,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setProp(cs_err, "ConnectFailed", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.ConnectFailed)));
         ctx.setProp(cs_err, "CertVerify", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CertVerify)));
         ctx.setProp(cs_err, "CertBadFile", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CertBadFile)));
+        ctx.setProp(cs_err, "CantResolveHost", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.CantResolveHost)));
         ctx.setProp(cs_err, "InvalidFormat", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.InvalidFormat)));
         ctx.setProp(cs_err, "Unsupported", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unsupported)));
         ctx.setProp(cs_err, "Unknown", iso.initIntegerU32(@enumToInt(api.cs_core.CsError.Unknown)));

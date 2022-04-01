@@ -39,6 +39,7 @@ pub fn generate(alloc: std.mem.Allocator, docs_path: []const u8) !void {
     try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/pico.min.css"), std.fs.cwd(), fromPath(alloc, docs_path, "pico.min.css"), .{});
     try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/docs.css"), std.fs.cwd(), fromPath(alloc, docs_path, "docs.css"), .{});
     try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/hljs-tomorrow.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-tomorrow.css"), .{});
+    try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/hljs-tomorrow-night-blue.css"), std.fs.cwd(), fromPath(alloc, docs_path, "hljs-tomorrow-night-blue.css"), .{});
     try std.fs.cwd().copyFile(fromBuildRoot(alloc, "docs/highlight.min.js"), std.fs.cwd(), fromPath(alloc, docs_path, "highlight.min.js"), .{});
 
     const api_model = try genApiModel(alloc);
@@ -603,9 +604,22 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         \\  <link rel="stylesheet" href="pico.min.css" />
         \\  <link rel="stylesheet" href="docs.css" />
         \\  <link rel="stylesheet" href="hljs-tomorrow.css" />
+        \\  <link rel="stylesheet" href="hljs-tomorrow-night-blue.css" />
         \\  <title>Cosmic Docs | {s}</title>
+        \\  <script>
+        \\    // Set correct theme before rest of page loads.
+        \\    let theme = window.localStorage.getItem('theme')
+        \\    if (!theme) {{
+        \\      theme = 'light'
+        \\    }}
+        \\    document.documentElement.setAttribute('data-theme', theme);
+        \\  </script>
         \\</head>
         \\<body>
+        \\  <div class="top-nav grid">
+        \\    <div><h3><span class="primary">Cosmic</span> Docs</h3></div>
+        \\    <div class="top-menu"><a onclick="clickTheme()" href="#" role="button" class="outline">Theme</a></div>
+        \\  </div>
         \\  <main class="container-fluid">
         , .{ build_options.VersionName }
     );
@@ -614,7 +628,6 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
     // Side nav.
     ctx.write(
         \\<aside><div>
-        \\<h3><span class="primary">Cosmic</span> Docs</h3>
         \\<nav>
     );
     ctx.write("<select>");
@@ -839,6 +852,15 @@ fn genHtml(ctx: *Context, mb_mod_id: ?ModuleId, api_model: std.StringHashMap(Mod
         \\<script src="highlight.min.js"></script>
         \\<script>
         \\  hljs.highlightAll();
+        \\  function clickTheme() {
+        \\    if (theme == 'light') {
+        \\      theme = 'dark'
+        \\    } else {
+        \\      theme = 'light'
+        \\    }
+        \\    window.localStorage.setItem('theme', theme)
+        \\    document.documentElement.setAttribute('data-theme', theme)
+        \\  }
         \\</script>
     );
 }

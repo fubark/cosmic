@@ -1,6 +1,6 @@
 const Button = cs.input.MouseButton
 
-const w = cs.window.create('Demo', 1200, 720)
+const w = cs.window.create(1200, 720, 'Demo')
 
 w.onMouseDown(e => {
     if (e.button == Button.left) {
@@ -8,13 +8,13 @@ w.onMouseDown(e => {
     } else if (e.button == Button.right) {
         puts('pressed right', e.clicks)
     }
-    puts(e.button, e.x, e.y)
+    dump('mouse down', e)
 })
 
 w.onMouseUp(e => {
-    puts('mouse up', e.button, e.x, e.y, e.clicks)
+    dump('mouse up', e)
 })
 
 w.onMouseMove(e => {
-    puts(`mouse move ${e.x}, ${e.y}`)
+    dump('mouse move', e)
 })

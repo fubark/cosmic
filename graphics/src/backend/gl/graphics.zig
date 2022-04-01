@@ -59,6 +59,8 @@ pub const Graphics = struct {
     cur_proj_transform: Transform,
     view_transform: Transform,
     initial_mvp: Mat4,
+    cur_buf_width: u32,
+    cur_buf_height: u32,
 
     default_font_id: FontId,
     cur_font_gid: FontGroupId,
@@ -96,6 +98,8 @@ pub const Graphics = struct {
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
+            .cur_buf_width = 0,
+            .cur_buf_height = 0,
             .cur_font_gid = undefined,
             .cur_font_size = undefined,
             .cur_fill_color = Color.Black,
@@ -205,7 +209,7 @@ pub const Graphics = struct {
         self.cur_clip_rect = .{
             .x = x,
             // clip-y starts at bottom.
-            .y = @intToFloat(f32, self.cur_buffer_height) - (y + height),
+            .y = @intToFloat(f32, self.cur_buf_height) - (y + height),
             .width = width,
             .height = height,
         };
@@ -253,12 +257,12 @@ pub const Graphics = struct {
             gl.glDisable(gl.GL_SCISSOR_TEST);
         }
         if (state.blend_mode != self.cur_blend_mode) {
-            setBlendMode(state.blend_mode);
+            self.setBlendMode(state.blend_mode);
         }
-        if (self.view_transform.mat != state.view_transform.mat) {
+        if (!std.meta.eql(self.view_transform.mat, state.view_transform.mat)) {
             self.view_transform = state.view_transform;
-            const mvp = math.Mul4x4_4X4(self.proj_transform.mat, self.view_transform.mat);
-            self.setMvp(mvp);
+            const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
+            self.batcher.setMvp(mvp);
         }
     }
 
@@ -1225,6 +1229,9 @@ pub const Graphics = struct {
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
     pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
         // log.debug("beginFrame", .{});
+
+        self.cur_buf_width = buf_width;
+        self.cur_buf_height = buf_height;
 
         // Projection transform is different depending on viewport but is needed for user transforms to recompute the mvp.
         self.cur_proj_transform = proj_transform;

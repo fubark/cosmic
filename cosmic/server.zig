@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const MaybeOwned = stdx.ds.MaybeOwned;
 const builtin = @import("builtin");
 const uv = @import("uv");
 const h2o = @import("h2o");
@@ -70,13 +71,31 @@ pub const HttpServer = struct {
         _ = self;
     }
 
+    pub fn allocBindAddress(self: Self, alloc: std.mem.Allocator) Address {
+        var addr: uv.sockaddr = undefined;
+        var namelen: c_int = @sizeOf(@TypeOf(addr));
+        const res = uv.uv_tcp_getsockname(&self.listen_handle, &addr, &namelen);
+        uv.assertNoError(res);
+
+        const port = std.mem.readIntBig(u16, addr.sa_data[0..2]);
+        const host = std.fmt.allocPrint(alloc, "{}.{}.{}.{}", .{addr.sa_data[2], addr.sa_data[3], addr.sa_data[4], addr.sa_data[5]}) catch unreachable;
+        return .{
+            .host = host,
+            .port = port,
+        };
+    }
+
     /// This is just setting up the uv socket listener. Does not set up for http or https.
+    /// host can be an IP address or "localhost". This does not call getaddrinfo() to resolve a hostname since most of the time it's unnecessary to do a full dns lookup.
     fn startListener(self: *Self, host: []const u8, port: u16) !void {
         const rt = self.rt;
 
         self.closed = false;
 
-        _ = uv.uv_tcp_init(rt.uv_loop, &self.listen_handle);
+        var r: c_int = undefined;
+
+        r = uv.uv_tcp_init(rt.uv_loop, &self.listen_handle);
+        uv.assertNoError(r);
         // Need to callback with handle.
         self.listen_handle.data = self;
         self.closed_listen_handle = false;
@@ -84,11 +103,13 @@ pub const HttpServer = struct {
         errdefer self.requestShutdown();
 
         var addr: uv.sockaddr_in = undefined;
-        var r: c_int = undefined;
 
-        const c_host = std.cstr.addNullByte(rt.alloc, host) catch unreachable;
-        defer rt.alloc.free(c_host);
-        _ = uv.uv_ip4_addr(c_host, port, &addr);
+        const MaybeOwnedCstr = MaybeOwned([:0]const u8);
+        const c_host = if (std.mem.eql(u8, host, "localhost")) MaybeOwnedCstr.initUnowned("127.0.0.1")
+            else MaybeOwnedCstr.initOwned(std.cstr.addNullByte(rt.alloc, host) catch unreachable);
+        defer c_host.deinit(rt.alloc);
+        r = uv.uv_ip4_addr(c_host.inner, port, &addr);
+        uv.assertNoError(r);
 
         r = uv.uv_tcp_bind(&self.listen_handle, @ptrCast(*uv.sockaddr, &addr), 0);
         if (r != 0) {
@@ -428,3 +449,12 @@ fn getStatusReason(code: u32) []const u8 {
         else => unreachable,
     }
 }
+
+const Address = struct {
+    host: []const u8,
+    port: u16,
+
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.host);
+    }
+};

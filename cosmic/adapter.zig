@@ -1,3 +1,4 @@
+const std = @import("std");
 const v8 = @import("v8");
 
 const runtime = @import("runtime.zig");
@@ -70,3 +71,20 @@ pub fn FuncDataUserPtr(comptime Ptr: type) type {
 pub const PromiseSkipJsGen = struct {
     inner: v8.Promise,
 };
+
+/// A temp struct that will call deinit with the runtime's allocator after converting to js.
+pub fn RtTempStruct(comptime T: type) type {
+    return struct {
+        pub const RtTempStruct = true;
+
+        inner: T,
+
+        pub fn init(inner: T) @This() {
+            return .{ .inner = inner };
+        }
+
+        pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+            self.inner.deinit(alloc);
+        }
+    };
+}
