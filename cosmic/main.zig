@@ -34,6 +34,7 @@ pub fn main() !void {
 
 const Flags = struct {
     help: bool = false,
+    include_test_api: bool = false,
 };
 
 fn parseFlags(alloc: std.mem.Allocator, args: []const []const u8, flags: *Flags) []const []const u8 {
@@ -44,6 +45,8 @@ fn parseFlags(alloc: std.mem.Allocator, args: []const []const u8, flags: *Flags)
                 flags.help = true;
             } else if (std.mem.eql(u8, arg, "--help")) {
                 flags.help = true;
+            } else if (std.mem.eql(u8, arg, "--test-api")) {
+                flags.include_test_api = true;
             }
         } else {
             const arg_dupe = alloc.dupe(u8, arg) catch unreachable;
@@ -83,6 +86,7 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
                 env.abortFmt("Expected path to main source file.", .{});
                 return;
             };
+            env.include_test_api = flags.include_test_api;
             try runAndExit(src_path, true, env);
         }
     } else if (string.eq(cmd, "run")) {
@@ -94,6 +98,7 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
                 env.abortFmt("Expected path to main source file.", .{});
                 return;
             };
+            env.include_test_api = flags.include_test_api;
             try runAndExit(src_path, false, env);
         }
     } else if (string.eq(cmd, "test")) {
@@ -368,22 +373,32 @@ const main_usage =
     \\
     ;
 
-const run_usage = 
+const common_run_usage_flags =
+    \\  --test-api   Include the cs.test api.
+    ;
+
+const run_usage = std.fmt.comptimePrint(
     \\Usage: cosmic run [src-path]
     \\       cosmic [src-path]
     \\
+    \\Flags:
+    \\{s}
+    \\
     \\Run a js file.
     \\
-    ;
+, .{common_run_usage_flags});
 
-const dev_usage = 
+const dev_usage = std.fmt.comptimePrint(
     \\Usage: cosmic dev [src-path]
+    \\
+    \\Flags:
+    \\{s}
     \\
     \\Run a js file in dev mode.
     \\Dev mode enables hot reloading of your scripts whenever they are modified.
     \\It also includes a HUD for viewing debug output and running commands.
     \\
-    ;
+, .{common_run_usage_flags});
 
 const test_usage = 
     \\Usage: cosmic test [src-path]

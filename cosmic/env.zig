@@ -39,6 +39,8 @@ pub const Environment = struct {
     // up queuing more events that need to be processed.
     pump_rt_on_graceful_shutdown: bool = false,
 
+    include_test_api: bool = false,
+
     pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         if (self.user_ctx_json) |json| {
             alloc.free(json);

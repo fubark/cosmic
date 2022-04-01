@@ -329,7 +329,7 @@ pub const RuntimeContext = struct {
         // Run gen_api.js
         self.runScript("gen_api.js", gen_api_init) catch unreachable;
 
-        if (self.is_test_env or builtin.is_test) {
+        if (self.is_test_env or builtin.is_test or self.env.include_test_api) {
             // Run test_init.js
             self.runScript("test_init.js", test_init) catch unreachable;
         }

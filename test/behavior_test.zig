@@ -161,6 +161,9 @@ test "behavior: CLI help, version, command usages." {
             \\Usage: cosmic run [src-path]
             \\       cosmic [src-path]
             \\
+            \\Flags:
+            \\  --test-api   Include the cs.test api.
+            \\
             \\Run a js file.
             \\
         );
@@ -174,6 +177,9 @@ test "behavior: CLI help, version, command usages." {
             \\Usage: cosmic run [src-path]
             \\       cosmic [src-path]
             \\
+            \\Flags:
+            \\  --test-api   Include the cs.test api.
+            \\
             \\Run a js file.
             \\
         );
@@ -185,6 +191,9 @@ test "behavior: CLI help, version, command usages." {
         try t.eq(res.success, true);
         try t.eqStr(res.stdout,
             \\Usage: cosmic dev [src-path]
+            \\
+            \\Flags:
+            \\  --test-api   Include the cs.test api.
             \\
             \\Run a js file in dev mode.
             \\Dev mode enables hot reloading of your scripts whenever they are modified.

@@ -346,7 +346,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
     ctx.setConstProp(cs, "http", http);
 
-    if (rt.is_test_env or builtin.is_test) {
+    if (rt.is_test_env or builtin.is_test or rt.env.include_test_api) {
         // cs.test
         const cs_test = iso.initObjectTemplateDefault();
 
