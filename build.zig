@@ -923,8 +923,10 @@ const gl_pkg = Pkg{
 };
 
 fn addGL(step: *LibExeObjStep) void {
-    step.addPackage(gl_pkg);
+    var pkg = gl_pkg;
+    pkg.dependencies = &.{ sdl_pkg };
     step.addIncludeDir("./lib/gl/vendor");
+    step.addPackage(pkg);
     step.linkLibC();
 }
 

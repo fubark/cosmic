@@ -24,7 +24,6 @@ const Font = graphics.font.Font;
 const Glyph = graphics.font.Glyph;
 pub const font_cache = @import("font_cache.zig");
 pub const FontCache = font_cache.FontCache;
-pub const MeasureTextIterator = font_cache.MeasureTextIterator;
 const ImageId = graphics.ImageId;
 const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
@@ -37,6 +36,7 @@ const TexShaderVertex = mesh.TexShaderVertex;
 const Shader = @import("shader.zig").Shader;
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
+pub const MeasureTextIterator = text_renderer.MeasureTextIterator;
 const RenderTextContext = text_renderer.RenderTextContext;
 const svg = graphics.svg;
 

@@ -17,6 +17,9 @@ test {
     const graphics = @import("../graphics/src/graphics.zig");
     t.refAllDecls(graphics);
 
+    const gl_graphics = @import("../graphics/src/backend/gl/graphics.zig");
+    t.refAllDecls(gl_graphics);
+
     const input = @import("../input/input.zig");
     t.refAllDecls(input);
 
