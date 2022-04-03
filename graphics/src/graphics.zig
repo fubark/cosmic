@@ -25,6 +25,7 @@ const FontGroup = _font_group.FontGroup;
 const text_renderer = @import("backend/gl/text_renderer.zig");
 const FontCache = gl.FontCache;
 const log = std.log.scoped(.graphics);
+pub const curve = @import("curve.zig");
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
