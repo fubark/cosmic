@@ -90,13 +90,14 @@ function partitionCBez(c_bez, tol) {
     const tol2 = tol - tol1; // error for subdivision of quads into lines
     const sqrt_tol2 = Math.sqrt(tol2);
     const err2 = c_bez.weightsum(1, -3, 3, -1).hypot2();
-    const n_quads = Math.ceil(Math.pow(err2 / (432 * tol1 * tol1), 1./6));
+    const n_quads = Math.ceil(Math.pow(err2 / (432 * tol1 * tol1), 1/6));
     let quads = [];
     let sum = 0;
     for (let i = 0; i < n_quads; i++) {
         const t0 = i / n_quads;
         const t1 = (i + 1) / n_quads;
-        const quad = c_bez.subsegment(t0, t1).midpointQBez();
+        const sub = c_bez.subsegment(t0, t1);
+        const quad = sub.midpointQBez();
         const params = quad.mapToBasic();
         const a0 = approx_myint(params.x0);
         const a1 = approx_myint(params.x1);

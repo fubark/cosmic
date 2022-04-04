@@ -6,6 +6,8 @@ const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
 const graphics = @import("../../graphics.zig");
 const QuadBez = graphics.curve.QuadBez;
+const SubQuadBez = graphics.curve.SubQuadBez;
+const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const Mesh = @import("mesh.zig").Mesh;
 const TexShaderVertex = @import("mesh.zig").TexShaderVertex;
@@ -16,19 +18,28 @@ const log = std.log.scoped(.stroke);
 /// Given quadratic bezier curve, generate triangles along the inner and outer offset paths.
 pub fn strokeQuadBez(mesh: *Mesh, buf: *std.ArrayList(Vec2), q_bez: QuadBez, half_width: f32, color: Color) void {
     q_bez.flatten(0.5, buf);
+    strokePath(mesh, buf.items, half_width, color);
+}
 
+/// Given cubic bezier curve, generate triangles along the inner and outer offset paths.
+pub fn strokeCubicBez(mesh: *Mesh, buf: *std.ArrayList(Vec2), qbez_buf: *std.ArrayList(SubQuadBez), c_bez: CubicBez, half_width: f32, color: Color) void {
+    c_bez.flatten(0.5, buf, qbez_buf);
+    strokePath(mesh, buf.items, half_width, color);
+}
+
+fn strokePath(mesh: *Mesh, pts: []const Vec2, half_width: f32, color: Color) void {
     var vert: TexShaderVertex = undefined;
     vert.setUV(0, 0);
     vert.setColor(color);
 
-    var last_uvec = Vec2.initTo(buf.items[0], buf.items[1]).normalize();
+    var last_uvec = Vec2.initTo(pts[0], pts[1]).normalize();
     var i: u32 = 0;
-    while (i < buf.items.len - 1) : (i += 1) {
-        const uvec = Vec2.initTo(buf.items[i], buf.items[i+1]).normalize();
+    while (i < pts.len - 1) : (i += 1) {
+        const uvec = Vec2.initTo(pts[i], pts[i+1]).normalize();
         const right_off_nvec = computeOffsetNormal(last_uvec, uvec).mul(half_width);
-        const right_pt = buf.items[i].add(right_off_nvec);
-        const left_pt = buf.items[i].add(right_off_nvec.neg());
-        const pt = buf.items[i];
+        const right_pt = pts[i].add(right_off_nvec);
+        const left_pt = pts[i].add(right_off_nvec.neg());
+        const pt = pts[i];
 
         const start_idx = mesh.getNextIndexId();
         vert.setXY(left_pt.x, left_pt.y);
@@ -47,9 +58,9 @@ pub fn strokeQuadBez(mesh: *Mesh, buf: *std.ArrayList(Vec2), q_bez: QuadBez, hal
     {
         const uvec = last_uvec;
         const right_off_nvec = computeOffsetNormal(last_uvec, uvec).mul(half_width);
-        const right_pt = buf.items[i].add(right_off_nvec);
-        const left_pt = buf.items[i].add(right_off_nvec.neg());
-        const pt = buf.items[i];
+        const right_pt = pts[i].add(right_off_nvec);
+        const left_pt = pts[i].add(right_off_nvec.neg());
+        const pt = pts[i];
 
         vert.setXY(left_pt.x, left_pt.y);
         _ = mesh.addVertex(&vert);
@@ -58,6 +69,7 @@ pub fn strokeQuadBez(mesh: *Mesh, buf: *std.ArrayList(Vec2), q_bez: QuadBez, hal
         vert.setXY(right_pt.x, right_pt.y);
         _ = mesh.addVertex(&vert);
     }
+
 }
 
 /// Compute a normal vector at point P where --v1--> P --v2-->

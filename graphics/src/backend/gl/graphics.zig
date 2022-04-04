@@ -16,6 +16,8 @@ const t = stdx.testing;
 
 const graphics = @import("../../graphics.zig");
 const QuadBez = graphics.curve.QuadBez;
+const SubQuadBez = graphics.curve.SubQuadBez;
+const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const BlendMode = graphics.BlendMode;
 const Transform = graphics.transform.Transform;
@@ -92,6 +94,7 @@ pub const Graphics = struct {
     cur_blend_mode: BlendMode,
 
     vec2_helper_buf: std.ArrayList(Vec2),
+    qbez_helper_buf: std.ArrayList(SubQuadBez),
 
     // We can initialize without gl calls for use in tests.
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
@@ -122,6 +125,7 @@ pub const Graphics = struct {
             .cur_text_baseline = .Top,
             .cur_dpr = 1,
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
+            .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
         };
 
         const max_total_textures = gl.getMaxTotalTextures();
@@ -200,6 +204,7 @@ pub const Graphics = struct {
         self.images.deinit();
 
         self.vec2_helper_buf.deinit();
+        self.qbez_helper_buf.deinit();
     }
 
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
@@ -863,16 +868,6 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCubicBezierCurve(self: *Self, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
-        const b = lyon.initBuilder();
-        lyon.begin(b, &pt(x1, y1));
-        lyon.cubicBezierTo(b, &pt(c1x, c1y), &pt(c2x, c2y), &pt(x2, y2));
-        lyon.end(b, false);
-        var data = lyon.buildStroke(b, self.cur_line_width);
-        self.setCurrentTexture(self.white_tex);
-        self.pushLyonVertexData(&data, self.cur_stroke_color);
-    }
-
     pub fn drawQuadraticBezierCurve(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
         self.setCurrentTexture(self.white_tex);
         const q_bez = QuadBez{
@@ -890,6 +885,31 @@ pub const Graphics = struct {
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.quadraticBezierTo(b, &pt(cx, cy), &pt(x1, y1));
+        lyon.end(b, false);
+        var data = lyon.buildStroke(b, self.cur_line_width);
+        self.setCurrentTexture(self.white_tex);
+        self.pushLyonVertexData(&data, self.cur_stroke_color);
+    }
+
+    pub fn drawCubicBezierCurve(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+        self.setCurrentTexture(self.white_tex);
+        const c_bez = CubicBez{
+            .x0 = x0,
+            .y0 = y0,
+            .cx0 = cx0,
+            .cy0 = cy0,
+            .cx1 = cx1,
+            .cy1 = cy1,
+            .x1 = x1,
+            .y1 = y1,
+        };
+        stroke.strokeCubicBez(&self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.cur_line_width_half, self.cur_stroke_color);
+    }
+
+    pub fn drawCubicBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+        const b = lyon.initBuilder();
+        lyon.begin(b, &pt(x0, y0));
+        lyon.cubicBezierTo(b, &pt(cx0, cy0), &pt(cx1, cy1), &pt(x1, y1));
         lyon.end(b, false);
         var data = lyon.buildStroke(b, self.cur_line_width);
         self.setCurrentTexture(self.white_tex);
