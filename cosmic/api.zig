@@ -33,6 +33,7 @@ const ManagedStruct = runtime.ManagedStruct;
 const ManagedSlice = runtime.ManagedSlice;
 const Uint8Array = runtime.Uint8Array;
 const CsWindow = runtime.CsWindow;
+const CsRandom = runtime.Random;
 const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
@@ -1131,6 +1132,18 @@ pub const cs_core = struct {
         } else return "";
     }
 
+    /// Create a fast random number generator for a given seed. This should not be used for cryptographically secure random numbers.
+    /// @param seed
+    pub fn createRandom(rt: *RuntimeContext, seed: u64) v8.Object {
+        const rand = rt.alloc.create(CsRandom) catch unreachable;
+        rand.* = .{
+            .impl = std.rand.DefaultPrng.init(seed),
+            .iface = undefined,
+        };
+        rand.iface = rand.impl.random();
+        return runtime.createWeakHandle(rt, .Random, rand);
+    }
+
     /// Invoke a callback after a timeout in milliseconds.
     /// @param timeout
     /// @param callback
@@ -1337,6 +1350,14 @@ pub const cs_core = struct {
     pub fn gc(rt: *RuntimeContext) void {
         rt.isolate.lowMemoryNotification();
     }
+
+    pub const Random = struct {
+
+        /// Gets the next random number between 0 and 1.
+        pub fn next(self: ThisHandle(.Random)) f64 {
+            return self.ptr.iface.float(f64);
+        }
+    };
 
     pub const ResourceUsage = struct {
         // User cpu time seconds.

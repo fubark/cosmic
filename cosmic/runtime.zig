@@ -66,6 +66,7 @@ pub const RuntimeContext = struct {
     image_class: v8.Persistent(v8.FunctionTemplate),
     color_class: v8.Persistent(v8.FunctionTemplate),
     sound_class: v8.Persistent(v8.ObjectTemplate),
+    random_class: v8.Persistent(v8.ObjectTemplate),
     handle_class: v8.Persistent(v8.ObjectTemplate),
     rt_ctx_tmpl: v8.Persistent(v8.ObjectTemplate),
     default_obj_t: v8.Persistent(v8.ObjectTemplate),
@@ -191,6 +192,7 @@ pub const RuntimeContext = struct {
             .handle_class = undefined,
             .rt_ctx_tmpl = undefined,
             .sound_class = undefined,
+            .random_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
@@ -458,6 +460,7 @@ pub const RuntimeContext = struct {
         self.handle_class.deinit();
         self.rt_ctx_tmpl.deinit();
         self.sound_class.deinit();
+        self.random_class.deinit();
         self.default_obj_t.deinit();
         self.global.deinit();
 
@@ -1037,6 +1040,7 @@ pub const RuntimeContext = struct {
             F64SafeUint => return iso.initNumber(@intToFloat(f64, native_val)).handle,
             u64 => return iso.initBigIntU64(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
+            f64 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
             stdx.http.Response => {
                 const headers_buf = self.alloc.alloc(v8.Value, native_val.headers.len) catch unreachable;
@@ -2400,6 +2404,10 @@ const WeakHandle = struct {
                 ptr.deinit(rt.alloc);
                 rt.alloc.destroy(ptr);
             },
+            .Random => {
+                const ptr = stdx.mem.ptrCastAlign(*Random, self.ptr);
+                rt.alloc.destroy(ptr);
+            },
             .Null => {},
         }
     }
@@ -2408,6 +2416,7 @@ const WeakHandle = struct {
 pub const WeakHandleTag = enum {
     DrawCommandList,
     Sound,
+    Random,
     Null,
 };
 
@@ -2415,6 +2424,7 @@ pub fn WeakHandlePtr(comptime Tag: WeakHandleTag) type {
     return switch (Tag) {
         .DrawCommandList => *graphics.DrawCommandList,
         .Sound => *audio.Sound,
+        .Random => *Random,
         else => unreachable,
     };
 }
@@ -2659,6 +2669,7 @@ pub fn createWeakHandle(rt: *RuntimeContext, comptime Tag: WeakHandleTag, ptr: W
     const template = switch (Tag) {
         .DrawCommandList => rt.handle_class,
         .Sound => rt.sound_class,
+        .Random => rt.random_class,
         else => unreachable,
     };
     const new = template.inner.initInstance(ctx);
@@ -2940,3 +2951,8 @@ export fn __assert_fail(assertion: [*c]const u8, file: [*c]const u8, line: c_uin
     log.debug("libc assert failed: {s} {s}:{}, Assertion: {s}", .{function, file, line, assertion});
     unreachable;
 }
+
+pub const Random = struct {
+    impl: std.rand.DefaultPrng,
+    iface: std.rand.Random,
+};

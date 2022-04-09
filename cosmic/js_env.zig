@@ -453,6 +453,15 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstProp(cs_core, "dump", iso.initFunctionTemplateCallbackData(api.cs_core.dump_DEV, rt_data));
     }
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
+    {
+        // Random
+        const random_class = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
+        random_class.inner.setInternalFieldCount(2);
+        ctx.setConstFuncT(random_class.inner, "next", api.cs_core.Random.next);
+        ctx.setConstProp(cs_core, "Random", random_class.inner);
+        rt.random_class = random_class;
+    }
+    ctx.setConstFuncT(cs_core, "createRandom", api.cs_core.createRandom);
     ctx.setConstFuncT(cs_core, "setTimeout", api.cs_core.setTimeout);
     ctx.setConstFuncT(cs_core, "errCode", api.cs_core.errCode);
     ctx.setConstFuncT(cs_core, "errString", api.cs_core.errString);
