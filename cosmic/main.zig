@@ -188,6 +188,8 @@ pub fn runMain(alloc: std.mem.Allocator, orig_args: []const []const u8, env: *En
     } else {
         // Assume param is a js file.
         const src_path = cmd;
+
+        env.include_test_api = flags.include_test_api;
         try runAndExit(src_path, false, env);
     }
 }
