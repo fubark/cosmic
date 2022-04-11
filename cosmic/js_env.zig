@@ -452,6 +452,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts_DEV, rt_data));
         ctx.setConstProp(cs_core, "dump", iso.initFunctionTemplateCallbackData(api.cs_core.dump_DEV, rt_data));
     }
+    ctx.setConstFuncT(cs_core, "gets", api.cs_core.gets);
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
     {
         // Random

@@ -1116,6 +1116,17 @@ pub const cs_core = struct {
         rt.dev_ctx.print("\n");
     }
 
+    /// Reads input from the command line until a new line returned.
+    pub fn gets(rt: *RuntimeContext) ds.Box([]const u8) {
+        const str = std.io.getStdIn().reader().readUntilDelimiterAlloc(rt.alloc, '\n', 1e9) catch |err| {
+            if (err == error.EndOfStream) {
+            }
+            log.debug("unexpected: {}", .{err});
+            unreachable;
+        };
+        return ds.Box([]const u8).init(rt.alloc, str);
+    }
+
     /// Converts a buffer to a UTF-8 string.
     /// @param buffer
     pub fn bufferToUtf8(buf: v8.Uint8Array) ?[]const u8 {
