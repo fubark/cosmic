@@ -8,6 +8,7 @@ test {
     // Separate imports for packages since they are not included implicitly.
     const stdx = @import("../stdx/stdx.zig");
     t.refAllDecls(stdx);
+    t.refAllDecls(stdx.ds);
 
     const parser = @import("../parser/parser.zig");
     t.refAllDecls(parser);
