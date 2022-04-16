@@ -137,7 +137,6 @@ class Edge {
 }
 
 class SweepEdge {
-    // A sweep edge is created from a Start event.
     constructor(event) {
         this.edge = event.edge
         this.start_event_vert_uniq_idx = event.vert.out_idx
@@ -175,7 +174,6 @@ class SweepEdge {
     }
 }
 
-// Internal vertex used for the algorithm.
 class Vertex {
     constructor(x, y, idx) {
         this.x = x
@@ -187,10 +185,6 @@ class Vertex {
     }
 }
 
-// This contains a vertex that still needs to be triangulated later when it can.
-// It is linked together in a singly linked list queue and is designed to behave like the monotone triangulation queue.
-// Since the triangulator does everything in one pass for complex polygons, every monotone polygon span in the sweep edges
-// needs to keep track of their deferred vertices since the edges are short lived.
 class DeferredVertexNode {
     constructor(vert, next) {
         this.vert = vert
