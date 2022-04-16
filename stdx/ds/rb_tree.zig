@@ -1,5 +1,5 @@
 const std = @import("std");
-const stdx = @import("stdx");
+const stdx = @import("../stdx.zig");
 const t = stdx.testing;
 
 const log = stdx.log.scoped(.rb_tree);
@@ -65,6 +65,12 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
 
         pub fn deinit(self: *Self) void {
             self.buf.deinit();
+        }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.buf.clearRetainingCapacity();
+            self.root = NullId;
+            self.size = 0;
         }
 
         /// Re-sorts a tree with a compare function.
