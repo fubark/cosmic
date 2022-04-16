@@ -74,6 +74,10 @@ pub const Tessellator = struct {
         self.out_idxes.clearRetainingCapacity();
     }
 
+    pub fn triangulatePolygon(self: *Self, polygon: []const Vec2) void {
+        self.triangulatePolygons(&.{polygon});
+    }
+
     /// Perform a plane sweep to triangulate a complex polygon in one pass.
     /// The output returns ccw triangle vertices and indexes ready to be fed into the gpu.
     /// This uses Bentley-Ottmann to handle self intersecting edges.
@@ -81,11 +85,11 @@ pub const Tessellator = struct {
     /// This is ported from the JS implementation (tessellator.js) where it is easier to prototype.
     /// Since the number of verts and indexes is not known beforehand, the output is an ArrayList.
     /// TODO: See if inline callbacks would be faster to directly push data to the batcher buffer.
-    pub fn triangulatePolygon(self: *Self, polygon: []const Vec2) void {
+    pub fn triangulatePolygons(self: *Self, polygons: []const []const Vec2) void {
         const sweep_edges = &self.sweep_edges;
 
         // Construct the initial events by traversing the polygon.
-        self.initEvents(polygon);
+        self.initEvents(polygons);
 
         var cur_x: f32 = std.math.f32_min;
         var cur_y: f32 = std.math.f32_min;
@@ -297,7 +301,7 @@ pub const Tessellator = struct {
                 }
 
                 const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
-                    log("polygon: {any}", .{polygon});
+                    log("polygons: {any}", .{polygons});
                     stdx.panic("expected active edge");
                 };
                 const active = sweep_edges.getPtrNoCheck(active_id);
@@ -394,49 +398,67 @@ pub const Tessellator = struct {
     }
 
     /// Parses the polygon pts and adds the initial events into the priority queue.
-    fn initEvents(self: *Self, polygon: []const Vec2) void {
-        // Find the starting point that is not equal to the last vertex point.
-        // Since we are adding events to a priority queue, we need to make sure each add is final.
-        var start_idx: u16 = 0;
-        const last_pt = polygon[polygon.len-1];
-        while (start_idx < polygon.len) : (start_idx += 1) {
-            const pt = polygon[start_idx];
+    fn initEvents(self: *Self, polygons: []const []const Vec2) void {
+        for (polygons) |polygon| {
+            // Find the starting point that is not equal to the last vertex point.
+            // Since we are adding events to a priority queue, we need to make sure each add is final.
+            var start_idx: u16 = 0;
+            const last_pt = polygon[polygon.len-1];
+            while (start_idx < polygon.len) : (start_idx += 1) {
+                const pt = polygon[start_idx];
 
-            // Add internal vertex even though we are skipping events for it to keep the idxes consistent with the input.
-            const v = InternalVertex{
-                .pos = pt,
-                .idx = start_idx,
-            };
-            self.verts.append(v) catch unreachable;
+                // Add internal vertex even though we are skipping events for it to keep the idxes consistent with the input.
+                const v = InternalVertex{
+                    .pos = pt,
+                    .idx = start_idx,
+                };
+                self.verts.append(v) catch unreachable;
 
-            if (last_pt.x != pt.x or last_pt.y != pt.y) {
-                break;
-            }
-        }
-
-        var last_v = self.verts.items[start_idx];
-        var last_v_idx = start_idx;
-
-        var i: u16 = start_idx + 1;
-        while (i < polygon.len) : (i += 1) {
-            const v_idx = @intCast(u16, self.verts.items.len);
-            const v = InternalVertex{
-                .pos = polygon[i],
-                .idx = i,
-            };
-            self.verts.append(v) catch unreachable;
-
-            if (last_v.pos.x == v.pos.x and last_v.pos.y == v.pos.y) {
-                // Don't connect two vertices that are on top of each other.
-                // Allowing this would require an edge case to make sure there is a start AND end event since that is currently derived from the vertex points.
-                // Push the vertex in anyway so there is consistency with the input.
-                continue;
+                if (last_pt.x != pt.x or last_pt.y != pt.y) {
+                    break;
+                }
             }
 
-            const prev_edge = Edge.init(last_v_idx, last_v, v_idx, v);
+            var last_v = self.verts.items[start_idx];
+            var last_v_idx = start_idx;
+
+            var i: u16 = start_idx + 1;
+            while (i < polygon.len) : (i += 1) {
+                const v_idx = @intCast(u16, self.verts.items.len);
+                const v = InternalVertex{
+                    .pos = polygon[i],
+                    .idx = i,
+                };
+                self.verts.append(v) catch unreachable;
+
+                if (last_v.pos.x == v.pos.x and last_v.pos.y == v.pos.y) {
+                    // Don't connect two vertices that are on top of each other.
+                    // Allowing this would require an edge case to make sure there is a start AND end event since that is currently derived from the vertex points.
+                    // Push the vertex in anyway so there is consistency with the input.
+                    continue;
+                }
+
+                const prev_edge = Edge.init(last_v_idx, last_v, v_idx, v);
+                const event1_idx = @intCast(u32, self.events.items.len);
+                var event1 = Event.init(last_v_idx, prev_edge, self.verts.items);
+                var event2 = Event.init(v_idx, prev_edge, self.verts.items);
+                if (event1.tag == .Start) {
+                    event1.end_event_idx = event1_idx + 1;
+                } else {
+                    event2.end_event_idx = event1_idx;
+                }
+                self.events.append(event1) catch unreachable;
+                self.event_q.add(event1_idx) catch unreachable;
+                self.events.append(event2) catch unreachable;
+                self.event_q.add(event1_idx + 1) catch unreachable;
+                last_v = v;
+                last_v_idx = v_idx;
+            }
+            // Link last pt to start pt.
+            const edge = Edge.init(last_v_idx, last_v, start_idx, self.verts.items[start_idx]);
             const event1_idx = @intCast(u32, self.events.items.len);
-            var event1 = Event.init(last_v_idx, prev_edge, self.verts.items);
-            var event2 = Event.init(v_idx, prev_edge, self.verts.items);
+            var event1 = Event.init(last_v_idx, edge, self.verts.items);
+            var event2 = Event.init(start_idx, edge, self.verts.items);
             if (event1.tag == .Start) {
                 event1.end_event_idx = event1_idx + 1;
             } else {
@@ -446,23 +468,7 @@ pub const Tessellator = struct {
             self.event_q.add(event1_idx) catch unreachable;
             self.events.append(event2) catch unreachable;
             self.event_q.add(event1_idx + 1) catch unreachable;
-            last_v = v;
-            last_v_idx = v_idx;
         }
-        // Link last pt to start pt.
-        const edge = Edge.init(last_v_idx, last_v, start_idx, self.verts.items[start_idx]);
-        const event1_idx = @intCast(u32, self.events.items.len);
-        var event1 = Event.init(last_v_idx, edge, self.verts.items);
-        var event2 = Event.init(start_idx, edge, self.verts.items);
-        if (event1.tag == .Start) {
-            event1.end_event_idx = event1_idx + 1;
-        } else {
-            event2.end_event_idx = event1_idx;
-        }
-        self.events.append(event1) catch unreachable;
-        self.event_q.add(event1_idx) catch unreachable;
-        self.events.append(event2) catch unreachable;
-        self.event_q.add(event1_idx + 1) catch unreachable;
     }
 
     fn triangulateLeftStep(self: *Self, left: *SweepEdge, vert: InternalVertex) void {

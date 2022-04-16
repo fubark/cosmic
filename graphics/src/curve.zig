@@ -64,18 +64,19 @@ pub const QuadBez = struct {
             count = 1;
         }
         const n = @floatToInt(u32, math.ceil(count));
-        buf.ensureTotalCapacity(n) catch unreachable;
-        buf.items.len = n + 1;
+        const start = @intCast(u32, buf.items.len);
+        buf.ensureUnusedCapacity(n + 1) catch unreachable;
+        buf.items.len = start + n + 1;
         const r0 = approx_inv_myint(a0);
         const r1 = approx_inv_myint(a1);
-        buf.items[0] = vec2(self.x0, self.y0);
+        buf.items[start] = vec2(self.x0, self.y0);
         var i: u32 = 1;
         while (i < n) : (i += 1) {
             const r = approx_inv_myint(a0 + ((a1 - a0) * @intToFloat(f32, i)) / @intToFloat(f32, n));
             const t = (r - r0) / (r1 - r0);
-            buf.items[i] = self.eval(t);
+            buf.items[start + i] = self.eval(t);
         }
-        buf.items[n] = vec2(self.x1, self.y1);
+        buf.items[start + i] = vec2(self.x1, self.y1);
     }
 };
 
@@ -165,13 +166,14 @@ pub const CubicBez = struct {
         const n = math.ceil(count);
         const ni = @floatToInt(u32, n);
 
-        buf.ensureTotalCapacity(ni) catch unreachable;
-        buf.items.len = ni + 1;
+        const start = @intCast(u32, buf.items.len);
+        buf.ensureUnusedCapacity(ni + 1) catch unreachable;
+        buf.items.len = start + ni + 1;
 
-        buf.items[0] = vec2(self.x0, self.y0);
+        buf.items[start] = vec2(self.x0, self.y0);
         var val: f32 = 0; // sum of vals from [0..i]
         i = 0;
-        var j: u32 = 0;
+        var j: u32 = 1;
         while (j < ni) : (j += 1) {
             const target = sum * @intToFloat(f32, j) / n;
             while (val + qbez_buf.items[i].val < target) {
@@ -186,9 +188,9 @@ pub const CubicBez = struct {
             const a = a0 + (a1 - a0) * (target - val) / qbez_buf.items[i].val;
             const r = approx_inv_myint(a);
             const t = (r - r0) / (r1 - r0);
-            buf.items[j] = qbez_buf.items[i].bez.eval(t);
+            buf.items[start + j] = qbez_buf.items[i].bez.eval(t);
         }
-        buf.items[j] = vec2(self.x1, self.y1);
+        buf.items[start + j] = vec2(self.x1, self.y1);
     }
 
     fn subsegment(self: Self, t0: f32, t1: f32) Self {

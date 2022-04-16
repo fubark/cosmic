@@ -4,6 +4,7 @@ const ds = stdx.ds;
 const Mat4 = stdx.math.Mat4;
 const gl = @import("gl");
 const lyon = @import("lyon");
+const Vec2 = stdx.math.Vec2;
 
 const graphics = @import("../../graphics.zig");
 const ImageId = graphics.ImageId;
@@ -17,8 +18,11 @@ const Mesh = _mesh.Mesh;
 const log = stdx.log.scoped(.batcher);
 const Shader = @import("shader.zig").Shader;
 
-// User must check for buffer space before pushing data into batcher. This allows the caller
-// to determine when to flush and run custom logic.
+/// The batcher is responsible for:
+/// 1. Pushing various vertex/index data formats into a mesh buffer. 
+/// 2. Determining when a flush to the gpu is required. eg. Change to texture or shader or reaching a buffer limit.
+/// User must check for buffer space before pushing data into batcher. This allows the caller
+/// to determine when to flush and run custom logic.
 pub const Batcher = struct {
     const Self = @This();
 
@@ -76,6 +80,21 @@ pub const Batcher = struct {
         return self.mesh.ensureUnusedBuffer(vert_inc, index_inc);
     }
 
+    /// Push a batch of vertices and indexes where index 0 refers to the first vertex.
+    pub fn pushVertIdxBatch(self: *Self, verts: []const Vec2, idxes: []const u16, color: Color) void {
+        var gpu_vert: TexShaderVertex = undefined;
+        gpu_vert.setColor(color);
+        const vert_offset_id = self.mesh.getNextIndexId();
+        for (verts) |v| {
+            gpu_vert.setXY(v.x, v.y);
+            gpu_vert.setUV(0, 0);
+            _ = self.mesh.addVertex(&gpu_vert);
+        }
+        for (idxes) |i| {
+            self.mesh.addIndex(vert_offset_id + i);
+        }
+    }
+
     // Caller must check if there is enough buffer space prior.
     pub fn pushLyonVertexData(self: *Self, data: *lyon.VertexData, color: Color) void {
         var vert: TexShaderVertex = undefined;
@@ -85,10 +104,8 @@ pub const Batcher = struct {
             vert.setXY(pos.x, pos.y);
             vert.setUV(0, 0);
             _ = self.mesh.addVertex(&vert);
-            // log.debug("vert {}", .{tvert})
         }
         for (data.index_buf[0..data.index_len]) |id| {
-            // lyon will start their index at 0 so we add our offset.
             self.mesh.addIndex(vert_offset_id + id);
         }
     }

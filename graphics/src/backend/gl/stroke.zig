@@ -69,7 +69,6 @@ fn strokePath(mesh: *Mesh, pts: []const Vec2, half_width: f32, color: Color) voi
         vert.setXY(right_pt.x, right_pt.y);
         _ = mesh.addVertex(&vert);
     }
-
 }
 
 /// Compute a normal vector at point P where --v1--> P --v2-->

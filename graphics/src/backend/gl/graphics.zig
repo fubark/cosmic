@@ -43,6 +43,8 @@ pub const MeasureTextIterator = text_renderer.MeasureTextIterator;
 const RenderTextContext = text_renderer.RenderTextContext;
 const svg = graphics.svg;
 const stroke = @import("stroke.zig");
+const tessellator = @import("../../tessellator.zig");
+const Tessellator = tessellator.Tessellator;
 
 const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
 const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
@@ -94,7 +96,9 @@ pub const Graphics = struct {
     cur_blend_mode: BlendMode,
 
     vec2_helper_buf: std.ArrayList(Vec2),
+    vec2_slice_helper_buf: std.ArrayList([]const Vec2),
     qbez_helper_buf: std.ArrayList(SubQuadBez),
+    tessellator: Tessellator,
 
     // We can initialize without gl calls for use in tests.
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
@@ -125,8 +129,11 @@ pub const Graphics = struct {
             .cur_text_baseline = .Top,
             .cur_dpr = 1,
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
+            .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
+            .tessellator = undefined,
         };
+        self.tessellator.init(alloc);
 
         const max_total_textures = gl.getMaxTotalTextures();
         const max_fragment_textures = gl.getMaxFragmentTextures();
@@ -204,7 +211,9 @@ pub const Graphics = struct {
         self.images.deinit();
 
         self.vec2_helper_buf.deinit();
+        self.vec2_slice_helper_buf.deinit();
         self.qbez_helper_buf.deinit();
+        self.tessellator.deinit();
     }
 
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
@@ -1141,6 +1150,16 @@ pub const Graphics = struct {
     }
 
     pub fn fillPolygon(self: *Self, pts: []const Vec2) void {
+        self.tessellator.clearBuffers();
+        self.tessellator.triangulatePolygon(pts);
+        self.setCurrentTexture(self.white_tex);
+        const out_verts = self.tessellator.out_verts.items;
+        const out_idxes = self.tessellator.out_idxes.items;
+        self.ensureUnusedBatchCapacity(out_verts.len, out_idxes.len);
+        self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.cur_fill_color);
+    }
+
+    pub fn fillPolygonLyon(self: *Self, pts: []const Vec2) void {
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
         var data = lyon.buildFill(b);
