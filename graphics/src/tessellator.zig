@@ -67,7 +67,7 @@ pub const Tessellator = struct {
     pub fn clearBuffers(self: *Self) void {
         self.verts.clearRetainingCapacity();
         self.events.clearRetainingCapacity();
-        self.event_q.clearRetainingCapacity();
+        self.event_q.len = 0;
         self.sweep_edges.clearRetainingCapacity();
         self.deferred_verts.clearRetainingCapacity();
         self.out_verts.clearRetainingCapacity();
@@ -135,6 +135,7 @@ pub const Tessellator = struct {
                 }
 
                 if (new.interior_is_left) {
+                    log("initially interior to the left", .{});
                     // Initially appears to be a right edge but if it connects to the previous left, it becomes a left edge.
                     var left = sweep_edges.getPtrNoCheck(mb_left_id.?);
                     const e_vert_out_idx = self.verts.items[e.vert_idx].out_idx;
@@ -205,7 +206,7 @@ pub const Tessellator = struct {
                         }
                     }
                 } else {
-                    log("initial winding is interior to the right", .{});
+                    log("initially interior to the right", .{});
                     // Initially appears to be a left edge but if it connects to a previous right, it becomes a right edge.
                     if (mb_left_id != null) {
                         const vert = self.verts.items[e.vert_idx];
@@ -296,6 +297,7 @@ pub const Tessellator = struct {
                 }
 
                 const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
+                    log("polygon: {any}", .{polygon});
                     stdx.panic("expected active edge");
                 };
                 const active = sweep_edges.getPtrNoCheck(active_id);
@@ -713,7 +715,6 @@ pub const Tessellator = struct {
 
 };
 
-
 fn edgeToString(edge: Edge) []const u8 {
     const S = struct {
         var buf: [100]u8 = undefined;
@@ -770,15 +771,8 @@ fn compareSweepEdge(_: SweepEdge, b: SweepEdge, evt: Event) std.math.Order {
         const x_intersect = b.edge.x_slope * (evt.vert_y - b.edge.start_pos.y) + b.edge.start_pos.x;
         if (std.math.absFloat(evt.vert_x - x_intersect) < std.math.epsilon(f32)) {
             // Since there is a chance of having floating point error, check with an epsilon.
-            // After x equality is met, check x_slope.
-            if (evt.edge.x_slope < b.edge.x_slope) {
-                return .lt;
-            } else if (evt.edge.x_slope > b.edge.x_slope) {
-                return .gt;
-            } else {
-                log("{} {} {} {} - {} {} {}", .{evt.vert_idx, evt.to_vert_idx, evt.tag, evt.edge.x_slope, b.vert_idx, b.to_vert_idx, b.edge.x_slope});
-                unreachable;
-            }
+            // Always return .gt so the left sweep edge can be reliably checked for a joining edge.
+            return .gt;
         } else {
             if (evt.vert_x < x_intersect) {
                 return .lt;
@@ -1172,6 +1166,7 @@ fn testSimple(polygon: []const f32, exp_verts: []const f32, exp_idxes: []const u
         exp_verts_buf.append(vec2(exp_verts[i], exp_verts[i+1])) catch unreachable;
     }
     try t.eqSlice(Vec2, tessellator.out_verts.items, exp_verts_buf.items);
+    // log("{any}", .{tessellator.out_idxes.items});
     try t.eqSlice(u16, tessellator.out_idxes.items, exp_idxes);
 }
 
@@ -1489,7 +1484,6 @@ test "Overlapping point." {
 
 // Different windings on split polygons.
 test "Self intersecting polygon." {
-    t.setLogLevel(.debug);
     try testSimple(&.{
         0, 200,
         0, 100,
@@ -1509,7 +1503,6 @@ test "Self intersecting polygon." {
 
 // Test evenodd rule.
 test "Overlapping triangles." {
-    t.setLogLevel(.debug);
     try testSimple(&.{
         0, 100,
         200, 0,
@@ -1570,3 +1563,25 @@ test "bad-diagonals.json" {
 }
 
 // TODO: dude.json
+
+// Case by case examples.
+
+test "Rectangle with bottom-left wedge." {
+    try testSimple(&.{
+        56, 22,
+        111, 22,
+        111, 44,
+        37, 44,
+        56, 32,
+    }, &.{
+        56, 22,
+        111, 22,
+        56, 32,
+        37, 44,
+        111, 44,
+    }, &.{
+        2, 1, 0,
+        3, 1, 2,
+        4, 1, 3,
+    });
+}

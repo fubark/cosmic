@@ -617,6 +617,10 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             self.nodes.deinit();
         }
 
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.nodes.clearRetainingCapacity();
+        }
+
         pub fn getNode(self: Self, idx: Id) ?Node {
             return self.nodes.get(idx);
         }
