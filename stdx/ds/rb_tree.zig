@@ -4,10 +4,6 @@ const t = stdx.testing;
 
 const log = stdx.log.scoped(.rb_tree);
 
-const Id = u32;
-const OptId = Id;
-const NullId = stdx.ds.CompactNull(Id);
-
 const Color = enum(u1) {
     Black,
     Red,
@@ -17,13 +13,17 @@ const Color = enum(u1) {
 /// https://github.com/ziglang/std-lib-orphanage/blob/master/std/rb.zig
 /// Deletion logic was redone from https://www.youtube.com/watch?v=CTvfzU_uNKE as guidance.
 /// Visualize: https://www.cs.usfca.edu/~galles/visualization/RedBlack.html
-pub fn RbTree(comptime Value: type) type {
+pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, comptime Compare: fn (Value, Value, Context) std.math.Order) type {
     return struct {
-        const Self = @This();
-
         root: OptId,
         buf: stdx.ds.CompactUnorderedList(Id, Node),
-        cmpFn: fn (Value, Value) std.math.Order,
+        /// The current number of nodes. Does not count detached nodes.
+        size: usize,
+        ctx: Context,
+
+        const Self = @This();
+        const OptId = Id;
+        const NullId = stdx.ds.CompactNull(Id);
 
         const Node = struct {
             left: OptId,
@@ -54,11 +54,12 @@ pub fn RbTree(comptime Value: type) type {
             }
         };
 
-        pub fn init(alloc: std.mem.Allocator, cmp: fn (Value, Value) std.math.Order) Self {
+        pub fn init(alloc: std.mem.Allocator, ctx: Context) Self {
             return .{
                 .root = NullId,
                 .buf = stdx.ds.CompactUnorderedList(Id, Node).init(alloc),
-                .cmpFn = cmp,
+                .size = 0,
+                .ctx = ctx,
             };
         }
 
@@ -66,14 +67,13 @@ pub fn RbTree(comptime Value: type) type {
             self.buf.deinit();
         }
 
-        /// Re-sorts a tree with a new compare function
-        pub fn sort(self: *Self, cmp: fn (Value, Value) std.math.Order) !void {
-            self.cmpFn = cmp;
+        /// Re-sorts a tree with a compare function.
+        pub fn sort(self: *Self, ctx: anytype, cmp: fn (Value, Value, @TypeOf(ctx)) std.math.Order) !void {
             self.root = NullId;
             var iter = self.buf.iterator();
             while (iter.next()) |node| {
                 self.buf.remove(iter.idx-1);
-                _ = try self.insert(node.val);
+                _ = try self.insertCustom(node.val, ctx, cmp);
             }
         }
 
@@ -82,20 +82,20 @@ pub fn RbTree(comptime Value: type) type {
                 return null;
             }
             var id = self.root;
-            var node = self.buf.getAssumeExists(id);
+            var node = self.buf.getNoCheck(id);
             while (node.left != NullId) {
                 id = node.left;
-                node = self.buf.getAssumeExists(id);
+                node = self.buf.getNoCheck(id);
             }
             return id;
         }
 
         pub fn firstFrom(self: Self, node_id: Id) Id {
             var id = node_id;
-            var node = self.buf.getAssumeExists(id);
+            var node = self.buf.getNoCheck(id);
             while (node.left != NullId) {
                 id = node.left;
-                node = self.buf.getAssumeExists(id);
+                node = self.buf.getNoCheck(id);
             }
             return id;
         }
@@ -105,16 +105,16 @@ pub fn RbTree(comptime Value: type) type {
                 return null;
             }
             var id = self.root;
-            var node = self.buf.getAssumeExists(id);
+            var node = self.buf.getNoCheck(id);
             while (node.right != NullId) {
                 id = node.right;
-                node = self.buf.getAssumeExists(id);
+                node = self.buf.getNoCheck(id);
             }
             return id;
         }
 
         pub fn allocValuesInOrder(self: Self, alloc: std.mem.Allocator) []const Value {
-            var vals = std.ArrayList(Id).initCapacity(alloc, self.buf.size()) catch unreachable;
+            var vals = std.ArrayList(Id).initCapacity(alloc, self.size) catch unreachable;
             var cur = self.first();
             while (cur) |id| {
                 vals.appendAssumeCapacity(self.get(id).?);
@@ -124,7 +124,7 @@ pub fn RbTree(comptime Value: type) type {
         }
 
         pub fn allocNodeIdsInOrder(self: Self, alloc: std.mem.Allocator) []const Id {
-            var node_ids = std.ArrayList(Id).initCapacity(alloc, self.buf.size()) catch unreachable;
+            var node_ids = std.ArrayList(Id).initCapacity(alloc, self.size) catch unreachable;
             var cur = self.first();
             while (cur) |id| {
                 node_ids.appendAssumeCapacity(id);
@@ -144,6 +144,20 @@ pub fn RbTree(comptime Value: type) type {
             } else return null;
         }
 
+        pub fn getNoCheck(self: Self, id: Id) Value {
+            return self.buf.getNoCheck(id).val;
+        }
+
+        pub fn getPtr(self: Self, id: Id) ?*Value {
+            if (self.buf.getPtr(id)) |node| {
+                return &node.val;
+            } else return null;
+        }
+
+        pub fn getPtrNoCheck(self: Self, id: Id) *Value {
+            return &self.buf.getPtrNoCheck(id).val;
+        }
+
         fn getSibling(self: Self, parent: *Node, child_id: Id) OptId {
             _ = self;
             if (parent.left == child_id) {
@@ -158,7 +172,7 @@ pub fn RbTree(comptime Value: type) type {
             if (node_id == self.root) {
                 self.root = r_id;
             } else {
-                const parent = self.buf.getPtrAssumeExists(node.parent);
+                const parent = self.buf.getPtrNoCheck(node.parent);
                 parent.setChild(r_id, parent.left == node_id);
             }
             if (mb_rnode) |rnode| {
@@ -166,30 +180,45 @@ pub fn RbTree(comptime Value: type) type {
             }
         }
 
-        /// If node is not part of tree, error is returned.
+        pub fn removeDetached(self: *Self, node_id: Id) void {
+            self.buf.remove(node_id);
+        }
+
         pub fn remove(self: *Self, node_id: Id) anyerror!void {
+            try self.detach(node_id);
+            self.buf.remove(node_id);
+        }
+
+        /// If node is not part of tree, error is returned.
+        /// Detaches the node from the tree, rebalances tree, but does not remove it. The caller is responsible for calling removeDetached later on.
+        pub fn detach(self: *Self, node_id: Id) anyerror!void {
+            try self.detachInternal(node_id);
+            self.size -= 1;
+        }
+
+        fn detachInternal(self: *Self, node_id: Id) anyerror!void {
             var node = self.buf.getPtr(node_id) orelse return error.DoesNotExist;
 
-            var to_fix_nid: u32 = undefined;
+            var to_fix_nid: OptId = undefined;
 
             if (node.left == NullId) {
-                const mb_rnode: ?*Node = if (node.right != NullId) self.buf.getPtrAssumeExists(node.right) else null;
+                const mb_rnode: ?*Node = if (node.right != NullId) self.buf.getPtrNoCheck(node.right) else null;
                 self.transplant(node_id, node, node.right, mb_rnode);
                 to_fix_nid = node.right;
             } else if (node.right == NullId) {
-                const mb_rnode: ?*Node = if (node.left != NullId) self.buf.getPtrAssumeExists(node.left) else null;
+                const mb_rnode: ?*Node = if (node.left != NullId) self.buf.getPtrNoCheck(node.left) else null;
                 self.transplant(node_id, node, node.left, mb_rnode);
                 to_fix_nid = node.left;
             } else {
                 const r_id = self.firstFrom(node.right);
-                const r_node = self.buf.getPtrAssumeExists(r_id);
+                const r_node = self.buf.getPtrNoCheck(r_id);
 
                 // Normally this would be a value copy but since ids are tied to their nodes, the replacement node is relinked in place of the target node.
                 // Transplant only relinks parent of replacement node.
                 const r_parent = r_node.parent;
                 self.transplant(node_id, node, r_id, r_node);
                 if (r_parent != node_id) {
-                    const rp = self.buf.getPtrAssumeExists(r_parent);
+                    const rp = self.buf.getPtrNoCheck(r_parent);
                     rp.setChild(node_id, rp.left == r_id);
                     node.parent = r_parent;
                 } else {
@@ -202,11 +231,16 @@ pub fn RbTree(comptime Value: type) type {
                 node.color = tmp_color;
 
                 // Copy r_node value to node; a recursive call to delete node will be called.
+                var orig_val = node.val;
                 node.val = r_node.val;
+                defer {
+                    // Revert back to node's original val in case the user wanted to only detach the node (and not remove it).
+                    node.val = orig_val;
+                }
 
                 // Relink r_node left and node left.
                 // Note: r_node shouldn't have a left child since firstFrom would have returned it the child instead.
-                self.buf.getPtrAssumeExists(node.left).parent = r_id;
+                self.buf.getPtrNoCheck(node.left).parent = r_id;
                 r_node.left = node.left;
                 node.left = NullId;
 
@@ -214,58 +248,55 @@ pub fn RbTree(comptime Value: type) type {
                 // Note: tmp_right can't be null since node should have two children.
                 const tmp_right = node.right;
                 if (r_node.right != NullId) {
-                    self.buf.getPtrAssumeExists(r_node.right).parent = node_id;
+                    self.buf.getPtrNoCheck(r_node.right).parent = node_id;
                 }
                 node.right = r_node.right;
                 if (tmp_right != r_id) {
-                    self.buf.getPtrAssumeExists(tmp_right).parent = r_id;
+                    self.buf.getPtrNoCheck(tmp_right).parent = r_id;
                     r_node.right = tmp_right;
                 }
 
                 // Reduced to zero or one children case. Recurse once.
-                try self.remove(node_id);
+                try self.detachInternal(node_id);
                 return;
             }
 
-            // If red was removed, just remove the node and finish.
+            // If red was removed, it is done.
             if (node.color == .Red) {
-                self.buf.remove(node_id);
+                return;
             } else {
                 // If black was removed and replacement is red. Paint replacement black and we are done.
                 if (to_fix_nid == NullId) {
                     // Double black. Perform fix.
-                    self.removeFixUp(to_fix_nid, node.parent);
+                    self.detachFixUp(to_fix_nid, node.parent);
                 } else {
-                    const r_node = self.buf.getPtrAssumeExists(to_fix_nid);
+                    const r_node = self.buf.getPtrNoCheck(to_fix_nid);
                     if (r_node.color == .Red) {
                         // Can mark black and be done since a black was removed.
                         r_node.color = .Black;
                     } else {
                         // Double black. Perform fix.
-                        self.removeFixUp(to_fix_nid, r_node.parent);
+                        self.detachFixUp(to_fix_nid, r_node.parent);
                     }
                 }
-                self.buf.remove(node_id);
             }
         }
 
         /// Handle double black cases.
         /// Assumes node is a double black. Since the node could be null, the current parent is also required.
-        pub fn removeFixUp(self: *Self, node_id: OptId, parent_id: OptId) void {
-            _ = node_id;
-
+        fn detachFixUp(self: *Self, node_id: OptId, parent_id: OptId) void {
             // Case 1: Root case.
             if (parent_id == NullId) {
                 return;
             }
 
-            const parent = self.buf.getPtrAssumeExists(parent_id);
+            const parent = self.buf.getPtrNoCheck(parent_id);
             const s_id = self.getSibling(parent, node_id);
             const is_right_sibling = parent.left == node_id;
             // Sibling must exist since node is a double black.
-            const sibling = self.buf.getPtrAssumeExists(s_id);
-            const s_left: ?*Node = if (sibling.left != NullId) self.buf.getPtrAssumeExists(sibling.left) else null;
-            const s_right: ?*Node = if (sibling.right != NullId) self.buf.getPtrAssumeExists(sibling.right) else null;
+            const sibling = self.buf.getPtrNoCheck(s_id);
+            const s_left: ?*Node = if (sibling.left != NullId) self.buf.getPtrNoCheck(sibling.left) else null;
+            const s_right: ?*Node = if (sibling.right != NullId) self.buf.getPtrNoCheck(sibling.right) else null;
             const s_left_black = s_left == null or s_left.?.color == .Black;
             const s_right_black = s_right == null or s_right.?.color == .Black;
 
@@ -280,7 +311,7 @@ pub fn RbTree(comptime Value: type) type {
                     }
                     parent.color = .Red;
                     sibling.color = .Black;
-                    self.removeFixUp(node_id, parent_id);
+                    self.detachFixUp(node_id, parent_id);
                     return;
                 }
             }
@@ -290,7 +321,7 @@ pub fn RbTree(comptime Value: type) type {
                 if (s_left_black and s_right_black) {
                     sibling.color = .Red;
                     // Recurse at parent.
-                    self.removeFixUp(parent_id, parent.parent);
+                    self.detachFixUp(parent_id, parent.parent);
                     return;
                 }
             }
@@ -311,7 +342,7 @@ pub fn RbTree(comptime Value: type) type {
                     sibling.color = .Red;
                     s_left.?.color = .Black;
                     // Call again to check for case 6.
-                    self.removeFixUp(node_id, parent_id);
+                    self.detachFixUp(node_id, parent_id);
                     return;
                 }
                 // Case 5: parent is black, left sibiling is black, sibling has red right child and black left child.
@@ -320,7 +351,7 @@ pub fn RbTree(comptime Value: type) type {
                     sibling.color = .Red;
                     s_right.?.color = .Black;
                     // Call again to check for case 6.
-                    self.removeFixUp(node_id, parent_id);
+                    self.detachFixUp(node_id, parent_id);
                     return;
                 }
             }
@@ -345,13 +376,17 @@ pub fn RbTree(comptime Value: type) type {
             }
         }
 
-        /// Duplicate keys are not allowed. 
         pub fn insert(self: *Self, val: Value) !Id {
+            return try self.insertCustom(val, self.ctx, Compare);
+        }
+
+        /// Duplicate keys are not allowed. 
+        pub fn insertCustom(self: *Self, val: Value, ctx: anytype, cmp: fn (Value, Value, @TypeOf(ctx)) std.math.Order) !Id {
             var maybe_id: ?Id = undefined;
             var maybe_parent: ?Id = undefined;
             var is_left: bool = undefined;
 
-            maybe_id = self.doLookup(val, &maybe_parent, &is_left);
+            maybe_id = self.doLookup(val, &maybe_parent, &is_left, ctx, cmp);
             if (maybe_id) |_| {
                 return error.DuplicateKey;
             }
@@ -363,29 +398,30 @@ pub fn RbTree(comptime Value: type) type {
                 .parent = maybe_parent orelse NullId,
                 .val = val,
             });
+            self.size += 1;
 
             if (maybe_parent) |parent| {
-                self.buf.getPtrAssumeExists(parent).setChild(new_id, is_left);
+                self.buf.getPtrNoCheck(parent).setChild(new_id, is_left);
             } else {
                 self.root = new_id;
             }
 
             var node_id = new_id;
             while (true) {
-                var node = self.buf.getPtrAssumeExists(node_id);
+                var node = self.buf.getPtrNoCheck(node_id);
                 const parent_id = node.getParentOpt() orelse break;
-                var parent = self.buf.getPtrAssumeExists(parent_id);
+                var parent = self.buf.getPtrNoCheck(parent_id);
                 if (parent.color == .Black) {
                     // Current is red, parent is black. Nothing left to do.
                     break;
                 }
                 // If parent is red, there must be a grand parent that is black.
                 var grandpa_id = parent.getParentOpt() orelse unreachable;
-                var grandpa = self.buf.getPtrAssumeExists(grandpa_id);
+                var grandpa = self.buf.getPtrNoCheck(grandpa_id);
 
                 if (parent_id == grandpa.left) {
                     var opt_psibling = grandpa.right;
-                    const mb_psibling: ?*Node = if (opt_psibling != NullId) self.buf.getPtrAssumeExists(opt_psibling) else null;
+                    const mb_psibling: ?*Node = if (opt_psibling != NullId) self.buf.getPtrNoCheck(opt_psibling) else null;
                     if (mb_psibling == null or mb_psibling.?.color == .Black) {
                         // Case #5, parent is red, parent sibling is black, node is inner grandchild. Rotate left first.
                         if (node_id == parent.right) {
@@ -404,7 +440,7 @@ pub fn RbTree(comptime Value: type) type {
                     }
                 } else {
                     var opt_psibling = grandpa.left;
-                    const mb_psibling: ?*Node = if (opt_psibling != NullId) self.buf.getPtrAssumeExists(opt_psibling) else null;
+                    const mb_psibling: ?*Node = if (opt_psibling != NullId) self.buf.getPtrNoCheck(opt_psibling) else null;
                     if (mb_psibling == null or mb_psibling.?.color == .Black) {
                         // Case #5, parent is red, parent sibling is black, node is inner grandchild. Rotate right first.
                         if (node_id == parent.left) {
@@ -424,7 +460,7 @@ pub fn RbTree(comptime Value: type) type {
                 }
             }
             // This was an insert, there is at least one node.
-            self.buf.getPtrAssumeExists(self.root).color = .Black;
+            self.buf.getPtrNoCheck(self.root).color = .Black;
             return new_id;
         }
 
@@ -435,28 +471,37 @@ pub fn RbTree(comptime Value: type) type {
         pub fn lookup(self: Self, val: Value) ?Id {
             var parent: ?Id = undefined;
             var is_left: bool = undefined;
-            return self.doLookup(val, &parent, &is_left);
+            return self.doLookup(val, &parent, &is_left, self.ctx, Compare);
         }
 
-        fn doLookup(self: Self, val: Value, pparent: *?Id, is_left: *bool) ?Id {
+        /// Lookup with a different compare function.
+        pub fn lookupCustom(self: Self, val: Value, ctx: anytype, cmp: fn (Value, Value, @TypeOf(ctx)) std.math.Order) ?Id {
+            var parent: ?Id = undefined;
+            var is_left: bool = undefined;
+            return self.doLookup(val, &parent, &is_left, ctx, cmp);
+        }
+
+        /// If there is a match, the Id is returned.
+        /// Otherwise, the insert slot is provided by pparent and is_left.
+        fn doLookup(self: Self, val: Value, pparent: *?Id, is_left: *bool, ctx: anytype, cmp: fn (Value, Value, @TypeOf(ctx)) std.math.Order) ?Id {
             var opt_id = self.root;
 
             pparent.* = null;
             is_left.* = false;
 
             while (opt_id != NullId) {
-                const node = self.buf.getAssumeExists(opt_id);
-                const res = self.cmpFn(node.val, val);
+                const node = self.buf.getNoCheck(opt_id);
+                const res = cmp(val, node.val, ctx);
                 if (res == .eq) {
                     return opt_id;
                 }
                 pparent.* = opt_id;
                 switch (res) {
-                    .gt => {
+                    .lt => {
                         is_left.* = true;
                         opt_id = node.left;
                     },
-                    .lt => {
+                    .gt => {
                         is_left.* = false;
                         opt_id = node.right;
                     },
@@ -478,9 +523,9 @@ pub fn RbTree(comptime Value: type) type {
             if (node.right == NullId) {
                 unreachable;
             }
-            var right = self.buf.getPtrAssumeExists(node.right);
+            var right = self.buf.getPtrNoCheck(node.right);
             if (!node.isRoot()) {
-                var parent = self.buf.getPtrAssumeExists(node.parent);
+                var parent = self.buf.getPtrNoCheck(node.parent);
                 if (parent.left == node_id) {
                     parent.left = node.right;
                 } else {
@@ -494,7 +539,7 @@ pub fn RbTree(comptime Value: type) type {
             node.parent = node.right;
             node.right = right.left;
             if (node.right != NullId) {
-                self.buf.getPtrAssumeExists(node.right).parent = node_id;
+                self.buf.getPtrNoCheck(node.right).parent = node_id;
             }
             right.left = node_id;
         }
@@ -504,9 +549,9 @@ pub fn RbTree(comptime Value: type) type {
             if (node.left == NullId) {
                 unreachable;
             }
-            var left = self.buf.getPtrAssumeExists(node.left);
+            var left = self.buf.getPtrNoCheck(node.left);
             if (!node.isRoot()) {
-                var parent = self.buf.getPtrAssumeExists(node.parent);
+                var parent = self.buf.getPtrNoCheck(node.parent);
                 if (parent.left == node_id) {
                     parent.left = node.left;
                 } else {
@@ -520,26 +565,52 @@ pub fn RbTree(comptime Value: type) type {
             node.parent = node.left;
             node.left = left.right;
             if (node.left != NullId) {
-                self.buf.getPtrAssumeExists(node.left).parent = node_id;
+                self.buf.getPtrNoCheck(node.left).parent = node_id;
             }
             left.right = node_id;
         }
 
-        pub fn getNext(self: Self, id: Id) ?Id {
-            var node = self.buf.getAssumeExists(id);
-            if (node.right != NullId) {
-                var cur = node.right;
-                node = self.buf.getAssumeExists(cur);
-                while (node.left != NullId) {
-                    cur = node.left;
-                    node = self.buf.getAssumeExists(cur);
+        pub fn getPrev(self: Self, id: Id) ?Id {
+            var node = self.buf.getNoCheck(id);
+            if (node.left != NullId) {
+                var cur = node.left;
+                node = self.buf.getNoCheck(cur);
+                while (node.right != NullId) {
+                    cur = node.right;
+                    node = self.buf.getNoCheck(cur);
                 }
                 return cur;
             }
             var cur = id;
             while (true) {
                 if (node.parent != NullId) {
-                    var p = self.buf.getAssumeExists(node.parent);
+                    var p = self.buf.getNoCheck(node.parent);
+                    if (cur != p.left) {
+                        return node.parent;
+                    }
+                    cur = node.parent;
+                    node = p;
+                } else {
+                    return null;
+                }
+            }
+        }
+
+        pub fn getNext(self: Self, id: Id) ?Id {
+            var node = self.buf.getNoCheck(id);
+            if (node.right != NullId) {
+                var cur = node.right;
+                node = self.buf.getNoCheck(cur);
+                while (node.left != NullId) {
+                    cur = node.left;
+                    node = self.buf.getNoCheck(cur);
+                }
+                return cur;
+            }
+            var cur = id;
+            while (true) {
+                if (node.parent != NullId) {
+                    var p = self.buf.getNoCheck(node.parent);
                     if (cur != p.right) {
                         return node.parent;
                     }
@@ -553,7 +624,7 @@ pub fn RbTree(comptime Value: type) type {
     };
 }
 
-fn testCompare(left: u32, right: u32) std.math.Order {
+fn testCompare(left: u32, right: u32, _: void) std.math.Order {
     if (left < right) {
         return .lt;
     } else if (left == right) {
@@ -564,12 +635,29 @@ fn testCompare(left: u32, right: u32) std.math.Order {
     unreachable;
 }
 
-fn testCompareReverse(left: u32, right: u32) std.math.Order {
-    return testCompare(right, left);
+fn testCompareReverse(left: u32, right: u32, _: void) std.math.Order {
+    return testCompare(right, left, {});
+}
+
+test "getNext, getPrev" {
+    var tree = initTestTree();
+    defer tree.deinit();
+
+    const a = try tree.insert(10);
+    const b = try tree.insert(5);
+    const c = try tree.insert(15);
+
+    try t.eq(tree.getNext(b).?, a);
+    try t.eq(tree.getNext(a).?, c);
+    try t.eq(tree.getNext(c), null);
+
+    try t.eq(tree.getPrev(b), null);
+    try t.eq(tree.getPrev(a).?, b);
+    try t.eq(tree.getPrev(c).?, a);
 }
 
 test "Insert case #1: current node parent is black" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const root = try tree.insert(10);
@@ -582,7 +670,7 @@ test "Insert case #1: current node parent is black" {
 }
 
 test "Insert case #2/#3/#4: both parent and parent sibling are red" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const root = try tree.insert(10);
@@ -601,7 +689,7 @@ test "Insert case #2/#3/#4: both parent and parent sibling are red" {
 }
 
 test "Insert case #5: parent is red but parent sibling is black, node is inner grandchild" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const root = try tree.insert(100);
@@ -613,7 +701,7 @@ test "Insert case #5: parent is red but parent sibling is black, node is inner g
     _ = try tree.insert(70);
     _ = try tree.insert(60);
 
-    try t.eq(tree.getNode(node).?.parent, NullId);
+    try t.eq(tree.getNode(node).?.parent, TestNullId);
     try t.eq(tree.getNode(node).?.color, .Black);
     try t.eq(tree.getNode(node).?.right, root);
     try t.eq(tree.getNode(node).?.left, parent);
@@ -626,7 +714,7 @@ test "Insert case #5: parent is red but parent sibling is black, node is inner g
 }
 
 test "Insert case #6: parent is red but parent sibling is black, node is outer grandchild" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const root = try tree.insert(100);
@@ -638,7 +726,7 @@ test "Insert case #6: parent is red but parent sibling is black, node is outer g
     _ = try tree.insert(30);
     _ = try tree.insert(15);
 
-    try t.eq(tree.getNode(parent).?.parent, NullId);
+    try t.eq(tree.getNode(parent).?.parent, TestNullId);
     try t.eq(tree.getNode(parent).?.color, .Black);
     try t.eq(tree.getNode(parent).?.right, root);
     try t.eq(tree.getNode(parent).?.left, node);
@@ -651,7 +739,7 @@ test "Insert case #6: parent is red but parent sibling is black, node is outer g
 }
 
 test "Insert in order." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     _ = try tree.insert(1);
@@ -667,11 +755,11 @@ test "Insert in order." {
 
     const vals = tree.allocValuesInOrder(t.alloc);
     defer t.alloc.free(vals);
-    try t.eqSlice(Id, vals, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+    try t.eqSlice(TestId, vals, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
 }
 
 test "Insert in reverse order." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     _ = try tree.insert(10);
@@ -687,11 +775,11 @@ test "Insert in reverse order." {
 
     const vals = tree.allocValuesInOrder(t.alloc);
     defer t.alloc.free(vals);
-    try t.eqSlice(Id, vals, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+    try t.eqSlice(TestId, vals, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
 }
 
 test "inserting and looking up" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
     const orig: u32 = 1000;
     const node_id = try tree.insert(orig);
@@ -710,7 +798,7 @@ test "multiple inserts, followed by calling first and last" {
     //     // TODO https://github.com/ziglang/zig/issues/3288
     //     return error.SkipZigTest;
     // }
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     _ = try tree.insert(0);
@@ -720,14 +808,14 @@ test "multiple inserts, followed by calling first and last" {
     try t.eq(tree.get(tree.first().?).?, 0);
     try t.eq(tree.get(tree.last().?).?, 3);
     try t.eq(tree.lookup(3), third_id);
-    tree.sort(testCompareReverse) catch unreachable;
+    tree.sort({}, testCompareReverse) catch unreachable;
     try t.eq(tree.get(tree.first().?).?, 3);
     try t.eq(tree.get(tree.last().?).?, 0);
-    try t.eq(tree.lookup(3), third_id);
+    try t.eq(tree.lookupCustom(3, {}, testCompareReverse), third_id);
 }
 
 test "Remove root with no children." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -736,11 +824,11 @@ test "Remove root with no children." {
     try tree.remove(a);
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{});
+    try t.eqSlice(TestId, node_ids, &.{});
 }
 
 test "Remove root with left red child." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -754,11 +842,11 @@ test "Remove root with left red child." {
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b });
+    try t.eqSlice(TestId, node_ids, &.{ b });
 }
 
 test "Remove root with right red child." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -772,11 +860,11 @@ test "Remove root with right red child." {
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b });
+    try t.eqSlice(TestId, node_ids, &.{ b });
 }
 
 test "Remove root with two red children." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -796,11 +884,11 @@ test "Remove root with two red children." {
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b, c });
+    try t.eqSlice(TestId, node_ids, &.{ b, c });
 }
 
 test "Remove red non-root." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -813,11 +901,11 @@ test "Remove red non-root." {
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ a });
+    try t.eqSlice(TestId, node_ids, &.{ a });
 }
 
 test "Remove black non-root with left red child." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(3);
@@ -835,11 +923,11 @@ test "Remove black non-root with left red child." {
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ d, a, c });
+    try t.eqSlice(TestId, node_ids, &.{ d, a, c });
 }
 
 test "Remove black non-root with right red child." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(3);
@@ -857,11 +945,11 @@ test "Remove black non-root with right red child." {
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b, a, d });
+    try t.eqSlice(TestId, node_ids, &.{ b, a, d });
 }
 
 test "Remove non-root with double black case: Parent is red, right sibling is black, and sibling's children are black." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(15);
@@ -874,21 +962,21 @@ test "Remove non-root with double black case: Parent is red, right sibling is bl
     try t.eq(tree.getNode(c).?.color, .Red);
     try t.eq(tree.getNode(d).?.color, .Black);
     try t.eq(tree.getNode(e).?.color, .Black);
-    try t.eq(tree.getNode(e).?.left, NullId);
-    try t.eq(tree.getNode(e).?.right, NullId);
+    try t.eq(tree.getNode(e).?.left, TestNullId);
+    try t.eq(tree.getNode(e).?.right, TestNullId);
 
     try tree.remove(d);
     try t.eq(tree.getNode(c).?.color, .Black);
-    try t.eq(tree.getNode(c).?.left, NullId);
+    try t.eq(tree.getNode(c).?.left, TestNullId);
     try t.eq(tree.getNode(e).?.color, .Red);
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b, a, c, e });
+    try t.eqSlice(TestId, node_ids, &.{ b, a, c, e });
 }
 
 test "Remove non-root with double black case: Parent is red, left sibling is black, and sibling's children are black." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(15);
@@ -901,21 +989,21 @@ test "Remove non-root with double black case: Parent is red, left sibling is bla
     try t.eq(tree.getNode(b).?.color, .Red);
     try t.eq(tree.getNode(d).?.color, .Black);
     try t.eq(tree.getNode(e).?.color, .Black);
-    try t.eq(tree.getNode(e).?.left, NullId);
-    try t.eq(tree.getNode(e).?.right, NullId);
+    try t.eq(tree.getNode(e).?.left, TestNullId);
+    try t.eq(tree.getNode(e).?.right, TestNullId);
 
     try tree.remove(d);
     try t.eq(tree.getNode(b).?.color, .Black);
-    try t.eq(tree.getNode(b).?.right, NullId);
+    try t.eq(tree.getNode(b).?.right, TestNullId);
     try t.eq(tree.getNode(e).?.color, .Red);
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ e, b, a, c });
+    try t.eqSlice(TestId, node_ids, &.{ e, b, a, c });
 }
 
 test "Remove non-root with double black case: Right sibling is black, and sibling's right child is red." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -935,11 +1023,11 @@ test "Remove non-root with double black case: Right sibling is black, and siblin
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ a, c, d });
+    try t.eqSlice(TestId, node_ids, &.{ a, c, d });
 }
 
 test "Remove non-root with double black case: Left sibling is black, and sibling's left child is red." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -959,11 +1047,11 @@ test "Remove non-root with double black case: Left sibling is black, and sibling
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ d, b, a });
+    try t.eqSlice(TestId, node_ids, &.{ d, b, a });
 }
 
 test "Remove non-root with double black case: Parent is black, right sibling is red, sibling's children are black" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -989,11 +1077,11 @@ test "Remove non-root with double black case: Parent is black, right sibling is 
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ a, c, d, e, f });
+    try t.eqSlice(TestId, node_ids, &.{ a, c, d, e, f });
 }
 
 test "Remove non-root with double black case: Parent is black, left sibling is red, sibling's children are black" {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -1019,11 +1107,11 @@ test "Remove non-root with double black case: Parent is black, left sibling is r
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ f, e, d, b, a });
+    try t.eqSlice(TestId, node_ids, &.{ f, e, d, b, a });
 }
 
 test "Remove non-root with double black case: Parent is black, right sibling is black, sibling's left child is red, sibling's right child is black." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -1042,11 +1130,11 @@ test "Remove non-root with double black case: Parent is black, right sibling is 
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ a, d, c });
+    try t.eqSlice(TestId, node_ids, &.{ a, d, c });
 }
 
 test "Remove non-root with double black case: Parent is black, left sibling is black, sibling's right child is red, sibling's left child is black." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(10);
@@ -1065,11 +1153,11 @@ test "Remove non-root with double black case: Parent is black, left sibling is b
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b, d, a });
+    try t.eqSlice(TestId, node_ids, &.{ b, d, a });
 }
 
 test "Remove non-root with double black case: Parent is black, right sibling is black, and sibling's children are black." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(15);
@@ -1088,11 +1176,11 @@ test "Remove non-root with double black case: Parent is black, right sibling is 
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ a, c });
+    try t.eqSlice(TestId, node_ids, &.{ a, c });
 }
 
 test "Remove non-root with double black case: Parent is black, left sibling is black, and sibling's children are black." {
-    var tree = RbTree(u32).init(t.alloc, testCompare);
+    var tree = initTestTree();
     defer tree.deinit();
 
     const a = try tree.insert(15);
@@ -1111,5 +1199,12 @@ test "Remove non-root with double black case: Parent is black, left sibling is b
 
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
-    try t.eqSlice(Id, node_ids, &.{ b, a });
+    try t.eqSlice(TestId, node_ids, &.{ b, a });
 }
+
+fn initTestTree() RbTree(TestId, u32, void, testCompare) {
+    return RbTree(TestId, u32, void, testCompare).init(t.alloc, {});
+}
+
+const TestId = u32;
+const TestNullId = stdx.ds.CompactNull(TestId);

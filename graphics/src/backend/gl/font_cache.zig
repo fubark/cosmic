@@ -211,7 +211,7 @@ pub const FontCache = struct {
     }
 
     pub fn getFontGroup(self: *const Self, id: FontGroupId) *FontGroup {
-        return self.font_groups.getPtrAssumeExists(id);
+        return self.font_groups.getPtrNoCheck(id);
     }
 
     fn getFontGroupId(self: *Self, font_seq: []const FontId) ?FontGroupId {

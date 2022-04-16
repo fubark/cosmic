@@ -192,7 +192,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
 
         fn getToken(self: *const Self, id: TokenId) Token {
             if (Config.is_incremental) {
-                return self.tokens.tokens.getAssumeExists(id);
+                return self.tokens.tokens.getNoCheck(id);
             } else {
                 return self.tokens.items[id];
             }
@@ -210,7 +210,7 @@ pub fn Tree(comptime Config: ParseConfig) type {
             }
 
             pub fn getTokenStringByLoc(self: *const Self, doc: *document.Document, loc: document.LineLocation, id: TokenId) []const u8 {
-                const token = self.tokens.tokens.getAssumeExists(id);
+                const token = self.tokens.tokens.getNoCheck(id);
                 return doc.getSubstringFromLineLoc(loc, token.loc.start, token.loc.end);
             }
 

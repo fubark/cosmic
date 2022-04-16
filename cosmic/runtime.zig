@@ -778,7 +778,7 @@ pub const RuntimeContext = struct {
     /// Destroys the resource owned by the handle and marks it as deinited.
     /// If the resource can't be deinited immediately, the final deinitResourceHandle call will be deferred.
     pub fn startDeinitResourceHandle(self: *Self, id: ResourceId) void {
-        const handle = self.resources.getPtrAssumeExists(id);
+        const handle = self.resources.getPtrNoCheck(id);
         if (handle.deinited) {
             log.debug("Already deinited", .{});
             unreachable;
@@ -801,7 +801,7 @@ pub const RuntimeContext = struct {
                         // TODO: Revisit this. For now just pick the last available window.
                         const list_id = self.getResourceListId(handle.tag);
                         if (self.resources.findInList(list_id, {}, findFirstActiveResource)) |res_id| {
-                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getAssumeExists(res_id).ptr);
+                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getNoCheck(res_id).ptr);
                         }
                     }
                 } else {
@@ -834,7 +834,7 @@ pub const RuntimeContext = struct {
 
     // Internal func. Called when ready to actually free the handle
     fn deinitResourceHandleInternal(self: *Self, id: ResourceId) void {
-        const handle = self.resources.getAssumeExists(id);
+        const handle = self.resources.getNoCheck(id);
         // Fire callback.
         if (handle.on_deinit_cb) |cb| {
             cb.call(id);
@@ -882,7 +882,7 @@ pub const RuntimeContext = struct {
 
     pub fn getResourcePtr(self: *Self, comptime Tag: ResourceTag, res_id: ResourceId) ?*Resource(Tag) {
         if (self.resources.has(res_id)) {
-            const item = self.resources.getAssumeExists(res_id);
+            const item = self.resources.getNoCheck(res_id);
             if (item.tag == Tag) {
                 return stdx.mem.ptrCastAlign(*Resource(Tag), item.ptr);
             }
@@ -915,7 +915,7 @@ pub const RuntimeContext = struct {
             .rt = self,
             .res_id = res_id,
         };
-        self.resources.getPtrAssumeExists(res_id).external_handle = external;
+        self.resources.getPtrNoCheck(res_id).external_handle = external;
 
         return .{
             .ptr = ptr,
@@ -940,7 +940,7 @@ pub const RuntimeContext = struct {
             .rt = self,
             .res_id = res_id,
         };
-        self.resources.getPtrAssumeExists(res_id).external_handle = external;
+        self.resources.getPtrNoCheck(res_id).external_handle = external;
 
         self.num_windows += 1;
         return .{
@@ -959,7 +959,7 @@ pub const RuntimeContext = struct {
             log.err("Expected resource id: {}", .{res_id});
             unreachable;
         }
-        const res = self.resources.getPtrAssumeExists(res_id);
+        const res = self.resources.getPtrNoCheck(res_id);
         if (!res.deinited) {
             self.startDeinitResourceHandle(res_id);
         }
@@ -996,7 +996,7 @@ pub const RuntimeContext = struct {
     }
 
     fn findFirstActiveResource(_: void, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-        return !buf.getAssumeExists(item_id).deinited;
+        return !buf.getNoCheck(item_id).deinited;
     }
 
     fn findPrevResource(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
@@ -1009,7 +1009,7 @@ pub const RuntimeContext = struct {
         }
         const S = struct {
             fn pred(_sdl_win_id: u32, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-                const res = buf.getAssumeExists(item_id);
+                const res = buf.getNoCheck(item_id);
                 // Skip dummy head.
                 if (res.tag == .Dummy) {
                     return false;
@@ -1283,7 +1283,7 @@ pub const RuntimeContext = struct {
                         if (@hasDecl(T, "Handle")) {
                             const Ptr = stdx.meta.FieldType(T, .ptr);
                             const handle_id = @intCast(u32, @ptrToInt(val.castTo(v8.Object).getInternalField(0).castTo(v8.External).get()));
-                            const handle = self.weak_handles.getAssumeExists(handle_id);
+                            const handle = self.weak_handles.getNoCheck(handle_id);
                             if (handle.tag != .Null) {
                                 return T{
                                     .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
@@ -1670,7 +1670,7 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
     var cur_res = rt.resources.getListHead(rt.window_resource_list).?;
     cur_res = rt.resources.getNextIdNoCheck(cur_res);
     while (cur_res != NullId) {
-        const res = rt.resources.getAssumeExists(cur_res);
+        const res = rt.resources.getNoCheck(cur_res);
         if (res.deinited) {
             cur_res = rt.resources.getNextIdNoCheck(cur_res);
             continue;
@@ -2518,13 +2518,13 @@ pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate
 
 pub fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
     const js_val_ptr = rt.getJsValuePtr(native_val);
-    const resolver = rt.promises.getAssumeExists(promise_id);
+    const resolver = rt.promises.getNoCheck(promise_id);
     _ = resolver.inner.reject(rt.getContext(), .{ .handle = js_val_ptr });
 }
 
 pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
     const js_val_ptr = rt.getJsValuePtr(native_val);
-    const resolver = rt.promises.getAssumeExists(promise_id);
+    const resolver = rt.promises.getNoCheck(promise_id);
     _ = resolver.inner.resolve(rt.getContext(), .{ .handle = js_val_ptr });
 }
 

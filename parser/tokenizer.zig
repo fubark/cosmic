@@ -709,7 +709,7 @@ fn LineSourceState(comptime Incremental: bool) type {
                     const line_id = chunk[self.stop_line_loc.chunk_line_idx];
                     if (self.buf.lines.items[line_id]) |list_id| {
                         self.stop_token_id = self.buf.tokens.getListHead(list_id).?;
-                        self.stop_ch_idx = self.buf.tokens.getAssumeExists(self.stop_token_id).loc.start;
+                        self.stop_ch_idx = self.buf.tokens.getNoCheck(self.stop_token_id).loc.start;
                         return;
                     }
                     if (self.stop_line_loc.leaf_id == self.last_leaf_id and self.stop_line_loc.chunk_line_idx == self.last_chunk_size) {

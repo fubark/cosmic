@@ -12,6 +12,15 @@ const log = stdx.log.scoped(.compact);
 ///       Although that also means delete ops would need to be O(logn).
 pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
     return struct {
+        id_gen: CompactIdGenerator(Id),
+
+        // TODO: Rename to buf.
+        data: std.ArrayList(T),
+
+        // Keep track of whether an item exists at id in order to perform iteration.
+        // TODO: Rename to exists.
+        data_exists: ds.BitArrayList,
+
         const Self = @This();
         const Iterator = struct {
             idx: Id,
@@ -60,15 +69,6 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
                 }
             }
         };
-
-        id_gen: CompactIdGenerator(Id),
-
-        // TODO: Rename to buf.
-        data: std.ArrayList(T),
-
-        // Keep track of whether an item exists at id in order to perform iteration.
-        // TODO: Rename to exists.
-        data_exists: ds.BitArrayList,
 
         pub fn init(alloc: std.mem.Allocator) @This() {
             const new = @This(){
@@ -124,7 +124,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             } else return null;
         }
 
-        pub fn getAssumeExists(self: Self, id: Id) T {
+        pub fn getNoCheck(self: Self, id: Id) T {
             return self.data.items[id];
         }
 
@@ -134,7 +134,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             } else return null;
         }
 
-        pub fn getPtrAssumeExists(self: Self, id: Id) *T {
+        pub fn getPtrNoCheck(self: Self, id: Id) *T {
             return &self.data.items[id];
         }
 
@@ -205,20 +205,20 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
         pub fn insertAfter(self: *Self, id: Id, data: T) !Id {
             if (self.nodes.has(id)) {
                 const new = try self.nodes.add(.{
-                    .next = self.nodes.getAssumeExists(id).next,
+                    .next = self.nodes.getNoCheck(id).next,
                     .data = data,
                 });
-                self.nodes.getPtrAssumeExists(id).next = new;
+                self.nodes.getPtrNoCheck(id).next = new;
                 return new;
             } else return error.NoElement;
         }
 
         pub fn removeNext(self: *Self, id: Id) !bool {
             if (self.nodes.has(id)) {
-                const at = self.nodes.getPtrAssumeExists(id);
+                const at = self.nodes.getPtrNoCheck(id);
                 if (at.next != Null) {
                     const next = at.next;
-                    at.next = self.nodes.getAssumeExists(next).next;
+                    at.next = self.nodes.getNoCheck(next).next;
                     self.nodes.remove(next);
                     return true;
                 } else return false;
@@ -230,17 +230,17 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
         }
 
         pub fn getNodeAssumeExists(self: *const Self, id: Id) Node {
-            return self.nodes.getAssumeExists(id);
+            return self.nodes.getNoCheck(id);
         }
 
         pub fn get(self: *const Self, id: Id) ?T {
             if (self.nodes.has(id)) {
-                return self.nodes.getAssumeExists(id).data;
+                return self.nodes.getNoCheck(id).data;
             } else return null;
         }
 
-        pub fn getAssumeExists(self: *const Self, id: Id) T {
-            return self.nodes.getAssumeExists(id).data;
+        pub fn getNoCheck(self: *const Self, id: Id) T {
+            return self.nodes.getNoCheck(id).data;
         }
 
         pub fn getAt(self: *const Self, idx: usize) Id {
@@ -258,7 +258,7 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
 
         pub fn getNext(self: Self, id: Id) ?Id {
             if (self.nodes.has(id)) {
-                return self.nodes.getAssumeExists(id).next;
+                return self.nodes.getNoCheck(id).next;
             } else return null;
         }
 
@@ -311,17 +311,17 @@ test "CompactSinglyLinkedList" {
     }
 }
 
-/// Index should be an unsigned integer type.
-/// Max value of Index is used to indicate null. (An optional would increase the struct size.)
-pub fn CompactSinglyLinkedListNode(comptime Index: type, comptime T: type) type {
+/// Id should be an unsigned integer type.
+/// Max value of Id is used to indicate null. (An optional would increase the struct size.)
+pub fn CompactSinglyLinkedListNode(comptime Id: type, comptime T: type) type {
     return struct {
-        next: Index,
+        next: Id,
         data: T,
     };
 }
 
-pub fn CompactNull(comptime Index: type) Index {
-    return comptime std.math.maxInt(Index);
+pub fn CompactNull(comptime Id: type) Id {
+    return comptime std.math.maxInt(Id);
 }
 
 /// Stores multiple linked lists together in memory.
@@ -363,10 +363,10 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
         pub fn insertAfter(self: *Self, id: Index, data: T) !Index {
             if (self.nodes.has(id)) {
                 const new = try self.nodes.add(.{
-                    .next = self.nodes.getAssumeExists(id).next,
+                    .next = self.nodes.getNoCheck(id).next,
                     .data = data,
                 });
-                self.nodes.getPtrAssumeExists(id).next = new;
+                self.nodes.getPtrNoCheck(id).next = new;
                 return new;
             } else return error.NoElement;
         }
@@ -420,10 +420,10 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
 
         pub fn removeNext(self: *Self, id: Index) !bool {
             if (self.nodes.has(id)) {
-                const at = self.nodes.getPtrAssumeExists(id);
+                const at = self.nodes.getPtrNoCheck(id);
                 if (at.next != Null) {
                     const next = at.next;
-                    at.next = self.nodes.getAssumeExists(next).next;
+                    at.next = self.nodes.getNoCheck(next).next;
                     self.nodes.remove(next);
                     return true;
                 } else return false;
@@ -440,7 +440,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
 
         pub fn getListHead(self: *const Self, id: ListId) ?Index {
             if (self.lists.has(id)) {
-                return self.lists.getAssumeExists(id).head;
+                return self.lists.getNoCheck(id).head;
             } else return null;
         }
 
@@ -464,7 +464,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
         }
 
         pub fn getNodeAssumeExists(self: Self, id: Index) Node {
-            return self.nodes.getAssumeExists(id);
+            return self.nodes.getNoCheck(id);
         }
 
         pub fn getNodePtr(self: Self, id: Index) ?*Node {
@@ -472,17 +472,17 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
         }
 
         pub fn getNodePtrAssumeExists(self: Self, id: Index) *Node {
-            return self.nodes.getPtrAssumeExists(id);
+            return self.nodes.getPtrNoCheck(id);
         }
 
         pub fn get(self: Self, id: Index) ?T {
             if (self.nodes.has(id)) {
-                return self.nodes.getAssumeExists(id).data;
+                return self.nodes.getNoCheck(id).data;
             } else return null;
         }
 
-        pub fn getAssumeExists(self: Self, id: Index) T {
-            return self.nodes.getAssumeExists(id).data;
+        pub fn getNoCheck(self: Self, id: Index) T {
+            return self.nodes.getNoCheck(id).data;
         }
 
         pub fn getIdAt(self: Self, list_id: ListId, idx: usize) Index {
@@ -496,12 +496,12 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
 
         pub fn getPtr(self: Self, id: Index) ?*T {
             if (self.nodes.has(id)) {
-                return &self.nodes.getPtrAssumeExists(id).data;
+                return &self.nodes.getPtrNoCheck(id).data;
             } else return null;
         }
 
-        pub fn getPtrAssumeExists(self: Self, id: Index) *T {
-            return &self.nodes.getPtrAssumeExists(id).data;
+        pub fn getPtrNoCheck(self: Self, id: Index) *T {
+            return &self.nodes.getPtrNoCheck(id).data;
         }
 
         pub fn getNextId(self: Self, id: Index) ?Index {
@@ -511,7 +511,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
         }
 
         pub fn getNextIdNoCheck(self: Self, id: Index) Index {
-            return self.nodes.getAssumeExists(id).next;
+            return self.nodes.getNoCheck(id).next;
         }
 
         pub fn getNextNode(self: Self, id: Index) ?Node {
@@ -598,17 +598,18 @@ test "CompactIdGenerator" {
 
 /// Holds linked lists in a compact buffer. Does not keep track of list heads.
 /// This might replace CompactManySinglyLinkedList.
-pub fn CompactSinglyLinkedListBuffer(comptime Index: type, comptime T: type) type {
-    const Null = comptime CompactNull(Index);
-    const Node = CompactSinglyLinkedListNode(Index, T);
+pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
+    const Null = comptime CompactNull(Id);
+    const Node = CompactSinglyLinkedListNode(Id, T);
+    const OptId = Id;
     return struct {
         const Self = @This();
 
-        nodes: CompactUnorderedList(Index, Node),
+        nodes: CompactUnorderedList(Id, Node),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
-                .nodes = CompactUnorderedList(Index, Node).init(alloc),
+                .nodes = CompactUnorderedList(Id, Node).init(alloc),
             };
         }
 
@@ -616,44 +617,74 @@ pub fn CompactSinglyLinkedListBuffer(comptime Index: type, comptime T: type) typ
             self.nodes.deinit();
         }
 
-        pub fn getNode(self: Self, idx: Index) ?Node {
+        pub fn getNode(self: Self, idx: Id) ?Node {
             return self.nodes.get(idx);
         }
 
-        pub fn getNodeAssumeExists(self: Self, idx: Index) Node {
-            return self.nodes.getAssumeExists(idx);
+        pub fn getNodeNoCheck(self: Self, idx: Id) Node {
+            return self.nodes.getNoCheck(idx);
         }
 
-        pub fn get(self: Self, id: Index) ?T {
+        pub fn getNodePtrNoCheck(self: Self, idx: Id) *Node {
+            return self.nodes.getPtrNoCheck(idx);
+        }
+
+        pub fn get(self: Self, id: Id) ?T {
             if (self.nodes.has(id)) {
-                return self.nodes.getAssumeExists(id).data;
+                return self.nodes.getNoCheck(id).data;
             } else return null;
         }
 
-        pub fn getAssumeExists(self: Self, idx: Index) T {
-            return self.nodes.getAssumeExists(idx).data;
+        pub fn getNoCheck(self: Self, idx: Id) T {
+            return self.nodes.getNoCheck(idx).data;
+        }
+
+        pub fn getNextNoCheck(self: Self, id: Id) OptId {
+            return self.nodes.getNoCheck(id).next;
+        }
+
+        pub fn getNext(self: Self, id: Id) ?OptId {
+            if (self.nodes.has(id)) {
+                return self.nodes.getNoCheck(id).next;
+            } else return null;
         }
 
         /// Adds a new head node.
-        pub fn add(self: *Self, data: T) !Index {
+        pub fn add(self: *Self, data: T) !Id {
             return try self.nodes.add(.{
                 .next = Null,
                 .data = data,
             });
         }
 
-        pub fn insertAfter(self: *Self, id: Index, data: T) !Index {
-            if (self.nodes.has(id)) {
-                const new = try self.nodes.add(.{
-                    .next = self.nodes.getAssumeExists(id).next,
+        pub fn insertBeforeHead(self: *Self, head_id: Id, data: T) !Id {
+            if (self.nodes.has(head_id)) {
+                return try self.nodes.add(.{
+                    .next = head_id,
                     .data = data,
                 });
-                self.nodes.getPtrAssumeExists(id).next = new;
+            } else return error.NoElement;
+        }
+
+        pub fn insertBeforeHeadNoCheck(self: *Self, head_id: Id, data: T) !Id {
+            return try self.nodes.add(.{
+                .next = head_id,
+                .data = data,
+            });
+        }
+
+        pub fn insertAfter(self: *Self, id: Id, data: T) !Id {
+            if (self.nodes.has(id)) {
+                const new = try self.nodes.add(.{
+                    .next = self.nodes.getNoCheck(id).next,
+                    .data = data,
+                });
+                self.nodes.getPtrNoCheck(id).next = new;
                 return new;
             } else return error.NoElement;
         }
 
-        pub fn removeAssumeNoPrev(self: *Self, id: Index) !void {
+        pub fn removeAssumeNoPrev(self: *Self, id: Id) !void {
             if (self.nodes.has(id)) {
                 self.nodes.remove(id);
             } else return error.NoElement;
@@ -667,13 +698,13 @@ test "CompactSinglyLinkedListBuffer" {
 
     const head = try buf.add(1);
     try t.eq(buf.get(head).?, 1);
-    try t.eq(buf.getAssumeExists(head), 1);
+    try t.eq(buf.getNoCheck(head), 1);
     try t.eq(buf.getNode(head).?.data, 1);
-    try t.eq(buf.getNodeAssumeExists(head).data, 1);
+    try t.eq(buf.getNodeNoCheck(head).data, 1);
 
     const second = try buf.insertAfter(head, 2);
-    try t.eq(buf.getNodeAssumeExists(head).next, second);
-    try t.eq(buf.getAssumeExists(second), 2);
+    try t.eq(buf.getNodeNoCheck(head).next, second);
+    try t.eq(buf.getNoCheck(second), 2);
 
     try buf.removeAssumeNoPrev(head);
     try t.eq(buf.get(head), null);

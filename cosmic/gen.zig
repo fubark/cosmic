@@ -130,7 +130,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                     .ThisResource => {
                         const Ptr = stdx.meta.FieldType(Field.field_type, .res);
                         const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
-                        const handle = rt.resources.getAssumeExists(res_id);
+                        const handle = rt.resources.getNoCheck(res_id);
                         if (!handle.deinited) {
                             @field(native_args, Field.name) = Field.field_type{
                                 .res = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
@@ -146,7 +146,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         const Ptr = comptime stdx.meta.FieldType(Field.field_type, .ptr);
                         const this = info.getThis();
                         const handle_id = @intCast(u32, @ptrToInt(this.getInternalField(0).castTo(v8.External).get()));
-                        const handle = rt.weak_handles.getAssumeExists(handle_id);
+                        const handle = rt.weak_handles.getNoCheck(handle_id);
                         if (handle.tag != .Null) {
                             @field(native_args, Field.name) = Field.field_type{
                                 .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),

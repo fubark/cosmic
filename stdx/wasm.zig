@@ -151,7 +151,7 @@ export fn wasmEnsureInputCapacity(size: u32) *const u8 {
 
 // Called from js to resolve a promise.
 export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
-    const p = promises.getPtrAssumeExists(id);
+    const p = promises.getPtrNoCheck(id);
 
     if (p.dynamic_size) {
         // We have to allocate heap memory for variable sized values.
@@ -173,8 +173,8 @@ export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
     if (p.child_deps_list_id) |list_id| {
         var cur = promise_child_deps.getListHead(list_id).?;
         while (cur != NullId) {
-            const child_id = promise_child_deps.getAssumeExists(cur);
-            const child_p = promises.getPtrAssumeExists(child_id);
+            const child_id = promise_child_deps.getNoCheck(cur);
+            const child_p = promises.getPtrNoCheck(child_id);
             child_p.cur_resolved_deps += 1;
             if (child_p.cur_resolved_deps == child_p.num_deps) {
                 child_p.resolved = true;
@@ -189,7 +189,7 @@ export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
 }
 
 pub fn resolvePromise(id: PromiseId, value: anytype) void {
-    const p = promises.getPtrAssumeExists(id);
+    const p = promises.getPtrNoCheck(id);
 
     if (p.then_copy_to) |dst| {
         stdx.mem.ptrCastAlign(*@TypeOf(value), dst).* = value;
@@ -200,8 +200,8 @@ pub fn resolvePromise(id: PromiseId, value: anytype) void {
     if (p.child_deps_list_id) |list_id| {
         var cur = promise_child_deps.getListHead(list_id).?;
         while (cur != NullId) {
-            const child_id = promise_child_deps.getAssumeExists(cur);
-            const child_p = promises.getPtrAssumeExists(child_id);
+            const child_id = promise_child_deps.getNoCheck(cur);
+            const child_p = promises.getPtrNoCheck(child_id);
             child_p.cur_resolved_deps += 1;
             if (child_p.cur_resolved_deps == child_p.num_deps) {
                 child_p.resolved = true;

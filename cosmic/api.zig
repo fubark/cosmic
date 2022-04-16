@@ -950,7 +950,7 @@ pub const cs_http = struct {
             };
             const cb = stdx.Callback(*anyopaque, ResourceId).init(ctx, S.onDeinit);
 
-            rt.resources.getPtrAssumeExists(this.res_id).on_deinit_cb = cb;
+            rt.resources.getPtrNoCheck(this.res_id).on_deinit_cb = cb;
             rt.startDeinitResourceHandle(this.res_id);
             return promise;
         }
