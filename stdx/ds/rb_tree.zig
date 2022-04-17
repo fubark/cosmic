@@ -120,7 +120,7 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
         }
 
         pub fn allocValuesInOrder(self: Self, alloc: std.mem.Allocator) []const Value {
-            var vals = std.ArrayList(Id).initCapacity(alloc, self.size) catch unreachable;
+            var vals = std.ArrayList(Value).initCapacity(alloc, self.size) catch unreachable;
             var cur = self.first();
             while (cur) |id| {
                 vals.appendAssumeCapacity(self.get(id).?);

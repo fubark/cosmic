@@ -27,6 +27,8 @@ const FontCache = gl.FontCache;
 const log = std.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
 
+pub const tessellator = @import("tessellator.zig");
+
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
 pub const TextMetrics = _text.TextMetrics;

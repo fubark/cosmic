@@ -560,3 +560,22 @@ fn toStdTextBaseline(align_: cs_graphics.TextBaseline) graphics.TextBaseline {
         .bottom => .Bottom,
     };
 }
+
+pub fn debugTriangulatePolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f32) void {
+    rt.vec2_buf.resize(pts.len / 2) catch unreachable;
+    var i: u32 = 0;
+    var vec_idx: u32 = 0;
+    while (i < pts.len - 1) : ({
+        i += 2;
+        vec_idx += 1;
+    }) {
+        rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
+    }
+    g.g.tessellator.clearBuffers();
+    g.g.tessellator.debugTriangulatePolygons(&.{rt.vec2_buf.items});
+}
+
+pub fn debugTriangulateProcessNext(rt: *RuntimeContext, g: *Graphics) ?ManagedStruct(graphics.tessellator.DebugTriangulateStepResult) {
+    const res = g.g.tessellator.debugProcessNext(rt.alloc) orelse return null;
+    return ManagedStruct(graphics.tessellator.DebugTriangulateStepResult).init(rt.alloc, res);
+}

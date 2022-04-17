@@ -32,6 +32,7 @@ const HttpServer = _server.HttpServer;
 const ResponseWriter = _server.ResponseWriter;
 const api = @import("api.zig");
 const cs_graphics = @import("api_graphics.zig").cs_graphics;
+const cs_graphics_pkg = @import("api_graphics.zig");
 const v8x = @import("v8x.zig");
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
@@ -165,6 +166,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "quadraticBezierCurve", Context.quadraticBezierCurve);
         ctx.setConstFuncT(proto, "cubicBezierCurve", Context.cubicBezierCurve);
         ctx.setConstFuncT(proto, "imageSized", Context.imageSized);
+        if (builtin.mode == .Debug) {
+            ctx.setConstFuncT(proto, "debugTriangulatePolygon", cs_graphics_pkg.debugTriangulatePolygon);
+            ctx.setConstFuncT(proto, "debugTriangulateProcessNext", cs_graphics_pkg.debugTriangulateProcessNext);
+        }
     }
     rt.graphics_class = graphics_class;
 

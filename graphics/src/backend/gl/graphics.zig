@@ -1475,3 +1475,19 @@ const DrawState = struct {
     blend_mode: BlendMode,
     view_transform: Transform,
 };
+
+fn dumpPolygons(alloc: std.mem.Allocator, polys: []const []const Vec2) void {
+    var buf = std.ArrayList(u8).init(alloc);
+    defer buf.deinit();
+    const writer = buf.writer();
+
+    for (polys) |poly, i| {
+        std.fmt.format(writer, "polygon {} ", .{i}) catch unreachable;
+        for (poly) |pt_| {
+            std.fmt.format(writer, "{d:.2}, {d:.2},", .{pt_.x, pt_.y}) catch unreachable;
+        }
+        std.fmt.format(writer, "\n", .{}) catch unreachable;
+    }
+
+    log.debug("{s}", .{buf.items});
+}

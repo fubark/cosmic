@@ -39,6 +39,10 @@ pub const Tessellator = struct {
     /// Triangles to output are triplets of indexes that point to verts. They are in ccw direction.
     out_idxes: std.ArrayList(u16),
 
+    cur_x: f32,
+    cur_y: f32,
+    cur_out_vert_idx: u16,
+
     const Self = @This();
 
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
@@ -50,6 +54,9 @@ pub const Tessellator = struct {
             .deferred_verts = CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).init(alloc),
             .out_verts = std.ArrayList(Vec2).init(alloc),
             .out_idxes = std.ArrayList(u16).init(alloc),
+            .cur_x = undefined,
+            .cur_y = undefined,
+            .cur_out_vert_idx = undefined,
         };
         self.event_q = EventQueue.init(alloc, &self.events);
     }
@@ -86,307 +93,330 @@ pub const Tessellator = struct {
     /// Since the number of verts and indexes is not known beforehand, the output is an ArrayList.
     /// TODO: See if inline callbacks would be faster to directly push data to the batcher buffer.
     pub fn triangulatePolygons(self: *Self, polygons: []const []const Vec2) void {
-        const sweep_edges = &self.sweep_edges;
-
         // Construct the initial events by traversing the polygon.
         self.initEvents(polygons);
 
-        var cur_x: f32 = std.math.f32_min;
-        var cur_y: f32 = std.math.f32_min;
-        var cur_out_vert_idx: u16 = std.math.maxInt(u16);
+        self.cur_x = std.math.f32_min;
+        self.cur_y = std.math.f32_min;
+        self.cur_out_vert_idx = std.math.maxInt(u16);
 
-        // Process the next event.
+        // Process events.
         while (self.event_q.removeOrNull()) |e_id| {
-            const e = self.events.items[e_id];
+            self.processEvent(e_id);
+        }
+    }
 
-            // If the point changed, allocate a new out vertex index.
-            if (e.vert_x != cur_x or e.vert_y != cur_y) {
-                self.out_verts.append(vec2(e.vert_x, e.vert_y)) catch unreachable;
-                cur_out_vert_idx +%= 1;
-                cur_x = e.vert_x;
-                cur_y = e.vert_y;
+    /// Initializes the events only.
+    pub fn debugTriangulatePolygons(self: *Self, polygons: []const []const Vec2) void {
+        self.initEvents(polygons);
+        self.cur_x = std.math.f32_min;
+        self.cur_y = std.math.f32_min;
+        self.cur_out_vert_idx = std.math.maxInt(u16);
+    }
+
+    /// Process the next event. This can be used with debugTriangulatePolygons.
+    pub fn debugProcessNext(self: *Self, alloc: std.mem.Allocator) ?DebugTriangulateStepResult {
+        const e_id = self.event_q.removeOrNull() orelse return null;
+        self.processEvent(e_id);
+        return DebugTriangulateStepResult{
+            .has_result = true,
+            .event = self.events.items[e_id],
+            .sweep_edges = self.sweep_edges.allocValuesInOrder(alloc),
+        };
+    }
+
+    fn processEvent(self: *Self, e_id: u32) void {
+        const sweep_edges = &self.sweep_edges;
+
+        const e = self.events.items[e_id];
+
+        // If the point changed, allocate a new out vertex index.
+        if (e.vert_x != self.cur_x or e.vert_y != self.cur_y) {
+            self.out_verts.append(vec2(e.vert_x, e.vert_y)) catch unreachable;
+            self.cur_out_vert_idx +%= 1;
+            self.cur_x = e.vert_x;
+            self.cur_y = e.vert_y;
+        }
+
+        // Set the out vertex index on the event.
+        self.verts.items[e.vert_idx].out_idx = self.cur_out_vert_idx;
+
+        if (debug) {
+            const tag_str: []const u8 = if (e.tag == .Start) "Start" else "End";
+            log("--process event {}, ({},{}) {s} {s}", .{e.vert_idx, e.vert_x, e.vert_y, tag_str, edgeToString(e.edge)});
+            log("sweep edges: ", .{});
+            var mb_cur = sweep_edges.first();
+            while (mb_cur) |cur| {
+                const se = sweep_edges.get(cur).?;
+                log("{} -> {}", .{se.edge.start_idx, se.edge.end_idx});
+                mb_cur = sweep_edges.getNext(cur);
+            }
+        }
+
+        if (e.tag == .Start) {
+            // Check to remove a previous left edge and continue it's sub-polygon vertex queue.
+            sweep_edges.ctx = e;
+            const new_id = sweep_edges.insert(SweepEdge.init(e, self.verts.items)) catch unreachable;
+            const new = sweep_edges.getPtr(new_id).?;
+
+            log("start new sweep edge {}", .{new_id});
+
+            const mb_left_id = sweep_edges.getPrev(new_id);
+            // Update winding based on what is to the left.
+            if (mb_left_id == null) {
+                new.interior_is_left = false;
+            } else {
+                new.interior_is_left = !sweep_edges.get(mb_left_id.?).?.interior_is_left;
             }
 
-            // Set the out vertex index on the event.
-            self.verts.items[e.vert_idx].out_idx = cur_out_vert_idx;
-
-            if (debug) {
-                const tag_str: []const u8 = if (e.tag == .Start) "Start" else "End";
-                log("--process event {}, ({},{}) {s} {s}", .{e.vert_idx, e.vert_x, e.vert_y, tag_str, edgeToString(e.edge)});
-                log("sweep edges: ", .{});
-                var mb_cur = sweep_edges.first();
-                while (mb_cur) |cur| {
-                    const se = sweep_edges.get(cur).?;
-                    log("{} -> {}", .{se.edge.start_idx, se.edge.end_idx});
-                    mb_cur = sweep_edges.getNext(cur);
-                }
-            }
-
-            if (e.tag == .Start) {
-                // Check to remove a previous left edge and continue it's sub-polygon vertex queue.
-                sweep_edges.ctx = e;
-                const new_id = sweep_edges.insert(SweepEdge.init(e, self.verts.items)) catch unreachable;
-                const new = sweep_edges.getPtr(new_id).?;
-
-                log("start new sweep edge {}", .{new_id});
-
-                const mb_left_id = sweep_edges.getPrev(new_id);
-                // Update winding based on what is to the left.
-                if (mb_left_id == null) {
+            if (new.interior_is_left) {
+                log("initially interior to the left", .{});
+                // Initially appears to be a right edge but if it connects to the previous left, it becomes a left edge.
+                var left = sweep_edges.getPtrNoCheck(mb_left_id.?);
+                const e_vert_out_idx = self.verts.items[e.vert_idx].out_idx;
+                if (left.end_event_vert_uniq_idx == e_vert_out_idx) {
+                    // Remove the previous ended edge, and takes it's place as the left edge.
+                    defer sweep_edges.remove(mb_left_id.?) catch unreachable;
                     new.interior_is_left = false;
-                } else {
-                    new.interior_is_left = !sweep_edges.get(mb_left_id.?).?.interior_is_left;
-                }
 
-                if (new.interior_is_left) {
-                    log("initially interior to the left", .{});
-                    // Initially appears to be a right edge but if it connects to the previous left, it becomes a left edge.
-                    var left = sweep_edges.getPtrNoCheck(mb_left_id.?);
-                    const e_vert_out_idx = self.verts.items[e.vert_idx].out_idx;
-                    if (left.end_event_vert_uniq_idx == e_vert_out_idx) {
-                        // Remove the previous ended edge, and takes it's place as the left edge.
-                        defer sweep_edges.remove(mb_left_id.?) catch unreachable;
-                        new.interior_is_left = false;
+                    // Previous left edge and this new edge forms a regular left angle.
+                    // Check for bad up cusp.
+                    if (left.bad_up_cusp_uniq_idx != NullId) {
+                        // This monotone polygon (a) should already have run it's triangulate steps from the left edge's end event.
+                        //   \  /
+                        //  a \/ b
+                        //    ^ Bad cusp.
+                        // \_
+                        // ^ End event from left edge happened before, currently processing start event for the new connected edge.
 
-                        // Previous left edge and this new edge forms a regular left angle.
-                        // Check for bad up cusp.
-                        if (left.bad_up_cusp_uniq_idx != NullId) {
-                            // This monotone polygon (a) should already have run it's triangulate steps from the left edge's end event.
-                            //   \  /
-                            //  a \/ b
-                            //    ^ Bad cusp.
-                            // \_
-                            // ^ End event from left edge happened before, currently processing start event for the new connected edge.
+                        // A line is connected from this vertex to the bad cusp to ensure that polygon (a) is monotone and polygon (b) is monotone.
+                        // Since polygon (a) already ran it's triangulate step, it's done from this side of the polygon.
+                        // This start event will create a new sweep edge, so transfer the deferred queue from the bad cusp's right side. (it is now the queue for this new left edge).
+                        const bad_right = sweep_edges.getNoCheck(left.bad_up_cusp_right_sweep_edge_id);
+                        bad_right.dumpQueue(self);
+                        new.deferred_queue = bad_right.deferred_queue;
+                        new.deferred_queue_size = bad_right.deferred_queue_size;
+                        new.cur_side = bad_right.cur_side;
 
-                            // A line is connected from this vertex to the bad cusp to ensure that polygon (a) is monotone and polygon (b) is monotone.
-                            // Since polygon (a) already ran it's triangulate step, it's done from this side of the polygon.
-                            // This start event will create a new sweep edge, so transfer the deferred queue from the bad cusp's right side. (it is now the queue for this new left edge).
-                            const bad_right = sweep_edges.getNoCheck(left.bad_up_cusp_right_sweep_edge_id);
-                            bad_right.dumpQueue(self);
-                            new.deferred_queue = bad_right.deferred_queue;
-                            new.deferred_queue_size = bad_right.deferred_queue_size;
-                            new.cur_side = bad_right.cur_side;
+                        // Also run triangulate on polygon (b) for the new vertex since the end event was already run for polygon (a).
+                        self.triangulateLeftStep(new, self.verts.items[e.vert_idx]);
 
-                            // Also run triangulate on polygon (b) for the new vertex since the end event was already run for polygon (a).
-                            self.triangulateLeftStep(new, self.verts.items[e.vert_idx]);
+                        left.bad_up_cusp_uniq_idx = NullId;
+                        sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
 
-                            left.bad_up_cusp_uniq_idx = NullId;
-                            sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
-
-                            log("FIX BAD UP CUSP", .{});
-                            new.dumpQueue(self);
-                        } else {
-                            new.deferred_queue = left.deferred_queue;
-                            new.deferred_queue_size = left.deferred_queue_size;
-                            new.cur_side = left.cur_side;
-                        }
-                    } else if (left.start_event_vert_uniq_idx == e_vert_out_idx) {
-                        // Down cusp.
-                        log("DOWN CUSP", .{});
-
-                        const mb_right_id = sweep_edges.getNext(new_id);
-
-                        if (mb_right_id != null) {
-                            // Check for intersection with the edge to the right.
-                            log("check right intersect", .{});
-
-                            // TODO: Is there a preliminary check to avoid doing the math? One idea is to check the x_slopes but it would need to know
-                            // if the compared edge is pointing down or up.
-                            const right = sweep_edges.getPtrNoCheck(mb_right_id.?);
-                            const res = computeTwoEdgeIntersect(e.edge, right.edge);
-                            if (res.has_intersect) {
-                                self.handleIntersectForStartEvent(new, right, res, vec2(e.vert_x, e.vert_y));
-                            }
-                        }
-                        const mb_left_left_id = sweep_edges.getPrev(mb_left_id.?);
-                        if (mb_left_left_id != null) {
-                            log("check left intersect", .{});
-                            const left_left = sweep_edges.getPtrNoCheck(mb_left_left_id.?);
-                            const res = computeTwoEdgeIntersect(left.edge, left_left.edge);
-                            // dump(edgeToString(left_left_edge.edge))
-                            if (res.has_intersect) {
-                                self.handleIntersectForStartEvent(left, left_left, res, vec2(e.vert_x, e.vert_y));
-                            }
-                        }
-                    }
-                } else {
-                    log("initially interior to the right", .{});
-                    // Initially appears to be a left edge but if it connects to a previous right, it becomes a right edge.
-                    if (mb_left_id != null) {
-                        const vert = self.verts.items[e.vert_idx];
-
-                        // left edge has interior to the left.
-                        var left = sweep_edges.get(mb_left_id.?).?;
-                        if (left.end_event_vert_uniq_idx == vert.out_idx) {
-                            // Remove previous ended edge.
-                            sweep_edges.remove(mb_left_id.?) catch unreachable;
-                            new.interior_is_left = true;
-                            log("changed to interior is left", .{});
-                        } else if (left.start_event_vert_uniq_idx == vert.out_idx) {
-                            // Linked to previous start event's vertex.
-                            // Handle bad down cusp.
-                            // \       \/ 
-                            //  \       b
-                            //   \--a
-                            //    \       v Bad down cusp.
-                            //     \     /\     /
-                            //      \   /  \   /
-
-                            // The bad cusp is linked to the lowest visible vertex seen from the left edge. If vertex (a) exists that would be connected to the cusp.
-                            // If it didn't exist the next lowest would be (b) a bad up cusp.
-
-                            const left_left_id = sweep_edges.getPrev(mb_left_id.?).?;
-                            const left_left = sweep_edges.getPtrNoCheck(left_left_id);
-                            if (left_left.lowest_right_vert_idx == NullId) {
-                                log("expected lowest right vert", .{});
-                                unreachable;
-                            }
-
-                            const mono_right_side = sweep_edges.getNoCheck(left_left.lowest_right_vert_sweep_edge_id);
-
-                            if (left_left.bad_up_cusp_uniq_idx == left.start_event_vert_uniq_idx) {
-                                left_left.bad_up_cusp_uniq_idx = NullId;
-                            }
-
-                            // Once connected, the right side monotone polygon will continue the existing vertex queue of the connected point.
-                            new.deferred_queue = mono_right_side.deferred_queue;
-                            new.deferred_queue_size = mono_right_side.deferred_queue_size;
-                            new.cur_side = mono_right_side.cur_side;
-
-                            // If the right side polygon queue is the same as the left side polygon queue, the left queue is reset to the separation vertex and the bad cusp vertex.
-                            if (left_left.deferred_queue == new.deferred_queue) {
-                                left_left.deferred_queue = NullId;
-                                left_left.deferred_queue_size = 0;
-                                left_left.cur_side = .Right;
-                                const mono_vert = self.verts.items[left_left.lowest_right_vert_idx];
-                                left_left.enqueueDeferred(mono_vert, self);
-                                if (vert.out_idx != mono_vert.out_idx) {
-                                    left_left.enqueueDeferred(vert, self);
-                                }
-                            }
-
-                            // Right side needs to run left triangulate step since there is no end event for this vertex.
-                            self.triangulateLeftStep(new, vert);
-                        }
-                    }
-                }
-
-                if (!new.interior_is_left) {
-                    // Even-odd rule.
-                    // Interior is to the right.
-
-                    const vert = self.verts.items[e.vert_idx];
-
-                    // Initialize the deferred queue.
-                    if (new.deferred_queue == NullId) {
-                        new.enqueueDeferred(vert, self);
-                        new.cur_side = .Left;
-
-                        log("initialize queue", .{});
+                        log("FIX BAD UP CUSP", .{});
                         new.dumpQueue(self);
+                    } else {
+                        new.deferred_queue = left.deferred_queue;
+                        new.deferred_queue_size = left.deferred_queue_size;
+                        new.cur_side = left.cur_side;
                     }
+                } else if (left.start_event_vert_uniq_idx == e_vert_out_idx) {
+                    // Down cusp.
+                    log("DOWN CUSP", .{});
 
-                    // The lowest right vert is set initializes to itself.
-                    new.lowest_right_vert_idx = e.vert_idx;
-                    new.lowest_right_vert_sweep_edge_id = new_id;
-                } else {
-                    // Interior is to the left.
+                    const mb_right_id = sweep_edges.getNext(new_id);
+
+                    if (mb_right_id != null) {
+                        // Check for intersection with the edge to the right.
+                        log("check right intersect", .{});
+
+                        // TODO: Is there a preliminary check to avoid doing the math? One idea is to check the x_slopes but it would need to know
+                        // if the compared edge is pointing down or up.
+                        const right = sweep_edges.getPtrNoCheck(mb_right_id.?);
+                        const res = computeTwoEdgeIntersect(e.edge, right.edge);
+                        if (res.has_intersect) {
+                            self.handleIntersectForStartEvent(new, right, res, vec2(e.vert_x, e.vert_y));
+                        }
+                    }
+                    const mb_left_left_id = sweep_edges.getPrev(mb_left_id.?);
+                    if (mb_left_left_id != null) {
+                        log("check left intersect", .{});
+                        const left_left = sweep_edges.getPtrNoCheck(mb_left_left_id.?);
+                        const res = computeTwoEdgeIntersect(left.edge, left_left.edge);
+                        // dump(edgeToString(left_left_edge.edge))
+                        if (res.has_intersect) {
+                            self.handleIntersectForStartEvent(left, left_left, res, vec2(e.vert_x, e.vert_y));
+                        }
+                    }
                 }
             } else {
-                // End event.
+                log("initially interior to the right", .{});
+                // Initially appears to be a left edge but if it connects to a previous right, it becomes a right edge.
+                if (mb_left_id != null) {
+                    const vert = self.verts.items[e.vert_idx];
 
-                if (e.invalidated) {
-                    // This end event was invalidated from an intersection event.
-                    continue;
+                    // left edge has interior to the left.
+                    var left = sweep_edges.get(mb_left_id.?).?;
+                    if (left.end_event_vert_uniq_idx == vert.out_idx) {
+                        // Remove previous ended edge.
+                        sweep_edges.remove(mb_left_id.?) catch unreachable;
+                        new.interior_is_left = true;
+                        log("changed to interior is left", .{});
+                    } else if (left.start_event_vert_uniq_idx == vert.out_idx) {
+                        // Linked to previous start event's vertex.
+                        // Handle bad down cusp.
+                        // \       \/ 
+                        //  \       b
+                        //   \--a
+                        //    \       v Bad down cusp.
+                        //     \     /\     /
+                        //      \   /  \   /
+
+                        // The bad cusp is linked to the lowest visible vertex seen from the left edge. If vertex (a) exists that would be connected to the cusp.
+                        // If it didn't exist the next lowest would be (b) a bad up cusp.
+
+                        const left_left_id = sweep_edges.getPrev(mb_left_id.?).?;
+                        const left_left = sweep_edges.getPtrNoCheck(left_left_id);
+                        if (left_left.lowest_right_vert_idx == NullId) {
+                            log("expected lowest right vert", .{});
+                            unreachable;
+                        }
+
+                        const mono_right_side = sweep_edges.getNoCheck(left_left.lowest_right_vert_sweep_edge_id);
+
+                        if (left_left.bad_up_cusp_uniq_idx == left.start_event_vert_uniq_idx) {
+                            left_left.bad_up_cusp_uniq_idx = NullId;
+                        }
+
+                        // Once connected, the right side monotone polygon will continue the existing vertex queue of the connected point.
+                        new.deferred_queue = mono_right_side.deferred_queue;
+                        new.deferred_queue_size = mono_right_side.deferred_queue_size;
+                        new.cur_side = mono_right_side.cur_side;
+
+                        // If the right side polygon queue is the same as the left side polygon queue, the left queue is reset to the separation vertex and the bad cusp vertex.
+                        if (left_left.deferred_queue == new.deferred_queue) {
+                            left_left.deferred_queue = NullId;
+                            left_left.deferred_queue_size = 0;
+                            left_left.cur_side = .Right;
+                            const mono_vert = self.verts.items[left_left.lowest_right_vert_idx];
+                            left_left.enqueueDeferred(mono_vert, self);
+                            if (vert.out_idx != mono_vert.out_idx) {
+                                left_left.enqueueDeferred(vert, self);
+                            }
+                        }
+
+                        // Right side needs to run left triangulate step since there is no end event for this vertex.
+                        self.triangulateLeftStep(new, vert);
+                    }
                 }
+            }
 
-                const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
-                    log("polygons: {any}", .{polygons});
-                    stdx.panic("expected active edge");
-                };
-                const active = sweep_edges.getPtrNoCheck(active_id);
-                log("active {} {}", .{active.vert_idx, active.to_vert_idx});
+            if (!new.interior_is_left) {
+                // Even-odd rule.
+                // Interior is to the right.
 
                 const vert = self.verts.items[e.vert_idx];
 
-                if (active.interior_is_left) {
-                    // Interior is to the left.
+                // Initialize the deferred queue.
+                if (new.deferred_queue == NullId) {
+                    new.enqueueDeferred(vert, self);
+                    new.cur_side = .Left;
 
-                    log("interior to the left {}", .{active_id});
+                    log("initialize queue", .{});
+                    new.dumpQueue(self);
+                }
 
-                    const left_id = sweep_edges.getPrev(active_id).?;
-                    const left = sweep_edges.getPtrNoCheck(left_id);
+                // The lowest right vert is set initializes to itself.
+                new.lowest_right_vert_idx = e.vert_idx;
+                new.lowest_right_vert_sweep_edge_id = new_id;
+            } else {
+                // Interior is to the left.
+            }
+        } else {
+            // End event.
+
+            if (e.invalidated) {
+                // This end event was invalidated from an intersection event.
+                return;
+            }
+
+            const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
+                // log("polygons: {any}", .{polygons});
+                stdx.panic("expected active edge");
+            };
+            const active = sweep_edges.getPtrNoCheck(active_id);
+            log("active {} {}", .{active.vert_idx, active.to_vert_idx});
+
+            const vert = self.verts.items[e.vert_idx];
+
+            if (active.interior_is_left) {
+                // Interior is to the left.
+
+                log("interior to the left {}", .{active_id});
+
+                const left_id = sweep_edges.getPrev(active_id).?;
+                const left = sweep_edges.getPtrNoCheck(left_id);
 
 
-                    // Check if it has closed the polygon. (up cusp)
-                    if (vert.out_idx == left.end_event_vert_uniq_idx) {
-                        // Check for bad up cusp.
-                        if (left.bad_up_cusp_uniq_idx != NullId) {
-                            const bad_right = sweep_edges.getPtrNoCheck(left.bad_up_cusp_right_sweep_edge_id);
-                            self.triangulateLeftStep(bad_right, vert);
-                            sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
-                            left.bad_up_cusp_uniq_idx = NullId; 
-                            if (bad_right.deferred_queue_size >= 3) {
-                                log("{any}", .{self.out_idxes.items});
-                                bad_right.dumpQueue(self);
-                                stdx.panic("did not expect left over vertices");
-                            }
-                        }
-                        if (left.deferred_queue_size >= 3) {
-                            log("{} {any}", .{left_id, self.out_idxes.items});
-                            left.dumpQueue(self);
+                // Check if it has closed the polygon. (up cusp)
+                if (vert.out_idx == left.end_event_vert_uniq_idx) {
+                    // Check for bad up cusp.
+                    if (left.bad_up_cusp_uniq_idx != NullId) {
+                        const bad_right = sweep_edges.getPtrNoCheck(left.bad_up_cusp_right_sweep_edge_id);
+                        self.triangulateLeftStep(bad_right, vert);
+                        sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
+                        left.bad_up_cusp_uniq_idx = NullId; 
+                        if (bad_right.deferred_queue_size >= 3) {
+                            log("{any}", .{self.out_idxes.items});
+                            bad_right.dumpQueue(self);
                             stdx.panic("did not expect left over vertices");
                         }
-                        // Remove the left edge and this edge.
-                        sweep_edges.remove(left_id) catch unreachable;
-                        sweep_edges.remove(active_id) catch unreachable;
-                    } else {
-                        // Regular right side vertex.
-                        self.triangulateRightStep(left, vert);
-
-                        // Edge is only removed by the next connecting edge.
-                        active.end_event_vert_uniq_idx = vert.out_idx;
                     }
+                    if (left.deferred_queue_size >= 3) {
+                        log("{} {any}", .{left_id, self.out_idxes.items});
+                        left.dumpQueue(self);
+                        stdx.panic("did not expect left over vertices");
+                    }
+                    // Remove the left edge and this edge.
+                    sweep_edges.remove(left_id) catch unreachable;
+                    sweep_edges.remove(active_id) catch unreachable;
                 } else {
-                    // Interior is to the right.
-                    log("interior to the right {}", .{active_id});
+                    // Regular right side vertex.
+                    self.triangulateRightStep(left, vert);
 
-                    const mb_left_id = sweep_edges.getPrev(active_id);
+                    // Edge is only removed by the next connecting edge.
+                    active.end_event_vert_uniq_idx = vert.out_idx;
+                }
+            } else {
+                // Interior is to the right.
+                log("interior to the right {}", .{active_id});
 
-                    // Check if this forms a bad up cusp with the right edge to the left monotone polygon.
-                    var removed = false;
-                    if (mb_left_id != null) {
-                        log("check for bad up cusp", .{});
-                        const left = sweep_edges.getNoCheck(mb_left_id.?);
-                        // dump(edgeToString(left_right_edge.edge))
-                        if (vert.out_idx == left.end_event_vert_uniq_idx) {
-                            const left_left_id = sweep_edges.getPrev(mb_left_id.?).?;
-                            const left_left = sweep_edges.getPtrNoCheck(left_left_id);
-                            // Bad up cusp.
-                            left_left.bad_up_cusp_uniq_idx = vert.out_idx;
-                            left_left.bad_up_cusp_right_sweep_edge_id = active_id;
-                            left_left.lowest_right_vert_idx = e.vert_idx;
-                            left_left.lowest_right_vert_sweep_edge_id = active_id;
+                const mb_left_id = sweep_edges.getPrev(active_id);
 
-                            // Remove the left edge.
-                            sweep_edges.remove(mb_left_id.?) catch unreachable;
-                            // Detach this edge, remove it when the bad up cusp is fixed.
-                            sweep_edges.detach(active_id) catch unreachable;
-                            removed = true;
-                            // Continue.
-                        }
+                // Check if this forms a bad up cusp with the right edge to the left monotone polygon.
+                var removed = false;
+                if (mb_left_id != null) {
+                    log("check for bad up cusp", .{});
+                    const left = sweep_edges.getNoCheck(mb_left_id.?);
+                    // dump(edgeToString(left_right_edge.edge))
+                    if (vert.out_idx == left.end_event_vert_uniq_idx) {
+                        const left_left_id = sweep_edges.getPrev(mb_left_id.?).?;
+                        const left_left = sweep_edges.getPtrNoCheck(left_left_id);
+                        // Bad up cusp.
+                        left_left.bad_up_cusp_uniq_idx = vert.out_idx;
+                        left_left.bad_up_cusp_right_sweep_edge_id = active_id;
+                        left_left.lowest_right_vert_idx = e.vert_idx;
+                        left_left.lowest_right_vert_sweep_edge_id = active_id;
+
+                        // Remove the left edge.
+                        sweep_edges.remove(mb_left_id.?) catch unreachable;
+                        // Detach this edge, remove it when the bad up cusp is fixed.
+                        sweep_edges.detach(active_id) catch unreachable;
+                        removed = true;
+                        // Continue.
                     }
+                }
 
-                    active.dumpQueue(self);
-                    self.triangulateLeftStep(active, vert);
-                    active.dumpQueue(self);
+                active.dumpQueue(self);
+                self.triangulateLeftStep(active, vert);
+                active.dumpQueue(self);
 
-                    if (!removed) {
-                        // Don't remove the left edge of this sub-polygon yet.
-                        // Record the end event's vert so the next start event that continues from this vert can persist the deferred vertices and remove this sweep edge.
-                        // It can also be removed by a End right edge.
-                        active.end_event_vert_uniq_idx = vert.out_idx;
-                    }
+                if (!removed) {
+                    // Don't remove the left edge of this sub-polygon yet.
+                    // Record the end event's vert so the next start event that continues from this vert can persist the deferred vertices and remove this sweep edge.
+                    // It can also be removed by a End right edge.
+                    active.end_event_vert_uniq_idx = vert.out_idx;
                 }
             }
         }
@@ -1591,3 +1621,13 @@ test "Rectangle with bottom-left wedge." {
         4, 1, 3,
     });
 }
+
+pub const DebugTriangulateStepResult = struct {
+    has_result: bool,
+    sweep_edges: []const SweepEdge,
+    event: Event,
+
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.sweep_edges);
+    }
+};
