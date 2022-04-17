@@ -501,6 +501,11 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
             return self.doLookup(val, &parent, &is_left, ctx, cmp);
         }
 
+        /// Lookup that also sets the parent and is_left to indicate where it was found or where it would be inserted.
+        pub fn lookupCustomLoc(self: Self, val: Value, ctx: anytype, cmp: fn (Value, Value, @TypeOf(ctx)) std.math.Order, parent: *?Id, is_left: *bool) ?Id {
+            return self.doLookup(val, parent, is_left, ctx, cmp);
+        }
+
         /// If there is a match, the Id is returned.
         /// Otherwise, the insert slot is provided by pparent and is_left.
         fn doLookup(self: Self, val: Value, pparent: *?Id, is_left: *bool, ctx: anytype, cmp: fn (Value, Value, @TypeOf(ctx)) std.math.Order) ?Id {
@@ -1216,7 +1221,6 @@ test "Remove non-root case 5: parent is red, right sibling is black, sibling's l
     t.setLogLevel(.debug);
 
     try tree.remove(d);
-    tree.dump();
     try t.eq(tree.isValid(), true);
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);

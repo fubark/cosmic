@@ -827,7 +827,7 @@ fn compareEvent(a: Event, b: Event) std.math.Order {
 fn compareSweepEdge(_: SweepEdge, b: SweepEdge, evt: Event) std.math.Order {
     if (!b.edge.is_horiz) {
         const x_intersect = b.edge.x_slope * (evt.vert_y - b.edge.start_pos.y) + b.edge.start_pos.x;
-        if (std.math.absFloat(evt.vert_x - x_intersect) < std.math.epsilon(f32)) {
+        if (std.math.absFloat(evt.vert_x - x_intersect) < SweepEdgeApproxEpsilon) {
             // Since there is a chance of having floating point error, check with an epsilon.
             // Always return .gt so the left sweep edge can be reliably checked for a joining edge.
             return .gt;
@@ -863,20 +863,35 @@ fn findSweepEdgeForEndEvent(sweep_edges: *RbTree(u16, SweepEdge, Event, compareS
         .interior_is_left = undefined,
         .end_event_idx = undefined,
     };
-    const id = sweep_edges.lookupCustom(dummy, target, compareSweepEdgeApprox) orelse return null;
+    log("find {},{}", .{target.x, target.y});
+    var mb_parent: ?u16 = undefined;
+    var is_left: bool = undefined;
+    var start_id: u16 = undefined;
+    if (sweep_edges.lookupCustomLoc(dummy, target, compareSweepEdgeApprox, &mb_parent, &is_left)) |id| {
+        start_id = id;
+    } else {
+        // It's possible that we can't find the sweep edge based on x intersect due to floating point error.
+        // Start linear search at the parent.
+        if (mb_parent) |parent| {
+            start_id = parent;
+        } else {
+            return null;
+        }
+    }
 
     // Given a start index where a group of verts could have approx the same x-intersect value, find the one with the exact vert and to_vert.
     // The search ends on left/right when the x-intersect suddenly becomes greater than the epsilon.
-    var se = sweep_edges.getNoCheck(id);
+    var se = sweep_edges.getNoCheck(start_id);
     if (se.to_vert_idx == e.vert_idx and se.vert_idx == e.to_vert_idx) {
-        return id;
+        return start_id;
     }
+    log("skip edge {} -> {}", .{se.vert_idx, se.to_vert_idx});
     // Search left.
-    var mb_cur = sweep_edges.getPrev(id);
+    var mb_cur = sweep_edges.getPrev(start_id);
     while (mb_cur) |cur| {
         se = sweep_edges.getNoCheck(cur);
         const x_intersect = getXIntersect(se.edge, target);
-        if (std.math.absFloat(e.vert_x - x_intersect) > std.math.epsilon(f32)) {
+        if (std.math.absFloat(e.vert_x - x_intersect) > SweepEdgeApproxEpsilon) {
             break;
         } else if (se.to_vert_idx == e.vert_idx and se.vert_idx == e.to_vert_idx) {
             return cur;
@@ -884,26 +899,29 @@ fn findSweepEdgeForEndEvent(sweep_edges: *RbTree(u16, SweepEdge, Event, compareS
         mb_cur = sweep_edges.getPrev(cur);
     }
     // Search right.
-    mb_cur = sweep_edges.getNext(id);
+    mb_cur = sweep_edges.getNext(start_id);
     while (mb_cur) |cur| {
         se = sweep_edges.getNoCheck(cur);
         const x_intersect = getXIntersect(se.edge, target);
-        if (std.math.absFloat(e.vert_x - x_intersect) > std.math.epsilon(f32)) {
+        if (std.math.absFloat(e.vert_x - x_intersect) > SweepEdgeApproxEpsilon) {
             break;
         } else if (se.to_vert_idx == e.vert_idx and se.vert_idx == e.to_vert_idx) {
             return cur;
         }
-        mb_cur = sweep_edges.getNext(id);
+        mb_cur = sweep_edges.getNext(cur);
     }
     return null;
 }
+
+const SweepEdgeApproxEpsilon: f32 = 1e-4;
 
 /// Finds the first edge with x-intersect that approximates the provided target vert's x.
 /// This is needed since floating point error can lead to inconsistent divide and conquer for x-intersects that are close together (eg. two edges stemming from one vertex)
 /// A follow up routine to find the exact edge should be run afterwards.
 fn compareSweepEdgeApprox(_: SweepEdge, b: SweepEdge, target: Vec2) std.math.Order {
     const x_intersect = getXIntersect(b.edge, target);
-    if (std.math.absFloat(target.x - x_intersect) < std.math.epsilon(f32)) {
+    // Relax the epsilon since larger floating point error can happen here. In the end it's surroundings is verified by linear search.
+    if (std.math.absFloat(target.x - x_intersect) < SweepEdgeApproxEpsilon) {
         return .eq;
     } else if (target.x < x_intersect) {
         return .lt;
@@ -1664,6 +1682,12 @@ test "Rectangle with bottom-left wedge." {
         3, 1, 2,
         4, 1, 3,
     });
+}
+
+test "Tiger big part." {
+    try testLarge(&.{
+        -129.83, 103.06,-129.83, 103.06,-128.36, 113.62,-126.60, 118.80,-126.60, 118.80,-127.33, 125.99,-125.81, 135.32,-121.40, 144.40,-121.40, 144.40,-121.18, 151.03,-120.20, 154.80,-120.20, 154.80,-115.56, 161.53,-111.40, 164.00,-111.40, 164.00,-99.95, 166.93,-88.93, 169.12,-88.93, 169.12,-82.12, 176.08,-77.01, 183.74,-74.79, 190.23,-75.00, 196.00,-75.00, 196.00,-76.74, 210.10,-79.00, 214.00,-79.00, 214.00,-73.96, 210.34,-73.22, 211.25,-77.00, 219.60,-81.40, 238.40,-81.40, 238.40,-67.64, 228.08,-66.39, 228.12,-71.40, 235.20,-81.40, 261.20,-81.40, 261.20,-67.93, 249.24,-67.39, 249.03,-69.00, 251.20,-72.20, 260.00,-72.20, 260.00,-53.39, 249.64,-48.97, 248.73,-49.31, 250.85,-59.80, 262.40,-59.80, 262.40,-52.31, 260.54,-47.40, 261.60,-47.40, 261.60,-41.92, 261.27,-41.40, 262.00,-41.40, 262.00,-49.70, 267.43,-57.61, 274.87,-62.93, 282.61,-65.80, 290.80,-65.80, 290.80,-61.30, 286.73,-59.99, 287.03,-60.60, 291.60,-60.20, 303.20,-60.20, 303.20,-58.30, 297.14,-57.37, 298.26,-56.60, 319.20,-56.60, 319.20,-48.49, 312.82,-45.76, 312.03,-45.35, 313.82,-49.00, 322.00,-49.00, 338.80,-49.00, 338.80,-40.26, 330.76,-38.63, 330.61,-40.20, 335.20,-40.20, 335.20,-36.26, 332.85,-34.22, 332.98,-33.27, 335.13,-34.20, 341.60,-34.20, 341.60,-33.94, 345.73,-33.17, 345.79,-30.60, 340.80,-30.60, 340.80,-22.95, 328.26,-20.19, 325.79,-19.29, 327.04,-20.60, 336.40,-20.60, 336.40,-20.14, 345.51,-19.15, 346.31,-16.60, 340.80,-16.60, 340.80,-15.40, 346.50,-12.14, 353.01,-7.00, 358.40,-7.00, 358.40,-6.27, 339.53,-4.46, 332.02,-2.77, 330.70,-0.27, 332.77,4.60, 343.60,8.60, 360.00,8.60, 360.00,10.64, 351.18,11.00, 345.60,19.00, 353.60,19.00, 353.60,28.79, 341.06,31.17, 340.03,31.00, 344.00,31.00, 344.00,25.45, 358.75,25.00, 364.80,25.00, 364.80,43.00, 328.40,43.00, 328.40,43.39, 345.38,44.82, 349.24,46.77, 347.92,51.80, 334.80,51.80, 334.80,54.49, 342.22,55.39, 347.96,54.60, 351.20,54.60, 351.20,60.76, 343.58,61.80, 340.00,61.80, 340.00,64.54, 337.57,66.77, 338.71,69.20, 345.40,69.20, 345.40,71.39, 352.02,72.60, 351.60,72.60, 351.60,75.37, 362.09,76.42, 362.30,77.80, 352.80,77.80, 352.80,77.75, 344.98,75.91, 335.70,72.20, 327.60,72.20, 327.60,72.12, 324.56,70.20, 320.40,70.20, 320.40,75.70, 327.30,77.91, 328.09,78.69, 325.45,76.60, 313.20,76.60, 313.20,89.00, 321.20,89.00, 321.20,82.70, 308.82,81.23, 303.45,81.82, 302.23,84.20, 302.80,84.20, 302.80,83.54, 299.86,84.53, 298.67,87.95, 299.28,97.00, 304.40,97.00, 304.40,91.03, 297.34,90.41, 295.37,91.64, 294.95,98.60, 298.00,98.60, 298.00,101.93, 300.03,102.23, 299.50,99.00, 294.40,99.00, 294.40,94.40, 288.21,95.27, 288.03,106.60, 296.40,106.60, 296.40,116.61, 311.24,119.00, 315.60,119.00, 315.60,108.86, 290.10,104.60, 283.60,104.60, 283.60,108.02, 275.28,114.09, 267.22,121.76, 261.79,130.82, 259.23,141.00, 259.30,154.20, 262.80,154.20, 262.80,157.75, 268.68,160.36, 270.08,162.73, 268.60,165.40, 261.60,165.40, 261.60,170.08, 261.04,176.25, 263.49,182.75, 270.16,189.40, 282.80,189.40, 282.80,192.36, 270.67,192.60, 266.40,192.60, 266.40,198.19, 266.89,198.60, 266.40,198.60, 266.40,210.19, 269.77,213.00, 270.00,213.00, 270.00,217.51, 273.62,219.47, 274.23,220.20, 273.20,220.20, 273.20,225.75, 274.22,227.51, 273.79,227.40, 272.40,227.40, 272.40,234.76, 286.58,236.60, 291.60,239.00, 277.60,241.00, 280.40,241.00, 280.40,242.01, 273.69,241.80, 271.60,241.80, 271.60,242.83, 271.72,249.79, 275.48,257.44, 282.09,263.14, 289.99,266.60, 299.20,268.60, 307.60,268.60, 307.60,272.87, 294.06,273.00, 288.80,273.00, 288.80,277.01, 290.73,278.60, 294.00,278.60, 294.00,280.13, 278.97,279.59, 269.28,277.80, 264.80,277.80, 264.80,281.47, 265.30,283.40, 267.60,283.40, 260.40,283.40, 260.40,289.30, 260.14,290.60, 258.80,290.60, 258.80,293.21, 257.36,295.38, 257.54,297.00, 259.60,297.00, 259.60,293.38, 246.31,293.06, 239.85,294.31, 238.04,296.82, 238.39,303.00, 243.60,303.00, 243.60,306.29, 246.69,307.45, 245.38,306.60, 235.60,306.60, 235.60,302.46, 219.68,301.73, 215.52,303.80, 214.80,303.80, 214.80,303.85, 211.76,302.60, 209.60,302.60, 209.60,301.93, 208.90,303.80, 209.60,303.80, 209.60,305.11, 209.64,305.81, 206.07,303.40, 191.60,303.40, 191.60,304.82, 190.48,304.47, 183.66,297.80, 164.00,297.80, 164.00,298.73, 160.69,296.60, 153.20,296.60, 153.20,303.95, 156.14,307.40, 156.00,307.40, 156.00,307.15, 155.40,303.80, 150.40,303.80, 150.40,295.80, 126.68,293.83, 115.79,294.65, 112.78,296.76, 112.66,302.60, 117.60,302.60, 117.60,307.07, 121.27,309.11, 121.32,309.97, 118.48,308.05, 108.35,308.05, 108.35,300.79, 86.65,299.72, 80.04,-129.83, 103.06,
+    }, 227);
 }
 
 // Test points that are close to each other with higher precision.
