@@ -5,6 +5,7 @@ const t = stdx.testing;
 const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
 const RbTree = stdx.ds.RbTree;
+const dassert = stdx.debug.dassert;
 const CompactSinglyLinkedListBuffer = stdx.ds.CompactSinglyLinkedListBuffer;
 
 const log_ = stdx.log.scoped(.tessellator);
@@ -42,6 +43,7 @@ pub const Tessellator = struct {
     cur_x: f32,
     cur_y: f32,
     cur_out_vert_idx: u16,
+    cur_polys: []const []const Vec2,
 
     const Self = @This();
 
@@ -57,6 +59,7 @@ pub const Tessellator = struct {
             .cur_x = undefined,
             .cur_y = undefined,
             .cur_out_vert_idx = undefined,
+            .cur_polys = undefined,
         };
         self.event_q = EventQueue.init(alloc, &self.events);
     }
@@ -99,6 +102,7 @@ pub const Tessellator = struct {
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
         self.cur_out_vert_idx = std.math.maxInt(u16);
+        self.cur_polys = polygons;
 
         // Process events.
         while (self.event_q.removeOrNull()) |e_id| {
@@ -112,6 +116,7 @@ pub const Tessellator = struct {
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
         self.cur_out_vert_idx = std.math.maxInt(u16);
+        self.cur_polys = polygons;
     }
 
     /// Process the next event. This can be used with debugTriangulatePolygons.
@@ -178,6 +183,7 @@ pub const Tessellator = struct {
                     // Remove the previous ended edge, and takes it's place as the left edge.
                     defer sweep_edges.remove(mb_left_id.?) catch unreachable;
                     new.interior_is_left = false;
+                    log("continuation from prev edge, interior to the right", .{});
 
                     // Previous left edge and this new edge forms a regular left angle.
                     // Check for bad up cusp.
@@ -332,7 +338,7 @@ pub const Tessellator = struct {
             }
 
             const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
-                // log("polygons: {any}", .{polygons});
+                log("polygons: {any}", .{self.cur_polys});
                 stdx.panic("expected active edge");
             };
             const active = sweep_edges.getPtrNoCheck(active_id);
@@ -444,7 +450,7 @@ pub const Tessellator = struct {
                 };
                 self.verts.append(v) catch unreachable;
 
-                if (last_pt.x != pt.x or last_pt.y != pt.y) {
+                if (std.math.absFloat(last_pt.x - pt.x) > 1e-4 or std.math.absFloat(last_pt.y - pt.y) > 1e-4) {
                     break;
                 }
             }
@@ -461,20 +467,24 @@ pub const Tessellator = struct {
                 };
                 self.verts.append(v) catch unreachable;
 
-                if (last_v.pos.x == v.pos.x and last_v.pos.y == v.pos.y) {
+                if (std.math.absFloat(last_v.pos.x - v.pos.x) < 1e-4 and std.math.absFloat(last_v.pos.y - v.pos.y) < 1e-4) {
                     // Don't connect two vertices that are on top of each other.
-                    // Allowing this would require an edge case to make sure there is a start AND end event since that is currently derived from the vertex points.
+                    // Allowing this would require edge cases during event processing to make sure things don't break.
                     // Push the vertex in anyway so there is consistency with the input.
                     continue;
                 }
 
                 const prev_edge = Edge.init(last_v_idx, last_v, v_idx, v);
                 const event1_idx = @intCast(u32, self.events.items.len);
-                var event1 = Event.init(last_v_idx, prev_edge, self.verts.items);
-                var event2 = Event.init(v_idx, prev_edge, self.verts.items);
-                if (event1.tag == .Start) {
+                var event1: Event = undefined;
+                var event2: Event = undefined;
+                if (Event.isStartEvent(last_v_idx, prev_edge, self.verts.items)) {
+                    event1 = Event.init(last_v, prev_edge, .Start);
+                    event2 = Event.init(v, prev_edge, .End);
                     event1.end_event_idx = event1_idx + 1;
                 } else {
+                    event1 = Event.init(last_v, prev_edge, .End);
+                    event2 = Event.init(v, prev_edge, .Start);
                     event2.end_event_idx = event1_idx;
                 }
                 self.events.append(event1) catch unreachable;
@@ -487,11 +497,15 @@ pub const Tessellator = struct {
             // Link last pt to start pt.
             const edge = Edge.init(last_v_idx, last_v, start_idx, self.verts.items[start_idx]);
             const event1_idx = @intCast(u32, self.events.items.len);
-            var event1 = Event.init(last_v_idx, edge, self.verts.items);
-            var event2 = Event.init(start_idx, edge, self.verts.items);
-            if (event1.tag == .Start) {
+            var event1: Event = undefined;
+            var event2: Event = undefined;
+            if (Event.isStartEvent(last_v_idx, edge, self.verts.items)) {
+                event1 = Event.init(last_v, edge, .Start);
+                event2 = Event.init(self.verts.items[start_idx], edge, .End);
                 event1.end_event_idx = event1_idx + 1;
             } else {
+                event1 = Event.init(last_v, edge, .End);
+                event2 = Event.init(self.verts.items[start_idx], edge, .Start);
                 event2.end_event_idx = event1_idx;
             }
             self.events.append(event1) catch unreachable;
@@ -678,16 +692,20 @@ pub const Tessellator = struct {
 
             // Insert new sweep_edge_a end event.
             const evt_idx = @intCast(u32, self.events.items.len);
-            var new_evt = Event.init(intersect_idx, first_edge, self.verts.items);
+            var new_evt = Event.init(intersect_v, first_edge, .End);
             self.events.append(new_evt) catch unreachable;
             self.event_q.add(evt_idx) catch unreachable;
 
             // Insert start/end event from the intersect to the end of the original sweep_edge_a.
-            var event1 = Event.init(intersect_idx, second_edge, self.verts.items);
-            var event2 = Event.init(a_orig_to_vert, second_edge, self.verts.items);
-            if (event1.tag == .Start) {
+            var event1: Event = undefined;
+            var event2: Event = undefined;
+            if (Event.isStartEvent(intersect_idx, second_edge, self.verts.items)) {
+                event1 = Event.init(intersect_v, second_edge, .Start);
+                event2 = Event.init(self.verts.items[a_orig_to_vert], second_edge, .End);
                 event1.end_event_idx = evt_idx + 2;
             } else {
+                event1 = Event.init(intersect_v, second_edge, .End);
+                event2 = Event.init(self.verts.items[a_orig_to_vert], second_edge, .Start);
                 event2.end_event_idx = evt_idx + 1;
             }
             self.events.append(event1) catch unreachable;
@@ -725,16 +743,20 @@ pub const Tessellator = struct {
 
             // Insert new sweep_edge_b end event.
             const evt_idx = @intCast(u32, self.events.items.len);
-            var new_evt = Event.init(intersect_idx, first_edge, self.verts.items);
+            var new_evt = Event.init(intersect_v, first_edge, .End);
             self.events.append(new_evt) catch unreachable;
             self.event_q.add(evt_idx) catch unreachable;
 
             // Insert start/end event from the intersect to the end of the original sweep_edge_b.
-            var event1 = Event.init(intersect_idx, second_edge, self.verts.items);
-            var event2 = Event.init(b_orig_to_vert, second_edge, self.verts.items);
-            if (event1.tag == .Start) {
+            var event1: Event = undefined;
+            var event2: Event = undefined;
+            if (Event.isStartEvent(intersect_idx, second_edge, self.verts.items)) {
+                event1 = Event.init(intersect_v, second_edge, .Start);
+                event2 = Event.init(self.verts.items[b_orig_to_vert], second_edge, .End);
                 event1.end_event_idx = evt_idx + 2;
             } else {
+                event1 = Event.init(intersect_v, second_edge, .End);
+                event2 = Event.init(self.verts.items[b_orig_to_vert], second_edge, .Start);
                 event2.end_event_idx = evt_idx + 1;
             }
             self.events.append(event1) catch unreachable;
@@ -936,38 +958,44 @@ const Event = struct {
     /// this flag is used to invalid an existing end event.
     invalidated: bool,
 
-    fn init(vert_idx: u16, edge: Edge, verts: []const InternalVertex) Self {
-        const vert = verts[vert_idx];
+    fn init(vert: InternalVertex, edge: Edge, tag: EventTag) Self {
         var new = Self{
-            .vert_idx = vert_idx,
+            .vert_idx = vert.idx,
             .vert_x = vert.pos.x,
             .vert_y = vert.pos.y,
             .edge = edge,
-            .tag = undefined,
+            .tag = tag,
             .to_vert_idx = undefined,
             .end_event_idx = std.math.maxInt(u32),
             .invalidated = false,
         };
+        if (edge.start_idx == vert.idx) {
+            new.to_vert_idx = edge.end_idx;
+        } else {
+            new.to_vert_idx = edge.start_idx;
+        }
+        return new;
+    }
+
+    fn isStartEvent(vert_idx: u16, edge: Edge, verts: []const InternalVertex) bool {
+        const vert = verts[vert_idx];
         // The start and end vertex of an edge is not to be confused with the EventType.
         // It is used to determine if the edge is above or below the vertex point.
         if (edge.start_idx == vert_idx) {
-            new.to_vert_idx = edge.end_idx;
             const end_v = verts[edge.end_idx];
             if (end_v.pos.y < vert.pos.y or (end_v.pos.y == vert.pos.y and end_v.pos.x < vert.pos.x)) {
-                new.tag = .End;
+                return false;
             } else {
-                new.tag = .Start;
+                return true;
             }
         } else {
-            new.to_vert_idx = edge.start_idx;
             const start_v = verts[edge.start_idx];
             if (start_v.pos.y < vert.pos.y or (start_v.pos.y == vert.pos.y and start_v.pos.x < vert.pos.x)) {
-                new.tag = .End;
+                return false;
             } else {
-                new.tag = .Start;
+                return true;
             }
         }
-        return new;
     }
 };
 
@@ -1182,6 +1210,22 @@ const IntersectResult = struct {
         };
     }
 };
+
+/// Just check triangle count.
+/// TODO: Verify all triangles take up the entire space.
+fn testLarge(polygon: []const f32, exp_tri_count: u32) !void {
+    var polygon_buf = std.ArrayList(Vec2).init(t.alloc);
+    defer polygon_buf.deinit();
+    var i: u32 = 0;
+    while (i < polygon.len) : (i += 2) {
+        polygon_buf.append(vec2(polygon[i], polygon[i+1])) catch unreachable;
+    }
+    var tessellator: Tessellator = undefined;
+    tessellator.init(t.alloc);
+    defer tessellator.deinit();
+    tessellator.triangulatePolygon(polygon_buf.items);
+    try t.eq(tessellator.out_idxes.items.len/3, exp_tri_count);
+}
 
 fn testSimple(polygon: []const f32, exp_verts: []const f32, exp_idxes: []const u16) !void {
     var polygon_buf = std.ArrayList(Vec2).init(t.alloc);
@@ -1620,6 +1664,13 @@ test "Rectangle with bottom-left wedge." {
         3, 1, 2,
         4, 1, 3,
     });
+}
+
+// Test points that are close to each other with higher precision.
+test "Tiger whisker." {
+    try testLarge(&.{
+        -109.01000, 110.07000,-109.01000, 110.07000,-108.34000, 111.97000,-108.34000, 111.97000,-123.56751, 104.91863,-141.35422, 98.68091,-153.21875, 96.99554,-161.26077, 98.11440,-166.87000, 101.68000,-166.87000, 101.68000,-163.45908, 98.55489,-156.28145, 96.28941,-145.48354, 96.58372,-130.09291, 100.65533,-109.00999, 110.07000
+    }, 9);
 }
 
 pub const DebugTriangulateStepResult = struct {
