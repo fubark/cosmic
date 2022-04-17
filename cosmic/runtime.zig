@@ -1036,6 +1036,7 @@ pub const RuntimeContext = struct {
             void => return self.js_undefined.handle,
             i16 => return iso.initIntegerI32(native_val).handle,
             u8 => return iso.initIntegerU32(native_val).handle,
+            u16 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
             F64SafeUint => return iso.initNumber(@intToFloat(f64, native_val)).handle,
             u64 => return iso.initBigIntU64(native_val).handle,
@@ -1483,23 +1484,6 @@ pub fn ctLower(comptime str: []const u8) []const u8 {
     };
 }
 
-/// A slice that knows how to deinit itself and it's items.
-pub fn ManagedSlice(comptime T: type) type {
-    return struct {
-        pub const ManagedSlice = true;
-
-        alloc: std.mem.Allocator,
-        slice: []const T,
-
-        pub fn deinit(self: @This()) void {
-            for (self.slice) |it| {
-                it.deinit(self.alloc);
-            }
-            self.alloc.free(self.slice);
-        }
-    };
-}
-
 /// To be converted to v8.Uint8Array.
 pub const Uint8Array =  struct {
     buf: []const u8,
@@ -1508,24 +1492,6 @@ pub const Uint8Array =  struct {
         alloc.free(self.buf);
     }
 };
-
-/// A struct that knows how to deinit itself.
-pub fn ManagedStruct(comptime T: type) type {
-    return struct {
-        pub const ManagedStruct = true;
-
-        alloc: std.mem.Allocator,
-        val: T,
-
-        pub fn init(alloc: std.mem.Allocator, val: T) @This() {
-            return .{ .alloc = alloc, .val = val };
-        }
-
-        pub fn deinit(self: @This()) void {
-            self.val.deinit(self.alloc);
-        }
-    };
-}
 
 var galloc: std.mem.Allocator = undefined;
 var uncaught_promise_errors: std.AutoHashMap(u32, []const u8) = undefined;

@@ -11,10 +11,12 @@ const v8 = @import("v8");
 const runtime = @import("runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
 const adapter = @import("adapter.zig");
+const ManagedStruct = adapter.ManagedStruct;
 const This = adapter.This;
 const Handle = adapter.Handle;
 const RuntimeValue = runtime.RuntimeValue;
 const v8x = @import("v8x.zig");
+
 const log = stdx.log.scoped(.api_graphics);
 
 /// @title Graphics
