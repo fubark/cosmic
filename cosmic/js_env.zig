@@ -441,6 +441,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
     ctx.setConstProp(cs, "audio", cs_audio);
 
+    if (rt.dev_mode) {
+        // cs.dev
+        const cs_dev = iso.initObjectTemplateDefault();
+        ctx.setConstFuncT(cs_dev, "hideHud", api.cs_dev.hideHud);
+        ctx.setConstFuncT(cs_dev, "showHud", api.cs_dev.showHud);
+        ctx.setConstProp(cs, "dev", cs_dev);
+    }
+
     // cs.core
     const cs_core = iso.initObjectTemplateDefault();
     ctx.setConstFuncT(cs_core, "getCliArgs", api.cs_core.getCliArgs);

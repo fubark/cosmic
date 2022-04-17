@@ -45,6 +45,8 @@ pub const DevModeContext = struct {
     // The flag is also used during restart to prevent some things from deiniting in order to persist them into the next session.
     restart_requested: bool,
 
+    show_hud: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, opts: DevModeOptions) void {
         self.* = .{
             .alloc = alloc,
@@ -57,6 +59,7 @@ pub const DevModeContext = struct {
             .opts = opts,
             .has_error = false,
             .restart_requested = false,
+            .show_hud = true,
         };
     }
 
@@ -391,6 +394,10 @@ const StdioLineItem = struct {
 };
 
 pub fn renderDevHud(rt: *RuntimeContext, w: *CsWindow) void {
+    if (!rt.dev_ctx.show_hud) {
+        return;
+    }
+
     const g = w.graphics;
     _ = @intToFloat(f32, w.window.inner.width);
     const height = @intToFloat(f32, w.window.inner.height);

@@ -2213,3 +2213,14 @@ fn dupeArgs(alloc: std.mem.Allocator, comptime Func: anytype, args: anytype) std
     }
     return res;
 }
+
+pub const cs_dev = struct {
+
+    pub fn hideHud(rt: *RuntimeContext) void {
+        rt.dev_ctx.show_hud = false;
+    }
+
+    pub fn showHud(rt: *RuntimeContext) void {
+        rt.dev_ctx.show_hud = true;
+    }
+};
