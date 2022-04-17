@@ -127,6 +127,8 @@ pub const Tessellator = struct {
             .has_result = true,
             .event = self.events.items[e_id],
             .sweep_edges = self.sweep_edges.allocValuesInOrder(alloc),
+            .out_verts = alloc.dupe(Vec2, self.out_verts.items) catch unreachable,
+            .out_idxes = alloc.dupe(u16, self.out_idxes.items) catch unreachable,
         };
     }
 
@@ -274,36 +276,57 @@ pub const Tessellator = struct {
 
                         const left_left_id = sweep_edges.getPrev(mb_left_id.?).?;
                         const left_left = sweep_edges.getPtrNoCheck(left_left_id);
+                        log("handle bad down cusp {}", .{left_left.lowest_right_vert_idx});
                         if (left_left.lowest_right_vert_idx == NullId) {
                             log("expected lowest right vert", .{});
                             unreachable;
                         }
 
-                        const mono_right_side = sweep_edges.getNoCheck(left_left.lowest_right_vert_sweep_edge_id);
+                        const low_poly_edge = sweep_edges.getPtrNoCheck(left_left.lowest_right_vert_sweep_edge_id);
+                        if (left_left_id == left_left.lowest_right_vert_sweep_edge_id) {
+                            // Lowest right point does NOT have a right side monotone polygon.
 
-                        if (left_left.bad_up_cusp_uniq_idx == left.start_event_vert_uniq_idx) {
-                            left_left.bad_up_cusp_uniq_idx = NullId;
-                        }
+                            if (left_left.lowest_right_vert_idx == left_left.vert_idx) {
+                                // Pass on the vertex queue.
+                                new.deferred_queue = low_poly_edge.deferred_queue;
+                                new.deferred_queue_size = low_poly_edge.deferred_queue_size;
+                                new.cur_side = low_poly_edge.cur_side;
 
-                        // Once connected, the right side monotone polygon will continue the existing vertex queue of the connected point.
-                        new.deferred_queue = mono_right_side.deferred_queue;
-                        new.deferred_queue_size = mono_right_side.deferred_queue_size;
-                        new.cur_side = mono_right_side.cur_side;
+                                self.triangulateLeftStep(new, vert);
 
-                        // If the right side polygon queue is the same as the left side polygon queue, the left queue is reset to the separation vertex and the bad cusp vertex.
-                        if (left_left.deferred_queue == new.deferred_queue) {
-                            left_left.deferred_queue = NullId;
-                            left_left.deferred_queue_size = 0;
-                            left_left.cur_side = .Right;
-                            const mono_vert = self.verts.items[left_left.lowest_right_vert_idx];
-                            left_left.enqueueDeferred(mono_vert, self);
-                            if (vert.out_idx != mono_vert.out_idx) {
-                                left_left.enqueueDeferred(vert, self);
+                                // Cut off the existing left monotone polygon. 
+                                left_left.deferred_queue = NullId;
+                                left_left.deferred_queue_size = 0;
+                                left_left.cur_side = .Right;
+                                left_left.enqueueDeferred(self.verts.items[left_left.lowest_right_vert_idx], self);
+                                if (vert.out_idx != self.verts.items[left_left.lowest_right_vert_idx].out_idx) {
+                                    left_left.enqueueDeferred(vert, self);
+                                }
+                            } else {
+                                // Initialize a new right side monotone polygon.
+                                new.enqueueDeferred(self.verts.items[left_left.lowest_right_vert_idx], self);
+                                new.enqueueDeferred(vert, self);
+                                new.cur_side = .Left;
+
+                                // Triangulate on the monotone polygon to the left of the lowest right point.
+                                self.triangulateRightStep(left_left, vert);
                             }
-                        }
+                        } else {
+                            // Lowest right point does have a right side monotone polygon.
 
-                        // Right side needs to run left triangulate step since there is no end event for this vertex.
-                        self.triangulateLeftStep(new, vert);
+                            // Most likely a bad up cusp as well, so reset it since connecting to the lowest right fixes it.
+                            left_left.bad_up_cusp_uniq_idx = NullId;
+
+                            self.triangulateLeftStep(low_poly_edge, vert);
+
+                            // Pass on the vertex queue.
+                            new.deferred_queue = low_poly_edge.deferred_queue;
+                            new.deferred_queue_size = low_poly_edge.deferred_queue_size;
+                            new.cur_side = low_poly_edge.cur_side;
+
+                            // Triangulate on the monotone polygon to the left of the lowest right point.
+                            self.triangulateRightStep(left_left, vert);
+                        }
                     }
                 }
             }
@@ -354,12 +377,12 @@ pub const Tessellator = struct {
                 const left_id = sweep_edges.getPrev(active_id).?;
                 const left = sweep_edges.getPtrNoCheck(left_id);
 
-
                 // Check if it has closed the polygon. (up cusp)
                 if (vert.out_idx == left.end_event_vert_uniq_idx) {
                     // Check for bad up cusp.
                     if (left.bad_up_cusp_uniq_idx != NullId) {
                         const bad_right = sweep_edges.getPtrNoCheck(left.bad_up_cusp_right_sweep_edge_id);
+                        // Close off monotone polygon to the right of the bad up cusp.
                         self.triangulateLeftStep(bad_right, vert);
                         sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
                         left.bad_up_cusp_uniq_idx = NullId; 
@@ -379,6 +402,23 @@ pub const Tessellator = struct {
                     sweep_edges.remove(active_id) catch unreachable;
                 } else {
                     // Regular right side vertex.
+
+                    // Check for bad up cusp.
+                    if (left.bad_up_cusp_uniq_idx != NullId) {
+                        const bad_right = sweep_edges.getPtrNoCheck(left.bad_up_cusp_right_sweep_edge_id);
+                        // Close off monotone polygon to the right of the bad up cusp.
+                        self.triangulateRightStep(bad_right, vert);
+                        left.lowest_right_vert_idx = vert.idx;
+                        left.lowest_right_vert_sweep_edge_id = left_id;
+                        sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
+                        left.bad_up_cusp_uniq_idx = NullId;
+                        if (bad_right.deferred_queue_size >= 3) {
+                            log("{any}", .{self.out_idxes.items});
+                            bad_right.dumpQueue(self);
+                            stdx.panic("did not expect left over vertices");
+                        }
+                    }
+                    // Left belongs to the same monotone polygon.
                     self.triangulateRightStep(left, vert);
 
                     // Edge is only removed by the next connecting edge.
@@ -1697,12 +1737,23 @@ test "Tiger whisker." {
     }, 9);
 }
 
+// Tests zig zag shape.
+test "Tiger part." {
+    try testLarge(&.{
+        -54.20, 176.40,-54.20, 176.40,-51.54, 180.01,-50.04, 187.53,-51.51, 198.82,-57.40, 214.80,-51.00, 212.40,-51.00, 212.40,-52.75, 222.12,-55.00, 226.00,-47.80, 222.80,-47.80, 222.80,-45.85, 227.62,-45.49, 232.20,-47.00, 235.60,-47.00, 235.60,-37.04, 241.57,-32.01, 246.52,-31.00, 250.00,-31.00, 250.00,-28.25, 245.06,-27.27, 239.91,-28.60, 235.60,-28.60, 235.60,-32.06, 232.22,-36.59, 228.60,-38.53, 223.88,-39.00, 214.80,-47.80, 218.00,-47.80, 218.00,-43.55, 209.33,-42.20, 202.80,-50.20, 205.20,-50.20, 205.20,-43.67, 191.40,-41.68, 182.92,-42.47, 178.91,-45.40, 177.20,-45.40, 177.20,-53.55, 176.38,-54.20, 176.40
+    }, 29);
+}
+
 pub const DebugTriangulateStepResult = struct {
     has_result: bool,
     sweep_edges: []const SweepEdge,
     event: Event,
+    out_verts: []const Vec2,
+    out_idxes: []const u16,
 
     pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
         alloc.free(self.sweep_edges);
+        alloc.free(self.out_verts);
+        alloc.free(self.out_idxes);
     }
 };
