@@ -12,6 +12,7 @@ const Color = enum(u1) {
 /// Based on Zig's rb node pointer based implementation:
 /// https://github.com/ziglang/std-lib-orphanage/blob/master/std/rb.zig
 /// Deletion logic was redone from https://www.youtube.com/watch?v=CTvfzU_uNKE as guidance.
+/// Correction for case 5 in the video: it should not have a parent black condition.
 /// Visualize: https://www.cs.usfca.edu/~galles/visualization/RedBlack.html
 pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, comptime Compare: fn (Value, Value, Context) std.math.Order) type {
     return struct {
@@ -341,7 +342,7 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
                 }
             }
 
-            if (parent.color == .Black and sibling.color == .Black) {
+            if (sibling.color == .Black) {
                 // Case 5: parent is black, right sibling is black, sibling has red left child and black right child.
                 if (is_right_sibling and s_left != null and s_left.?.color == .Red and s_right_black) {
                     self.rotateRight(s_id, sibling);
@@ -360,9 +361,6 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
                     self.detachFixUp(node_id, parent_id);
                     return;
                 }
-            }
-
-            if (sibling.color == .Black) {
                 // Case 6: right sibling with red right child.
                 if (is_right_sibling and s_right != null and s_right.?.color == .Red) {
                     self.rotateLeft(parent_id, parent);
@@ -626,6 +624,105 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
                     return null;
                 }
             }
+        }
+
+        /// Checks whether the tree is a valid red black tree.
+        pub fn isValid(self: Self) bool {
+            if (self.root == NullId) {
+                return true;
+            }
+            const root = self.buf.getNoCheck(self.root);
+            if (root.color != .Black) {
+                return false;
+            }
+            var black_cnt: u32 = undefined;
+            return self.isValid2(self.root, &black_cnt);
+        }
+
+        fn isValid2(self: Self, id: OptId, out_black_cnt: *u32) bool {
+            if (id == NullId) {
+                out_black_cnt.* = 1;
+                return true;
+            }
+            const node = self.buf.getNoCheck(id);
+            if (node.color == .Red) {
+                // Red node. Both children must be black.
+                if (node.left != NullId) {
+                    const left = self.buf.getNoCheck(node.left);
+                    if (left.color != .Black) {
+                        return false;
+                    }
+                }
+                if (node.right != NullId) {
+                    const right = self.buf.getNoCheck(node.right);
+                    if (right.color != .Black) {
+                        return false;
+                    }
+                }
+            }
+            var left_black_cnt: u32 = undefined;
+            if (!self.isValid2(node.left, &left_black_cnt)) {
+                return false;
+            }
+            var right_black_cnt: u32 = undefined;
+            if (!self.isValid2(node.right, &right_black_cnt)) {
+                return false;
+            }
+            if (left_black_cnt != right_black_cnt) {
+                return false;
+            }
+            if (node.color == .Black) {
+                out_black_cnt.* = left_black_cnt + 1;
+            } else {
+                out_black_cnt.* = left_black_cnt;
+            }
+            return true;
+        }
+
+        fn dump(self: Self) void {
+            self.dump2(self.root);
+        }
+
+        fn dump2(self: Self, id: Id) void {
+            if (id == NullId) {
+                return;
+            }
+            const node = self.buf.getNoCheck(id);
+            log.debug("{}-{} -> {} {}", .{id, node.color, node.left, node.right});
+            self.dump2(node.left);
+            self.dump2(node.right);
+        }
+
+        fn insertDetached(self: *Self, val: Value, color: Color) !Id {
+            return try self.buf.add(.{
+                .left = NullId,
+                .right = NullId,
+                .color = color,
+                .parent = NullId,
+                .val = val,
+            });
+        }
+
+        fn attachLeft(self: *Self, attached_parent: Id, detached: Id) !void {
+            const parent = self.buf.getPtrNoCheck(attached_parent);
+            if (parent.left != NullId) {
+                return error.CantAttach;
+            }
+            parent.left = detached;
+            const left = self.buf.getPtrNoCheck(detached);
+            left.parent = attached_parent;
+            self.size += 1;
+        }
+
+        fn attachRight(self: *Self, attached_parent: Id, detached: Id) !void {
+            const parent = self.buf.getPtrNoCheck(attached_parent);
+            if (parent.right != NullId) {
+                return error.CantAttach;
+            }
+            parent.right = detached;
+            const right = self.buf.getPtrNoCheck(detached);
+            right.parent = attached_parent;
+            self.size += 1;
         }
     };
 }
@@ -1054,6 +1151,33 @@ test "Remove non-root with double black case: Left sibling is black, and sibling
     const node_ids = tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ d, b, a });
+}
+
+test "Remove non-root case 5: parent is red, right sibling is black, sibling's left child is red, sibling's right child is black." {
+    var tree = initTestTree();
+    defer tree.deinit();
+
+    const a = try tree.insert(10);
+    const b = try tree.insertDetached(10, .Red);
+    const c = try tree.insertDetached(10, .Black);
+    const d = try tree.insertDetached(10, .Black);
+    const e = try tree.insertDetached(10, .Black);
+    const f = try tree.insertDetached(10, .Red);
+    try tree.attachLeft(a, b);
+    try tree.attachRight(a, c);
+    try tree.attachLeft(b, d);
+    try tree.attachRight(b, e);
+    try tree.attachLeft(e, f);
+    try t.eq(tree.isValid(), true);
+
+    t.setLogLevel(.debug);
+
+    try tree.remove(d);
+    tree.dump();
+    try t.eq(tree.isValid(), true);
+    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    defer t.alloc.free(node_ids);
+    try t.eqSlice(TestId, node_ids, &.{ b, f, e, a, c });
 }
 
 test "Remove non-root with double black case: Parent is black, right sibling is red, sibling's children are black" {
