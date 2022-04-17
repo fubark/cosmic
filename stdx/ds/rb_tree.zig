@@ -430,11 +430,19 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
                         // Case #5, parent is red, parent sibling is black, node is inner grandchild. Rotate left first.
                         if (node_id == parent.right) {
                             self.rotateLeft(parent_id, parent);
-                            parent = node; // Just rotated
+                            // Make sure reattached right is black since parent is red.
+                            if (parent.right != NullId) {
+                                self.buf.getPtrNoCheck(parent.right).color = .Black;
+                            }
+                            parent = node;
                         }
                         parent.color = .Black;
                         grandpa.color = .Red;
                         self.rotateRight(grandpa_id, grandpa);
+                        // Make sure reattached left is black since grandpa is red.
+                        if (grandpa.left != NullId) {
+                            self.buf.getPtrNoCheck(grandpa.left).color = .Black;
+                        }
                     } else {
                         // parent and parent sibling are both red. Set both to black, and grand parent to red.
                         parent.color = .Black;
@@ -449,11 +457,19 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
                         // Case #5, parent is red, parent sibling is black, node is inner grandchild. Rotate right first.
                         if (node_id == parent.left) {
                             self.rotateRight(parent_id, parent);
-                            parent = node; // Just rotated
+                            // Make sure reattached left is black since parent is red.
+                            if (parent.left != NullId) {
+                                self.buf.getPtrNoCheck(parent.left).color = .Black;
+                            }
+                            parent = node;
                         }
                         parent.color = .Black;
                         grandpa.color = .Red;
                         self.rotateLeft(grandpa_id, grandpa);
+                        // Make sure reattached right is black since grandpa is red.
+                        if (grandpa.right != NullId) {
+                            self.buf.getPtrNoCheck(grandpa.right).color = .Black;
+                        }
                     } else {
                         // parent and parent sibling are both red. Set both to black, and grand parent to red.
                         parent.color = .Black;
@@ -757,6 +773,33 @@ test "getNext, getPrev" {
     try t.eq(tree.getPrev(b), null);
     try t.eq(tree.getPrev(a).?, b);
     try t.eq(tree.getPrev(c).?, a);
+}
+
+test "Insert where rotations need to set reattached nodes to black." {
+    var tree = initTestTree();
+    defer tree.deinit();
+
+    const a = try tree.insert(10);
+    const b = try tree.insertDetached(9, .Black);
+    const c = try tree.insertDetached(20, .Red);
+    const d = try tree.insertDetached(8, .Red);
+    const e = try tree.insertDetached(19, .Black);
+    const f = try tree.insertDetached(21, .Black);
+    const g = try tree.insertDetached(17, .Red);
+    try tree.attachLeft(a, b);
+    try tree.attachRight(a, c);
+    try tree.attachLeft(b, d);
+    try tree.attachLeft(c, e);
+    try tree.attachRight(c, f);
+    try tree.attachLeft(e, g);
+    try t.eq(tree.isValid(), true);
+
+    const h = try tree.insert(18);
+    try t.eq(tree.isValid(), true);
+
+    const vals = tree.allocNodeIdsInOrder(t.alloc);
+    defer t.alloc.free(vals);
+    try t.eqSlice(TestId, vals, &.{ d, b, a, g, h, e, c, f });
 }
 
 test "Insert case #1: current node parent is black" {
