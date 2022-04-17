@@ -168,7 +168,7 @@ pub const Tessellator = struct {
 
             log("start new sweep edge {}", .{new_id});
 
-            const mb_left_id = sweep_edges.getPrev(new_id);
+            var mb_left_id = sweep_edges.getPrev(new_id);
             // Update winding based on what is to the left.
             if (mb_left_id == null) {
                 new.interior_is_left = false;
@@ -222,31 +222,6 @@ pub const Tessellator = struct {
                 } else if (left.start_event_vert_uniq_idx == e_vert_out_idx) {
                     // Down cusp.
                     log("DOWN CUSP", .{});
-
-                    const mb_right_id = sweep_edges.getNext(new_id);
-
-                    if (mb_right_id != null) {
-                        // Check for intersection with the edge to the right.
-                        log("check right intersect", .{});
-
-                        // TODO: Is there a preliminary check to avoid doing the math? One idea is to check the x_slopes but it would need to know
-                        // if the compared edge is pointing down or up.
-                        const right = sweep_edges.getPtrNoCheck(mb_right_id.?);
-                        const res = computeTwoEdgeIntersect(e.edge, right.edge);
-                        if (res.has_intersect) {
-                            self.handleIntersectForStartEvent(new, right, res, vec2(e.vert_x, e.vert_y));
-                        }
-                    }
-                    const mb_left_left_id = sweep_edges.getPrev(mb_left_id.?);
-                    if (mb_left_left_id != null) {
-                        log("check left intersect", .{});
-                        const left_left = sweep_edges.getPtrNoCheck(mb_left_left_id.?);
-                        const res = computeTwoEdgeIntersect(left.edge, left_left.edge);
-                        // dump(edgeToString(left_left_edge.edge))
-                        if (res.has_intersect) {
-                            self.handleIntersectForStartEvent(left, left_left, res, vec2(e.vert_x, e.vert_y));
-                        }
-                    }
                 }
             } else {
                 log("initially interior to the right", .{});
@@ -351,6 +326,31 @@ pub const Tessellator = struct {
                 new.lowest_right_vert_sweep_edge_id = new_id;
             } else {
                 // Interior is to the left.
+            }
+
+            // Check intersection with the left. Fetch left again since it could be removed from an up cusp.
+            mb_left_id = sweep_edges.getPrev(new_id);
+            if (mb_left_id != null) {
+                log("check left intersect", .{});
+                var left = sweep_edges.getPtrNoCheck(mb_left_id.?);
+                const res = computeTwoEdgeIntersect(new.edge, left.edge);
+                log("{},{}->{},{} {},{}->{},{} {} {}", .{new.edge.start_pos.x, new.edge.start_pos.y, new.edge.end_pos.x, new.edge.end_pos.y, left.edge.start_pos.x, left.edge.start_pos.y, left.edge.end_pos.x, left.edge.end_pos.y, res.has_intersect, res.t});
+                if (res.has_intersect and res.t > 0 and res.t < 1) {
+                    self.handleIntersectForStartEvent(new, left, res, vec2(e.vert_x, e.vert_y));
+                }
+            }
+            const mb_right_id = sweep_edges.getNext(new_id);
+            if (mb_right_id != null) {
+                // Check for intersection with the edge to the right.
+                log("check right intersect", .{});
+
+                // TODO: Is there a preliminary check to avoid doing the math? One idea is to check the x_slopes but it would need to know
+                // if the compared edge is pointing down or up.
+                const right = sweep_edges.getPtrNoCheck(mb_right_id.?);
+                const res = computeTwoEdgeIntersect(new.edge, right.edge);
+                if (res.has_intersect and res.t > 0 and res.t < 1) {
+                    self.handleIntersectForStartEvent(new, right, res, vec2(e.vert_x, e.vert_y));
+                }
             }
         } else {
             // End event.
@@ -1742,6 +1742,12 @@ test "Tiger part." {
     try testLarge(&.{
         -54.20, 176.40,-54.20, 176.40,-51.54, 180.01,-50.04, 187.53,-51.51, 198.82,-57.40, 214.80,-51.00, 212.40,-51.00, 212.40,-52.75, 222.12,-55.00, 226.00,-47.80, 222.80,-47.80, 222.80,-45.85, 227.62,-45.49, 232.20,-47.00, 235.60,-47.00, 235.60,-37.04, 241.57,-32.01, 246.52,-31.00, 250.00,-31.00, 250.00,-28.25, 245.06,-27.27, 239.91,-28.60, 235.60,-28.60, 235.60,-32.06, 232.22,-36.59, 228.60,-38.53, 223.88,-39.00, 214.80,-47.80, 218.00,-47.80, 218.00,-43.55, 209.33,-42.20, 202.80,-50.20, 205.20,-50.20, 205.20,-43.67, 191.40,-41.68, 182.92,-42.47, 178.91,-45.40, 177.20,-45.40, 177.20,-53.55, 176.38,-54.20, 176.40
     }, 29);
+}
+
+test "Tiger whisker #2." {
+    try testLarge(&.{
+        50.60, 84.00,50.60, 84.00,36.68, 72.16,27.20, 65.81,22.20, 64.00,22.20, 64.00,7.18, 63.89,-7.84, 66.44,-19.01, 71.16,-27.00, 78.00,-27.00, 78.00,-18.60, 70.90,-7.02, 64.99,5.17, 62.33,18.20, 63.20,18.20, 63.20,4.15, 61.23,-7.70, 60.89,-15.80, 62.00,-42.20, 76.00,-45.00, 80.80,-45.00, 80.80,-42.44, 75.17,-37.28, 68.75,-31.28, 64.00,-22.60, 60.00,-22.60, 60.00,-7.92, 58.05,3.78, 58.19,11.00, 60.00,11.00, 60.00,-3.17, 56.40,-14.12, 54.88,-20.60, 55.20,-20.60, 55.20,-30.04, 55.69,-41.27, 58.57,-50.82, 63.73,-57.83, 70.06,-63.80, 79.20,-63.80, 79.20,-60.27, 71.59,-53.70, 63.52,-45.00, 57.60,-45.00, 57.60,-36.54, 53.82,-24.25, 51.26,-11.00, 51.60,-11.00, 51.60,2.14, 54.95,8.60, 57.20,8.60, 57.20,11.58, 58.03,11.26, 56.98,4.20, 52.00,4.20, 52.00,0.05, 47.36,-6.79, 43.57,-15.40, 42.40,-15.40, 42.40,-36.18, 45.32,-52.83, 49.44,-63.12, 53.75,-68.60, 58.00,-68.60, 58.00,-54.94, 48.57,-44.60, 44.00,-44.60, 44.00,-23.74, 37.92,-13.80, 36.80,-13.80, 36.80,8.76, 36.15,18.60, 33.80,18.60, 33.80,12.30, 37.54,10.11, 40.15,10.60, 42.00,10.60, 42.00,18.76, 51.11,20.60, 54.00,20.60, 54.00,28.20, 61.89,48.40, 81.70,50.60, 84.00
+    }, 60);
 }
 
 pub const DebugTriangulateStepResult = struct {
