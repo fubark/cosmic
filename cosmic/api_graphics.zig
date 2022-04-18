@@ -579,3 +579,7 @@ pub fn debugTriangulateProcessNext(rt: *RuntimeContext, g: *Graphics) ?ManagedSt
     const res = g.g.tessellator.debugProcessNext(rt.alloc) orelse return null;
     return ManagedStruct(graphics.tessellator.DebugTriangulateStepResult).init(rt.alloc, res);
 }
+
+pub fn executeDrawListLyon(g: *Graphics, list: Handle(.DrawCommandList)) void {
+    g.executeDrawListLyon(list.ptr.*);
+}

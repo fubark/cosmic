@@ -49,10 +49,12 @@ pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
     const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
+    const include_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
     build_options.addOption([]const u8, "VersionName", getVersionString(is_official_build));
+    build_options.addOption(bool, "has_lyon", include_lyon);
 
     b.verbose = PrintCommands;
 

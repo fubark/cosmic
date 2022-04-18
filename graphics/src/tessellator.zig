@@ -15,7 +15,7 @@ const NullId = stdx.ds.CompactNull(DeferredVertexNodeId);
 
 const EventQueue = std.PriorityQueue(u32, *std.ArrayList(Event), compareEventIdx);
 
-const debug = true and builtin.mode == .Debug;
+const debug = false and builtin.mode == .Debug;
 
 pub fn log(comptime format: []const u8, args: anytype) void {
     if (debug) {

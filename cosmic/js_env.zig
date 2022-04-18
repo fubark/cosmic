@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
@@ -169,6 +170,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         if (builtin.mode == .Debug) {
             ctx.setConstFuncT(proto, "debugTriangulatePolygon", cs_graphics_pkg.debugTriangulatePolygon);
             ctx.setConstFuncT(proto, "debugTriangulateProcessNext", cs_graphics_pkg.debugTriangulateProcessNext);
+        }
+        if (build_options.has_lyon) {
+            ctx.setConstFuncT(proto, "executeDrawListLyon", cs_graphics_pkg.executeDrawListLyon);
         }
     }
     rt.graphics_class = graphics_class;
