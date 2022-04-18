@@ -472,18 +472,22 @@ pub const Graphics = struct {
                     self.setFillColor(Color.fromU32(cmd.rgba));
                 },
                 .FillPolygon => {
-                    const cmd = list.getCommand(.FillPolygon, ptr);
-                    const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
-                    self.g.fillPolygonLyon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                    if (Backend == .OpenGL) {
+                        const cmd = list.getCommand(.FillPolygon, ptr);
+                        const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
+                        self.g.fillPolygonLyon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                    }
                 },
                 .FillPath => {
-                    const cmd = list.getCommand(.FillPath, ptr);
-                    var end = cmd.start_path_cmd_id + cmd.num_cmds;
-                    self.g.fillSvgPathLyon(0, 0, &SvgPath{
-                        .alloc = null,
-                        .data = list.extra_data[cmd.start_data_id..],
-                        .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
-                    });
+                    if (Backend == .OpenGL) {
+                        const cmd = list.getCommand(.FillPath, ptr);
+                        var end = cmd.start_path_cmd_id + cmd.num_cmds;
+                        self.g.fillSvgPathLyon(0, 0, &SvgPath{
+                            .alloc = null,
+                            .data = list.extra_data[cmd.start_data_id..],
+                            .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
+                        });
+                    }
                 },
                 .FillRect => {
                     const cmd = list.getCommand(.FillRect, ptr);

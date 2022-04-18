@@ -49,7 +49,7 @@ pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
     const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
-    const include_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse false;
+    const include_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse true;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
@@ -85,6 +85,7 @@ pub fn build(b: *Builder) !void {
         .link_audio = audio,
         .link_v8 = v8,
         .link_net = net,
+        .link_lyon = include_lyon,
         .link_mock = false,
         .static_link = static_link,
         .path = path,
@@ -135,6 +136,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = true,
             .link_graphics = true,
+            .link_lyon = include_lyon,
             .link_audio = true,
             .link_v8 = true,
             .link_mock = false,
@@ -206,6 +208,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = false,
             .link_graphics = false,
+            .link_lyon = false,
             .link_audio = false,
             .link_v8 = false,
             .link_mock = true,
@@ -231,6 +234,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = true,
             .link_graphics = true,
+            .link_lyon = include_lyon,
             .link_audio = true,
             .link_v8 = true,
             .link_mock = false,
@@ -262,6 +266,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = true,
             .link_graphics = true,
+            .link_lyon = include_lyon,
             .link_audio = true,
             .link_v8 = true,
             .link_mock = false,
@@ -291,6 +296,7 @@ pub fn build(b: *Builder) !void {
             .enable_tracy = tracy,
             .link_net = true,
             .link_graphics = true,
+            .link_lyon = include_lyon,
             .link_audio = true,
             .link_v8 = true,
             .link_mock = false,
@@ -332,6 +338,7 @@ const BuilderContext = struct {
     filter: []const u8,
     enable_tracy: bool,
     link_graphics: bool,
+    link_lyon: bool,
     link_audio: bool,
     link_v8: bool,
     link_net: bool,
@@ -365,7 +372,7 @@ const BuilderContext = struct {
 
         addStdx(step, build_options);
         addInput(step);
-        addGraphics(step);
+        self.addGraphics(step);
         self.addDeps(step) catch unreachable;
 
         return step;
@@ -390,7 +397,7 @@ const BuilderContext = struct {
         step.setOutputDir(output_dir);
 
         addStdx(step, build_options);
-        addGraphics(step);
+        self.addGraphics(step);
         self.addDeps(step) catch unreachable;
         self.copyAssets(step, output_dir_rel);
 
@@ -452,7 +459,7 @@ const BuilderContext = struct {
         exe.addPackage(build_options);
         addStdx(exe, build_options);
         addInput(exe);
-        addGraphics(exe);
+        self.addGraphics(exe);
         self.addDeps(exe) catch unreachable;
 
         _ = self.addInstallArtifact(exe);
@@ -470,7 +477,7 @@ const BuilderContext = struct {
         const build_options = self.buildOptionsPkg();
         addStdx(step, build_options);
         addCommon(step);
-        addGraphics(step);
+        self.addGraphics(step);
         addInput(step);
         self.addDeps(step) catch unreachable;
 
@@ -489,7 +496,7 @@ const BuilderContext = struct {
         const build_options = self.buildOptionsPkg();
         addStdx(step, build_options);
         addCommon(step);
-        addGraphics(step);
+        self.addGraphics(step);
         addInput(step);
 
         // Add external lib headers but link with mock lib.
@@ -528,7 +535,7 @@ const BuilderContext = struct {
         addStbtt(step);
         addGL(step);
         addMiniaudio(step);
-        addLyon(step);
+        addLyon(step, self.link_lyon);
         addStbi(step);
         if (self.target.getOsTag() == .macos) {
             self.buildLinkMacSys(step);
@@ -542,7 +549,9 @@ const BuilderContext = struct {
             buildLinkSDL2(step);
             self.buildLinkStbtt(step);
             linkGL(step, self.target);
-            self.linkLyon(step, self.target);
+            if (self.link_lyon) {
+                self.linkLyon(step, self.target);
+            }
             self.buildLinkStbi(step);
         }
         if (self.link_audio) {
@@ -833,6 +842,28 @@ const BuilderContext = struct {
             }
         }
     }
+
+    fn addGraphics(self: Self, step: *std.build.LibExeObjStep) void {
+        var pkg = graphics_pkg;
+
+        var lyon: Pkg = undefined;
+        if (self.link_lyon) {
+            lyon = lyon_pkg;
+            lyon.dependencies = &.{stdx_pkg};
+        } else {
+            lyon = lyon_dummy_pkg;
+            lyon.dependencies = &.{stdx_pkg};
+        }
+
+        var sdl_ = sdl_pkg;
+        sdl_.dependencies = &.{stdx_pkg};
+
+        var gl = gl_pkg;
+        gl.dependencies = &.{ sdl_pkg, stdx_pkg };
+
+        pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon };
+        step.addPackage(pkg);
+    }
 };
 
 const zig_v8_pkg = Pkg{
@@ -914,9 +945,18 @@ const lyon_pkg = Pkg{
     .path = FileSource.relative("./lib/clyon/lyon.zig"),
 };
 
-fn addLyon(step: *LibExeObjStep) void {
-    step.addPackage(lyon_pkg);
+const lyon_dummy_pkg = Pkg{
+    .name = "lyon",
+    .path = FileSource.relative("./lib/clyon/lyon_dummy.zig"),
+};
+
+fn addLyon(step: *LibExeObjStep, link_lyon: bool) void {
     step.addIncludeDir("./lib/clyon");
+    if (link_lyon) {
+        step.addPackage(lyon_pkg);
+    } else {
+        step.addPackage(lyon_dummy_pkg);
+    }
 }
 
 const gl_pkg = Pkg{
@@ -1015,22 +1055,6 @@ const graphics_pkg = Pkg{
     .name = "graphics",
     .path = FileSource.relative("./graphics/src/graphics.zig"),
 };
-
-fn addGraphics(step: *std.build.LibExeObjStep) void {
-    var pkg = graphics_pkg;
-
-    var lyon = lyon_pkg;
-    lyon.dependencies = &.{stdx_pkg};
-
-    var sdl_ = sdl_pkg;
-    sdl_.dependencies = &.{stdx_pkg};
-
-    var gl = gl_pkg;
-    gl.dependencies = &.{ sdl_pkg, stdx_pkg };
-
-    pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon };
-    step.addPackage(pkg);
-}
 
 const common_pkg = Pkg{
     .name = "common",

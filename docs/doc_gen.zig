@@ -411,6 +411,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
 
         u8,
         f32,
+        f64,
         u32,
         i16,
         i32,
