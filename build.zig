@@ -42,19 +42,20 @@ pub fn build(b: *Builder) !void {
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
-    const static_link = b.option(bool, "static", "Statically link deps") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
     const deps_rev = b.option([]const u8, "deps-rev", "Override the deps revision.") orelse DepsRevision;
     const is_official_build = b.option(bool, "is-official-build", "Whether the build should be an official build.") orelse false;
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
     const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
-    const include_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse true;
+    const link_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse true;
+    const link_tess2 = b.option(bool, "tess2", "Link libtess2 for testing.") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_tracy", tracy);
     build_options.addOption([]const u8, "VersionName", getVersionString(is_official_build));
-    build_options.addOption(bool, "has_lyon", include_lyon);
+    build_options.addOption(bool, "has_lyon", link_lyon);
+    build_options.addOption(bool, "has_tess2", link_tess2);
 
     b.verbose = PrintCommands;
 
@@ -78,6 +79,7 @@ pub fn build(b: *Builder) !void {
         }
     }
 
+    // Default build context.
     var ctx = BuilderContext{
         .builder = b,
         .enable_tracy = tracy,
@@ -85,9 +87,9 @@ pub fn build(b: *Builder) !void {
         .link_audio = audio,
         .link_v8 = v8,
         .link_net = net,
-        .link_lyon = include_lyon,
+        .link_lyon = link_lyon,
+        .link_tess2 = link_tess2,
         .link_mock = false,
-        .static_link = static_link,
         .path = path,
         .filter = filter,
         .mode = mode,
@@ -131,23 +133,12 @@ pub fn build(b: *Builder) !void {
     }
 
     {
-        var ctx_ = BuilderContext{
-            .builder = b,
-            .enable_tracy = tracy,
-            .link_net = true,
-            .link_graphics = true,
-            .link_lyon = include_lyon,
-            .link_audio = true,
-            .link_v8 = true,
-            .link_mock = false,
-            .static_link = static_link,
-            .path = "cosmic/main.zig",
-            .filter = filter,
-            .mode = mode,
-            .target = target,
-            .build_options = build_options,
-            .wsl = wsl,
-        };
+        var ctx_ = ctx;
+        ctx_.link_net = true;
+        ctx_.link_graphics = true;
+        ctx_.link_audio = true;
+        ctx_.link_v8 = true;
+        ctx_.path = "cosmic/main.zig";
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
@@ -200,58 +191,39 @@ pub fn build(b: *Builder) !void {
     b.step("version", "Get the build version.").dependOn(&get_version.step);
 
     {
-        const _build_options = b.addOptions();
-        _build_options.addOption([]const u8, "VersionName", VersionName);
-        _build_options.addOption([]const u8, "BuildRoot", b.build_root);
-        var _ctx = BuilderContext{
-            .builder = b,
-            .enable_tracy = tracy,
-            .link_net = false,
-            .link_graphics = false,
-            .link_lyon = false,
-            .link_audio = false,
-            .link_v8 = false,
-            .link_mock = true,
-            .static_link = static_link,
-            .path = "tools/gen.zig",
-            .filter = filter,
-            .mode = mode,
-            .target = target,
-            .build_options = _build_options,
-            .wsl = wsl,
-        };
+        const build_options_ = b.addOptions();
+        build_options_.addOption([]const u8, "VersionName", VersionName);
+        build_options_.addOption([]const u8, "BuildRoot", b.build_root);
+        var ctx_ = ctx;
+        ctx_.link_net = false;
+        ctx_.link_graphics = false;
+        ctx_.link_lyon = false;
+        ctx_.link_audio = false;
+        ctx_.link_v8 = false;
+        ctx_.link_mock = true;
+        ctx_.path = "tools/gen.zig";
+        ctx_.build_options = build_options_;
 
-        const step = _ctx.createBuildExeStep();
-        _ctx.buildLinkMock(step);
+        const step = ctx_.createBuildExeStep();
+        ctx_.buildLinkMock(step);
         const run = step.run();
         run.addArgs(args);
         b.step("gen", "Generate tool.").dependOn(&run.step);
     }
 
     {
-        var _ctx = BuilderContext{
-            .builder = b,
-            .enable_tracy = tracy,
-            .link_net = true,
-            .link_graphics = true,
-            .link_lyon = include_lyon,
-            .link_audio = true,
-            .link_v8 = true,
-            .link_mock = false,
-            .static_link = static_link,
-            .path = "cosmic/main.zig",
-            .filter = filter,
-            .mode = mode,
-            .target = target,
-            .build_options = build_options,
-            .wsl = wsl,
-        };
+        var ctx_ = ctx;
+        ctx_.link_net = true;
+        ctx_.link_graphics = true;
+        ctx_.link_audio = true;
+        ctx_.link_v8 = true;
+        ctx_.path = "cosmic/main.zig";
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        const run = _ctx.createBuildExeStep().run();
+        const run = ctx_.createBuildExeStep().run();
         run.addArgs(&.{ "test", "test/js/test.js" });
         // run.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
         step.step.dependOn(&run.step);
@@ -261,59 +233,37 @@ pub fn build(b: *Builder) !void {
 
     var build_cosmic = b.addLog("", .{});
     {
-        var _ctx = BuilderContext{
-            .builder = b,
-            .enable_tracy = tracy,
-            .link_net = true,
-            .link_graphics = true,
-            .link_lyon = include_lyon,
-            .link_audio = true,
-            .link_v8 = true,
-            .link_mock = false,
-            .static_link = static_link,
-            .path = "cosmic/main.zig",
-            .filter = filter,
-            .mode = mode,
-            .target = target,
-            .build_options = build_options,
-            .wsl = wsl,
-        };
+        var ctx_ = ctx;
+        ctx_.link_net = true;
+        ctx_.link_graphics = true;
+        ctx_.link_audio = true;
+        ctx_.link_v8 = true;
+        ctx_.path = "cosmic/main.zig";
         const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        const exe = _ctx.createBuildExeStep();
-        const exe_install = _ctx.addInstallArtifact(exe);
+        const exe = ctx_.createBuildExeStep();
+        const exe_install = ctx_.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
     }
 
     {
         var step = b.addLog("", .{});
-        var _ctx = BuilderContext{
-            .builder = b,
-            .enable_tracy = tracy,
-            .link_net = true,
-            .link_graphics = true,
-            .link_lyon = include_lyon,
-            .link_audio = true,
-            .link_v8 = true,
-            .link_mock = false,
-            .static_link = static_link,
-            .path = "cosmic/main.zig",
-            .filter = filter,
-            .mode = mode,
-            .target = target,
-            .build_options = build_options,
-            .wsl = wsl,
-        };
+        var ctx_ = ctx;
+        ctx_.link_net = true;
+        ctx_.link_graphics = true;
+        ctx_.link_audio = true;
+        ctx_.link_v8 = true;
+        ctx_.path = "cosmic/main.zig";
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        const exe = _ctx.createBuildExeStep();
-        const exe_install = _ctx.addInstallArtifact(exe);
+        const exe = ctx_.createBuildExeStep();
+        const exe_install = ctx_.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
 
         const run = exe.run();
@@ -338,12 +288,15 @@ const BuilderContext = struct {
     filter: []const u8,
     enable_tracy: bool,
     link_graphics: bool,
+
+    // For testing, benchmarks.
     link_lyon: bool,
+    link_tess2: bool = false,
+
     link_audio: bool,
     link_v8: bool,
     link_net: bool,
     link_mock: bool,
-    static_link: bool,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
     build_options: *std.build.OptionsStep,
@@ -552,6 +505,9 @@ const BuilderContext = struct {
             if (self.link_lyon) {
                 self.linkLyon(step, self.target);
             }
+            if (self.link_tess2) {
+                buildLinkLibTess2(self.builder, step, self.target, self.mode);
+            }
             self.buildLinkStbi(step);
         }
         if (self.link_audio) {
@@ -589,7 +545,7 @@ const BuilderContext = struct {
         step.setTarget(target);
     }
 
-    fn buildOptionsPkg(self: *Self) std.build.Pkg {
+    fn buildOptionsPkg(self: Self) std.build.Pkg {
         return self.build_options.getPackage("build_options");
     }
 
@@ -855,13 +811,21 @@ const BuilderContext = struct {
             lyon.dependencies = &.{stdx_pkg};
         }
 
+        var tess2: Pkg = undefined;
+        if (self.link_tess2) {
+            tess2 = tess2_pkg;
+            step.addIncludeDir("./lib/libtess2/Include");
+        } else {
+            tess2 = tess2_dummy_pkg;
+        }
+
         var sdl_ = sdl_pkg;
         sdl_.dependencies = &.{stdx_pkg};
 
         var gl = gl_pkg;
         gl.dependencies = &.{ sdl_pkg, stdx_pkg };
 
-        pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon };
+        pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon, tess2, self.buildOptionsPkg() };
         step.addPackage(pkg);
     }
 };
@@ -948,6 +912,16 @@ const lyon_pkg = Pkg{
 const lyon_dummy_pkg = Pkg{
     .name = "lyon",
     .path = FileSource.relative("./lib/clyon/lyon_dummy.zig"),
+};
+
+const tess2_pkg = Pkg{
+    .name = "tess2",
+    .path = FileSource.relative("./lib/tess2.zig"),
+};
+
+const tess2_dummy_pkg = Pkg{
+    .name = "tess2",
+    .path = FileSource.relative("./lib/tess2_dummy.zig"),
 };
 
 fn addLyon(step: *LibExeObjStep, link_lyon: bool) void {
@@ -1481,6 +1455,34 @@ fn buildLinkH2O(step: *LibExeObjStep) void {
         }) catch unreachable;
         h2o.linkLib(step, lib);
     }
+}
+
+fn buildLinkLibTess2(b: *Builder, step: *LibExeObjStep, target: std.zig.CrossTarget, mode: std.builtin.Mode) void {
+    const lib = b.addStaticLibrary("tess2", null);
+    lib.setTarget(target);
+    lib.setBuildMode(mode);
+
+    const c_flags = &[_][]const u8{
+    };
+
+    const c_files = &[_][]const u8{
+        "bucketalloc.c",
+        "dict.c",
+        "geom.c",
+        "mesh.c",
+        "priorityq.c",
+        "sweep.c",
+        "tess.c",
+    };
+
+    for (c_files) |file| {
+        const path = b.fmt("{s}/lib/libtess2/Source/{s}", .{ root(), file });
+        lib.addCSourceFile(path, c_flags);
+    }
+
+    lib.addIncludeDir("./lib/libtess2/Include");
+    lib.linkLibC();
+    step.linkLibrary(lib);
 }
 
 fn root() []const u8 {

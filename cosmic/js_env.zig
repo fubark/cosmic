@@ -174,6 +174,9 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         if (build_options.has_lyon) {
             ctx.setConstFuncT(proto, "executeDrawListLyon", cs_graphics_pkg.executeDrawListLyon);
         }
+        if (build_options.has_tess2) {
+            ctx.setConstFuncT(proto, "executeDrawListTess2", cs_graphics_pkg.executeDrawListTess2);
+        }
     }
     rt.graphics_class = graphics_class;
 

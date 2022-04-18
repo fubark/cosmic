@@ -10,7 +10,9 @@ const geom = math.geom;
 const gl = @import("gl");
 pub const GLTextureId = gl.GLuint;
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const lyon = @import("lyon");
+const tess2 = @import("tess2");
 const pt = lyon.initPt;
 const t = stdx.testing;
 
@@ -954,6 +956,204 @@ pub const Graphics = struct {
         self.drawSvgPathLyon(x, y, path, true);
     }
 
+    pub fn fillSvgPathTess2(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+        _ = x;
+        _ = y;
+
+        // Accumulate polygons.
+        self.vec2_helper_buf.clearRetainingCapacity();
+        self.vec2_slice_helper_buf.clearRetainingCapacity();
+        self.qbez_helper_buf.clearRetainingCapacity();
+
+        var last_cmd_was_curveto = false;
+        var last_control_pt = vec2(0, 0);
+        var cur_data_idx: u32 = 0;
+        var cur_pt = vec2(0, 0);
+        var cur_poly_start: u32 = 0;
+
+        for (path.cmds) |cmd| {
+            var cmd_is_curveto = false;
+            switch (cmd) {
+                .MoveTo => {
+                    if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
+                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                    } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
+                        // Only one unused point. Remove it.
+                        _ = self.vec2_helper_buf.pop();
+                    }
+                    const data = path.getData(.MoveTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.MoveTo)) / 4;
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .MoveToRel => {
+                    if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
+                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                    } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
+                        // Only one unused point. Remove it.
+                        _ = self.vec2_helper_buf.pop();
+                    }
+                    const data = path.getData(.MoveToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.MoveToRel)) / 4;
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .CurveToRel => {
+                    const data = path.getData(.CurveToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.CurveToRel)) / 4;
+
+                    last_control_pt = .{
+                        .x = cur_pt.x + data.cb_x,
+                        .y = cur_pt.y + data.cb_y,
+                    };
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = prev_pt.x + data.ca_x,
+                        .cy0 = prev_pt.y + data.ca_y,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
+                .LineTo => {
+                    const data = path.getData(.LineTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.LineTo)) / 4;
+
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .LineToRel => {
+                    const data = path.getData(.LineToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.LineToRel)) / 4;
+
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .SmoothCurveToRel => {
+                    const data = path.getData(.SmoothCurveToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveToRel)) / 4;
+
+                    var cx0: f32 = undefined;
+                    var cy0: f32 = undefined;
+                    if (last_cmd_was_curveto) {
+                        // Reflection of last control point over current pos.
+                        cx0 = cur_pt.x + (cur_pt.x - last_control_pt.x);
+                        cy0 = cur_pt.y + (cur_pt.y - last_control_pt.y);
+                    } else {
+                        cx0 = cur_pt.x;
+                        cy0 = cur_pt.y;
+                    }
+                    last_control_pt = .{
+                        .x = cur_pt.x + data.c2_x,
+                        .y = cur_pt.y + data.c2_y,
+                    };
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = cx0,
+                        .cy0 = cy0,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
+                .VertLineToRel => {
+                    const data = path.getData(.VertLineToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineToRel)) / 4;
+                    cur_pt.y += data.y;
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .ClosePath => {
+                    // if (fill) {
+                    //     // For fills, this is a no-op.
+                    // } else {
+                    //     // For strokes, this would form a seamless connection to the first point.
+                    // }
+                },
+                else => {
+                    stdx.panicFmt("unsupported: {}", .{cmd});
+                },
+            }
+            last_cmd_was_curveto = cmd_is_curveto;
+        }
+
+        if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
+            // Push the current polygon.
+            self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+        }
+        if (self.vec2_slice_helper_buf.items.len == 0) {
+            return;
+        }
+
+        for (self.vec2_slice_helper_buf.items) |polygon| {
+            var tess = getTess2Handle();
+            tess2.tessAddContour(tess, 2, &polygon[0], 8, @intCast(c_int, polygon.len));
+            const res = tess2.tessTesselate(tess, tess2.TESS_WINDING_ODD, tess2.TESS_POLYGONS, 3, 2, null);
+            if (res == 0) {
+                unreachable;
+            }
+
+            var gpu_vert: TexShaderVertex = undefined;
+            gpu_vert.setColor(self.cur_fill_color);
+            const vert_offset_id = self.batcher.mesh.getNextIndexId();
+            var nverts = tess2.tessGetVertexCount(tess);
+            var verts = tess2.tessGetVertices(tess);
+            const nelems = tess2.tessGetElementCount(tess);
+
+            // log.debug("poly: {}, {}, {}", .{polygon.len, nverts, nelems});
+
+            self.setCurrentTexture(self.white_tex);
+            self.ensureUnusedBatchCapacity(@intCast(u32, nverts), @intCast(usize, nelems * 3));
+
+            var i: u32 = 0;
+            while (i < nverts) : (i += 1) {
+                gpu_vert.setXY(verts[i*2], verts[i*2+1]);
+                // log.debug("{},{}", .{gpu_vert.pos_x, gpu_vert.pos_y});
+                gpu_vert.setUV(0, 0);
+                _ = self.batcher.mesh.addVertex(&gpu_vert);
+            }
+            const elems = tess2.tessGetElements(tess);
+            i = 0;
+            while (i < nelems) : (i += 1) {
+                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
+                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
+                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+                // log.debug("idx {}", .{elems[i]});
+            }
+        }
+    }
+
     pub fn strokeSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
         self.drawSvgPath(x, y, path, false);
     }
@@ -1390,6 +1590,38 @@ pub const Graphics = struct {
         self.pushLyonVertexData(&data, self.cur_fill_color);
     }
 
+    pub fn fillPolygonTess2(self: *Self, pts: []const Vec2) void {
+        var tess = getTess2Handle();
+        tess2.tessAddContour(tess, 2, &pts[0], 0, @intCast(c_int, pts.len));
+        const res = tess2.tessTesselate(tess, tess2.TESS_WINDING_ODD, tess2.TESS_POLYGONS, 3, 2, null);
+        if (res == 0) {
+            unreachable;
+        }
+
+        var gpu_vert: TexShaderVertex = undefined;
+        gpu_vert.setColor(self.cur_fill_color);
+        const vert_offset_id = self.batcher.mesh.getNextIndexId();
+        var nverts = tess2.tessGetVertexCount(tess);
+        var verts = tess2.tessGetVertices(tess);
+        const nelems = tess2.tessGetElementCount(tess);
+
+        self.ensureUnusedBatchCapacity(@intCast(u32, nverts), @intCast(usize, nelems * 3));
+
+        var i: u32 = 0;
+        while (i < nverts) : (i += 1) {
+            gpu_vert.setXY(verts[i*2], verts[i*2+1]);
+            gpu_vert.setUV(0, 0);
+            _ = self.batcher.mesh.addVertex(&gpu_vert);
+        }
+        const elems = tess2.tessGetElements(tess);
+        i = 0;
+        while (i < nelems) : (i += 1) {
+            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
+            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
+            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+        }
+    }
+
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
@@ -1712,4 +1944,13 @@ fn dumpPolygons(alloc: std.mem.Allocator, polys: []const []const Vec2) void {
     }
 
     log.debug("{s}", .{buf.items});
+}
+
+var tess_: ?*tess2.TESStesselator = null;
+
+fn getTess2Handle() *tess2.TESStesselator {
+    if (tess_ == null) {
+        tess_ = tess2.tessNewTess(null);
+    }
+    return tess_.?;
 }

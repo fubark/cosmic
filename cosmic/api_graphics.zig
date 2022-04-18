@@ -583,3 +583,7 @@ pub fn debugTriangulateProcessNext(rt: *RuntimeContext, g: *Graphics) ?ManagedSt
 pub fn executeDrawListLyon(g: *Graphics, list: Handle(.DrawCommandList)) void {
     g.executeDrawListLyon(list.ptr.*);
 }
+
+pub fn executeDrawListTess2(g: *Graphics, list: Handle(.DrawCommandList)) void {
+    g.executeDrawListTess2(list.ptr.*);
+}
