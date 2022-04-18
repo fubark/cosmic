@@ -950,11 +950,233 @@ pub const Graphics = struct {
         self.drawSvgPath(x, y, path, true);
     }
 
+    pub fn fillSvgPathLyon(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+        self.drawSvgPathLyon(x, y, path, true);
+    }
+
     pub fn strokeSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
         self.drawSvgPath(x, y, path, false);
     }
 
     fn drawSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
+        // log.debug("drawSvgPath {} {}", .{path.cmds.len, fill});
+
+        _ = x;
+        _ = y;
+
+        // Accumulate polygons.
+        self.vec2_helper_buf.clearRetainingCapacity();
+        self.vec2_slice_helper_buf.clearRetainingCapacity();
+        self.qbez_helper_buf.clearRetainingCapacity();
+
+        var last_cmd_was_curveto = false;
+        var last_control_pt = vec2(0, 0);
+        var cur_data_idx: u32 = 0;
+        var cur_pt = vec2(0, 0);
+        var cur_poly_start: u32 = 0;
+
+        for (path.cmds) |cmd| {
+            var cmd_is_curveto = false;
+            switch (cmd) {
+                .MoveTo => {
+                    if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
+                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                    } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
+                        // Only one unused point. Remove it.
+                        _ = self.vec2_helper_buf.pop();
+                    }
+                    const data = path.getData(.MoveTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.MoveTo)) / 4;
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .MoveToRel => {
+                    if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
+                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                    } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
+                        // Only one unused point. Remove it.
+                        _ = self.vec2_helper_buf.pop();
+                    }
+                    const data = path.getData(.MoveToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.MoveToRel)) / 4;
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .CurveToRel => {
+                    const data = path.getData(.CurveToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.CurveToRel)) / 4;
+
+                    last_control_pt = .{
+                        .x = cur_pt.x + data.cb_x,
+                        .y = cur_pt.y + data.cb_y,
+                    };
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = prev_pt.x + data.ca_x,
+                        .cy0 = prev_pt.y + data.ca_y,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
+                .LineTo => {
+                    const data = path.getData(.LineTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.LineTo)) / 4;
+
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .LineToRel => {
+                    const data = path.getData(.LineToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.LineToRel)) / 4;
+
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .SmoothCurveToRel => {
+                    const data = path.getData(.SmoothCurveToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveToRel)) / 4;
+
+                    var cx0: f32 = undefined;
+                    var cy0: f32 = undefined;
+                    if (last_cmd_was_curveto) {
+                        // Reflection of last control point over current pos.
+                        cx0 = cur_pt.x + (cur_pt.x - last_control_pt.x);
+                        cy0 = cur_pt.y + (cur_pt.y - last_control_pt.y);
+                    } else {
+                        cx0 = cur_pt.x;
+                        cy0 = cur_pt.y;
+                    }
+                    last_control_pt = .{
+                        .x = cur_pt.x + data.c2_x,
+                        .y = cur_pt.y + data.c2_y,
+                    };
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = cur_pt.x + data.x,
+                        .y = cur_pt.y + data.y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = cx0,
+                        .cy0 = cy0,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
+                .VertLineToRel => {
+                    const data = path.getData(.VertLineToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineToRel)) / 4;
+                    cur_pt.y += data.y;
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .ClosePath => {
+                    if (fill) {
+                        // For fills, this is a no-op.
+                    } else {
+                        // For strokes, this would form a seamless connection to the first point.
+                    }
+                },
+                else => {
+                    stdx.panicFmt("unsupported: {}", .{cmd});
+                },
+            }
+        //         .VertLineTo => {
+        //             const data = path.getData(.VertLineTo, cur_data_idx);
+        //             cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineTo)) / 4;
+        //             cur_pos.y = data.y;
+        //             lyon.lineTo(b, &cur_pos);
+        //         },
+        //         .CurveTo => {
+        //             const data = path.getData(.CurveTo, cur_data_idx);
+        //             cur_data_idx += @sizeOf(svg.PathCommandData(.CurveTo)) / 4;
+        //             cur_pos.x = data.x;
+        //             cur_pos.y = data.y;
+        //             last_control_pos.x = data.cb_x;
+        //             last_control_pos.y = data.cb_y;
+        //             cmd_is_curveto = true;
+        //             lyon.cubicBezierTo(b, &pt(data.ca_x, data.ca_y), &last_control_pos, &cur_pos);
+        //         },
+        //         .SmoothCurveTo => {
+        //             const data = path.getData(.SmoothCurveTo, cur_data_idx);
+        //             cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveTo)) / 4;
+
+        //             // Reflection of last control point over current pos.
+        //             var c1_x: f32 = undefined;
+        //             var c1_y: f32 = undefined;
+        //             if (last_cmd_was_curveto) {
+        //                 c1_x = cur_pos.x + (cur_pos.x - last_control_pos.x);
+        //                 c1_y = cur_pos.y + (cur_pos.y - last_control_pos.y);
+        //             } else {
+        //                 c1_x = cur_pos.x;
+        //                 c1_y = cur_pos.y;
+        //             }
+
+        //             cur_pos.x = data.x;
+        //             cur_pos.y = data.y;
+        //             last_control_pos.x = data.c2_x;
+        //             last_control_pos.y = data.c2_y;
+        //             cmd_is_curveto = true;
+        //             lyon.cubicBezierTo(b, &pt(c1_x, c1_y), &last_control_pos, &cur_pos);
+        //         },
+        //     }
+            last_cmd_was_curveto = cmd_is_curveto;
+        }
+
+        if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
+            // Push the current polygon.
+            self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+        }
+        if (self.vec2_slice_helper_buf.items.len == 0) {
+            return;
+        }
+
+        if (fill) {
+            // dumpPolygons(self.alloc, self.vec2_slice_helper_buf.items);
+            self.tessellator.clearBuffers();
+            self.tessellator.triangulatePolygons(self.vec2_slice_helper_buf.items);
+            self.setCurrentTexture(self.white_tex);
+            const out_verts = self.tessellator.out_verts.items;
+            const out_idxes = self.tessellator.out_idxes.items;
+            self.ensureUnusedBatchCapacity(out_verts.len, out_idxes.len);
+            self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.cur_fill_color);
+        } else {
+            unreachable;
+        //     var data = lyon.buildStroke(b, self.cur_line_width);
+        //     self.setCurrentTexture(self.white_tex);
+        //     self.pushLyonVertexData(&data, self.cur_stroke_color);
+        }
+    }
+
+    fn drawSvgPathLyon(self: *Self, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
         // log.debug("drawSvgPath {}", .{path.cmds.len});
         _ = x;
         _ = y;
