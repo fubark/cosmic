@@ -1127,6 +1127,11 @@ pub const cs_core = struct {
         return ds.Box([]const u8).init(rt.alloc, str);
     }
 
+    /// Returns the current timestamp since the runtime started in nanoseconds.
+    pub fn timerNow(rt: *RuntimeContext) u64 {
+        return rt.timer.watch.read();
+    }
+
     /// Converts a buffer to a UTF-8 string.
     /// @param buffer
     pub fn bufferToUtf8(buf: v8.Uint8Array) ?[]const u8 {
