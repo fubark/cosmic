@@ -88,3 +88,37 @@ pub fn RtTempStruct(comptime T: type) type {
         }
     };
 }
+
+/// A slice that knows how to deinit itself and it's items.
+pub fn ManagedSlice(comptime T: type) type {
+    return struct {
+        pub const ManagedSlice = true;
+
+        alloc: std.mem.Allocator,
+        slice: []const T,
+
+        pub fn deinit(self: @This()) void {
+            for (self.slice) |it| {
+                it.deinit(self.alloc);
+            }
+            self.alloc.free(self.slice);
+        }
+    };
+}
+/// A struct that knows how to deinit itself.
+pub fn ManagedStruct(comptime T: type) type {
+    return struct {
+        pub const ManagedStruct = true;
+
+        alloc: std.mem.Allocator,
+        val: T,
+
+        pub fn init(alloc: std.mem.Allocator, val: T) @This() {
+            return .{ .alloc = alloc, .val = val };
+        }
+
+        pub fn deinit(self: @This()) void {
+            self.val.deinit(self.alloc);
+        }
+    };
+}

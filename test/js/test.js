@@ -590,3 +590,11 @@ test('getResourceUsage', () => {
     assert(typeof usage.sys_time_usecs == 'number' && usage.sys_time_usecs >= 0)
     assert(typeof usage.memory == 'number' && usage.memory >= 0)
 })
+
+test('Random', () => {
+    const r = createRandom(0)
+    for (let i = 0; i < 10; i += 1) {
+        const n = r.next()
+        assert(n >= 0 && n < 1)
+    }
+})

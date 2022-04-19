@@ -101,7 +101,7 @@ pub fn unitTrace(loc: std.builtin.SourceLocation) void {
     }
 }
 
-export fn unitTraceC(fn_name_ptr: [*]const u8, fn_name_len: usize) void {
+pub export fn unitTraceC(fn_name_ptr: [*]const u8, fn_name_len: usize) void {
     const fn_name = fn_name_ptr[0..fn_name_len];
     for (mocks.items) |mock| {
         if (mock.funcs.getEntry(fn_name)) |entry| {

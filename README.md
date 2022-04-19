@@ -23,7 +23,7 @@ We will be building the app primarily in Zig.
 
 Zig's toolchain is ideal for this project. Even though it has yet to reach 1.0, it's LLVM backend is stable and stage2 is just around the corner.
 
-Get the Zig compiler (0.9.0) [here](https://ziglang.org/download/). 
+Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/). 
 
 Once you have zig, checkout and run tests.
 ```sh

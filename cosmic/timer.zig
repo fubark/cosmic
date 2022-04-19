@@ -126,7 +126,7 @@ pub const Timer = struct {
         // Invoke each callback in order and deinit them.
         var cur = group.head;
         while (cur != Null) {
-            var node = self.ll_buf.getNodeAssumeExists(cur);
+            var node = self.ll_buf.getNodeNoCheck(cur);
             if (node.data.cb_arg) |*cb_arg| {
                 _ = node.data.cb.inner.call(ctx, self.receiver, &.{ cb_arg.inner });
                 cb_arg.deinit();

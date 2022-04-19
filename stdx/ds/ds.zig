@@ -18,6 +18,7 @@ pub const BitArrayList = @import("bit_array_list.zig").BitArrayList;
 const box = @import("box.zig");
 pub const Box = box.Box;
 pub const SizedBox = box.SizedBox;
+pub const RbTree = @import("rb_tree.zig").RbTree;
 
 // Shared opaque type.
 pub const Opaque = opaque {

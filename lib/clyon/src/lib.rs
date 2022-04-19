@@ -144,7 +144,7 @@ pub extern "C" fn lyon_build_stroke(b: Box<LyonBuilder>, line_width: f32) -> Lyo
     // Compute the tessellation.
     let result = tessellator.tessellate_path(
         &path,
-        &StrokeOptions::tolerance(0.01).with_line_width(line_width),
+        &StrokeOptions::tolerance(0.5).with_line_width(line_width),
         &mut BuffersBuilder::new(data, |vertex: StrokeVertex| {
             let pos = vertex.position();
             LyonPoint{
@@ -182,7 +182,7 @@ pub extern "C" fn lyon_build_fill(b: Box<LyonBuilder>) -> LyonVertexData {
     // Compute the tessellation.
     let result = tessellator.tessellate_path(
         &path,
-        &FillOptions::tolerance(0.01),
+        &FillOptions::tolerance(0.5),
         &mut BuffersBuilder::new(data, |vertex: FillVertex| {
             let pos = vertex.position();
             LyonPoint{

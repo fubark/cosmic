@@ -159,7 +159,7 @@ pub const FontAtlas = struct {
     }
 
     pub fn markDirtyBuffer(self: *Self) void {
-        const image = self.g.images.getPtrAssumeExists(self.image.image_id);
+        const image = self.g.images.getPtrNoCheck(self.image.image_id);
         image.needs_update = true;
     }
 

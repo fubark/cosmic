@@ -11,6 +11,7 @@ const FontId = _font.FontId;
 const Glyph = _font.Glyph;
 const VMetrics = _font.VMetrics;
 const FontGroupId = _font.FontGroupId;
+const Tessellator = graphics.tessellator.Tessellator;
 
 pub const Graphics = struct {
     const Self = @This();
@@ -20,6 +21,7 @@ pub const Graphics = struct {
     default_font_size: f32,
     default_font_glyph_advance_width: f32,
     default_font_metrics: VMetrics,
+    tessellator: Tessellator,
 
     getOrLoadFontGlyphFn: fn (*Self, font: *Font, cp: u21) ?*Glyph,
 
@@ -37,6 +39,7 @@ pub const Graphics = struct {
                 .line_gap = 0,
                 .height = 10,
             },
+            .tessellator = undefined,
         };
     }
 

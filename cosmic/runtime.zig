@@ -66,6 +66,7 @@ pub const RuntimeContext = struct {
     image_class: v8.Persistent(v8.FunctionTemplate),
     color_class: v8.Persistent(v8.FunctionTemplate),
     sound_class: v8.Persistent(v8.ObjectTemplate),
+    random_class: v8.Persistent(v8.ObjectTemplate),
     handle_class: v8.Persistent(v8.ObjectTemplate),
     rt_ctx_tmpl: v8.Persistent(v8.ObjectTemplate),
     default_obj_t: v8.Persistent(v8.ObjectTemplate),
@@ -191,6 +192,7 @@ pub const RuntimeContext = struct {
             .handle_class = undefined,
             .rt_ctx_tmpl = undefined,
             .sound_class = undefined,
+            .random_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
             .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
@@ -269,7 +271,7 @@ pub const RuntimeContext = struct {
                 .mask = std.os.empty_sigset,
                 .flags = 0,
             };
-            std.os.sigaction(std.os.SIG.PIPE, &act, null);
+            std.os.sigaction(std.os.SIG.PIPE, &act, null) catch unreachable;
         }
 
         self.initJs();
@@ -458,6 +460,7 @@ pub const RuntimeContext = struct {
         self.handle_class.deinit();
         self.rt_ctx_tmpl.deinit();
         self.sound_class.deinit();
+        self.random_class.deinit();
         self.default_obj_t.deinit();
         self.global.deinit();
 
@@ -775,7 +778,7 @@ pub const RuntimeContext = struct {
     /// Destroys the resource owned by the handle and marks it as deinited.
     /// If the resource can't be deinited immediately, the final deinitResourceHandle call will be deferred.
     pub fn startDeinitResourceHandle(self: *Self, id: ResourceId) void {
-        const handle = self.resources.getPtrAssumeExists(id);
+        const handle = self.resources.getPtrNoCheck(id);
         if (handle.deinited) {
             log.debug("Already deinited", .{});
             unreachable;
@@ -798,7 +801,7 @@ pub const RuntimeContext = struct {
                         // TODO: Revisit this. For now just pick the last available window.
                         const list_id = self.getResourceListId(handle.tag);
                         if (self.resources.findInList(list_id, {}, findFirstActiveResource)) |res_id| {
-                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getAssumeExists(res_id).ptr);
+                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getNoCheck(res_id).ptr);
                         }
                     }
                 } else {
@@ -831,7 +834,7 @@ pub const RuntimeContext = struct {
 
     // Internal func. Called when ready to actually free the handle
     fn deinitResourceHandleInternal(self: *Self, id: ResourceId) void {
-        const handle = self.resources.getAssumeExists(id);
+        const handle = self.resources.getNoCheck(id);
         // Fire callback.
         if (handle.on_deinit_cb) |cb| {
             cb.call(id);
@@ -879,7 +882,7 @@ pub const RuntimeContext = struct {
 
     pub fn getResourcePtr(self: *Self, comptime Tag: ResourceTag, res_id: ResourceId) ?*Resource(Tag) {
         if (self.resources.has(res_id)) {
-            const item = self.resources.getAssumeExists(res_id);
+            const item = self.resources.getNoCheck(res_id);
             if (item.tag == Tag) {
                 return stdx.mem.ptrCastAlign(*Resource(Tag), item.ptr);
             }
@@ -912,7 +915,7 @@ pub const RuntimeContext = struct {
             .rt = self,
             .res_id = res_id,
         };
-        self.resources.getPtrAssumeExists(res_id).external_handle = external;
+        self.resources.getPtrNoCheck(res_id).external_handle = external;
 
         return .{
             .ptr = ptr,
@@ -937,7 +940,7 @@ pub const RuntimeContext = struct {
             .rt = self,
             .res_id = res_id,
         };
-        self.resources.getPtrAssumeExists(res_id).external_handle = external;
+        self.resources.getPtrNoCheck(res_id).external_handle = external;
 
         self.num_windows += 1;
         return .{
@@ -956,7 +959,7 @@ pub const RuntimeContext = struct {
             log.err("Expected resource id: {}", .{res_id});
             unreachable;
         }
-        const res = self.resources.getPtrAssumeExists(res_id);
+        const res = self.resources.getPtrNoCheck(res_id);
         if (!res.deinited) {
             self.startDeinitResourceHandle(res_id);
         }
@@ -993,7 +996,7 @@ pub const RuntimeContext = struct {
     }
 
     fn findFirstActiveResource(_: void, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-        return !buf.getAssumeExists(item_id).deinited;
+        return !buf.getNoCheck(item_id).deinited;
     }
 
     fn findPrevResource(target: ResourceId, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
@@ -1006,7 +1009,7 @@ pub const RuntimeContext = struct {
         }
         const S = struct {
             fn pred(_sdl_win_id: u32, buf: ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle), item_id: ResourceId) bool {
-                const res = buf.getAssumeExists(item_id);
+                const res = buf.getNoCheck(item_id);
                 // Skip dummy head.
                 if (res.tag == .Dummy) {
                     return false;
@@ -1033,10 +1036,12 @@ pub const RuntimeContext = struct {
             void => return self.js_undefined.handle,
             i16 => return iso.initIntegerI32(native_val).handle,
             u8 => return iso.initIntegerU32(native_val).handle,
+            u16 => return iso.initIntegerU32(native_val).handle,
             u32 => return iso.initIntegerU32(native_val).handle,
             F64SafeUint => return iso.initNumber(@intToFloat(f64, native_val)).handle,
             u64 => return iso.initBigIntU64(native_val).handle,
             f32 => return iso.initNumber(native_val).handle,
+            f64 => return iso.initNumber(native_val).handle,
             bool => return iso.initBoolean(native_val).handle,
             stdx.http.Response => {
                 const headers_buf = self.alloc.alloc(v8.Value, native_val.headers.len) catch unreachable;
@@ -1279,7 +1284,7 @@ pub const RuntimeContext = struct {
                         if (@hasDecl(T, "Handle")) {
                             const Ptr = stdx.meta.FieldType(T, .ptr);
                             const handle_id = @intCast(u32, @ptrToInt(val.castTo(v8.Object).getInternalField(0).castTo(v8.External).get()));
-                            const handle = self.weak_handles.getAssumeExists(handle_id);
+                            const handle = self.weak_handles.getNoCheck(handle_id);
                             if (handle.tag != .Null) {
                                 return T{
                                     .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
@@ -1479,23 +1484,6 @@ pub fn ctLower(comptime str: []const u8) []const u8 {
     };
 }
 
-/// A slice that knows how to deinit itself and it's items.
-pub fn ManagedSlice(comptime T: type) type {
-    return struct {
-        pub const ManagedSlice = true;
-
-        alloc: std.mem.Allocator,
-        slice: []const T,
-
-        pub fn deinit(self: @This()) void {
-            for (self.slice) |it| {
-                it.deinit(self.alloc);
-            }
-            self.alloc.free(self.slice);
-        }
-    };
-}
-
 /// To be converted to v8.Uint8Array.
 pub const Uint8Array =  struct {
     buf: []const u8,
@@ -1504,24 +1492,6 @@ pub const Uint8Array =  struct {
         alloc.free(self.buf);
     }
 };
-
-/// A struct that knows how to deinit itself.
-pub fn ManagedStruct(comptime T: type) type {
-    return struct {
-        pub const ManagedStruct = true;
-
-        alloc: std.mem.Allocator,
-        val: T,
-
-        pub fn init(alloc: std.mem.Allocator, val: T) @This() {
-            return .{ .alloc = alloc, .val = val };
-        }
-
-        pub fn deinit(self: @This()) void {
-            self.val.deinit(self.alloc);
-        }
-    };
-}
 
 var galloc: std.mem.Allocator = undefined;
 var uncaught_promise_errors: std.AutoHashMap(u32, []const u8) = undefined;
@@ -1666,7 +1636,7 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
     var cur_res = rt.resources.getListHead(rt.window_resource_list).?;
     cur_res = rt.resources.getNextIdNoCheck(cur_res);
     while (cur_res != NullId) {
-        const res = rt.resources.getAssumeExists(cur_res);
+        const res = rt.resources.getNoCheck(cur_res);
         if (res.deinited) {
             cur_res = rt.resources.getNextIdNoCheck(cur_res);
             continue;
@@ -1940,7 +1910,7 @@ pub fn onFreeResource(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
 
 pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, env: *Environment) !bool {
     // Measure total time.
-    const timer = try std.time.Timer.start();
+    var timer = try std.time.Timer.start();
     defer {
         const duration = timer.read();
         env.printFmt("time: {}ms\n", .{duration / @floatToInt(u64, 1e6)});
@@ -2151,7 +2121,7 @@ inline fn hasPendingEvents(rt: *RuntimeContext) bool {
 /// Pumps the main event loop for a given period in milliseconds.
 /// This is useful if the runtime needs to shutdown gracefully and still meet a deadline to exit the process.
 fn pumpMainEventLoopFor(rt: *RuntimeContext, max_ms: u32) void {
-    const timer = std.time.Timer.start() catch unreachable;
+    var timer = std.time.Timer.start() catch unreachable;
 
     // The implementation is very similar to pollMainEventLoop/processMainEventLoop,
     // except we check against a timer during the poll step.
@@ -2400,6 +2370,10 @@ const WeakHandle = struct {
                 ptr.deinit(rt.alloc);
                 rt.alloc.destroy(ptr);
             },
+            .Random => {
+                const ptr = stdx.mem.ptrCastAlign(*Random, self.ptr);
+                rt.alloc.destroy(ptr);
+            },
             .Null => {},
         }
     }
@@ -2408,6 +2382,7 @@ const WeakHandle = struct {
 pub const WeakHandleTag = enum {
     DrawCommandList,
     Sound,
+    Random,
     Null,
 };
 
@@ -2415,6 +2390,7 @@ pub fn WeakHandlePtr(comptime Tag: WeakHandleTag) type {
     return switch (Tag) {
         .DrawCommandList => *graphics.DrawCommandList,
         .Sound => *audio.Sound,
+        .Random => *Random,
         else => unreachable,
     };
 }
@@ -2508,13 +2484,13 @@ pub fn appendSizedJsStringAssumeCap(arr: *std.ArrayList(u8), isolate: v8.Isolate
 
 pub fn rejectPromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
     const js_val_ptr = rt.getJsValuePtr(native_val);
-    const resolver = rt.promises.getAssumeExists(promise_id);
+    const resolver = rt.promises.getNoCheck(promise_id);
     _ = resolver.inner.reject(rt.getContext(), .{ .handle = js_val_ptr });
 }
 
 pub fn resolvePromise(rt: *RuntimeContext, promise_id: PromiseId, native_val: anytype) void {
     const js_val_ptr = rt.getJsValuePtr(native_val);
-    const resolver = rt.promises.getAssumeExists(promise_id);
+    const resolver = rt.promises.getNoCheck(promise_id);
     _ = resolver.inner.resolve(rt.getContext(), .{ .handle = js_val_ptr });
 }
 
@@ -2659,6 +2635,7 @@ pub fn createWeakHandle(rt: *RuntimeContext, comptime Tag: WeakHandleTag, ptr: W
     const template = switch (Tag) {
         .DrawCommandList => rt.handle_class,
         .Sound => rt.sound_class,
+        .Random => rt.random_class,
         else => unreachable,
     };
     const new = template.inner.initInstance(ctx);
@@ -2940,3 +2917,8 @@ export fn __assert_fail(assertion: [*c]const u8, file: [*c]const u8, line: c_uin
     log.debug("libc assert failed: {s} {s}:{}, Assertion: {s}", .{function, file, line, assertion});
     unreachable;
 }
+
+pub const Random = struct {
+    impl: std.rand.DefaultPrng,
+    iface: std.rand.Random,
+};

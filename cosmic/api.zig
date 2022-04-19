@@ -29,15 +29,16 @@ const PromiseId = runtime.PromiseId;
 const F64SafeUint = runtime.F64SafeUint;
 const Error = runtime.CsError;
 const onFreeResource = runtime.onFreeResource;
-const ManagedStruct = runtime.ManagedStruct;
-const ManagedSlice = runtime.ManagedSlice;
 const Uint8Array = runtime.Uint8Array;
 const CsWindow = runtime.CsWindow;
+const CsRandom = runtime.Random;
 const gen = @import("gen.zig");
 const log = stdx.log.scoped(.api);
 const _server = @import("server.zig");
 const HttpServer = _server.HttpServer;
 const adapter = @import("adapter.zig");
+const ManagedStruct = adapter.ManagedStruct;
+const ManagedSlice = adapter.ManagedSlice;
 const RtTempStruct = adapter.RtTempStruct;
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 const This = adapter.This;
@@ -949,7 +950,7 @@ pub const cs_http = struct {
             };
             const cb = stdx.Callback(*anyopaque, ResourceId).init(ctx, S.onDeinit);
 
-            rt.resources.getPtrAssumeExists(this.res_id).on_deinit_cb = cb;
+            rt.resources.getPtrNoCheck(this.res_id).on_deinit_cb = cb;
             rt.startDeinitResourceHandle(this.res_id);
             return promise;
         }
@@ -1115,6 +1116,22 @@ pub const cs_core = struct {
         rt.dev_ctx.print("\n");
     }
 
+    /// Reads input from the command line until a new line returned.
+    pub fn gets(rt: *RuntimeContext) ds.Box([]const u8) {
+        const str = std.io.getStdIn().reader().readUntilDelimiterAlloc(rt.alloc, '\n', 1e9) catch |err| {
+            if (err == error.EndOfStream) {
+            }
+            log.debug("unexpected: {}", .{err});
+            unreachable;
+        };
+        return ds.Box([]const u8).init(rt.alloc, str);
+    }
+
+    /// Returns the current timestamp since the runtime started in nanoseconds.
+    pub fn timerNow(rt: *RuntimeContext) u64 {
+        return rt.timer.watch.read();
+    }
+
     /// Converts a buffer to a UTF-8 string.
     /// @param buffer
     pub fn bufferToUtf8(buf: v8.Uint8Array) ?[]const u8 {
@@ -1129,6 +1146,18 @@ pub const cs_core = struct {
                 return ptr[0..len];
             } else return null;
         } else return "";
+    }
+
+    /// Create a fast random number generator for a given seed. This should not be used for cryptographically secure random numbers.
+    /// @param seed
+    pub fn createRandom(rt: *RuntimeContext, seed: u64) v8.Object {
+        const rand = rt.alloc.create(CsRandom) catch unreachable;
+        rand.* = .{
+            .impl = std.rand.DefaultPrng.init(seed),
+            .iface = undefined,
+        };
+        rand.iface = rand.impl.random();
+        return runtime.createWeakHandle(rt, .Random, rand);
     }
 
     /// Invoke a callback after a timeout in milliseconds.
@@ -1338,6 +1367,14 @@ pub const cs_core = struct {
         rt.isolate.lowMemoryNotification();
     }
 
+    pub const Random = struct {
+
+        /// Gets the next random number between 0 and 1.
+        pub fn next(self: ThisHandle(.Random)) f64 {
+            return self.ptr.iface.float(f64);
+        }
+    };
+
     pub const ResourceUsage = struct {
         // User cpu time seconds.
         user_time_secs: u32,
@@ -1408,7 +1445,7 @@ test "twoToU64" {
     }
 }
 
-pub extern "kernel32" fn GetProcessTimes(
+extern "kernel32" fn GetProcessTimes(
     process: std.os.windows.HANDLE,
     creation_time: *std.os.windows.FILETIME,
     exit_time: *std.os.windows.FILETIME,
@@ -2181,3 +2218,14 @@ fn dupeArgs(alloc: std.mem.Allocator, comptime Func: anytype, args: anytype) std
     }
     return res;
 }
+
+pub const cs_dev = struct {
+
+    pub fn hideHud(rt: *RuntimeContext) void {
+        rt.dev_ctx.show_hud = false;
+    }
+
+    pub fn showHud(rt: *RuntimeContext) void {
+        rt.dev_ctx.show_hud = true;
+    }
+};

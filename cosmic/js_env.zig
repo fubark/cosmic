@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
@@ -18,8 +19,9 @@ const ContextBuilder = runtime.ContextBuilder;
 const RuntimeValue = runtime.RuntimeValue;
 const printFmt = runtime.printFmt;
 const errorFmt = runtime.errorFmt;
-const ManagedSlice = runtime.ManagedSlice;
-const ManagedStruct = runtime.ManagedStruct;
+const adapter = @import("adapter.zig");
+const ManagedSlice = adapter.ManagedSlice;
+const ManagedStruct = adapter.ManagedStruct;
 const This = runtime.This;
 const Data = runtime.Data;
 const log = stdx.log.scoped(.js_env);
@@ -31,6 +33,7 @@ const HttpServer = _server.HttpServer;
 const ResponseWriter = _server.ResponseWriter;
 const api = @import("api.zig");
 const cs_graphics = @import("api_graphics.zig").cs_graphics;
+const cs_graphics_pkg = @import("api_graphics.zig");
 const v8x = @import("v8x.zig");
 
 // TODO: Implement fast api calls using CFunction. See include/v8-fast-api-calls.h
@@ -164,6 +167,16 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "quadraticBezierCurve", Context.quadraticBezierCurve);
         ctx.setConstFuncT(proto, "cubicBezierCurve", Context.cubicBezierCurve);
         ctx.setConstFuncT(proto, "imageSized", Context.imageSized);
+        if (builtin.mode == .Debug) {
+            ctx.setConstFuncT(proto, "debugTriangulatePolygon", cs_graphics_pkg.debugTriangulatePolygon);
+            ctx.setConstFuncT(proto, "debugTriangulateProcessNext", cs_graphics_pkg.debugTriangulateProcessNext);
+        }
+        if (build_options.has_lyon) {
+            ctx.setConstFuncT(proto, "executeDrawListLyon", cs_graphics_pkg.executeDrawListLyon);
+        }
+        if (build_options.has_tess2) {
+            ctx.setConstFuncT(proto, "executeDrawListTess2", cs_graphics_pkg.executeDrawListTess2);
+        }
     }
     rt.graphics_class = graphics_class;
 
@@ -440,6 +453,14 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
     }
     ctx.setConstProp(cs, "audio", cs_audio);
 
+    if (rt.dev_mode) {
+        // cs.dev
+        const cs_dev = iso.initObjectTemplateDefault();
+        ctx.setConstFuncT(cs_dev, "hideHud", api.cs_dev.hideHud);
+        ctx.setConstFuncT(cs_dev, "showHud", api.cs_dev.showHud);
+        ctx.setConstProp(cs, "dev", cs_dev);
+    }
+
     // cs.core
     const cs_core = iso.initObjectTemplateDefault();
     ctx.setConstFuncT(cs_core, "getCliArgs", api.cs_core.getCliArgs);
@@ -452,7 +473,18 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstProp(cs_core, "puts", iso.initFunctionTemplateCallbackData(api.cs_core.puts_DEV, rt_data));
         ctx.setConstProp(cs_core, "dump", iso.initFunctionTemplateCallbackData(api.cs_core.dump_DEV, rt_data));
     }
+    ctx.setConstFuncT(cs_core, "gets", api.cs_core.gets);
+    ctx.setConstFuncT(cs_core, "timerNow", api.cs_core.timerNow);
     ctx.setConstFuncT(cs_core, "bufferToUtf8", api.cs_core.bufferToUtf8);
+    {
+        // Random
+        const random_class = iso.initPersistent(v8.ObjectTemplate, iso.initObjectTemplateDefault());
+        random_class.inner.setInternalFieldCount(2);
+        ctx.setConstFuncT(random_class.inner, "next", api.cs_core.Random.next);
+        ctx.setConstProp(cs_core, "Random", random_class.inner);
+        rt.random_class = random_class;
+    }
+    ctx.setConstFuncT(cs_core, "createRandom", api.cs_core.createRandom);
     ctx.setConstFuncT(cs_core, "setTimeout", api.cs_core.setTimeout);
     ctx.setConstFuncT(cs_core, "errCode", api.cs_core.errCode);
     ctx.setConstFuncT(cs_core, "errString", api.cs_core.errString);

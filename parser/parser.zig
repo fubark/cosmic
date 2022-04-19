@@ -1218,7 +1218,7 @@ const LineTokenState = struct {
     }
 
     inline fn peekNext(self: *Self) Token {
-        return self.buf.tokens.getAssumeExists(self.next_tok_id);
+        return self.buf.tokens.getNoCheck(self.next_tok_id);
     }
 
     inline fn getAssertNextTokenId(self: *Self) TokenId {

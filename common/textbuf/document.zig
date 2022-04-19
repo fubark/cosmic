@@ -266,14 +266,14 @@ pub const Document = struct {
 
     pub fn replaceRangeInLine(self: *Self, line_idx: u32, start: u32, end: u32, str: []const u8) void {
         const line_id = self.getLineId(line_idx);
-        const buf = &self.lines.getPtrAssumeExists(line_id).buf;
+        const buf = &self.lines.getPtrNoCheck(line_id).buf;
         buf.replaceRange(start, end - start, str) catch unreachable;
     }
 
     // Performs insert in a line. Assumes no new lines.
     pub fn insertIntoLine(self: *Self, line_idx: u32, ch_idx: u32, str: []const u8) void {
         const line_id = self.getLineId(line_idx);
-        const buf = &self.lines.getPtrAssumeExists(line_id).buf;
+        const buf = &self.lines.getPtrNoCheck(line_id).buf;
         buf.insertSlice(ch_idx, str) catch unreachable;
     }
 
@@ -392,7 +392,7 @@ pub const Document = struct {
     }
 
     pub fn getLineChunkSlice(self: *Self, chunk: LineChunk) []LineId {
-        return self.line_chunks.getPtrAssumeExists(chunk.id)[0..chunk.size];
+        return self.line_chunks.getPtrNoCheck(chunk.id)[0..chunk.size];
     }
 
     pub fn getLineId(self: *Self, line_idx: u32) LineId {
@@ -406,11 +406,11 @@ pub const Document = struct {
 
     pub fn getLine(self: *Self, line_idx: u32) []const u8 {
         const line_id = self.getLineId(line_idx);
-        return self.lines.getAssumeExists(line_id).buf.items;
+        return self.lines.getNoCheck(line_id).buf.items;
     }
 
     pub fn getLineById(self: *Self, id: LineId) []const u8 {
-        return self.lines.getAssumeExists(id).buf.items;
+        return self.lines.getNoCheck(id).buf.items;
     }
 
     pub fn getNode(self: *Self, id: NodeId) Node {

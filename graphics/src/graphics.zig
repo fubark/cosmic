@@ -25,6 +25,9 @@ const FontGroup = _font_group.FontGroup;
 const text_renderer = @import("backend/gl/text_renderer.zig");
 const FontCache = gl.FontCache;
 const log = std.log.scoped(.graphics);
+pub const curve = @import("curve.zig");
+
+pub const tessellator = @import("tessellator.zig");
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
@@ -451,6 +454,74 @@ pub const Graphics = struct {
                         .data = list.extra_data[cmd.start_data_id..],
                         .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
                     });
+                },
+                .FillRect => {
+                    const cmd = list.getCommand(.FillRect, ptr);
+                    self.fillRect(cmd.x, cmd.y, cmd.width, cmd.height);
+                },
+            }
+        }
+    }
+
+    pub fn executeDrawListLyon(self: *Self, _list: DrawCommandList) void {
+        var list = _list;
+        for (list.cmds) |ptr| {
+            switch (ptr.tag) {
+                .FillColor => {
+                    const cmd = list.getCommand(.FillColor, ptr);
+                    self.setFillColor(Color.fromU32(cmd.rgba));
+                },
+                .FillPolygon => {
+                    if (Backend == .OpenGL) {
+                        const cmd = list.getCommand(.FillPolygon, ptr);
+                        const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
+                        self.g.fillPolygonLyon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                    }
+                },
+                .FillPath => {
+                    if (Backend == .OpenGL) {
+                        const cmd = list.getCommand(.FillPath, ptr);
+                        var end = cmd.start_path_cmd_id + cmd.num_cmds;
+                        self.g.fillSvgPathLyon(0, 0, &SvgPath{
+                            .alloc = null,
+                            .data = list.extra_data[cmd.start_data_id..],
+                            .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
+                        });
+                    }
+                },
+                .FillRect => {
+                    const cmd = list.getCommand(.FillRect, ptr);
+                    self.fillRect(cmd.x, cmd.y, cmd.width, cmd.height);
+                },
+            }
+        }
+    }
+
+    pub fn executeDrawListTess2(self: *Self, _list: DrawCommandList) void {
+        var list = _list;
+        for (list.cmds) |ptr| {
+            switch (ptr.tag) {
+                .FillColor => {
+                    const cmd = list.getCommand(.FillColor, ptr);
+                    self.setFillColor(Color.fromU32(cmd.rgba));
+                },
+                .FillPolygon => {
+                    if (Backend == .OpenGL) {
+                        const cmd = list.getCommand(.FillPolygon, ptr);
+                        const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
+                        self.g.fillPolygonTess2(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                    }
+                },
+                .FillPath => {
+                    if (Backend == .OpenGL) {
+                        const cmd = list.getCommand(.FillPath, ptr);
+                        var end = cmd.start_path_cmd_id + cmd.num_cmds;
+                        self.g.fillSvgPathTess2(0, 0, &SvgPath{
+                            .alloc = null,
+                            .data = list.extra_data[cmd.start_data_id..],
+                            .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
+                        });
+                    }
                 },
                 .FillRect => {
                     const cmd = list.getCommand(.FillRect, ptr);

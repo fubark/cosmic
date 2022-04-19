@@ -106,7 +106,7 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
     inline for (srcs) |src| {
         const path = fromBuildRoot(alloc, src.path);
 
-        const file = std.fs.openFileAbsolute(path, .{ .read = true, .write = false }) catch unreachable;
+        const file = std.fs.openFileAbsolute(path, .{ .mode = .read_only}) catch unreachable;
         defer file.close();
         const source = file.readToEndAllocOptions(alloc, 10e6, null, @alignOf(u8), 0) catch unreachable;
         defer alloc.free(source);
@@ -141,47 +141,50 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
                     const Decls = comptime std.meta.declarations(src.package);
                     log.debug("{s} {}", .{ident_str, Decls.len});
                     inline for (Decls) |Decl| {
-                        if (Decl.is_pub and Decl.data == .Type) {
-                            if (std.mem.eql(u8, Decl.name, ident_str)) {
-                                const ModuleDecls = comptime std.meta.declarations(Decl.data.Type);
-                                inline for (ModuleDecls) |ModuleDecl| {
-                                    if (ModuleDecl.is_pub) {
-                                        if (ModuleDecl.data == .Fn) {
-                                            const mb_func = try parseFunctionInfo(ModuleDecl, alloc, tree, container_node);
-                                            if (mb_func) |func| {
-                                                try funcs.append(func);
+                        if (Decl.is_pub) {
+                            const DeclField = @field(src.package, Decl.name);
+                            if (@typeInfo(@TypeOf(DeclField)) == .Type) {
+                                if (std.mem.eql(u8, Decl.name, ident_str)) {
+                                    const ModuleDecls = comptime std.meta.declarations(DeclField);
+                                    inline for (ModuleDecls) |ModuleDecl| {
+                                        if (ModuleDecl.is_pub) {
+                                            const ModuleDeclType = @field(DeclField, ModuleDecl.name);
+                                            if (@typeInfo(@TypeOf(ModuleDeclType)) == .Fn) {
+                                                const mb_func = try parseFunctionInfo(ModuleDecl, @TypeOf(ModuleDeclType), alloc, tree, container_node);
+                                                if (mb_func) |func| {
+                                                    try funcs.append(func);
+                                                }
+                                            } else if (@typeInfo(@TypeOf(ModuleDeclType)) == .Type) {
+                                                // Type Declaration.
+                                                var type_info = TypeInfo{
+                                                    .name = ModuleDecl.name,
+                                                    .desc = "",
+                                                    .fields = &.{},
+                                                    .constants = &.{},
+                                                    .methods = &.{},
+                                                    .is_enum = @typeInfo(ModuleDeclType) == .Enum,
+                                                    .is_enum_string_sumtype = @hasDecl(ModuleDeclType, "IsStringSumType"),
+                                                    .enum_values = &.{},
+                                                };
+
+                                                const child = findContainerChild(tree, container_node, ModuleDecl.name);
+                                                const data = try parseMetadata(alloc, tree, child);
+                                                type_info.desc = data.desc;
+
+                                                // log.debug("{s} {}", .{ModuleDecl.name, tree.nodes.items(.tag)[child]});
+                                                const type_container = tree.simpleVarDecl(child).ast.init_node;
+
+                                                parseTypeDecls(alloc, ModuleDeclType, tree, type_container, &type_info);
+
+                                                if (@typeInfo(ModuleDeclType) == .Struct) {
+                                                    type_info.fields = parseTypeFields(alloc, ModuleDeclType) catch unreachable;
+                                                } else if (@typeInfo(ModuleDeclType) == .Enum) {
+                                                    const to_lower = type_info.is_enum_string_sumtype;
+                                                    type_info.enum_values = getEnumValues(alloc, ModuleDeclType, to_lower) catch unreachable;
+                                                }
+
+                                                try types.append(type_info);
                                             }
-                                        } else if (ModuleDecl.data == .Type) {
-                                            // Type Declaration.
-                                            var type_info = TypeInfo{
-                                                .name = ModuleDecl.name,
-                                                .desc = "",
-                                                .fields = &.{},
-                                                .constants = &.{},
-                                                .methods = &.{},
-                                                .is_enum = @typeInfo(ModuleDecl.data.Type) == .Enum,
-                                                .is_enum_string_sumtype = @hasDecl(ModuleDecl.data.Type, "IsStringSumType"),
-                                                .enum_values = &.{},
-                                            };
-
-                                            const child = findContainerChild(tree, container_node, ModuleDecl.name);
-                                            const data = try parseMetadata(alloc, tree, child);
-                                            type_info.desc = data.desc;
-
-                                            // log.debug("{s} {}", .{ModuleDecl.name, tree.nodes.items(.tag)[child]});
-                                            const type_container = tree.simpleVarDecl(child).ast.init_node;
-
-                                            const AType = ModuleDecl.data.Type;
-                                            parseTypeDecls(alloc, AType, tree, type_container, &type_info);
-
-                                            if (@typeInfo(ModuleDecl.data.Type) == .Struct) {
-                                                type_info.fields = parseTypeFields(alloc, ModuleDecl.data.Type) catch unreachable;
-                                            } else if (@typeInfo(ModuleDecl.data.Type) == .Enum) {
-                                                const to_lower = type_info.is_enum_string_sumtype;
-                                                type_info.enum_values = getEnumValues(alloc, ModuleDecl.data.Type, to_lower) catch unreachable;
-                                            }
-
-                                            try types.append(type_info);
                                         }
                                     }
                                 }
@@ -260,13 +263,14 @@ pub fn parseTypeDecls(alloc: std.mem.Allocator, comptime T: type, tree: std.zig.
     var constants = std.ArrayList([]const u8).init(alloc);
     inline for (Decls) |Decl| {
         if (Decl.is_pub) {
-            if (Decl.data == .Fn) {
+            const DeclField = @field(T, Decl.name);
+            if (@typeInfo(@TypeOf(DeclField)) == .Fn) {
                 // Assume method.
-                const mb_type_func = parseFunctionInfo(Decl, alloc, tree, type_container) catch unreachable;
+                const mb_type_func = parseFunctionInfo(Decl, @TypeOf(DeclField), alloc, tree, type_container) catch unreachable;
                 if (mb_type_func) |type_func| {
                     methods.append(type_func) catch unreachable;
                 }
-            } else if (Decl.data == .Var) {
+            } else if (@typeInfo(@TypeOf(DeclField)) != .Type) {
                 // Constant.
                 const mb_constant = parseConstantInfo(Decl, alloc, tree, type_container) catch unreachable;
                 if (mb_constant) |constant| {
@@ -329,7 +333,7 @@ fn parseConstantInfo(comptime VarDecl: std.builtin.TypeInfo.Declaration, alloc: 
 }
 
 // container_node is the parent container that declares the function.
-fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: std.mem.Allocator, tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index) !?FunctionInfo {
+fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, comptime FnDeclType: type, alloc: std.mem.Allocator, tree: std.zig.Ast, container_node: std.zig.Ast.Node.Index) !?FunctionInfo {
     var func = FunctionInfo{
         .desc = "",
         .name = FnDecl.name,
@@ -338,7 +342,7 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: s
     };
 
     // Extract params.
-    const ArgsTuple = std.meta.ArgsTuple(FnDecl.data.Fn.fn_type);
+    const ArgsTuple = std.meta.ArgsTuple(FnDeclType);
     const ArgFields = std.meta.fields(ArgsTuple);
     const FuncInfo = comptime gen.getJsFuncInfo(ArgFields);
 
@@ -366,7 +370,7 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, alloc: s
     if (!valid) return null;
 
     // Extract return.
-    const ReturnType = FnDecl.data.Fn.return_type;
+    const ReturnType = @typeInfo(FnDeclType).Fn.return_type.?;
     if (@typeInfo(ReturnType) == .Optional) {
         const BaseType = @typeInfo(ReturnType).Optional.child;
         func.ret = .{
@@ -411,6 +415,7 @@ fn getJsTypeName(comptime T: type) []const u8 {
 
         u8,
         f32,
+        f64,
         u32,
         i16,
         i32,
@@ -921,3 +926,8 @@ const FunctionParamInfo = struct {
     type_decl_mod: ?ModuleId,
     optional: bool,
 };
+
+comptime {
+    // Referencing this lets the build pass.
+    _ = stdx.testing.unitTraceC;
+}

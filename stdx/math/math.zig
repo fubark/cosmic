@@ -38,7 +38,11 @@ pub const Vec2 = struct {
     y: f32,
 
     pub fn init(x: f32, y: f32) Self {
-        return @This(){ .x = x, .y = y };
+        return .{ .x = x, .y = y };
+    }
+
+    pub fn initTo(from: Vec2, to: Vec2) Self {
+        return .{ .x = to.x - from.x, .y = to.y - from.y };
     }
 
     pub fn squareLength(self: Self) f32 {
@@ -67,20 +71,29 @@ pub const Vec2 = struct {
         return Self.init(-self.x, -self.y);
     }
 
-    // Useful for determining the z direction.
+    /// Cross product.
+    /// Useful for determining the z direction.
     pub fn cross(self: Self, v: Vec2) f32 {
         return self.x * v.y - self.y * v.x;
     }
 
+    /// Component addition.
+    pub fn add(self: Self, v: Vec2) Vec2 {
+        return vec2(self.x + v.x, self.y + v.y);
+    }
+
+    /// Dot product.
     pub fn dot(self: Self, v: Vec2) f32 {
         return self.x * v.x + self.y * v.y;
     }
 
+    /// Component multiplication.
     pub fn mul(self: Self, s: f32) Vec2 {
         return Self.init(self.x * s, self.y * s);
     }
 
-    fn div(self: Self, s: f32) Vec2 {
+    /// Component division.
+    pub fn div(self: Self, s: f32) Vec2 {
         return Self.init(self.x / s, self.y / s);
     }
 };

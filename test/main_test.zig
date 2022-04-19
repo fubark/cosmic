@@ -8,6 +8,7 @@ test {
     // Separate imports for packages since they are not included implicitly.
     const stdx = @import("../stdx/stdx.zig");
     t.refAllDecls(stdx);
+    t.refAllDecls(stdx.ds);
 
     const parser = @import("../parser/parser.zig");
     t.refAllDecls(parser);
@@ -16,6 +17,9 @@ test {
 
     const graphics = @import("../graphics/src/graphics.zig");
     t.refAllDecls(graphics);
+
+    const gl_graphics = @import("../graphics/src/backend/gl/graphics.zig");
+    t.refAllDecls(gl_graphics);
 
     const input = @import("../input/input.zig");
     t.refAllDecls(input);
