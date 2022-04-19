@@ -15,6 +15,7 @@ const lyon = @import("lyon");
 const tess2 = @import("tess2");
 const pt = lyon.initPt;
 const t = stdx.testing;
+const trace = stdx.debug.tracy.trace;
 
 const graphics = @import("../../graphics.zig");
 const QuadBez = graphics.curve.QuadBez;
@@ -949,14 +950,20 @@ pub const Graphics = struct {
     }
 
     pub fn fillSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+        const t_ = trace(@src());
+        defer t_.end();
         self.drawSvgPath(x, y, path, true);
     }
 
     pub fn fillSvgPathLyon(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+        const t_ = trace(@src());
+        defer t_.end();
         self.drawSvgPathLyon(x, y, path, true);
     }
 
     pub fn fillSvgPathTess2(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+        const t_ = trace(@src());
+        defer t_.end();
         _ = x;
         _ = y;
 

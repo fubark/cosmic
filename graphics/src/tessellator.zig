@@ -8,6 +8,8 @@ const RbTree = stdx.ds.RbTree;
 const dassert = stdx.debug.dassert;
 const CompactSinglyLinkedListBuffer = stdx.ds.CompactSinglyLinkedListBuffer;
 
+const trace = stdx.debug.tracy.trace;
+
 const log_ = stdx.log.scoped(.tessellator);
 
 const DeferredVertexNodeId = u16;
@@ -133,6 +135,8 @@ pub const Tessellator = struct {
     }
 
     fn processEvent(self: *Self, e_id: u32) void {
+        const t_ = trace(@src());
+        defer t_.end();
         const sweep_edges = &self.sweep_edges;
 
         const e = self.events.items[e_id];
@@ -487,6 +491,8 @@ pub const Tessellator = struct {
 
     /// Parses the polygon pts and adds the initial events into the priority queue.
     fn initEvents(self: *Self, polygons: []const []const Vec2) void {
+        const t_ = trace(@src());
+        defer t_.end();
         for (polygons) |polygon| {
             // Find the starting point that is not equal to the last vertex point.
             // Since we are adding events to a priority queue, we need to make sure each add is final.
@@ -1249,6 +1255,8 @@ pub const InternalVertex = struct {
 /// t = (q − p) X s / (r X s)
 /// u = (q − p) X r / (r X s)
 fn computeTwoEdgeIntersect(p: Edge, q: Edge) IntersectResult {
+    const t__ = trace(@src());
+    defer t__.end();
     const r_s = p.vec.cross(q.vec);
     if (r_s == 0) {
         return IntersectResult.initNull();

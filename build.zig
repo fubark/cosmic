@@ -415,6 +415,10 @@ const BuilderContext = struct {
         self.addGraphics(exe);
         self.addDeps(exe) catch unreachable;
 
+        if (self.enable_tracy) {
+            self.linkTracy(exe);
+        }
+
         _ = self.addInstallArtifact(exe);
         const install_dir = self.builder.fmt("zig-out/{s}", .{exe.install_step.?.dest_dir.custom });
         self.copyAssets(exe, install_dir);
