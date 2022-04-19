@@ -383,11 +383,15 @@ static const char * const protocols[] = {
   NULL
 };
 
+#ifndef STRING
+#define STRING(x) #x
+#endif
+
 static curl_version_info_data version_info = {
   CURLVERSION_NOW,
   LIBCURL_VERSION,
   LIBCURL_VERSION_NUM,
-  OS, /* as found by configure or set by hand at build-time */
+  STRING(OS), /* as found by configure or set by hand at build-time */
   0 /* features is 0 by default */
 #ifdef ENABLE_IPV6
   | CURL_VERSION_IPV6

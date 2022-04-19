@@ -44,7 +44,7 @@ pub fn create(
     if (target.getOsTag() == .linux) {
         // cpu-machine-OS
         // eg. x86_64-pc-linux-gnu
-        const os_flag = try std.fmt.allocPrint(alloc, "-DOS=\"{s}-pc-{s}-{s}\"", .{
+        const os_flag = try std.fmt.allocPrint(alloc, "-DOS={s}-pc-{s}-{s}", .{
             @tagName(target.getCpuArch()),
             @tagName(target.getOsTag()),
             @tagName(target.getAbi()),
