@@ -29,7 +29,7 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
         last_frame_time_us: u64,
 
         pub fn init(target_fps: u32) Self {
-            const timer = Timer.start() catch unreachable;
+            var timer = Timer.start() catch unreachable;
             return .{
                 .target_fps = target_fps,
                 .target_us_per_frame = 1000000 / target_fps,

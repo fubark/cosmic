@@ -760,7 +760,7 @@ const BuilderContext = struct {
         // Parses the main file for @buildCopy in doc comments
         const main_path = self.fromRoot(self.path);
         const main_dir = std.fs.path.dirname(main_path).?;
-        const file = std.fs.openFileAbsolute(main_path, .{ .read = true, .write = false }) catch unreachable;
+        const file = std.fs.openFileAbsolute(main_path, .{ .mode = .read_only }) catch unreachable;
         defer file.close();
         const source = file.readToEndAllocOptions(self.builder.allocator, 1024 * 1000 * 10, null, @alignOf(u8), 0) catch unreachable;
         defer self.builder.allocator.free(source);
@@ -1230,7 +1230,7 @@ const ReplaceInFileStep = struct {
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
 
-        const file = std.fs.openFileAbsolute(self.path, .{ .read = true, .write = false }) catch unreachable;
+        const file = std.fs.openFileAbsolute(self.path, .{ .mode = .read_only }) catch unreachable;
         errdefer file.close();
         const source = file.readToEndAllocOptions(self.b.allocator, 1024 * 1000 * 10, null, @alignOf(u8), 0) catch unreachable;
         defer self.b.allocator.free(source);
@@ -1238,7 +1238,7 @@ const ReplaceInFileStep = struct {
         const new_source = std.mem.replaceOwned(u8, self.b.allocator, source, self.old_str, self.new_str) catch unreachable;
         file.close();
 
-        const write = std.fs.openFileAbsolute(self.path, .{ .read = false, .write = true }) catch unreachable;
+        const write = std.fs.openFileAbsolute(self.path, .{ .mode = .read_only }) catch unreachable;
         defer write.close();
         write.writeAll(new_source) catch unreachable;
     }
@@ -1347,7 +1347,7 @@ const PathStat = enum {
 };
 
 fn statPath(path_abs: []const u8) !PathStat {
-    const file = std.fs.openFileAbsolute(path_abs, .{ .read = false, .write = false }) catch |err| {
+    const file = std.fs.openFileAbsolute(path_abs, .{ .mode = .read_only }) catch |err| {
         if (err == error.FileNotFound) {
             return .NotExist;
         } else if (err == error.IsDir) {

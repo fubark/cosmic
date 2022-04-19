@@ -450,3 +450,4 @@ export fn uv_tcp_getsockname() void {}
 export fn SDL_free() void {}
 export fn SDL_SetClipboardText() void {}
 export fn SDL_GetClipboardText() void {}
+export fn GetProcessTimes() void {}

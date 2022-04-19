@@ -271,7 +271,7 @@ pub const RuntimeContext = struct {
                 .mask = std.os.empty_sigset,
                 .flags = 0,
             };
-            std.os.sigaction(std.os.SIG.PIPE, &act, null);
+            std.os.sigaction(std.os.SIG.PIPE, &act, null) catch unreachable;
         }
 
         self.initJs();
@@ -1910,7 +1910,7 @@ pub fn onFreeResource(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
 
 pub fn runTestMain(alloc: std.mem.Allocator, src_path: []const u8, env: *Environment) !bool {
     // Measure total time.
-    const timer = try std.time.Timer.start();
+    var timer = try std.time.Timer.start();
     defer {
         const duration = timer.read();
         env.printFmt("time: {}ms\n", .{duration / @floatToInt(u64, 1e6)});
@@ -2121,7 +2121,7 @@ inline fn hasPendingEvents(rt: *RuntimeContext) bool {
 /// Pumps the main event loop for a given period in milliseconds.
 /// This is useful if the runtime needs to shutdown gracefully and still meet a deadline to exit the process.
 fn pumpMainEventLoopFor(rt: *RuntimeContext, max_ms: u32) void {
-    const timer = std.time.Timer.start() catch unreachable;
+    var timer = std.time.Timer.start() catch unreachable;
 
     // The implementation is very similar to pollMainEventLoop/processMainEventLoop,
     // except we check against a timer during the poll step.

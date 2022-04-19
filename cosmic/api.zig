@@ -1445,7 +1445,7 @@ test "twoToU64" {
     }
 }
 
-pub extern "kernel32" fn GetProcessTimes(
+extern "kernel32" fn GetProcessTimes(
     process: std.os.windows.HANDLE,
     creation_time: *std.os.windows.FILETIME,
     exit_time: *std.os.windows.FILETIME,
