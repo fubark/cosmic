@@ -493,6 +493,7 @@ const BuilderContext = struct {
         addGL(step);
         addMiniaudio(step);
         addLyon(step, self.link_lyon);
+        addTess2(step, self.link_tess2);
         addStbi(step);
         if (self.target.getOsTag() == .macos) {
             self.buildLinkMacSys(step);
@@ -918,6 +919,15 @@ const lyon_dummy_pkg = Pkg{
     .path = FileSource.relative("./lib/clyon/lyon_dummy.zig"),
 };
 
+fn addLyon(step: *LibExeObjStep, link_lyon: bool) void {
+    step.addIncludeDir("./lib/clyon");
+    if (link_lyon) {
+        step.addPackage(lyon_pkg);
+    } else {
+        step.addPackage(lyon_dummy_pkg);
+    }
+}
+
 const tess2_pkg = Pkg{
     .name = "tess2",
     .path = FileSource.relative("./lib/tess2.zig"),
@@ -928,12 +938,12 @@ const tess2_dummy_pkg = Pkg{
     .path = FileSource.relative("./lib/tess2_dummy.zig"),
 };
 
-fn addLyon(step: *LibExeObjStep, link_lyon: bool) void {
-    step.addIncludeDir("./lib/clyon");
-    if (link_lyon) {
-        step.addPackage(lyon_pkg);
+fn addTess2(step: *LibExeObjStep, link_tess2: bool) void {
+    if (link_tess2) {
+        step.addIncludeDir("./lib/libtess2");
+        step.addPackage(tess2_pkg);
     } else {
-        step.addPackage(lyon_dummy_pkg);
+        step.addPackage(tess2_dummy_pkg);
     }
 }
 
