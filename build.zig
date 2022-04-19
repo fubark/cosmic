@@ -194,6 +194,7 @@ pub fn build(b: *Builder) !void {
         const build_options_ = b.addOptions();
         build_options_.addOption([]const u8, "VersionName", VersionName);
         build_options_.addOption([]const u8, "BuildRoot", b.build_root);
+        build_options_.addOption(bool, "enable_tracy", tracy);
         var ctx_ = ctx;
         ctx_.link_net = false;
         ctx_.link_graphics = false;

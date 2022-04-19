@@ -7,6 +7,10 @@ pub const TESSalloc = struct {
 pub const TESSreal = f32;
 pub const TESSindex = u32;
 
+pub const TESS_WINDING_ODD: u32 = 0;
+
+pub const TESS_POLYGONS: u32 = 0;
+
 pub fn tessNewTess(alloc: ?*TESSalloc) ?*TESStesselator {
     _ = alloc;
     return undefined;
@@ -30,7 +34,7 @@ pub fn tessSetOption(tess: ?*TESStesselator, option: c_int, value: c_int) void {
     _ = value;
 }
 
-pub fn tessTesselate(tess: ?*TESStesselator, windingRule: c_int, elementType: c_int, polySize: c_int, vertexSize: c_int, normal: *const TESSreal) c_int {
+pub fn tessTesselate(tess: ?*TESStesselator, windingRule: c_int, elementType: c_int, polySize: c_int, vertexSize: c_int, normal: ?*const TESSreal) c_int {
     _ = tess;
     _ = windingRule;
     _ = elementType;
@@ -45,12 +49,12 @@ pub fn tessGetVertexCount(tess: ?*TESStesselator) c_int {
     return undefined;
 }
 
-pub fn tessGetVertices(tess: ?*TESStesselator) *const TESSreal {
+pub fn tessGetVertices(tess: ?*TESStesselator) [*]const TESSreal {
     _ = tess;
     return undefined;
 }
 
-pub fn tessGetVertexIndices(tess: ?*TESStesselator) *const TESSindex {
+pub fn tessGetVertexIndices(tess: ?*TESStesselator) [*]const TESSindex {
     _ = tess;
     return undefined;
 }
@@ -60,7 +64,7 @@ pub fn tessGetElementCount(tess: ?*TESStesselator) c_int {
     return undefined;
 }
 
-pub fn tessGetElements(tess: ?*TESStesselator) *const TESSindex {
+pub fn tessGetElements(tess: ?*TESStesselator) [*]const TESSindex {
     _ = tess;
     return undefined;
 }
