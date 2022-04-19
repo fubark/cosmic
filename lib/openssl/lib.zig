@@ -985,7 +985,6 @@ pub fn createCrypto(
         "implementations/signature/ecdsa_sig.c",
         "implementations/signature/dsa_sig.c",
         "implementations/signature/eddsa_sig.c",
-        "implementations/signature/eddsa_sig.c",
         "implementations/signature/rsa_sig.c",
         "implementations/signature/mac_legacy_sig.c",
     };

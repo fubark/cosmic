@@ -115,9 +115,9 @@ jobs:
             zig-cache
             ~/AppData/Local/zig
           key:
-            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-2
+            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-3
           restore-keys:
-            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-2
+            build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-3
 
       - name: Get deps.
         run: zig build get-deps ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
