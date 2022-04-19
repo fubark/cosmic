@@ -65,7 +65,8 @@ jobs:
       - name: Install zig.
         uses: goto-bus-stop/setup-zig@v1
         with:
-          version: 0.9.0
+          version: master
+          # version: 0.9.0
 
       - name: Get version.
         if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
