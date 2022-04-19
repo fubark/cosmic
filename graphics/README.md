@@ -44,19 +44,20 @@
 ## Screenshot
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
 
-### Dependencies
+## Dependencies
 Get the Zig compiler (0.9.0) [here](https://ziglang.org/download/). You need to pull the deps repo which has header files and prebuilt libs:
 ```sh
 git clone https://github.com/fubark/cosmic.git
 zig build get-deps
 ```
+Cosmic will soon drop the lyon dependency for a tessellator built from scratch. See #13 for progress.
 
-### Run demo (Desktop)
+## Run demo (Desktop)
 ```sh
 zig build run -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
 ```
 
-### Run demo (Web/Wasm)
+## Run demo (Web/Wasm)
 
 ```sh
 zig build wasm -Dpath="graphics/examples/demo.zig" -Drelease-safe
@@ -65,15 +66,18 @@ python3 -m http.server
 ```
 Then fire up your browser to see the demo.
 
-### Build lyon bindings
-The library currently uses lyon to triangulate complex polygons and paths. Pulling the dependencies (zig build get-deps) will get prebuilt lyon bindings. If that doesn't work you'll need rust and cargo to do:
+## Using as a Zig library.
+* To use this library in your own projects, use this repo as a template including build.zig and build your main just like demo.zig.
+* TODO: Improve this step, after lyon dep is dropped.
+
+## Using as a C Library.
+* TODO: Provide c headers.
+
+## Lyon bindings
+There is an optional integration with lyon (a Rust path tessellation lib) to provide a good comparison with Cosmic for development. Pulling the dependencies (zig build get-deps) will get prebuilt lyon bindings. If that doesn't work you'll need rust and cargo to do:
 ```sh
 zig build lyon
 ```
-
-### Usage
-* To use this library in your own projects, use this repo as a template including build.zig and build your main just like demo.zig.
-* This might be simpler once we have an official package manager for zig or when we have c bindings. There might also be a way to reuse lib project's build.zig.
 
 ## License
 Cosmic Graphics is free and open source under the MIT License.
