@@ -13,6 +13,8 @@ on:
       - master
     paths-ignore:
       - '.github/**'
+      - '**.md'
+      - 'tools/**.js'
 # Cancel previous job if it's running.
 concurrency:
   group: latest
