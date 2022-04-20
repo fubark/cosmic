@@ -171,6 +171,16 @@ pub const cs_graphics = struct {
             self.resetTransform();
         }
 
+        /// Saves the current graphics state by pushing onto a stack.
+        pub inline fn pushState(self: *Graphics) void {
+            self.pushState();
+        }
+
+        /// Restores the graphics state on top of the stack.
+        pub inline fn popState(self: *Graphics) void {
+            self.popState();
+        }
+
         /// Sets the current font and font size.
         /// @param fontId
         /// @param size

@@ -133,6 +133,8 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "rotate", Context.rotate);
         ctx.setConstFuncT(proto, "rotateDeg", Context.rotateDeg);
         ctx.setConstFuncT(proto, "resetTransform", Context.resetTransform);
+        ctx.setConstFuncT(proto, "pushState", Context.pushState);
+        ctx.setConstFuncT(proto, "popState", Context.popState);
         ctx.setConstFuncT(proto, "newImage", Context.newImage);
         ctx.setConstFuncT(proto, "addTtfFont", Context.addTtfFont);
         ctx.setConstFuncT(proto, "addFallbackFont", Context.addFallbackFont);
