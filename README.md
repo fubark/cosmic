@@ -17,22 +17,65 @@ Here are some zig libs we have built while working on Cosmic:
 - General purpose text editor. (*In progress*)
 - Incremental AST parser and tokenizer. ([Source](https://github.com/fubark/cosmic/tree/master/parser))
 
+## Getting Started
+You can download a prebuilt version of Cosmic from the Releases page.
+Then checkout the repo to try a few examples:
+```sh
+git clone https://github.com/fubark/cosmic.git
+cd cosmic
+cosmic examples/paddleball.js
+cosmic examples/demo.js
+```
+
+## Building
+Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/). 
+
+Once you have zig, checkout, run tests, and build.
+```sh
+git clone https://github.com/fubark/cosmic.git
+cd cosmic
+
+# This will fetch prebuilt lyon for vector graphics. This dependency will be dropped with our own implementation in the near future.
+# It also fetches windows prebuilt libs. Once zig can build the deps those will be dropped as well.
+zig build get-deps 
+
+# This will fetch the prebuilt v8 lib for your platform.
+zig build get-v8-lib
+
+# Generates supplementary js for some API functions.
+zig build gen -Darg="api-js" -Darg="cosmic/snapshots/gen_api.js"
+
+# Run unit tests.
+zig build test
+
+# Run behavior tests.
+zig build test-behavior
+
+# Run js behavior tets.
+zig build test-cosmic-js
+
+# Build the main app. Final binary will be at ./zig-out/{platform}/main/main. Use -Drelease-safe for an optimized version.
+zig build cosmic
+```
+
+
+
+## Docs
+See the latest docs at [API docs](https://cosmic-js.com/docs).
+Generate the docs locally with:
+```sh
+zig build gen -Darg="docs" -Darg="docs-out"
+```
+
 ## Contributing
 We will be building the app primarily in Zig.
 [Why Zig When There is Already C++, D, and Rust?](https://ziglang.org/learn/why_zig_rust_d_cpp)
 
 Zig's toolchain is ideal for this project. Even though it has yet to reach 1.0, it's LLVM backend is stable and stage2 is just around the corner.
 
-Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/). 
+There is a lot to be done! If you find the project interesting, consider submitting a PR. A good way to start is to submit or repond to an existing Github Issue. Please star the repo and let's do this!
 
-Once you have zig, checkout and run tests.
-```sh
-git clone https://github.com/fubark/cosmic.git
-zig build get-deps
-zig build test
-```
-
-Please star the repo and let's do this!
+If you have questions or suggestions, submit an issue or join the discord for more direct discourse.
 
 ## License
 
