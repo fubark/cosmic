@@ -127,6 +127,15 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
             inline for (ArgFields) |Field, i| {
                 switch (FuncInfo.param_tags[i]) {
                     .This => @field(native_args, Field.name) = This{ .obj = info.getThis() },
+                    .ThisValue => {
+                        const Value = stdx.meta.FieldType(Field.field_type, .val);
+                        const this = info.getThis();
+                        const native_val = rt.getNativeValue(Value, this.toValue()) catch {
+                            v8x.throwErrorException(iso, "Can't convert to native value.");
+                            return;
+                        };
+                        @field(native_args, Field.name) = Field.field_type{ .obj = this, .val = native_val };
+                    },
                     .ThisResource => {
                         const Ptr = stdx.meta.FieldType(Field.field_type, .res);
                         const res_id = info.getThis().getInternalField(0).castTo(v8.Integer).getValueU32();
@@ -305,6 +314,7 @@ const GenJsFuncOptions = struct {
 
 const ParamFieldTag = enum {
     This,
+    ThisValue,
     ThisResource,
     ThisHandle,
     // Pointer is converted from this->getInternalField(0)
@@ -339,6 +349,8 @@ pub fn getJsFuncInfo(comptime param_fields: []const std.builtin.TypeInfo.StructF
     inline for (param_fields) |field, i| {
         if (field.field_type == This) {
             param_tags[i] = .This;
+        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "ThisValue")) {
+            param_tags[i] = .ThisValue;
         } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "ThisResource")) {
             param_tags[i] = .ThisResource;
         } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "ThisHandle")) {

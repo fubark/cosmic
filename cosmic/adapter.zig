@@ -14,6 +14,16 @@ pub const This = struct {
     obj: v8.Object,
 };
 
+/// Contains the v8.Object and the matching value type.
+pub fn ThisValue(comptime T: type) type {
+    return struct {
+        pub const ThisValue = true;
+
+        obj: v8.Object,
+        val: T,
+    };
+}
+
 /// Contains the v8.Object of the js function's this and the resource that it is bound to (id from the first internal field).
 pub fn ThisResource(comptime Tag: runtime.ResourceTag) type {
     return struct {

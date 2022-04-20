@@ -13,6 +13,7 @@ const RuntimeContext = runtime.RuntimeContext;
 const adapter = @import("adapter.zig");
 const ManagedStruct = adapter.ManagedStruct;
 const This = adapter.This;
+const ThisValue = adapter.ThisValue;
 const Handle = adapter.Handle;
 const RuntimeValue = runtime.RuntimeValue;
 const v8x = @import("v8x.zig");
