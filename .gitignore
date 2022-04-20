@@ -13,5 +13,5 @@
 /vms
 /workspace.code-workspace
 /docs-out
-/cosmic/snapshots/gen_api.js
+/runtime/snapshots/gen_api.js
 /scratch.js
