@@ -135,6 +135,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "resetTransform", Context.resetTransform);
         ctx.setConstFuncT(proto, "pushState", Context.pushState);
         ctx.setConstFuncT(proto, "popState", Context.popState);
+        ctx.setConstFuncT(proto, "getViewTransform", Context.getViewTransform);
         ctx.setConstFuncT(proto, "newImage", Context.newImage);
         ctx.setConstFuncT(proto, "addTtfFont", Context.addTtfFont);
         ctx.setConstFuncT(proto, "addFallbackFont", Context.addFallbackFont);
@@ -192,6 +193,12 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         inst.setInternalFieldCount(1);
     }
     rt.image_class = image_class;
+
+    rt.transform_class = iso.initPersistent(v8.FunctionTemplate, iso.initFunctionTemplateDefault());
+    {
+        const proto = rt.transform_class.inner.getPrototypeTemplate();
+        ctx.setFuncT(proto, "interpolate", cs_graphics.Transform.interpolate);
+    }
 
     // JsColor
     const color_class = iso.initPersistent(v8.FunctionTemplate, iso.initFunctionTemplateDefault());

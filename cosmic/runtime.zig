@@ -65,6 +65,7 @@ pub const RuntimeContext = struct {
     http_response_writer: v8.Persistent(v8.ObjectTemplate),
     image_class: v8.Persistent(v8.FunctionTemplate),
     color_class: v8.Persistent(v8.FunctionTemplate),
+    transform_class: v8.Persistent(v8.FunctionTemplate),
     sound_class: v8.Persistent(v8.ObjectTemplate),
     random_class: v8.Persistent(v8.ObjectTemplate),
     handle_class: v8.Persistent(v8.ObjectTemplate),
@@ -184,6 +185,7 @@ pub const RuntimeContext = struct {
             .str_buf = std.ArrayList(u8).init(alloc),
             .window_class = undefined,
             .color_class = undefined,
+            .transform_class = undefined,
             .graphics_class = undefined,
             .http_response_class = undefined,
             .http_response_writer = undefined,
@@ -457,6 +459,7 @@ pub const RuntimeContext = struct {
         self.http_response_writer.deinit();
         self.image_class.deinit();
         self.color_class.deinit();
+        self.transform_class.deinit();
         self.handle_class.deinit();
         self.rt_ctx_tmpl.deinit();
         self.sound_class.deinit();
@@ -1072,6 +1075,15 @@ pub const RuntimeContext = struct {
                 _ = new.setValue(ctx, iso.initStringUtf8("g"), iso.initIntegerU32(native_val.g));
                 _ = new.setValue(ctx, iso.initStringUtf8("b"), iso.initIntegerU32(native_val.b));
                 _ = new.setValue(ctx, iso.initStringUtf8("a"), iso.initIntegerU32(native_val.a));
+                return new.handle;
+            },
+            cs_graphics.Transform => {
+                const new = self.transform_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
+                var buf: [16]v8.Value = undefined;
+                for (native_val.mat) |it, i| {
+                    buf[i] = iso.initNumber(it).toValue();
+                }
+                _ = new.setValue(ctx, iso.initStringUtf8("mat"), iso.initArrayElements(&buf));
                 return new.handle;
             },
             Uint8Array => {
