@@ -1332,6 +1332,23 @@ pub const RuntimeContext = struct {
                             return native_val;
                         }
                     } else return error.CantConvert;
+                } else if (@typeInfo(T) == .Array) {
+                    const ArrayInfo = @typeInfo(T).Array;
+                    var native_val: [ArrayInfo.len]ArrayInfo.child = undefined;
+                    if (val.isArray()) {
+                        const len = val.castTo(v8.Array).length();
+                        if (len < ArrayInfo.len) {
+                            return error.CantConvert;
+                        } else {
+                            var i: u32 = 0;
+                            const obj = val.castTo(v8.Object);
+                            while (i < len) : (i += 1) {
+                                const child_val = obj.getAtIndex(ctx, i) catch return error.CantConvert;
+                                native_val[i] = self.getNativeValue(ArrayInfo.child, child_val) catch return error.CantConvert;
+                            }
+                            return native_val;
+                        }
+                    } else return error.CantConvert;
                 } else if (@typeInfo(T) == .Enum) {
                     if (@hasDecl(T, "IsStringSumType")) {
                         // String to enum conversion.
