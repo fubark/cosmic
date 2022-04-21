@@ -125,12 +125,16 @@ pub const Tessellator = struct {
     pub fn debugProcessNext(self: *Self, alloc: std.mem.Allocator) ?DebugTriangulateStepResult {
         const e_id = self.event_q.removeOrNull() orelse return null;
         self.processEvent(e_id);
+
+
         return DebugTriangulateStepResult{
             .has_result = true,
             .event = self.events.items[e_id],
             .sweep_edges = self.sweep_edges.allocValuesInOrder(alloc),
             .out_verts = alloc.dupe(Vec2, self.out_verts.items) catch unreachable,
             .out_idxes = alloc.dupe(u16, self.out_idxes.items) catch unreachable,
+            .verts = alloc.dupe(InternalVertex, self.verts.items) catch unreachable,
+            .deferred_verts = alloc.dupe(CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items) catch unreachable,
         };
     }
 
@@ -1818,10 +1822,14 @@ pub const DebugTriangulateStepResult = struct {
     event: Event,
     out_verts: []const Vec2,
     out_idxes: []const u16,
+    verts: []const InternalVertex,
+    deferred_verts: []const CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).Node,
 
     pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
         alloc.free(self.sweep_edges);
         alloc.free(self.out_verts);
         alloc.free(self.out_idxes);
+        alloc.free(self.verts);
+        alloc.free(self.deferred_verts);
     }
 };

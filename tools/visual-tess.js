@@ -41,29 +41,31 @@ if (poly_width > poly_height) {
     scale = (800-40)/poly_height
 }
 
-
 const w = cs.window.create(1200, 800, 'Visual Tessellator')
 const g = w.getGraphics()
 g.debugTriangulatePolygon(poly)
 
 let res = null
-const skip_steps = 0;
+const skip_steps = 0
 for (let i = 0; i < skip_steps; i += 1) {
     res = g.debugTriangulateProcessNext()
 }
 
 cs.dev.hideHud()
 
-const line_width = 0.4
+const line_width = 0.3
+
+let show_internal_verts = true
+let show_deferred_verts = true
 
 w.onUpdate(g => {
     g.fillColor(C.black)
     g.rect(0, 0, 1200, 800)
 
-    g.translate(-(min_x-20/scale), -(min_y-20/scale))
-    // g.translate(-(min_x-20/scale), -(min_y-20/scale))
+    g.translate(-min_x, -min_y)
     g.scale(scale, scale)
     // g.scale(1.8, 1.8)
+    g.translate(20, 20)
     g.lineWidth(line_width)
     g.strokeColor(C.white)
     for (let i = 0; i < pts.length - 1; i += 1) {
@@ -74,7 +76,8 @@ w.onUpdate(g => {
     if (res != null) {
         g.lineWidth(line_width)
 
-        g.strokeColor(C.gray)
+        g.strokeColor(C.gray.lighter())
+        g.fillColor(C.gray.darker().darker())
         for (let i = 0; i < res.out_idxes.length; i += 3) {
             const a = res.out_verts[res.out_idxes[i]]
             const b = res.out_verts[res.out_idxes[i+1]]
@@ -82,6 +85,7 @@ w.onUpdate(g => {
             g.line(a.x, a.y, b.x, b.y);
             g.line(a.x, a.y, c.x, c.y);
             g.line(b.x, b.y, c.x, c.y);
+            g.triangle(a.x, a.y, b.x, b.y, c.x, c.y);
         }
         g.strokeColor(C.green)
         for (const se of res.sweep_edges) {
@@ -90,9 +94,55 @@ w.onUpdate(g => {
         g.lineWidth(line_width*2)
         g.strokeColor(C.red)
         g.point(res.event.vert_x, res.event.vert_y)
+
+        const t = g.getViewTransform()
+        g.resetTransform()
+        if (show_internal_verts) {
+            g.fillColor(C.white)
+            g.fontSize(14)
+            for (const v of res.verts) {
+                if (v.idx != NullId) {
+                    const sp = t.interpolate(v.pos.x, v.pos.y)
+                    g.text(sp.x, sp.y, v.idx)
+                }
+            }
+        }
+
+        if (show_deferred_verts) {
+            g.fontSize(14)
+            for (const se of res.sweep_edges) {
+                g.fillColor(C.orange)
+                const v = res.verts[se.vert_idx]
+                const to_v = res.verts[se.to_vert_idx]
+                const sp = t.interpolate((v.pos.x + to_v.pos.x)/2, (v.pos.y + to_v.pos.y)/2)
+                let i = 0
+                if (se.deferred_queue != NullId) {
+                    let cur = se.deferred_queue
+                    while (cur != NullId) {
+                        const node = res.deferred_verts[cur]
+                        if (i == 0) {
+                            g.text(sp.x, sp.y - 15 - i * 15, node.data.vert_idx + ' ' + ((node.data.side==0)?'L':'R'))
+                        } else {
+                            g.text(sp.x, sp.y - 15 - i * 15, node.data.vert_idx)
+                        }
+                        cur = node.next
+                        i += 1
+                    }
+                }
+                g.fillColor(C.red)
+                if (se.bad_up_cusp_uniq_idx != NullId) {
+                    g.text(sp.x, sp.y - 15 - i * 15, se.bad_up_cusp_right_sweep_edge_id)
+                }
+            }
+        }
+
+        g.fillColor(C.white)
+        const v = res.verts[res.event.vert_idx]
+        g.text(20, 800 - 30, `Processing: ${res.event.vert_idx}, from ${res.event.to_vert_idx}, ${(res.event.tag == 0)?'start':'end'}, (${v.pos.x.toFixed(2)}, ${v.pos.y.toFixed(2)})`)
     }
 })
 
+const NullId = 2 ** 16 - 1
 
 w.onKeyUp(e => {
     if (e.key == K.space) {
@@ -105,6 +155,12 @@ w.onKeyUp(e => {
                 dump(se)
             }
             dump(res.out_idxes, res.out_verts)
+            dump(res.verts)
+            dump(res.deferred_verts)
         }
+    } else if (e.key == K.v) {
+        show_internal_verts = !show_internal_verts
+    } else if (e.key == K.d) {
+        show_deferred_verts = !show_deferred_verts
     }
 })
