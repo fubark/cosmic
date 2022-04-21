@@ -125,12 +125,16 @@ pub const Tessellator = struct {
     pub fn debugProcessNext(self: *Self, alloc: std.mem.Allocator) ?DebugTriangulateStepResult {
         const e_id = self.event_q.removeOrNull() orelse return null;
         self.processEvent(e_id);
+
+
         return DebugTriangulateStepResult{
             .has_result = true,
             .event = self.events.items[e_id],
             .sweep_edges = self.sweep_edges.allocValuesInOrder(alloc),
             .out_verts = alloc.dupe(Vec2, self.out_verts.items) catch unreachable,
             .out_idxes = alloc.dupe(u16, self.out_idxes.items) catch unreachable,
+            .verts = alloc.dupe(InternalVertex, self.verts.items) catch unreachable,
+            .deferred_verts = alloc.dupe(CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items) catch unreachable,
         };
     }
 
@@ -446,10 +450,34 @@ pub const Tessellator = struct {
 
                 const mb_left_id = sweep_edges.getPrev(active_id);
 
+                // Check to fix a bad up cusp to the right.
+                if (active.bad_up_cusp_uniq_idx != NullId) {
+                    const bad_right = sweep_edges.getPtrNoCheck(active.bad_up_cusp_right_sweep_edge_id);
+                    // Close off monotone polygon in between this active edge and the bad up cusp.
+                    self.triangulateLeftStep(active, vert);
+                    if (active.deferred_queue_size >= 3) {
+                        log("{any}", .{self.out_idxes.items});
+                        active.dumpQueue(self);
+                        stdx.panic("did not expect left over vertices");
+                    }
+                    active.lowest_right_vert_idx = NullId;
+                    active.lowest_right_vert_sweep_edge_id = NullId;
+                    sweep_edges.removeDetached(active.bad_up_cusp_right_sweep_edge_id);
+                    active.bad_up_cusp_uniq_idx = NullId;
+                    // Extend the monotone polygon to the right of the bad up cusp to this vertex.
+                    self.triangulateLeftStep(bad_right, vert);
+                    active.deferred_queue = bad_right.deferred_queue;
+                    active.deferred_queue_size = bad_right.deferred_queue_size;
+                } else {
+                    active.dumpQueue(self);
+                    self.triangulateLeftStep(active, vert);
+                    active.dumpQueue(self);
+                }
+
                 // Check if this forms a bad up cusp with the right edge to the left monotone polygon.
                 var removed = false;
                 if (mb_left_id != null) {
-                    log("check for bad up cusp", .{});
+                    log("check to set bad up cusp", .{});
                     const left = sweep_edges.getNoCheck(mb_left_id.?);
                     // dump(edgeToString(left_right_edge.edge))
                     if (vert.out_idx == left.end_event_vert_uniq_idx) {
@@ -469,10 +497,6 @@ pub const Tessellator = struct {
                         // Continue.
                     }
                 }
-
-                active.dumpQueue(self);
-                self.triangulateLeftStep(active, vert);
-                active.dumpQueue(self);
 
                 if (!removed) {
                     // Don't remove the left edge of this sub-polygon yet.
@@ -510,6 +534,8 @@ pub const Tessellator = struct {
 
                 if (std.math.absFloat(last_pt.x - pt.x) > 1e-4 or std.math.absFloat(last_pt.y - pt.y) > 1e-4) {
                     break;
+                } else {
+                    self.verts.items[self.verts.items.len-1].idx = NullId;
                 }
             }
 
@@ -529,6 +555,7 @@ pub const Tessellator = struct {
                     // Don't connect two vertices that are on top of each other.
                     // Allowing this would require edge cases during event processing to make sure things don't break.
                     // Push the vertex in anyway so there is consistency with the input.
+                    self.verts.items[self.verts.items.len-1].idx = NullId;
                     continue;
                 }
 
@@ -1780,13 +1807,13 @@ test "Tiger part." {
 test "Tiger whisker #2." {
     try testLarge(&.{
         50.60, 84.00,50.60, 84.00,36.68, 72.16,27.20, 65.81,22.20, 64.00,22.20, 64.00,7.18, 63.89,-7.84, 66.44,-19.01, 71.16,-27.00, 78.00,-27.00, 78.00,-18.60, 70.90,-7.02, 64.99,5.17, 62.33,18.20, 63.20,18.20, 63.20,4.15, 61.23,-7.70, 60.89,-15.80, 62.00,-42.20, 76.00,-45.00, 80.80,-45.00, 80.80,-42.44, 75.17,-37.28, 68.75,-31.28, 64.00,-22.60, 60.00,-22.60, 60.00,-7.92, 58.05,3.78, 58.19,11.00, 60.00,11.00, 60.00,-3.17, 56.40,-14.12, 54.88,-20.60, 55.20,-20.60, 55.20,-30.04, 55.69,-41.27, 58.57,-50.82, 63.73,-57.83, 70.06,-63.80, 79.20,-63.80, 79.20,-60.27, 71.59,-53.70, 63.52,-45.00, 57.60,-45.00, 57.60,-36.54, 53.82,-24.25, 51.26,-11.00, 51.60,-11.00, 51.60,2.14, 54.95,8.60, 57.20,8.60, 57.20,11.58, 58.03,11.26, 56.98,4.20, 52.00,4.20, 52.00,0.05, 47.36,-6.79, 43.57,-15.40, 42.40,-15.40, 42.40,-36.18, 45.32,-52.83, 49.44,-63.12, 53.75,-68.60, 58.00,-68.60, 58.00,-54.94, 48.57,-44.60, 44.00,-44.60, 44.00,-23.74, 37.92,-13.80, 36.80,-13.80, 36.80,8.76, 36.15,18.60, 33.80,18.60, 33.80,12.30, 37.54,10.11, 40.15,10.60, 42.00,10.60, 42.00,18.76, 51.11,20.60, 54.00,20.60, 54.00,28.20, 61.89,48.40, 81.70,50.60, 84.00
-    }, 60);
+    }, 61);
 }
 
 test "Tiger big part #2." {
     try testLarge(&.{
         143.80, 259.60,143.80, 259.60,156.61, 257.34,165.99, 254.14,171.00, 250.80,175.40, 254.40,193.00, 216.00,196.60, 221.20,196.60, 221.20,204.92, 211.13,209.33, 203.27,210.20, 198.40,210.20, 198.40,210.92, 196.01,214.22, 196.97,223.00, 204.40,223.00, 204.40,223.74, 198.82,225.70, 197.45,229.40, 199.60,229.40, 199.60,229.48, 191.67,231.36, 189.69,235.40, 192.00,235.40, 192.00,233.02, 182.21,233.43, 178.04,234.91, 177.19,238.62, 178.91,247.40, 187.60,247.40, 187.60,250.17, 190.36,248.60, 187.20,248.60, 187.20,238.82, 166.34,235.69, 155.55,236.21, 151.81,238.37, 150.90,244.20, 153.60,244.20, 153.60,245.37, 133.23,245.00, 126.40,245.00, 126.40,242.11, 109.37,239.39, 98.81,237.00, 94.40,237.00, 94.40,235.10, 91.16,235.84, 89.80,238.54, 89.93,243.00, 92.80,243.00, 92.80,238.96, 81.92,238.77, 78.05,240.20, 77.49,245.00, 80.80,245.00, 80.80,240.58, 67.71,237.00, 62.80,237.00, 62.80,236.04, 56.18,237.21, 53.39,240.05, 52.95,246.60, 56.40,246.60, 56.40,241.98, 45.41,239.00, 40.80,239.00, 40.80,232.68, 22.48,232.55, 17.75,234.60, 18.00,239.00, 21.60,239.00, 21.60,235.94, 13.32,236.27, 11.21,238.60, 12.00,238.60, 12.00,244.87, 15.98,245.00, 16.00,245.00, 16.00,236.54, 0.65,235.41, -4.10,236.94, -4.65,244.20, 0.40,244.20, 0.40,232.60, -20.40,232.60, -20.40,224.56, -30.47,222.78, -34.51,223.63, -35.63,228.20, -34.40,233.00, -32.80,233.00, -32.80,223.84, -40.87,216.20, -44.40,216.20, -44.40,213.35, -45.94,214.21, -47.98,219.17, -50.41,225.00, -50.40,225.00, -50.40,247.00, -40.80,247.00, -40.80,259.33, -24.93,263.80, -21.60,263.80, -21.60,251.96, -24.82,248.79, -24.16,249.80, -21.20,249.80, -21.20,257.74, -11.96,258.98, -8.44,257.00, -7.60,257.00, -7.60,254.67, -3.13,253.96, 2.58,255.80, 8.40,255.80, 8.40,248.73, 2.56,246.65, 2.15,246.70, 4.49,252.20, 15.60,259.00, 32.00,259.00, 32.00,247.61, 21.93,243.68, 20.11,242.85, 21.48,245.80, 29.20,245.80, 29.20,261.57, 49.78,265.00, 53.20,265.00, 53.20,267.03, 55.03,271.40, 62.40,267.00, 60.40,272.20, 69.20,272.20, 69.20,266.48, 64.35,265.25, 64.72,267.00, 70.40,272.60, 84.80,272.60, 84.80,264.54, 77.74,261.68, 77.09,261.24, 79.97,265.80, 92.40,265.80, 92.40,259.71, 91.77,256.50, 93.34,255.61, 96.92,258.20, 104.40,258.20, 104.40,257.00, 125.60,257.00, 125.60,257.37, 146.74,256.16, 160.73,254.20, 167.20,254.20, 167.20,253.12, 172.65,255.06, 182.19,262.20, 198.40,262.20, 198.40,264.65, 206.19,263.74, 207.59,259.00, 204.00,259.00, 204.00,253.94, 199.29,253.84, 200.28,256.60, 209.20,256.60, 209.20,262.81, 231.18,263.80, 239.20,263.80, 239.20,262.65, 239.33,259.40, 236.80,259.40, 236.80,251.57, 226.52,247.90, 223.71,246.46, 224.22,246.20, 228.40,246.20, 228.40,241.80, 245.20,241.80, 245.20,239.77, 250.25,239.04, 250.56,238.60, 247.20,238.60, 247.20,235.84, 237.79,234.13, 236.00,232.60, 238.00,232.60, 238.00,227.70, 248.46,223.40, 254.00,223.40, 254.00,221.77, 253.32,217.15, 243.71,215.18, 241.23,214.20, 244.00,214.20, 244.00,208.81, 240.31,204.14, 239.64,200.46, 241.80,197.40, 248.00,185.80, 264.40,185.80, 264.40,184.89, 256.37,184.20, 258.00,184.20, 258.00,164.60, 260.78,150.89, 261.06,143.80, 259.60
-    }, 156);
+    }, 157);
 }
 
 pub const DebugTriangulateStepResult = struct {
@@ -1795,10 +1822,14 @@ pub const DebugTriangulateStepResult = struct {
     event: Event,
     out_verts: []const Vec2,
     out_idxes: []const u16,
+    verts: []const InternalVertex,
+    deferred_verts: []const CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).Node,
 
     pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
         alloc.free(self.sweep_edges);
         alloc.free(self.out_verts);
         alloc.free(self.out_idxes);
+        alloc.free(self.verts);
+        alloc.free(self.deferred_verts);
     }
 };

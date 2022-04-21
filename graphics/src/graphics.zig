@@ -10,6 +10,7 @@ const window = @import("window.zig");
 pub const Window = window.Window;
 pub const quit = window.quit;
 pub const transform = @import("transform.zig");
+const Transform = transform.Transform;
 pub const svg = @import("svg.zig");
 const SvgPath = svg.SvgPath;
 const draw_cmd = @import("draw_cmd.zig");
@@ -813,6 +814,13 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => gl.Graphics.popState(&self.g),
             .WasmCanvas => canvas.Graphics.restore(&self.g),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn getViewTransform(self: Self) Transform {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.getViewTransform(self.g),
             else => stdx.panic("unsupported"),
         }
     }

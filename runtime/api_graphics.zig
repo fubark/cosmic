@@ -6,6 +6,8 @@ const Graphics = graphics.Graphics;
 const FontId = graphics.font.FontId;
 const StdColor = graphics.Color;
 const Vec2 = stdx.math.Vec2;
+const vec2 = Vec2.init;
+const Mat4 = stdx.math.Mat4;
 const v8 = @import("v8");
 
 const runtime = @import("runtime.zig");
@@ -13,6 +15,7 @@ const RuntimeContext = runtime.RuntimeContext;
 const adapter = @import("adapter.zig");
 const ManagedStruct = adapter.ManagedStruct;
 const This = adapter.This;
+const ThisValue = adapter.ThisValue;
 const Handle = adapter.Handle;
 const RuntimeValue = runtime.RuntimeValue;
 const v8x = @import("v8x.zig");
@@ -169,6 +172,21 @@ pub const cs_graphics = struct {
         /// Resets the current transform to identity.
         pub inline fn resetTransform(self: *Graphics) void {
             self.resetTransform();
+        }
+
+        /// Saves the current graphics state by pushing onto a stack.
+        pub inline fn pushState(self: *Graphics) void {
+            self.pushState();
+        }
+
+        /// Restores the graphics state on top of the stack.
+        pub inline fn popState(self: *Graphics) void {
+            self.popState();
+        }
+
+        /// Given logical 2D coordinates, return the interpolation to screen coordinates with the current transform.
+        pub inline fn getViewTransform(self: *Graphics) Transform {
+            return Transform{ .mat = self.getViewTransform().mat };
         }
 
         /// Sets the current font and font size.
@@ -464,6 +482,15 @@ pub const cs_graphics = struct {
         middle,
         alphabetic,
         bottom,
+    };
+
+    pub const Transform = struct {
+        mat: Mat4,
+
+        pub fn interpolate(this: ThisValue(Transform), x: f32, y: f32) Vec2 {
+            const native = graphics.transform.Transform{ .mat = this.val.mat };
+            return native.interpolatePt(vec2(x, y));
+        }
     };
 
     pub const Color = struct {

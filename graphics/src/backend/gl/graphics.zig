@@ -290,6 +290,10 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getViewTransform(self: Self) Transform {
+        return self.view_transform;
+    }
+
     pub fn getLineWidth(self: Self) f32 {
         return self.cur_line_width;
     }

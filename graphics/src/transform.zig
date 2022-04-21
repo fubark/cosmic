@@ -4,6 +4,7 @@ const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
 
+const Vec2 = math.Vec2;
 const Vec4 = [4]f32;
 
 // TODO: Add transform just for 2D coords.
@@ -49,7 +50,12 @@ pub const Transform = struct {
         self.mat = identity();
     }
 
-    pub fn transformPoint(self: *Self, vec: Vec4) Vec4 {
+    pub fn interpolatePt(self: Self, vec: Vec2) Vec2 {
+        const res = math.Mul4x4_4x1(self.mat, [4]f32{vec.x, vec.y, 0, 1 });
+        return Vec2.init(res[0], res[1]);
+    }
+
+    pub fn interpolatePt4(self: Self, vec: Vec4) Vec4 {
         return math.Mul4x4_4x1(self.mat, vec);
     }
 };
@@ -114,9 +120,9 @@ fn getScaling(x: f32, y: f32) Mat4 {
     };
 }
 
-test "Apply Translation" {
+test "Interpolate" {
     var transform = Transform.initIdentity();
     transform.translate(10, 10);
-    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{ 10, 10, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 10, 10, 0, 1 }), .{ 20, 20, 0, 1 });
+    try t.eq(transform.interpolatePt4(.{ 0, 0, 0, 1 }), .{ 10, 10, 0, 1 });
+    try t.eq(transform.interpolatePt4(.{ 10, 10, 0, 1 }), .{ 20, 20, 0, 1 });
 }

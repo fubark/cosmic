@@ -600,10 +600,11 @@ test "CompactIdGenerator" {
 /// This might replace CompactManySinglyLinkedList.
 pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
     const Null = comptime CompactNull(Id);
-    const Node = CompactSinglyLinkedListNode(Id, T);
     const OptId = Id;
     return struct {
         const Self = @This();
+
+        pub const Node = CompactSinglyLinkedListNode(Id, T);
 
         nodes: CompactUnorderedList(Id, Node),
 
