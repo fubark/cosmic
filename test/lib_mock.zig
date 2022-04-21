@@ -64,6 +64,8 @@ export fn glUniform1i() void {}
 export fn glBufferData() void {}
 export fn glDrawElements() void {}
 export fn glTexSubImage2D() void {}
+export fn glScissor() void {}
+export fn glBlendEquation() void {}
 
 export fn SDL_GL_DeleteContext() void {}
 export fn SDL_DestroyWindow() void {}
