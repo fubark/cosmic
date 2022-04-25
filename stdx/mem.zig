@@ -103,3 +103,7 @@ pub fn lastIndexOfPos(comptime T: type, haystack: []const T, start: usize, needl
     }
     if (std.mem.eql(T, haystack[0..needle.len], needle)) return i else return null;
 }
+
+pub fn removeConst(comptime T: type, val: *const T) *T {
+    return @intToPtr(*T, @ptrToInt(val));
+}
