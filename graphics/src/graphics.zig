@@ -730,6 +730,15 @@ pub const Graphics = struct {
         }
     }
 
+    /// Measure some text with a given font.
+    pub fn measureFontText(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8, out: *TextMetrics) void {
+        switch (Backend) {
+            .OpenGL => return self.g.measureFontText(font_gid, font_size, str, out),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Return an iterator to measure each character.
     pub fn measureFontTextIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) MeasureTextIterator {
         switch (Backend) {
             .OpenGL => {
@@ -943,7 +952,7 @@ pub const Image = struct {
 };
 
 pub fn delay(us: u64) void {
-    if (builtin.target.cpu.arch != .wasm32) {
+    if (!builtin.target.isWasm()) {
         // TODO: How does this compare to std.time.sleep ?
         sdl.SDL_Delay(@intCast(u32, us / 1000));
     } else {
