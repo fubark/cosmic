@@ -24,6 +24,6 @@ test {
     const input = @import("../input/input.zig");
     t.refAllDecls(input);
 
-    const main = @import("../cosmic/main.zig");
+    const main = @import("../runtime/main.zig");
     t.refAllDecls(main);
 }

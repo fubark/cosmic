@@ -101,7 +101,7 @@ jobs:
         run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
 
       - name: Generate js API supplement.
-        run: zig build gen -Darg="api-js" -Darg="cosmic/snapshots/gen_api.js"
+        run: zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js"
 
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.

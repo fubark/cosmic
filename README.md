@@ -43,7 +43,7 @@ zig build get-deps
 zig build get-v8-lib
 
 # Generates supplementary js for some API functions.
-zig build gen -Darg="api-js" -Darg="cosmic/snapshots/gen_api.js"
+zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js"
 
 # Run unit tests.
 zig build test
