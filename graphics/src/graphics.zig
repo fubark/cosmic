@@ -64,7 +64,6 @@ pub const testg = @import("backend/test/graphics.zig");
 
 // LINKS:
 // https://github.com/michal-z/zig-gamedev (windows directx/2d graphics)
-// https://github.com/mapbox/earcut (polygon triangulation)
 // https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-25-rendering-vector-art-gpu
 // https://github.com/intel/fastuidraw
 // https://github.com/microsoft/Win2D, https://github.com/microsoft/microsoft-ui-xaml
@@ -706,7 +705,7 @@ pub const Graphics = struct {
         self.fillText(x, y, self.text_buf.items);
     }
 
-    // Measure many text at once.
+    /// Measure many text at once.
     pub fn measureTextBatch(self: *Self, arr: []*TextMeasure) void {
         switch (Backend) {
             .OpenGL => {
@@ -719,6 +718,7 @@ pub const Graphics = struct {
         }
     }
 
+    /// Measure the char advance between two codepoints.
     pub fn measureCharAdvance(self: *Self, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
         switch (Backend) {
             .OpenGL => return text_renderer.measureCharAdvance(&self.g.font_cache, &self.g, font_gid, font_size, prev_cp, cp),

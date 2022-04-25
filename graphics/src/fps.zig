@@ -89,11 +89,13 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
             }
         }
 
+        /// How long the last frame took including pre-start frame and post-end frame. (eg. sleeping/syncing)
         /// Duration in microseconds.
         pub fn getLastFrameDelta(self: *const Self) u64 {
             return self.last_frame_time_us;
         }
-
+        
+        /// How long the last frame took between start and end frame.
         pub fn getLastUpdateDelta(self: *const Self) u64 {
             return self.last_update_time_us;
         }
