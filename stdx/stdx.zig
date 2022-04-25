@@ -18,6 +18,7 @@ pub const net = @import("net.zig");
 
 const closure = @import("closure.zig");
 pub const Closure = closure.Closure;
+pub const ClosureIface = closure.ClosureIface;
 const callback = @import("callback.zig");
 pub const Callback = callback.Callback;
 

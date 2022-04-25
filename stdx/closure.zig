@@ -1,32 +1,37 @@
 const std = @import("std");
-const stdx = @import("stdx");
+const stdx = @import("stdx.zig");
+const t = stdx.testing;
+
+const log = stdx.log.scoped(.closure);
 
 pub fn Closure(comptime Capture: type, comptime Param: type) type {
+    if (@sizeOf(Capture) == 0) {
+        @compileError("Captured type has no size: " ++ @typeName(Capture));
+    }
     return struct {
         const Self = @This();
 
-        user_fn: UserClosureFn(Capture, Param),
         capture: *Capture,
+        user_fn: UserClosureFn(Capture, Param),
 
         pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: UserClosureFn(Capture, Param)) Self {
             const dupe = alloc.create(Capture) catch unreachable;
             dupe.* = capture;
             return .{
-                .user_fn = user_fn,
                 .capture = dupe,
+                .user_fn = user_fn,
             };
         }
 
-        /// The iface points to the Closure in memory.
-        pub fn iface(self: *Self) ClosureIface(Param) {
+        pub fn iface(self: Self) ClosureIface(Param) {
             return ClosureIface(Param).init(self);
         }
 
         pub fn call(self: *Self, arg: Param) void {
             if (Param == void) {
-                self.user_fn(self.capture);
+                self.user_fn(self.capture.*);
             } else {
-                self.user_fn(self.capture, arg);
+                self.user_fn(self.capture.*, arg);
             }
         }
 
