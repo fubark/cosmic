@@ -72,6 +72,7 @@ pub const Graphics = struct {
     cur_buf_height: u32,
 
     default_font_id: FontId,
+    default_font_gid: FontGroupId,
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
     cur_text_align: TextAlign,
@@ -112,6 +113,7 @@ pub const Graphics = struct {
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
+            .default_font_gid = undefined,
             .cur_buf_width = 0,
             .cur_buf_height = 0,
             .cur_font_gid = undefined,
@@ -174,6 +176,7 @@ pub const Graphics = struct {
         // TODO: Embed a default ttf monospace font.
 
         self.default_font_id = self.addTTF_Font(vera_ttf);
+        self.default_font_gid = self.font_cache.getOrLoadFontGroup(&.{self.default_font_id});
         self.setFont(self.default_font_id);
 
         // Set default font size.

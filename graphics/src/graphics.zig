@@ -770,6 +770,14 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
+        switch (Backend) {
+            .OpenGL => return self.g.default_font_gid,
+            .Test => return self.g.default_font_gid,
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn getFontByName(self: *Self, name: []const u8) ?FontId {
         switch (Backend) {
             .OpenGL => return FontCache.getFontId(&self.g.font_cache, name),
