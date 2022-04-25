@@ -25,3 +25,5 @@ pub const Callback = callback.Callback;
 // Common utils.
 pub const panic = debug.panic;
 pub const panicFmt = debug.panicFmt;
+
+pub const Function = closure.Function;
