@@ -6,12 +6,12 @@ const build_options = @import("build_options");
 const graphics = @import("graphics");
 const v8 = @import("v8");
 
-const runtime = @import("../cosmic/runtime.zig");
+const runtime = @import("../runtime/runtime.zig");
 const printFmt = runtime.printFmt;
 const log = std.log.scoped(.doc_gen);
-const gen = @import("../cosmic/gen.zig");
-const api = @import("../cosmic/api.zig");
-const api_graphics = @import("../cosmic/api_graphics.zig");
+const gen = @import("../runtime/gen.zig");
+const api = @import("../runtime/api.zig");
+const api_graphics = @import("../runtime/api_graphics.zig");
 const cs_graphics = api_graphics.cs_graphics;
 
 const doc_versions: []const DocVersion = &.{
@@ -99,8 +99,8 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
     var res = std.StringHashMap(Module).init(alloc);
 
     const srcs: []const Source = &.{
-        .{ .path = "cosmic/api.zig", .package = api },
-        .{ .path = "cosmic/api_graphics.zig", .package = api_graphics },
+        .{ .path = "runtime/api.zig", .package = api },
+        .{ .path = "runtime/api_graphics.zig", .package = api_graphics },
     };
 
     inline for (srcs) |src| {
@@ -398,6 +398,7 @@ fn parseFunctionInfo(comptime FnDecl: std.builtin.TypeInfo.Declaration, comptime
 
 fn getJsTypeName(comptime T: type) []const u8 {
     return switch (T) {
+        [16]f32,
         []const f32 => "Array",
 
         v8.Uint8Array,
