@@ -1,9 +1,8 @@
 const std = @import("std");
 const stdx = @import("stdx");
 
-const wasm = @import("backend/wasm/window.zig");
 const gl = @import("backend/gl/window.zig");
-const canvas = @import("backend/wasm/window.zig");
+const canvas = @import("backend/canvas/window.zig");
 const log = stdx.log.scoped(.window);
 const graphics = @import("graphics.zig");
 const Graphics = graphics.Graphics;
@@ -14,14 +13,14 @@ pub const Window = struct {
 
     inner: switch (Backend) {
         .OpenGL => gl.Window,
-        .WasmCanvas => wasm.Window,
+        .WasmCanvas => canvas.Window,
         .Test => TestWindow,
     },
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         const inner = switch (Backend) {
             .OpenGL => try gl.Window.init(alloc, config),
-            .WasmCanvas => try wasm.Window.init(alloc, config),
+            .WasmCanvas => try canvas.Window.init(alloc, config),
             .Test => TestWindow{ .width = config.width, .height = config.height },
         };
         return Self{
@@ -42,7 +41,7 @@ pub const Window = struct {
     pub fn deinit(self: Self) void {
         switch (Backend) {
             .OpenGL => gl.Window.deinit(self.inner),
-            .WasmCanvas => wasm.Window.deinit(&self.inner),
+            .WasmCanvas => canvas.Window.deinit(&self.inner),
             else => stdx.panic("unsupported"),
         }
     }

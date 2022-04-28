@@ -25,7 +25,7 @@ const _font_group = @import("font_group.zig");
 const FontGroup = _font_group.FontGroup;
 const text_renderer = @import("backend/gl/text_renderer.zig");
 const FontCache = gl.FontCache;
-const log = std.log.scoped(.graphics);
+const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
 
 pub const tessellator = @import("tessellator.zig");
@@ -58,7 +58,7 @@ pub const font = struct {
 const FontGroupId = font.FontGroupId;
 const FontId = font.FontId;
 
-pub const canvas = @import("backend/wasm/graphics.zig");
+pub const canvas = @import("backend/canvas/graphics.zig");
 pub const gl = @import("backend/gl/graphics.zig");
 pub const testg = @import("backend/test/graphics.zig");
 
@@ -69,16 +69,20 @@ pub const testg = @import("backend/test/graphics.zig");
 // https://github.com/microsoft/Win2D, https://github.com/microsoft/microsoft-ui-xaml
 
 const BackendType = enum {
+    /// Stub for testing.
     Test,
+    /// Deprecated. Uses html canvas context for graphics. Kept for historical reference.
     WasmCanvas,
+    /// For Desktop and WebGL.
     OpenGL,
 };
 
 pub const Backend: BackendType = b: {
     if (builtin.is_test) {
         break :b .Test;
-    } else if (builtin.target.cpu.arch == .wasm32) {
-        break :b .WasmCanvas;
+    } else if (builtin.target.isWasm()) {
+        // break :b .WasmCanvas;
+        break :b .OpenGL;
     } else {
         break :b .OpenGL;
     }

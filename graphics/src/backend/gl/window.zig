@@ -14,6 +14,11 @@ const Config = window.Config;
 const Mode = window.Mode;
 const log = stdx.log.scoped(.window_gl);
 
+const IsWebGL2 = builtin.target.isWasm();
+extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) u8;
+
+const IsDesktop = !IsWebGL2;
+
 pub const Window = struct {
     const Self = @This();
 
@@ -47,12 +52,23 @@ pub const Window = struct {
     initial_mvp: Mat4,
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
-        try sdl.ensureVideoInit();
+        if (IsDesktop) {
+            try sdl.ensureVideoInit();
+        }
 
         var res: Window = undefined;
-        const flags = getSdlWindowFlags(config);
-        try initGL_Window(alloc, &res, config, flags);
-        try initGL_Context(&res);
+        if (IsDesktop) {
+            const flags = getSdlWindowFlags(config);
+            try initGL_Window(alloc, &res, config, flags);
+            try initGL_Context(&res);
+        } else if (IsWebGL2) {
+            const dpr = jsSetCanvasBuffer(config.width, config.height);
+            res.width = @intCast(u32, config.width);
+            res.height = @intCast(u32, config.height);
+            res.buf_width = dpr * res.width;
+            res.buf_height = dpr * res.height;
+            res.dpr = dpr;
+        }
         res.alloc = alloc;
         res.gl_ctx_ref_count = alloc.create(u32) catch unreachable;
         res.gl_ctx_ref_count.* = 1;
@@ -211,9 +227,11 @@ pub const Window = struct {
     }
 
     pub fn swapBuffers(self: Self) void {
-        // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
-        // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
-        sdl.SDL_GL_SwapWindow(self.sdl_window);
+        if (IsDesktop) {
+            // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
+            // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
+            sdl.SDL_GL_SwapWindow(self.sdl_window);
+        }
     }
 
     pub fn setTitle(self: Self, title: []const u8) void {
@@ -345,10 +363,16 @@ test "initDisplayProjection" {
 
 fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
     gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, msaa.fbo);
-    gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex);
-    gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
-    gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex, 0);
-    gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+    if (IsDesktop) {
+        gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex);
+        gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
+        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex, 0);
+        gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+    } else {
+        gl.bindRenderbuffer(gl.GL_RENDERBUFFER, msaa.rbo.?);
+        gl.renderbufferStorageMultisample(gl.GL_RENDERBUFFER, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height));
+        gl.framebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_RENDERBUFFER, msaa.rbo.?);
+    }
 }
 
 pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer {
@@ -363,27 +387,48 @@ pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer 
             2 => 4,
             else => 2,
         };
+        const num_samples = std.math.min(max_samples, msaa_preferred_samples);
+
         var ms_fbo: gl.GLuint = 0;
         gl.genFramebuffers(1, &ms_fbo);
         gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);
 
-        var ms_tex: gl.GLuint = 0;
-        gl.glGenTextures(1, &ms_tex);
+        if (IsDesktop) {
+            var ms_tex: gl.GLuint = undefined;
+            gl.genTextures(1, &ms_tex);
 
-        gl.glEnable(gl.GL_MULTISAMPLE);
-        // gl.glHint(gl.GL_MULTISAMPLE_FILTER_HINT_NV, gl.GL_NICEST);
-        const num_samples = std.math.min(max_samples, msaa_preferred_samples);
-        gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
-        gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
-        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
-
-        log.debug("msaa framebuffer created with {} samples", .{num_samples});
-        return MsaaFrameBuffer{
-            .fbo = ms_fbo,
-            .tex = ms_tex,
-            .num_samples = num_samples,
-        };
+            gl.enable(gl.GL_MULTISAMPLE);
+            // gl.glHint(gl.GL_MULTISAMPLE_FILTER_HINT_NV, gl.GL_NICEST);
+            gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
+            gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
+            gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
+            gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+            log.debug("msaa framebuffer created with {} samples", .{num_samples});
+            return MsaaFrameBuffer{
+                .fbo = ms_fbo,
+                .tex = ms_tex,
+                .rbo = null,
+                .num_samples = num_samples,
+            };
+        } else if (IsWebGL2) {
+            // webgl2 does not support texture multisampling but it does support renderbuffer multisampling.
+            var rbo: gl.GLuint = undefined;
+            gl.genRenderbuffers(1, &rbo);
+            gl.bindRenderbuffer(gl.GL_RENDERBUFFER, rbo);
+            gl.renderbufferStorageMultisample(gl.GL_RENDERBUFFER, @intCast(c_int, num_samples), gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height));
+            gl.framebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_RENDERBUFFER, rbo);
+            const status = gl.checkFramebufferStatus(gl.GL_FRAMEBUFFER);
+            if (status != gl.GL_FRAMEBUFFER_COMPLETE) {
+                log.debug("unexpected status: {}", .{status});
+                unreachable;
+            }
+            return MsaaFrameBuffer{
+                .fbo = ms_fbo,
+                .tex = null,
+                .rbo = rbo,
+                .num_samples = num_samples,
+            };
+        } else unreachable;
     } else {
         return null;
     }
@@ -391,6 +436,12 @@ pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer 
 
 const MsaaFrameBuffer = struct {
     fbo: gl.GLuint,
-    tex: gl.GLuint,
+
+    // For desktop.
+    tex: ?gl.GLuint,
+
+    // For webgl2.
+    rbo: ?gl.GLuint,
+
     num_samples: u32,
 };
