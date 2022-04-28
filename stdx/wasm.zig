@@ -5,9 +5,15 @@ const builtin = @import("builtin");
 
 const log = stdx.log.scoped(.wasm);
 
-var js_buffer: WasmJsBuffer = undefined;
+/// A global buffer for wasm that can be used for:
+/// Writing to js: In some cases in order to share the same abstraction as desktop code, a growing buffer is useful without needing an allocator. eg. logging.
+/// Reading from js: If js needs to return dynamic data, it would need to write to memory which wasm knows about.
+pub var js_buffer: WasmJsBuffer = undefined;
+
+var galloc: std.mem.Allocator = undefined;
 
 pub fn init(alloc: std.mem.Allocator) void {
+    galloc = alloc;
     js_buffer.init(alloc);
     promises = ds.CompactUnorderedList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
@@ -247,3 +253,54 @@ const PromiseInternal = struct {
     resolved: bool,
     dynamic_size: bool,
 };
+
+const usize_len = @sizeOf(usize);
+
+comptime {
+    // Conditionally export, or desktop builds will have the wrong malloc.
+    if (builtin.target.isWasm()) {
+        @export(malloc, .{ .name = "malloc", .linkage = .Strong });
+        @export(free, .{ .name = "free", .linkage = .Strong });
+        @export(realloc, .{ .name = "realloc", .linkage = .Strong });
+        @export(fabs, .{ .name = "fabs", .linkage = .Strong });
+    }
+}
+
+/// libc malloc.
+fn malloc(size: usize) callconv(.C) *anyopaque {
+    // Allocates a block that is a multiple of usize that fits the header and the user allocation.
+    const eff_size = 1 + (size + usize_len - 1) / usize_len;
+    const block = galloc.alloc(usize, eff_size) catch unreachable;
+    // Header stores the length.
+    block[0] = eff_size;
+    // Return the user allocation.
+    return &block[1];
+}
+
+/// libc fabs.
+fn fabs(x: f64) callconv(.C) f64 {
+    return std.math.fabs(x);
+}
+
+/// libc free.
+fn free(ptr: ?*anyopaque) callconv(.C) void {
+    if (ptr == null) {
+        return;
+    }
+    const addr = @ptrToInt(ptr) - usize_len;
+    const block = @intToPtr([*]const usize, addr);
+    const len = block[0];
+    galloc.free(block[0..len]);
+}
+
+/// libc realloc.
+fn realloc(ptr: *anyopaque, size: usize) callconv(.C) *anyopaque {
+    const eff_size = 1 + (size + usize_len - 1) / usize_len;
+    const addr = @ptrToInt(ptr) - usize_len;
+    const block = @intToPtr([*]usize, addr);
+    const len = block[0];
+    const slice: []usize = block[0..len];
+    const new_slice = galloc.realloc(slice, eff_size) catch unreachable;
+    new_slice[0] = eff_size;
+    return &new_slice[1];
+}
