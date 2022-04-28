@@ -130,7 +130,7 @@ pub const Batcher = struct {
         gl.useProgram(self.tex_shader.prog_id);
 
         gl.activeTexture(gl.GL_TEXTURE0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.cur_tex_image.tex_id);
+        gl.bindTexture(gl.GL_TEXTURE_2D, self.cur_tex_image.tex_id);
 
         // set u_mvp, since transpose is false, it expects to receive in column major order.
         gl.uniformMatrix4fv(self.tex_shader.u_mvp_loc, 1, gl.GL_FALSE, &self.mvp);

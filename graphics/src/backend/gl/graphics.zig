@@ -199,16 +199,16 @@ pub const Graphics = struct {
         lyon.init();
 
         // Clear color. Default to white.
-        gl.glClearColor(1, 1, 1, 1.0);
-        // gl.glClearColor(0.1, 0.2, 0.3, 1.0);
-        // gl.glClearColor(0, 0, 0, 1.0);
+        gl.clearColor(1, 1, 1, 1.0);
+        // gl.clearColor(0.1, 0.2, 0.3, 1.0);
+        // gl.clearColor(0, 0, 0, 1.0);
 
         // 2D graphics for now. Turn off 3d options.
-        gl.glDisable(gl.GL_DEPTH_TEST);
-        gl.glDisable(gl.GL_CULL_FACE);
+        gl.disable(gl.GL_DEPTH_TEST);
+        gl.disable(gl.GL_CULL_FACE);
 
         // Enable blending by default.
-        gl.glEnable(gl.GL_BLEND);
+        gl.enable(gl.GL_BLEND);
     }
 
     pub fn deinit(self: *Self) void {
@@ -255,8 +255,8 @@ pub const Graphics = struct {
         // Execute current draw calls before we alter state.
         self.flushDraw();
 
-        gl.glScissor(@floatToInt(c_int, r.x), @floatToInt(c_int, r.y), @floatToInt(c_int, r.width), @floatToInt(c_int, r.height));
-        gl.glEnable(gl.GL_SCISSOR_TEST);
+        gl.scissor(@floatToInt(c_int, r.x), @floatToInt(c_int, r.y), @floatToInt(c_int, r.width), @floatToInt(c_int, r.height));
+        gl.enable(gl.GL_SCISSOR_TEST);
     }
 
     pub fn resetTransform(self: *Self) void {
@@ -290,7 +290,7 @@ pub const Graphics = struct {
         } else {
             // log.debug("disable scissors", .{});
             self.cur_scissors = false;
-            gl.glDisable(gl.GL_SCISSOR_TEST);
+            gl.disable(gl.GL_SCISSOR_TEST);
         }
         if (state.blend_mode != self.cur_blend_mode) {
             self.setBlendMode(state.blend_mode);
@@ -376,9 +376,9 @@ pub const Graphics = struct {
             image.update_fn = @field(props, "update");
         }
 
-        gl.glGenTextures(1, &image.tex_id);
+        gl.genTextures(1, &image.tex_id);
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, image.tex_id);
+        gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
 
         // A GLint specifying the level of detail. Level 0 is the base image level and level n is the nth mipmap reduction level.
         const level = 0;
@@ -391,14 +391,14 @@ pub const Graphics = struct {
         // TEXTURE_MIN_FILTER - filter for scaled down texture
         // TEXTURE_MAG_FILTER - filter for scaled up texture
         // Linear filter is better for anti-aliased font bitmaps.
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
         const data_ptr = if (data != null) data.?.ptr else null;
-        gl.glTexImage2D(gl.GL_TEXTURE_2D, level, gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height), border, gl.GL_RGBA, data_type, data_ptr);
+        gl.texImage2D(gl.GL_TEXTURE_2D, level, gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height), border, gl.GL_RGBA, data_type, data_ptr);
 
-        gl.glBindTexture(gl.GL_TEXTURE_2D, 0);
+        gl.bindTexture(gl.GL_TEXTURE_2D, 0);
     }
 
     pub fn createImageFromData(self: *Self, data: []const u8) !graphics.Image {
@@ -1776,7 +1776,7 @@ pub const Graphics = struct {
         self.cur_proj_transform = proj_transform;
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
-        gl.glViewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
+        gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
@@ -1790,18 +1790,18 @@ pub const Graphics = struct {
             .height = @intToFloat(f32, buf_height),
         };
         self.cur_scissors = false;
-        gl.glDisable(gl.GL_SCISSOR_TEST);
+        gl.disable(gl.GL_SCISSOR_TEST);
 
         // This clears the main framebuffer that is swapped to window.
         gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT);
+        gl.clear(gl.GL_COLOR_BUFFER_BIT);
 
         if (custom_fbo != 0) {
             // Set the frame buffer we are drawing to.
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
 
             // Clears the custom frame buffer.
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT);
+            gl.clear(gl.GL_COLOR_BUFFER_BIT);
         }
 
         // Straight alpha by default.
@@ -1848,7 +1848,7 @@ pub const Graphics = struct {
     // GL Only.
     pub fn setBlendModeCustom(self: *Self, src: gl.GLenum, dst: gl.GLenum, eq: gl.GLenum) void {
         _ = self;
-        gl.glBlendFunc(src, dst);
+        gl.blendFunc(src, dst);
         gl.blendEquation(eq);
     }
 
@@ -1856,29 +1856,29 @@ pub const Graphics = struct {
         if (self.cur_blend_mode != mode) {
             self.flushDraw();
             switch (mode) {
-                .StraightAlpha => gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
+                .StraightAlpha => gl.blendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
                 .Add, .Glow => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Subtract => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_SUBTRACT);
                 },
                 .Multiplied => {
-                    gl.glBlendFunc(gl.GL_DST_COLOR, gl.GL_ONE_MINUS_SRC_ALPHA);
+                    gl.blendFunc(gl.GL_DST_COLOR, gl.GL_ONE_MINUS_SRC_ALPHA);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Opaque => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ZERO);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ZERO);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Additive => {
-                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
+                    gl.blendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .PremultipliedAlpha => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 else => @panic("unsupported"),
@@ -1901,9 +1901,9 @@ pub const Graphics = struct {
     pub fn updateTextureData(self: *const Self, image: *const Image, buf: []const u8) void {
         _ = self;
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, image.tex_id);
-        gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, 0);
+        gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
+        gl.texSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
+        gl.bindTexture(gl.GL_TEXTURE_2D, 0);
     }
 };
 
@@ -1941,7 +1941,7 @@ pub const Image = struct {
     update_fn: fn (*Self) void,
 
     pub fn deinit(self: Self) void {
-        gl.glDeleteTextures(1, &self.tex_id);
+        gl.deleteTextures(1, &self.tex_id);
     }
 
     fn update(self: *Self) void {

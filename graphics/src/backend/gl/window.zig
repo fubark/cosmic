@@ -281,8 +281,8 @@ fn initGL_Context(win: *Window) !void {
         // This also means it's better to start initing opengl functions (GetProcAddress) on windows after an opengl context is created.
         var major: i32 = undefined;
         var minor: i32 = undefined;
-        gl.glGetIntegerv(gl.GL_MAJOR_VERSION, &major);
-        gl.glGetIntegerv(gl.GL_MINOR_VERSION, &minor);
+        gl.getIntegerv(gl.GL_MAJOR_VERSION, &major);
+        gl.getIntegerv(gl.GL_MINOR_VERSION, &minor);
         _ = minor;
         if (major < 3) {
             log.err("OpenGL Version Unsupported: {s}", .{gl.glGetString(gl.GL_VERSION)});
