@@ -263,6 +263,10 @@ comptime {
         @export(free, .{ .name = "free", .linkage = .Strong });
         @export(realloc, .{ .name = "realloc", .linkage = .Strong });
         @export(fabs, .{ .name = "fabs", .linkage = .Strong });
+        @export(sqrt, .{ .name = "sqrt", .linkage = .Strong });
+        @export(ldexp, .{ .name = "ldexp", .linkage = .Strong });
+        @export(pow, .{ .name = "pow", .linkage = .Strong });
+        @export(abs, .{ .name = "abs", .linkage = .Strong });
     }
 }
 
@@ -303,4 +307,24 @@ fn realloc(ptr: *anyopaque, size: usize) callconv(.C) *anyopaque {
     const new_slice = galloc.realloc(slice, eff_size) catch unreachable;
     new_slice[0] = eff_size;
     return &new_slice[1];
+}
+
+/// libc sqrt.
+fn sqrt(x: f64) callconv(.C) f64 {
+    return std.math.sqrt(x);
+}
+
+/// libc ldexp.
+fn ldexp(x: f64, n: i32) callconv(.C) f64 {
+    return std.math.ldexp(x, n);
+}
+
+/// libc pow.
+fn pow(x: f64, y: f64) callconv(.C) f64 {
+    return std.math.pow(f64, x, y);
+}
+
+/// libc abs.
+fn abs(x: i32) callconv(.C) i32 {
+    return std.math.absInt(x) catch unreachable;
 }
