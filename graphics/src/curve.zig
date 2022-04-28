@@ -255,6 +255,44 @@ pub const CubicBez = struct {
     }
 };
 
+test "Quadratic bezier flatten." {
+    const qbez = QuadBez{
+        .x0 = 0,
+        .y0 = 0,
+        .cx = 200,
+        .cy = 0,
+        .x1 = 200,
+        .y1 = 200,
+    };
+    var buf = std.ArrayList(Vec2).init(t.alloc);
+    defer buf.deinit();
+
+    qbez.flatten(0.5, &buf);
+
+    const exp: []const Vec2 = &.{
+        vec2(0, 0),
+        vec2(3.47196731e+01, 1.65378558e+00),
+        vec2(6.48403472e+01, 6.33185195e+00),
+        vec2(9.09474639e+01, 1.36849184e+01),
+        vec2(1.13562118e+02, 2.34734230e+01),
+        vec2(1.33128662e+02, 3.55769996e+01),
+        vec2(1.5e+02, 5.0e+01),
+        vec2(1.64423019e+02, 6.68713607e+01),
+        vec2(1.76526580e+02, 8.64378890e+01),
+        vec2(1.86315093e+02, 1.09052558e+02),
+        vec2(1.93668151e+02, 1.35159667e+02),
+        vec2(1.98346221e+02, 1.65280334e+02),
+        vec2(2.0e+02, 2.0e+02),
+    };
+
+    try t.eq(buf.items.len, exp.len);
+    var i: usize = 0;
+    while (i < buf.items.len) : (i += 1) {
+        try t.eqApprox(buf.items[i].x, exp[i].x, 1e-4);
+        try t.eqApprox(buf.items[i].y, exp[i].y, 1e-4);
+    }
+}
+
 test "Cubic bezier flatten." {
     const cbez = CubicBez{
         .x0 = 200,
@@ -273,8 +311,6 @@ test "Cubic bezier flatten." {
     defer qbez_buf.deinit();
 
     cbez.flatten(0.5, &buf, &qbez_buf);
-
-    log.warn("{any}", .{buf.items});
 
     const exp: []const Vec2 = &.{
         vec2(200, 450),

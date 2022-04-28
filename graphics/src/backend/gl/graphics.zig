@@ -897,6 +897,7 @@ pub const Graphics = struct {
             .x1 = x1,
             .y1 = y1,
         };
+        self.vec2_helper_buf.clearRetainingCapacity();
         stroke.strokeQuadBez(&self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.cur_line_width_half, self.cur_stroke_color);
     }
 
@@ -922,6 +923,8 @@ pub const Graphics = struct {
             .x1 = x1,
             .y1 = y1,
         };
+        self.qbez_helper_buf.clearRetainingCapacity();
+        self.vec2_helper_buf.clearRetainingCapacity();
         stroke.strokeCubicBez(&self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.cur_line_width_half, self.cur_stroke_color);
     }
 
