@@ -6,8 +6,6 @@ extern "stdx" fn jsWarn(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsLog(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsErr(ptr: [*]const u8, len: usize) void;
 
-pub var js_buf: *stdx.wasm.WasmJsBuffer = undefined;
-
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
         pub fn debug(
@@ -16,6 +14,7 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
         ) void {
             if (builtin.mode == .Debug) {
                 const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
+                const js_buf = &stdx.wasm.js_buffer;
                 js_buf.output_buf.clearRetainingCapacity();
                 std.fmt.format(js_buf.output_writer, "debug" ++ prefix ++ format, args) catch unreachable;
                 jsLog(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
@@ -27,6 +26,7 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
+            const js_buf = &stdx.wasm.js_buffer;
             js_buf.output_buf.clearRetainingCapacity();
             std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
             jsLog(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
@@ -37,6 +37,7 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
+            const js_buf = &stdx.wasm.js_buffer;
             js_buf.output_buf.clearRetainingCapacity();
             std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
             jsWarn(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
@@ -47,6 +48,7 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
+            const js_buf = &stdx.wasm.js_buffer;
             js_buf.output_buf.clearRetainingCapacity();
             std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
             jsErr(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
