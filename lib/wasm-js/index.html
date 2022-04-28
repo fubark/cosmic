@@ -5,6 +5,7 @@
     <style>
         html, body {
             margin: 0px;
+            background-color: #333333;
         }
     </style>
 </head>
@@ -30,7 +31,22 @@
                             wasm_view[dst + i] = wasm_view[src + i];
                         }
                         return dst;
-                    }
+                    },
+                    __assert_fail(assertion, file, line, func) {
+                        console.log('__assert_fail')
+                    },
+                    __stack_chk_fail() {
+                        console.log('__stack_chk_fail')
+                    },
+                    strcmp() {
+                        throw new Error('TODO: Implement libc strcmp.')
+                    },
+                    strncmp() {
+                        throw new Error('TODO: Implement libc strncmp.')
+                    },
+                    strtol() {
+                        throw new Error('TODO: Implement libc strtol.')
+                    },
                 },
                 graphics: {},
                 stdx: {},
