@@ -1,5 +1,5 @@
 // Returns milliseconds.
-extern fn performanceNow() f64;
+pub extern "stdx" fn jsPerformanceNow() f64;
 
 pub const Timer = struct {
     const Self = @This();
@@ -17,6 +17,10 @@ pub const Timer = struct {
     }
 };
 
+pub fn getMillisTime() f64 {
+    return jsPerformanceNow();
+}
+
 fn getNanoTime() u64 {
-    return @floatToInt(u64, performanceNow() * 1e6);
+    return @floatToInt(u64, jsPerformanceNow() * 1e6);
 }
