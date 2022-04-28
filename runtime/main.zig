@@ -302,8 +302,14 @@ fn repl(alloc: std.mem.Allocator, env: *Environment) void {
         const Timeout = 4 * 1e9;
         const wait_res = rt.main_wakeup.timedWait(Timeout);
         rt.main_wakeup.reset();
-        if (wait_res == .timed_out) {
-            continue;
+        if (wait_res) |_| {
+
+        } else |err| {
+            if (err == error.Timeout) {
+                continue;
+            } else {
+                stdx.panicFmt("unknown error: {}", .{err});
+            }
         }
         runtime.processMainEventLoop(&rt);
 

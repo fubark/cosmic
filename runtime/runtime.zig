@@ -251,8 +251,6 @@ pub const RuntimeContext = struct {
             .env = env,
         };
 
-        self.main_wakeup.init() catch unreachable;
-
         self.initUv();
 
         self.work_queue = WorkQueue.init(alloc, self.uv_loop, &self.main_wakeup);
@@ -432,8 +430,6 @@ pub const RuntimeContext = struct {
             case.deinit(self.alloc);
         }
         self.isolated_tests.deinit();
-
-        self.main_wakeup.deinit();
 
         self.alloc.destroy(self.uv_dummy_async);
         self.alloc.destroy(self.uv_loop);
@@ -2163,8 +2159,14 @@ fn pumpMainEventLoopFor(rt: *RuntimeContext, max_ms: u32) void {
         const Timeout = 200 * 1e6;
         const wait_res = rt.main_wakeup.timedWait(Timeout);
         rt.main_wakeup.reset();
-        if (wait_res == .timed_out) {
-            continue;
+        if (wait_res) |_| {
+            // Nop.
+        } else |err| {
+            if (err == error.Timeout) {
+                continue;
+            } else {
+                stdx.panicFmt("unknown error: {}", .{err});
+            }
         }
         processMainEventLoop(rt);
     }
@@ -2179,9 +2181,16 @@ pub fn pollMainEventLoop(rt: *RuntimeContext) bool {
         // log.debug("main thread wait", .{});
         const Timeout = 4 * 1e9;
         const wait_res = rt.main_wakeup.timedWait(Timeout);
+
         rt.main_wakeup.reset();
-        if (wait_res == .timed_out) {
-            continue;
+        if (wait_res) |_| {
+            // Nop.
+        } else |err| {
+            if (err == error.Timeout) {
+                continue;
+            } else {
+                stdx.panicFmt("unknown error: {}", .{err});
+            }
         }
         return true;
     }

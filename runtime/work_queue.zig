@@ -231,12 +231,10 @@ const Worker = struct {
             .wakeup = undefined,
             .close_flag = std.atomic.Atomic(bool).init(false),
         };
-        self.wakeup.init() catch unreachable;
     }
 
     fn deinit(self: *Self) void {
         self.thread.detach();
-        self.wakeup.deinit();
     }
 
     fn loop(self: *Self) void {
