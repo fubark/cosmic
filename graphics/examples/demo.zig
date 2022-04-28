@@ -15,7 +15,7 @@ const WasmJsBuffer = stdx.wasm.WasmJsBuffer;
 
 const log = stdx.log.scoped(.demo);
 
-const IsWasm = builtin.target.cpu.arch == .wasm32;
+const IsWasm = builtin.target.isWasm();
 
 var win: Window = undefined;
 var g: *Graphics = undefined;
@@ -25,7 +25,6 @@ var tiger_head_draw_list: graphics.DrawCommandList = undefined;
 var game_char_image: Image = undefined;
 var last_frame_time_ns: u64 = undefined;
 var font_id: FontId = undefined;
-
 
 /// @buildCopy "../../examples/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
 /// @buildCopy "../../examples/assets/tiger-head.svg" "tiger-head.svg"
@@ -49,7 +48,7 @@ pub fn main() !void {
     try initAssets(alloc);
     defer deinitAssets(alloc);
 
-    const timer = std.time.Timer.start() catch unreachable;
+    var timer = std.time.Timer.start() catch unreachable;
     last_frame_time_ns = timer.read();
 
     var loop = true;
@@ -167,13 +166,8 @@ fn update(delta_ms: f32) void {
     g.resetTransform();
 
     // Bigger Svg.
-    if (IsWasm) {
-        // It's much faster to use an svg image on web canvas.
-        g.drawImageSized(670, 220, 500, 500, tiger_head_image.id);
-    } else {
-        g.translate(840, 360);
-        g.executeDrawList(tiger_head_draw_list);
-    }
+    g.translate(840, 360);
+    g.executeDrawList(tiger_head_draw_list);
 
     // g.drawSvgPathStr(0, 0,
     //     \\M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1
