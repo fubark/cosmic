@@ -196,7 +196,9 @@ pub const Graphics = struct {
 
         self.setLineWidth(1);
 
-        lyon.init();
+        if (!IsWasm) {
+            lyon.init();
+        }
 
         // Clear color. Default to white.
         gl.clearColor(1, 1, 1, 1.0);
