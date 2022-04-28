@@ -52,7 +52,12 @@ const Tessellator = tessellator.Tessellator;
 const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
 const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
 
+const tex_vert_webgl2 = @embedFile("../../shaders/tex_vert_webgl2.glsl");
+const tex_frag_webgl2 = @embedFile("../../shaders/tex_frag_webgl2.glsl");
+
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
+
+const IsWasm = builtin.target.isWasm();
 
 /// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {
@@ -145,7 +150,11 @@ pub const Graphics = struct {
         log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
 
         // Initialize shaders.
-        self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
+        if (IsWasm) {
+            self.tex_shader = Shader.init(tex_vert_webgl2, tex_frag_webgl2) catch unreachable;
+        } else {
+            self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
+        }
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
