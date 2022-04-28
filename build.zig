@@ -184,8 +184,16 @@ pub fn build(b: *Builder) !void {
         step.dependOn(&ctx.addInstallArtifact(ssl_).step);
     }
 
-    const build_wasm = ctx.createBuildWasmBundleStep();
-    b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+    {
+        var ctx_ = ctx;
+        ctx_.target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .abi = .musl,
+        };
+        const build_wasm = ctx_.createBuildWasmBundleStep();
+        b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+    }
 
     const get_version = b.addLog("{s}", .{getVersionString(is_official_build)});
     b.step("version", "Get the build version.").dependOn(&get_version.step);
@@ -332,45 +340,42 @@ const BuilderContext = struct {
         return step;
     }
 
-    // Similar to createBuildLibStep except we also copy over index.html and required js libs.
+    /// Similar to createBuildLibStep except we also copy over index.html and required js libs.
     fn createBuildWasmBundleStep(self: *Self) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const build_options = self.buildOptionsPkg();
         const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
+        // const step = self.builder.addStaticLibrary(name, self.path);
         self.setBuildMode(step);
-        step.setTarget(.{
-            .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
-        });
+        self.setTarget(step);
 
-        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &.{ "zig-out/", name }) catch unreachable;
-        const output_dir = self.fromRoot(output_dir_rel);
-        step.setOutputDir(output_dir);
+        _ = self.addInstallArtifact(step);
+        const install_dir_rel = self.builder.fmt("zig-out/{s}", .{step.install_step.?.dest_dir.custom });
+        const install_dir = self.fromRoot(install_dir_rel);
+        step.setOutputDir(install_dir);
 
-        addStdx(step, build_options);
-        self.addGraphics(step);
         self.addDeps(step) catch unreachable;
-        self.copyAssets(step, output_dir_rel);
+        // self.copyAssets(step, output_dir_rel);
 
         // index.html
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.joinResolvePath(&.{ output_dir, "index.html" }));
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.builder.pathJoin(&.{ install_dir, "index.html" }));
         step.step.dependOn(&cp.step);
 
         // Replace wasm file name in index.html
-        const index_path = self.joinResolvePath(&[_][]const u8{ output_dir, "index.html" });
+        const index_path = self.builder.pathJoin(&.{ install_dir, "index.html" });
         const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
         step.step.dependOn(&replace.step);
 
         // graphics.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics.js"), self.joinResolvePath(&.{ output_dir, "graphics.js" }));
+        // cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics-canvas.js"), self.builder.pathJoin(&.{ install_dir, "graphics.js" }));
+        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics-webgl2.js"), self.builder.pathJoin(&.{ install_dir, "graphics.js" }));
         step.step.dependOn(&cp.step);
 
         // stdx.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.joinResolvePath(&.{ output_dir, "stdx.js" }));
+        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.builder.pathJoin(&.{ install_dir, "stdx.js" }));
         step.step.dependOn(&cp.step);
 
         return step;
@@ -393,7 +398,7 @@ const BuilderContext = struct {
             const path = self.builder.fmt("{s}/{s}", .{ triple, name });
             artifact.override_dest_dir = .{ .custom = path };
         } else if (artifact.kind == .lib) {
-            const path = self.builder.fmt("{s}/lib", .{ triple });
+            const path = self.builder.fmt("{s}/{s}", .{ triple, artifact.name });
             artifact.override_dest_dir = .{ .custom = path };
         }
         return self.builder.addInstallArtifact(artifact);
@@ -475,7 +480,14 @@ const BuilderContext = struct {
         }
     }
 
+    fn isWasmTarget(self: Self) bool {
+        return self.target.getCpuArch() == .wasm32 or self.target.getCpuArch() == .wasm64;
+    }
+
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
+        addStdx(step, self.buildOptionsPkg());
+        addCommon(step);
+        addInput(step);
         addCurl(step);
         addUv(step);
         addH2O(step);
@@ -504,8 +516,11 @@ const BuilderContext = struct {
             self.buildLinkWinPosix(step);
             self.buildLinkWinPthreads(step);
         }
+        self.addGraphics(step);
         if (self.link_graphics) {
-            buildLinkSDL2(step);
+            if (!self.isWasmTarget()) {
+                buildLinkSDL2(step);
+            }
             self.buildLinkStbtt(step);
             linkGL(step, self.target);
             if (self.link_lyon) {
@@ -1238,7 +1253,7 @@ const ReplaceInFileStep = struct {
         const new_source = std.mem.replaceOwned(u8, self.b.allocator, source, self.old_str, self.new_str) catch unreachable;
         file.close();
 
-        const write = std.fs.openFileAbsolute(self.path, .{ .mode = .read_only }) catch unreachable;
+        const write = std.fs.openFileAbsolute(self.path, .{ .mode = .write_only }) catch unreachable;
         defer write.close();
         write.writeAll(new_source) catch unreachable;
     }
