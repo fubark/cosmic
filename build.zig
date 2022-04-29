@@ -326,17 +326,11 @@ const BuilderContext = struct {
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const build_options = self.buildOptionsPkg();
         const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
         self.setBuildMode(step);
         self.setTarget(step);
         self.setOutputDir(step, name);
-
-        addStdx(step, build_options);
-        addInput(step);
-        self.addGraphics(step);
         self.addDeps(step) catch unreachable;
-
         return step;
     }
 
@@ -409,16 +403,12 @@ const BuilderContext = struct {
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const build_options = self.buildOptionsPkg();
         const exe = self.builder.addExecutable(name, self.path);
         self.setBuildMode(exe);
         self.setTarget(exe);
         exe.setMainPkgPath(".");
 
-        exe.addPackage(build_options);
-        addStdx(exe, build_options);
-        addInput(exe);
-        self.addGraphics(exe);
+        exe.addPackage(self.buildOptionsPkg());
         self.addDeps(exe) catch unreachable;
 
         if (self.enable_tracy) {
@@ -437,14 +427,9 @@ const BuilderContext = struct {
         self.setTarget(step);
         step.setMainPkgPath(".");
 
-        const build_options = self.buildOptionsPkg();
-        addStdx(step, build_options);
-        addCommon(step);
-        self.addGraphics(step);
-        addInput(step);
         self.addDeps(step) catch unreachable;
 
-        step.addPackage(build_options);
+        step.addPackage(self.buildOptionsPkg());
         self.postStep(step);
         return step;
     }
@@ -456,17 +441,11 @@ const BuilderContext = struct {
         // This fixes test files that import above, eg. @import("../foo")
         step.setMainPkgPath(".");
 
-        const build_options = self.buildOptionsPkg();
-        addStdx(step, build_options);
-        addCommon(step);
-        self.addGraphics(step);
-        addInput(step);
-
         // Add external lib headers but link with mock lib.
         self.addDeps(step) catch unreachable;
         self.buildLinkMock(step);
 
-        step.addPackage(build_options);
+        step.addPackage(self.buildOptionsPkg());
         self.postStep(step);
         return step;
     }
