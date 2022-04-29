@@ -122,12 +122,16 @@ pub const Window = struct {
     }
 
     pub fn deinit(self: Self) void {
-        sdl.SDL_DestroyWindow(self.sdl_window);
+        if (IsDesktop) {
+            sdl.SDL_DestroyWindow(self.sdl_window);
+        }
         if (self.gl_ctx_ref_count.* == 1) {
             self.graphics.deinit();
             self.alloc.destroy(self.graphics);
 
-            sdl.SDL_GL_DeleteContext(self.gl_ctx);
+            if (IsDesktop) {
+                sdl.SDL_GL_DeleteContext(self.gl_ctx);
+            }
             self.alloc.destroy(self.gl_ctx_ref_count);
         } else {
             self.gl_ctx_ref_count.* -= 1;

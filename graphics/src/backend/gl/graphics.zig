@@ -218,7 +218,10 @@ pub const Graphics = struct {
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
-        lyon.deinit();
+
+        if (!IsWasm) {
+            lyon.deinit();
+        }
 
         // Delete images after since some deinit could have removed images.
         var iter = self.images.iterator();

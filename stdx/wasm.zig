@@ -19,6 +19,10 @@ pub fn init(alloc: std.mem.Allocator) void {
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
 }
 
+pub fn deinit() void {
+    js_buffer.deinit();
+}
+
 pub fn getJsBuffer() *WasmJsBuffer {
     return &js_buffer;
 }
