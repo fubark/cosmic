@@ -1697,7 +1697,7 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
         cur_res = rt.resources.getNextIdNoCheck(cur_res);
     }
 
-    graphics.delay(min_delay);
+    platform.delay(min_delay);
 
     // TODO: Run any queued micro tasks.
 }
@@ -1746,7 +1746,7 @@ fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
     rt.active_window.window.endFrame();
     const delay = rt.active_window.fps_limiter.endFrame();
     if (delay > 0) {
-        graphics.delay(delay);
+        platform.delay(delay);
     }
 
     // TODO: Run any queued micro tasks.
