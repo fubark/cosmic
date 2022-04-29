@@ -36,3 +36,17 @@ pub fn delay(us: u64) void {
         // stdx.time.sleep(self.target_ms_per_frame - render_time_ms);
     }
 }
+
+pub const WindowResizeEvent = struct {
+    const Self = @This();
+
+    width: u16,
+    height: u16,
+
+    pub fn init(width: u16, height: u16) Self {
+        return .{
+            .width = width,
+            .height = height,
+        };
+    }
+};

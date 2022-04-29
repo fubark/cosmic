@@ -9,6 +9,7 @@ const MouseButton = platform.MouseButton;
 const MouseDownEvent = platform.MouseDownEvent;
 const MouseUpEvent = platform.MouseUpEvent;
 const MouseMoveEvent = platform.MouseMoveEvent;
+const WindowResizeEvent = platform.WindowResizeEvent;
 const sdl = @import("sdl");
 
 const IsWasm = builtin.target.isWasm();
@@ -24,6 +25,7 @@ pub const EventDispatcher = struct {
     mousedown_cbs: std.ArrayList(HandlerEntry(OnMouseDownHandler)),
     mouseup_cbs: std.ArrayList(HandlerEntry(OnMouseUpHandler)),
     mousemove_cbs: std.ArrayList(HandlerEntry(OnMouseMoveHandler)),
+    winresize_cbs: std.ArrayList(HandlerEntry(OnWindowResizeHandler)),
 
     pub fn init(alloc: std.mem.Allocator) Self {
         return .{
@@ -33,6 +35,7 @@ pub const EventDispatcher = struct {
             .mousedown_cbs = std.ArrayList(HandlerEntry(OnMouseDownHandler)).init(alloc),
             .mouseup_cbs = std.ArrayList(HandlerEntry(OnMouseUpHandler)).init(alloc),
             .mousemove_cbs = std.ArrayList(HandlerEntry(OnMouseMoveHandler)).init(alloc),
+            .winresize_cbs = std.ArrayList(HandlerEntry(OnWindowResizeHandler)).init(alloc),
         };
     }
 
@@ -43,6 +46,7 @@ pub const EventDispatcher = struct {
         self.mousedown_cbs.deinit();
         self.mouseup_cbs.deinit();
         self.mousemove_cbs.deinit();
+        self.winresize_cbs.deinit();
     }
 
     pub fn processEvents(self: Self) void {
@@ -124,6 +128,18 @@ pub const EventDispatcher = struct {
             }
         }
     }
+
+    pub fn addOnWindowResize(self: *Self, ctx: ?*anyopaque, handler: OnWindowResizeHandler) void {
+        self.winresize_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnWindowResize(self: *Self, handler: OnWindowResizeHandler) void {
+        for (self.winresize_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.winresize_cbs.orderedRemove(idx);
+            }
+        }
+    }
 };
 
 fn processSdlEvents(dispatcher: EventDispatcher) void {
@@ -187,12 +203,13 @@ fn processSdlEvents(dispatcher: EventDispatcher) void {
 
 /// Assumes the global wasm input buffer contains a valid slice of the commands to be processed.
 fn processWasmEvents(dispatcher: EventDispatcher) void {
-    const InputCommand = struct {
+    const Command = struct {
         const KeyDown = 1;
         const KeyUp = 2;
         const MouseDown = 3;
         const MouseUp = 4;
         const MouseMove = 5;
+        const WindowResize = 6;
     };
 
     const input_buf = stdx.wasm.js_buffer.input_buf.items;
@@ -202,7 +219,7 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
     while (i < input_buf.len) {
         const ctype = input_buf[i];
         switch (ctype) {
-            InputCommand.KeyDown => {
+            Command.KeyDown => {
                 const code = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
                 const mods = input_buf[i+3];
                 const repeat = input_buf[i+4] == 1;
@@ -213,7 +230,7 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                     handler.cb(handler.ctx, std_event);
                 }
             },
-            InputCommand.KeyUp => {
+            Command.KeyUp => {
                 const code = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
                 const mods = input_buf[i+3];
                 const std_code = std.meta.intToEnum(KeyCode, code) catch stdx.debug.panicFmt("unsupported key code: {}", .{code});
@@ -223,7 +240,7 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                     handler.cb(handler.ctx, std_event);
                 }
             },
-            InputCommand.MouseDown => {
+            Command.MouseDown => {
                 const button = input_buf[i+1];
                 const x = std.mem.readIntLittle(i16, input_buf[i+2..i+4][0..2]);
                 const y = std.mem.readIntLittle(i16, input_buf[i+4..i+6][0..2]);
@@ -235,7 +252,7 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                     handler.cb(handler.ctx, std_event);
                 }
             },
-            InputCommand.MouseUp => {
+            Command.MouseUp => {
                 const button = input_buf[i+1];
                 const x = std.mem.readIntLittle(i16, input_buf[i+2..i+4][0..2]);
                 const y = std.mem.readIntLittle(i16, input_buf[i+4..i+6][0..2]);
@@ -247,7 +264,7 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                     handler.cb(handler.ctx, std_event);
                 }
             },
-            InputCommand.MouseMove => {
+            Command.MouseMove => {
                 if (dispatcher.mousemove_cbs.items.len > 0) {
                     const x = std.mem.readIntLittle(i16, input_buf[i+1..i+3][0..2]);
                     const y = std.mem.readIntLittle(i16, input_buf[i+3..i+5][0..2]);
@@ -257,6 +274,15 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                     }
                 }
                 i += 5;
+            },
+            Command.WindowResize => {
+                const width = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
+                const height = std.mem.readIntLittle(u16, input_buf[i+3..i+5][0..2]);
+                const std_event = WindowResizeEvent.init(width, height);
+                i += 5;
+                for (dispatcher.winresize_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
             },
             else => {
                 stdx.panicFmt("unknown command {}", .{ctype});
@@ -278,3 +304,4 @@ const OnKeyUpHandler = fn(?*anyopaque, KeyUpEvent) void;
 const OnMouseDownHandler = fn(?*anyopaque, MouseDownEvent) void;
 const OnMouseUpHandler = fn(?*anyopaque, MouseUpEvent) void;
 const OnMouseMoveHandler = fn(?*anyopaque, MouseMoveEvent) void;
+const OnWindowResizeHandler = fn(?*anyopaque, WindowResizeEvent) void;

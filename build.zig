@@ -825,7 +825,7 @@ const BuilderContext = struct {
         var gl = gl_pkg;
         gl.dependencies = &.{ sdl_pkg, stdx_pkg };
 
-        pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon, tess2, self.buildOptionsPkg() };
+        pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon, tess2, self.buildOptionsPkg(), platform_pkg };
         step.addPackage(pkg);
     }
 };
