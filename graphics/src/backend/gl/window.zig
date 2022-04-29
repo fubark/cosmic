@@ -142,11 +142,16 @@ pub const Window = struct {
         self.width = width;
         self.height = height;
 
-        var buf_width: c_int = undefined;
-        var buf_height: c_int = undefined;
-        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
-        self.buf_width = @intCast(u32, buf_width);
-        self.buf_height = @intCast(u32, buf_height);
+        if (IsDesktop) {
+            var buf_width: c_int = undefined;
+            var buf_height: c_int = undefined;
+            sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+            self.buf_width = @intCast(u32, buf_width);
+            self.buf_height = @intCast(u32, buf_height);
+        } else {
+            self.buf_width = self.dpr * self.width;
+            self.buf_height = self.dpr * self.height;
+        }
 
         // Resize the transforms.
         self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
@@ -160,19 +165,26 @@ pub const Window = struct {
     }
 
     pub fn resize(self: *Self, width: u32, height: u32) void {
-        sdl.SDL_SetWindowSize(self.sdl_window, @intCast(c_int, width), @intCast(c_int, height));
+        if (IsDesktop) {
+            sdl.SDL_SetWindowSize(self.sdl_window, @intCast(c_int, width), @intCast(c_int, height));
+            var cur_width: c_int = undefined;
+            var cur_height: c_int = undefined;
+            sdl.SDL_GetWindowSize(self.sdl_window, &cur_width, &cur_height);
+            self.width = @intCast(u32, cur_width);
+            self.height = @intCast(u32, cur_height);
 
-        var cur_width: c_int = undefined;
-        var cur_height: c_int = undefined;
-        sdl.SDL_GetWindowSize(self.sdl_window, &cur_width, &cur_height);
-        self.width = @intCast(u32, cur_width);
-        self.height = @intCast(u32, cur_height);
-
-        var buf_width: c_int = undefined;
-        var buf_height: c_int = undefined;
-        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
-        self.buf_width = @intCast(u32, buf_width);
-        self.buf_height = @intCast(u32, buf_height);
+            var buf_width: c_int = undefined;
+            var buf_height: c_int = undefined;
+            sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+            self.buf_width = @intCast(u32, buf_width);
+            self.buf_height = @intCast(u32, buf_height);
+        } else {
+            _ = jsSetCanvasBuffer(width, height);
+            self.width = width;
+            self.height = height;
+            self.buf_width = width * self.dpr;
+            self.buf_height = height * self.dpr;
+        }
 
         self.proj_transform = initDisplayProjection(@intToFloat(f32, self.width), @intToFloat(f32, self.height));
         self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
@@ -374,7 +386,7 @@ fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
         gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
     } else {
         gl.bindRenderbuffer(gl.GL_RENDERBUFFER, msaa.rbo.?);
-        gl.renderbufferStorageMultisample(gl.GL_RENDERBUFFER, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height));
+        gl.renderbufferStorageMultisample(gl.GL_RENDERBUFFER, @intCast(c_int, msaa.num_samples), gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height));
         gl.framebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_RENDERBUFFER, msaa.rbo.?);
     }
 }
