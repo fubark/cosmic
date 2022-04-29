@@ -74,6 +74,7 @@
         const KeyUpCommand = 2;
         const MouseDownCommand = 3;
         const MouseUpCommand = 4;
+        const MouseMoveCommand = 5;
 
         // Load wasm.
         const wasmFile = 'demo.wasm';
@@ -95,8 +96,8 @@
                 const view = new DataView(wasm.exports.memory.buffer)
                 view.setUint8(cur_ptr, MouseDownCommand)
                 view.setUint8(cur_ptr+1, e.button)
-                view.setUint16(cur_ptr+2, e.clientX, true)
-                view.setUint16(cur_ptr+4, e.clientY, true)
+                view.setInt16(cur_ptr+2, e.clientX, true)
+                view.setInt16(cur_ptr+4, e.clientY, true)
                 view.setUint8(cur_ptr+6, e.detail)
                 wasm.inputLen += 7
             })
@@ -106,10 +107,19 @@
                 const view = new DataView(wasm.exports.memory.buffer)
                 view.setUint8(cur_ptr, MouseUpCommand)
                 view.setUint8(cur_ptr+1, e.button)
-                view.setUint16(cur_ptr+2, e.clientX, true)
-                view.setUint16(cur_ptr+4, e.clientY, true)
+                view.setInt16(cur_ptr+2, e.clientX, true)
+                view.setInt16(cur_ptr+4, e.clientY, true)
                 view.setUint8(cur_ptr+6, e.detail)
                 wasm.inputLen += 7
+            })
+            window.addEventListener('mousemove', function(e) {
+                ensureFreeCapacity(5)
+                var cur_ptr = wasm.inputPtr + wasm.inputLen
+                const view = new DataView(wasm.exports.memory.buffer)
+                view.setUint8(cur_ptr, MouseMoveCommand)
+                view.setInt16(cur_ptr+1, e.clientX, true)
+                view.setInt16(cur_ptr+3, e.clientY, true)
+                wasm.inputLen += 5
             })
             window.addEventListener('keydown', function(e) {
                 // console.log('keydown', e.code, e.which, e.key);
