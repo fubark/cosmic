@@ -1,0 +1,280 @@
+const std = @import("std");
+const stdx = @import("stdx");
+const builtin = @import("builtin");
+const platform = @import("platform.zig");
+const KeyCode = platform.KeyCode;
+const KeyDownEvent = platform.KeyDownEvent;
+const KeyUpEvent = platform.KeyUpEvent;
+const MouseButton = platform.MouseButton;
+const MouseDownEvent = platform.MouseDownEvent;
+const MouseUpEvent = platform.MouseUpEvent;
+const MouseMoveEvent = platform.MouseMoveEvent;
+const sdl = @import("sdl");
+
+const IsWasm = builtin.target.isWasm();
+
+/// Responsible for transforming platform specific events and emitting them in a compatible format.
+/// Users can then register handlers for these events.
+pub const EventDispatcher = struct {
+    const Self = @This();
+
+    quit_cbs: std.ArrayList(HandlerEntry(OnQuitHandler)),
+    keydown_cbs: std.ArrayList(HandlerEntry(OnKeyDownHandler)),
+    keyup_cbs: std.ArrayList(HandlerEntry(OnKeyUpHandler)),
+    mousedown_cbs: std.ArrayList(HandlerEntry(OnMouseDownHandler)),
+    mouseup_cbs: std.ArrayList(HandlerEntry(OnMouseUpHandler)),
+    mousemove_cbs: std.ArrayList(HandlerEntry(OnMouseMoveHandler)),
+
+    pub fn init(alloc: std.mem.Allocator) Self {
+        return .{
+            .quit_cbs = std.ArrayList(HandlerEntry(OnQuitHandler)).init(alloc),
+            .keydown_cbs = std.ArrayList(HandlerEntry(OnKeyDownHandler)).init(alloc),
+            .keyup_cbs = std.ArrayList(HandlerEntry(OnKeyUpHandler)).init(alloc),
+            .mousedown_cbs = std.ArrayList(HandlerEntry(OnMouseDownHandler)).init(alloc),
+            .mouseup_cbs = std.ArrayList(HandlerEntry(OnMouseUpHandler)).init(alloc),
+            .mousemove_cbs = std.ArrayList(HandlerEntry(OnMouseMoveHandler)).init(alloc),
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        self.quit_cbs.deinit();
+        self.keydown_cbs.deinit();
+        self.keyup_cbs.deinit();
+        self.mousedown_cbs.deinit();
+        self.mouseup_cbs.deinit();
+        self.mousemove_cbs.deinit();
+    }
+
+    pub fn processEvents(self: Self) void {
+        if (IsWasm) {
+            processWasmEvents(self);
+        } else {
+            processSdlEvents(self);
+        }
+    }
+
+    pub fn addOnQuit(self: *Self, ctx: ?*anyopaque, handler: OnQuitHandler) void {
+        self.quit_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnQuit(self: *Self, handler: OnQuitHandler) void {
+        for (self.quit_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.quit_cbs.orderedRemove(idx);
+            }
+        }
+    }
+
+    pub fn addOnKeyDown(self: *Self, ctx: ?*anyopaque, handler: OnKeyDownHandler) void {
+        self.keydown_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnKeyDown(self: *Self, handler: OnKeyDownHandler) void {
+        for (self.keydown_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.keydown_cbs.orderedRemove(idx);
+            }
+        }
+    }
+
+    pub fn addOnKeyUp(self: *Self, ctx: ?*anyopaque, handler: OnKeyUpHandler) void {
+        self.keyup_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnKeyUp(self: *Self, handler: OnKeyUpHandler) void {
+        for (self.keyup_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.keyup_cbs.orderedRemove(idx);
+            }
+        }
+    }
+
+    pub fn addOnMouseDown(self: *Self, ctx: ?*anyopaque, handler: OnMouseDownHandler) void {
+        self.mousedown_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnMouseDown(self: *Self, handler: OnMouseDownHandler) void {
+        for (self.mousedown_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.mousedown_cbs.orderedRemove(idx);
+            }
+        }
+    }
+
+    pub fn addOnMouseUp(self: *Self, ctx: ?*anyopaque, handler: OnMouseUpHandler) void {
+        self.mouseup_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnMouseUp(self: *Self, handler: OnMouseUpHandler) void {
+        for (self.mouseup_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.mouseup_cbs.orderedRemove(idx);
+            }
+        }
+    }
+
+    pub fn addOnMouseMove(self: *Self, ctx: ?*anyopaque, handler: OnMouseMoveHandler) void {
+        self.mousemove_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnMouseMove(self: *Self, handler: OnMouseMoveHandler) void {
+        for (self.mousemove_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.mousemove_cbs.orderedRemove(idx);
+            }
+        }
+    }
+};
+
+fn processSdlEvents(dispatcher: EventDispatcher) void {
+    var event: sdl.SDL_Event = undefined;
+    while (sdl.SDL_PollEvent(&event) != 0) {
+        switch (event.@"type") {
+            sdl.SDL_QUIT => {
+                for (dispatcher.quit_cbs.items) |handler| {
+                    handler.cb(handler.ctx);
+                }
+            },
+            sdl.SDL_KEYDOWN => {
+                const std_event = platform.initSdlKeyDownEvent(event.key);
+                for (dispatcher.keydown_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            sdl.SDL_KEYUP => {
+                const std_event = platform.initSdlKeyUpEvent(event.key);
+                for (dispatcher.keyup_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            sdl.SDL_MOUSEBUTTONDOWN => {
+                const std_event = platform.initSdlMouseDownEvent(event.button);
+                for (dispatcher.mousedown_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            sdl.SDL_MOUSEBUTTONUP => {
+                const std_event = platform.initSdlMouseUpEvent(event.button);
+                for (dispatcher.mouseup_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            sdl.SDL_MOUSEMOTION => {
+                if (dispatcher.mousemove_cbs.items.len > 0) {
+                    const std_event = platform.initSdlMouseMoveEvent(event.motion);
+                    for (dispatcher.mousemove_cbs.items) |handler| {
+                        handler.cb(handler.ctx, std_event);
+                    }
+                }
+            },
+            sdl.SDL_WINDOWEVENT => {
+                switch (event.window.event) {
+                    sdl.SDL_WINDOWEVENT_HIDDEN => {
+                        // Minimized.
+                        // TODO: Don't perform drawing.
+                    },
+                    sdl.SDL_WINDOWEVENT_SHOWN => {
+                        // Restored.
+                        // TODO: Reenable drawing.
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+/// Assumes the global wasm input buffer contains a valid slice of the commands to be processed.
+fn processWasmEvents(dispatcher: EventDispatcher) void {
+    const InputCommand = struct {
+        const KeyDown = 1;
+        const KeyUp = 2;
+        const MouseDown = 3;
+        const MouseUp = 4;
+        const MouseMove = 5;
+    };
+
+    const input_buf = stdx.wasm.js_buffer.input_buf.items;
+
+    // Process each command.
+    var i: usize = 0;
+    while (i < input_buf.len) {
+        const ctype = input_buf[i];
+        switch (ctype) {
+            InputCommand.KeyDown => {
+                const code = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
+                const mods = input_buf[i+3];
+                const repeat = input_buf[i+4] == 1;
+                const std_code = std.meta.intToEnum(KeyCode, code) catch stdx.debug.panicFmt("unsupported key code: {}", .{code});
+                const std_event = KeyDownEvent.initWithMods(std_code, mods, repeat);
+                i += 5;
+                for (dispatcher.keydown_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            InputCommand.KeyUp => {
+                const code = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
+                const mods = input_buf[i+3];
+                const std_code = std.meta.intToEnum(KeyCode, code) catch stdx.debug.panicFmt("unsupported key code: {}", .{code});
+                const std_event = KeyUpEvent.initWithMods(std_code, mods);
+                i += 4;
+                for (dispatcher.keyup_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            InputCommand.MouseDown => {
+                const button = input_buf[i+1];
+                const x = std.mem.readIntLittle(i16, input_buf[i+2..i+4][0..2]);
+                const y = std.mem.readIntLittle(i16, input_buf[i+4..i+6][0..2]);
+                const clicks = input_buf[i+6];
+                const std_button = std.meta.intToEnum(MouseButton, button) catch stdx.debug.panicFmt("unsupported button: {}", .{button});
+                const std_event = MouseDownEvent.init(std_button, x, y, clicks);
+                i += 7;
+                for (dispatcher.mousedown_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            InputCommand.MouseUp => {
+                const button = input_buf[i+1];
+                const x = std.mem.readIntLittle(i16, input_buf[i+2..i+4][0..2]);
+                const y = std.mem.readIntLittle(i16, input_buf[i+4..i+6][0..2]);
+                const clicks = input_buf[i+6];
+                const std_button = std.meta.intToEnum(MouseButton, button) catch stdx.debug.panicFmt("unsupported button: {}", .{button});
+                const std_event = MouseUpEvent.init(std_button, x, y, clicks);
+                i += 7;
+                for (dispatcher.mouseup_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+            },
+            InputCommand.MouseMove => {
+                if (dispatcher.mousemove_cbs.items.len > 0) {
+                    const x = std.mem.readIntLittle(i16, input_buf[i+1..i+3][0..2]);
+                    const y = std.mem.readIntLittle(i16, input_buf[i+3..i+5][0..2]);
+                    const std_event = MouseMoveEvent.init(x, y);
+                    for (dispatcher.mousemove_cbs.items) |handler| {
+                        handler.cb(handler.ctx, std_event);
+                    }
+                }
+                i += 5;
+            },
+            else => {
+                stdx.panicFmt("unknown command {}", .{ctype});
+            },
+        }
+    }
+}
+
+fn HandlerEntry(comptime Handler: type) type {
+    return struct {
+        ctx: ?*anyopaque,
+        cb: Handler,
+    };
+}
+
+const OnQuitHandler = fn (?*anyopaque) void;
+const OnKeyDownHandler = fn(?*anyopaque, KeyDownEvent) void;
+const OnKeyUpHandler = fn(?*anyopaque, KeyUpEvent) void;
+const OnMouseDownHandler = fn(?*anyopaque, MouseDownEvent) void;
+const OnMouseUpHandler = fn(?*anyopaque, MouseUpEvent) void;
+const OnMouseMoveHandler = fn(?*anyopaque, MouseMoveEvent) void;

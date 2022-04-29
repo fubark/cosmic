@@ -24,6 +24,9 @@ pub const KeyDownEvent = keyboard.KeyDownEvent;
 pub const KeyUpEvent = keyboard.KeyUpEvent;
 pub const KeyCode = keyboard.KeyCode;
 
+const event_dispatcher = @import("event_dispatcher.zig");
+pub const EventDispatcher = event_dispatcher.EventDispatcher;
+
 pub fn delay(us: u64) void {
     if (!builtin.target.isWasm()) {
         // TODO: How does this compare to std.time.sleep ?
