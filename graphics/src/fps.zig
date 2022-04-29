@@ -94,6 +94,10 @@ pub fn FpsLimiter(comptime NumSamples: u32) type {
         pub fn getLastFrameDelta(self: *const Self) u64 {
             return self.last_frame_time_us;
         }
+
+        pub fn getLastFrameDeltaMs(self: *const Self) f32 {
+            return @intToFloat(f32, self.getLastFrameDelta()) / 1000;
+        }
         
         /// How long the last frame took between start and end frame.
         pub fn getLastUpdateDelta(self: *const Self) u64 {

@@ -8,6 +8,7 @@ const graphics = @import("graphics.zig");
 const Graphics = graphics.Graphics;
 const Backend = graphics.Backend;
 
+// TODO: Move Window to the platform package.
 pub const Window = struct {
     const Self = @This();
 
