@@ -1895,6 +1895,7 @@ pub const cs_input = struct {
         y = eint(KeyCode.Y),
         z = eint(KeyCode.Z),
 
+        meta = eint(KeyCode.Meta),
         contextMenu = eint(KeyCode.ContextMenu),
 
         f1 = eint(KeyCode.F1),
