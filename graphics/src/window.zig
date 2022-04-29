@@ -8,6 +8,10 @@ const graphics = @import("graphics.zig");
 const Graphics = graphics.Graphics;
 const Backend = graphics.Backend;
 
+const platform = @import("platform");
+const WindowResizeEvent = platform.WindowResizeEvent;
+const EventDispatcher = platform.EventDispatcher;
+
 // TODO: Move Window to the platform package.
 pub const Window = struct {
     const Self = @This();
@@ -45,6 +49,16 @@ pub const Window = struct {
             .WasmCanvas => canvas.Window.deinit(&self.inner),
             else => stdx.panic("unsupported"),
         }
+    }
+
+    pub fn addDefaultHandlers(self: *Self, dispatcher: *EventDispatcher) void {
+        const S = struct {
+            fn onWindowResize(ctx: ?*anyopaque, e: WindowResizeEvent) void {
+                const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
+                self_.handleResize(e.width, e.height);
+            }
+        };
+        dispatcher.addOnWindowResize(self, S.onWindowResize);
     }
 
     /// Should be called before beginFrame if multiple windows are being rendered together.

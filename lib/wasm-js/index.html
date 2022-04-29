@@ -7,6 +7,9 @@
             margin: 0px;
             background-color: #333333;
         }
+        canvas {
+            border: none;
+        }
     </style>
 </head>
 <body>
@@ -75,6 +78,7 @@
         const MouseDownCommand = 3;
         const MouseUpCommand = 4;
         const MouseMoveCommand = 5;
+        const WindowResizeCommand = 6;
 
         // Load wasm.
         const wasmFile = 'demo.wasm';
@@ -168,7 +172,20 @@
                 view.setUint8(cur_ptr+3, mod)
                 wasm.inputLen += 4
             })
+            // Initially resize to the window size.
+            resize(window.innerWidth-4, window.innerHeight-4)
             window.requestAnimationFrame(loop)
+        }
+
+        function resize(width, height) {
+            wasm.imports.graphics.jsSetCanvasBuffer(width, height)
+            ensureFreeCapacity(5)
+            var cur_ptr = wasm.inputPtr + wasm.inputLen
+            const view = new DataView(wasm.exports.memory.buffer)
+            view.setUint8(cur_ptr, WindowResizeCommand)
+            view.setUint16(cur_ptr+1, width, true)
+            view.setUint16(cur_ptr+3, height, true)
+            wasm.inputLen += 5
         }
 
         const target_fps = 60;
