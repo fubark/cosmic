@@ -172,6 +172,10 @@
                 view.setUint8(cur_ptr+3, mod)
                 wasm.inputLen += 4
             })
+            window.addEventListener('resize', function() {
+                // A bit smaller so it doesn't trigger scrollbars in the browser page.
+                resize(window.innerWidth-4, window.innerHeight-4)
+            })
             // Initially resize to the window size.
             resize(window.innerWidth-4, window.innerHeight-4)
             window.requestAnimationFrame(loop)
