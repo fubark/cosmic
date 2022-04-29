@@ -487,7 +487,7 @@ const BuilderContext = struct {
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
         addStdx(step, self.buildOptionsPkg());
         addCommon(step);
-        addInput(step);
+        addPlatform(step);
         addCurl(step);
         addUv(step);
         addH2O(step);
@@ -1044,13 +1044,13 @@ fn addStdx(step: *std.build.LibExeObjStep, build_options: Pkg) void {
     step.addPackage(pkg);
 }
 
-const input_pkg = Pkg{
-    .name = "input",
-    .path = FileSource.relative("./input/input.zig"),
+const platform_pkg = Pkg{
+    .name = "platform",
+    .path = FileSource.relative("./platform/platform.zig"),
 };
 
-fn addInput(step: *std.build.LibExeObjStep) void {
-    var pkg = input_pkg;
+fn addPlatform(step: *std.build.LibExeObjStep) void {
+    var pkg = platform_pkg;
     pkg.dependencies = &.{ sdl_pkg, stdx_pkg };
     step.addPackage(pkg);
 }

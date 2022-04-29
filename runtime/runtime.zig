@@ -9,7 +9,7 @@ const curl = @import("curl");
 const uv = @import("uv");
 const h2o = @import("h2o");
 const v8 = @import("v8");
-const input = @import("input");
+const platform = @import("platform");
 const gl = @import("gl");
 const builtin = @import("builtin");
 
@@ -176,7 +176,7 @@ pub const RuntimeContext = struct {
 
     pub fn init(self: *Self,
         alloc: std.mem.Allocator,
-        platform: v8.Platform,
+        platform_: v8.Platform,
         config: RuntimeConfig,
         env: *Environment,
     ) void {
@@ -238,7 +238,7 @@ pub const RuntimeContext = struct {
             .dev_ctx = undefined,
             .event_dispatcher = undefined,
 
-            .platform = platform,
+            .platform = platform_,
             .isolate = undefined,
             .context = undefined,
             .create_params = undefined,
@@ -1595,24 +1595,24 @@ pub fn runUserLoop(rt: *RuntimeContext, comptime DevMode: bool) void {
                     }
                 },
                 sdl.SDL_KEYDOWN => {
-                    const std_event = input.initSdlKeyDownEvent(event.key);
+                    const std_event = platform.initSdlKeyDownEvent(event.key);
                     rt.handleKeyDownEvent(api.fromStdKeyDownEvent(std_event), DevMode);
                 },
                 sdl.SDL_KEYUP => {
-                    const std_event = input.initSdlKeyUpEvent(event.key);
+                    const std_event = platform.initSdlKeyUpEvent(event.key);
                     rt.handleKeyUpEvent(api.fromStdKeyUpEvent(std_event), DevMode);
                 },
                 sdl.SDL_MOUSEBUTTONDOWN => {
-                    const std_event = input.initSdlMouseDownEvent(event.button);
+                    const std_event = platform.initSdlMouseDownEvent(event.button);
                     rt.handleMouseDownEvent(api.fromStdMouseDownEvent(std_event), DevMode);
                 },
                 sdl.SDL_MOUSEBUTTONUP => {
-                    const std_event = input.initSdlMouseUpEvent(event.button);
+                    const std_event = platform.initSdlMouseUpEvent(event.button);
                     rt.handleMouseUpEvent(api.fromStdMouseUpEvent(std_event), DevMode);
                 },
                 sdl.SDL_MOUSEMOTION => {
                     if (rt.active_window.on_mouse_move_cb != null) {
-                        const std_event = input.initSdlMouseMoveEvent(event.motion);
+                        const std_event = platform.initSdlMouseMoveEvent(event.motion);
                         rt.handleMouseMoveEvent(api.fromStdMouseMoveEvent(std_event), DevMode);
                     }
                 },
@@ -1982,7 +1982,7 @@ fn restart(rt: *RuntimeContext) !void {
 
     // Save context.
     const alloc = rt.alloc;
-    const platform = rt.platform;
+    const platform_ = rt.platform;
 
     var main_script_path: ?[]const u8 = null;
     if (rt.main_script_path) |path| {
@@ -2009,7 +2009,7 @@ fn restart(rt: *RuntimeContext) !void {
         .is_test_runner = false,
         .is_dev_mode = true,
     };
-    rt.init(alloc, platform, config, env);
+    rt.init(alloc, platform_, config, env);
     rt.enter();
 
     // Reuse dev context.
@@ -2308,9 +2308,9 @@ pub fn initGlobalRuntime(alloc: std.mem.Allocator, rt: *RuntimeContext, config: 
     h2o.init();
     initGlobal(alloc);
 
-    const platform = ensureV8Platform();
+    const platform_ = ensureV8Platform();
 
-    rt.init(alloc, platform, config, env);
+    rt.init(alloc, platform_, config, env);
     rt.enter();
 }
 
@@ -2751,8 +2751,8 @@ var g_platform: ?v8.Platform = null;
 /// Returns global v8 platform. Initializes if needed.
 pub fn ensureV8Platform() v8.Platform {
     if (g_platform == null) {
-        const platform = v8.Platform.initDefault(0, true);
-        v8.initV8Platform(platform);
+        const platform_ = v8.Platform.initDefault(0, true);
+        v8.initV8Platform(platform_);
         v8.initV8();
 
         const S = struct {
@@ -2764,7 +2764,7 @@ pub fn ensureV8Platform() v8.Platform {
         };
         // Override v8 debug assert reporting.
         v8.setDcheckFunction(S.handleDcheck);
-        g_platform = platform;
+        g_platform = platform_;
     }
     return g_platform.?;
 }
@@ -2772,10 +2772,10 @@ pub fn ensureV8Platform() v8.Platform {
 /// This should only be called at the end of the program or when v8 is no longer needed.
 /// V8 can't be reinited after this.
 fn deinitV8() void {
-    if (g_platform) |platform| {
+    if (g_platform) |platform_| {
         v8.deinitV8();
         v8.deinitV8Platform();
-        platform.deinit();
+        platform_.deinit();
         g_platform = null;
     }
 }

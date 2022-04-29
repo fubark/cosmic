@@ -5,8 +5,8 @@ const Graphics = graphics.Graphics;
 const builtin = @import("builtin");
 const ds = stdx.ds;
 const v8 = @import("v8");
-const input = @import("input");
-const KeyCode = input.KeyCode;
+const platform = @import("platform");
+const KeyCode = platform.KeyCode;
 const t = stdx.testing;
 const Mock = t.Mock;
 const curl = @import("curl");
@@ -1797,11 +1797,11 @@ pub const cs_input = struct {
     };
 
     pub const MouseButton = enum(u3) {
-        left = @enumToInt(input.MouseButton.Left),
-        middle = @enumToInt(input.MouseButton.Middle),
-        right = @enumToInt(input.MouseButton.Right),
-        x1 = @enumToInt(input.MouseButton.X1),
-        x2 = @enumToInt(input.MouseButton.X2),
+        left = @enumToInt(platform.MouseButton.Left),
+        middle = @enumToInt(platform.MouseButton.Middle),
+        right = @enumToInt(platform.MouseButton.Right),
+        x1 = @enumToInt(platform.MouseButton.X1),
+        x2 = @enumToInt(platform.MouseButton.X2),
     };
 
     pub const MouseMoveEvent = struct {
@@ -1942,7 +1942,7 @@ fn eint(e: anytype) @typeInfo(@TypeOf(e)).Enum.tag_type {
     return @enumToInt(e);
 }
 
-pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
+pub fn fromStdKeyDownEvent(e: platform.KeyDownEvent) cs_input.KeyDownEvent {
     const js_print_char = if (e.getPrintChar()) |print_char| Ascii[print_char..print_char+1] else "";
     return .{
         .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
@@ -1955,7 +1955,7 @@ pub fn fromStdKeyDownEvent(e: input.KeyDownEvent) cs_input.KeyDownEvent {
     };
 }
 
-pub fn fromStdKeyUpEvent(e: input.KeyUpEvent) cs_input.KeyUpEvent {
+pub fn fromStdKeyUpEvent(e: platform.KeyUpEvent) cs_input.KeyUpEvent {
     const js_print_char = if (e.getPrintChar()) |print_char| Ascii[print_char..print_char+1] else "";
     return .{
         .key = @intToEnum(cs_input.Key, @enumToInt(e.code)),
@@ -1986,7 +1986,7 @@ const Ascii: [256]u8 = b: {
     break :b res;
 };
 
-pub fn fromStdMouseDownEvent(e: input.MouseDownEvent) cs_input.MouseDownEvent {
+pub fn fromStdMouseDownEvent(e: platform.MouseDownEvent) cs_input.MouseDownEvent {
     return .{
         .button = @intToEnum(cs_input.MouseButton, @enumToInt(e.button)),
         .x = e.x,
@@ -1995,7 +1995,7 @@ pub fn fromStdMouseDownEvent(e: input.MouseDownEvent) cs_input.MouseDownEvent {
     };
 }
 
-pub fn fromStdMouseUpEvent(e: input.MouseUpEvent) cs_input.MouseUpEvent {
+pub fn fromStdMouseUpEvent(e: platform.MouseUpEvent) cs_input.MouseUpEvent {
     return .{
         .button = @intToEnum(cs_input.MouseButton, @enumToInt(e.button)),
         .x = e.x,
@@ -2004,7 +2004,7 @@ pub fn fromStdMouseUpEvent(e: input.MouseUpEvent) cs_input.MouseUpEvent {
     };
 }
 
-pub fn fromStdMouseMoveEvent(e: input.MouseMoveEvent) cs_input.MouseMoveEvent {
+pub fn fromStdMouseMoveEvent(e: platform.MouseMoveEvent) cs_input.MouseMoveEvent {
     return .{
         .x = e.x,
         .y = e.y,

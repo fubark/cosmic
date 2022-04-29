@@ -3,14 +3,14 @@ const std = @import("std");
 const stdx = @import("stdx");
 const t = stdx.testing;
 
-const input = @import("input.zig");
-const KeyDownEvent = input.KeyDownEvent;
-const KeyUpEvent = input.KeyUpEvent;
-const KeyCode = input.KeyCode;
-const MouseDownEvent = input.MouseDownEvent;
-const MouseUpEvent = input.MouseUpEvent;
-const MouseButton = input.MouseButton;
-const MouseMoveEvent = input.MouseMoveEvent;
+const platform = @import("platform.zig");
+const KeyDownEvent = platform.KeyDownEvent;
+const KeyUpEvent = platform.KeyUpEvent;
+const KeyCode = platform.KeyCode;
+const MouseDownEvent = platform.MouseDownEvent;
+const MouseUpEvent = platform.MouseUpEvent;
+const MouseButton = platform.MouseButton;
+const MouseMoveEvent = platform.MouseMoveEvent;
 const log = stdx.log.scoped(.input_sdl);
 
 // Converts sdl events into canonical events.
