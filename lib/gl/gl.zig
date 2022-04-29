@@ -64,6 +64,8 @@ extern "graphics" fn jsGlBlendEquation(mode: u32) void;
 extern "graphics" fn jsGlScissor(x: i32, y: i32, width: i32, height: i32) void;
 extern "graphics" fn jsGlGetUniformLocation(program: u32, name_ptr: *const u8, name_len: u32) u32;
 extern "graphics" fn jsGlCheckFramebufferStatus(target: u32) u32;
+extern "graphics" fn jsGlDeleteVertexArray(vao: u32) void;
+extern "graphics" fn jsGlDeleteBuffer(buffer: u32) void;
 
 const IsWindows = builtin.os.tag == .windows;
 
@@ -618,19 +620,29 @@ pub inline fn vertexAttribPointer(index: c.GLuint, size: c.GLint, @"type": c.GLe
     }
 }
 
-pub fn deleteVertexArrays(n: c.GLsizei, arrays: [*c]const c.GLuint) void {
-    if (builtin.os.tag == .windows) {
+pub inline fn deleteVertexArrays(n: c.GLsizei, arrays: [*c]const c.GLuint) void {
+    if (IsWasm) {
+        var i: u32 = 0;
+        while (i < n) : (i += 1) {
+            jsGlDeleteVertexArray(arrays[i]);
+        }
+    } else if (IsWindows) {
         winDeleteVertexArrays(n, arrays);
     } else {
-        sdl.glDeleteVertexArrays(n, arrays);
+        c.glDeleteVertexArrays(n, arrays);
     }
 }
 
-pub fn deleteBuffers(n: c.GLsizei, buffers: [*c]const c.GLuint) void {
-    if (builtin.os.tag == .windows) {
+pub inline fn deleteBuffers(n: c.GLsizei, buffers: [*c]const c.GLuint) void {
+    if (IsWasm) {
+        var i: u32 = 0;
+        while (i < n) : (i += 1) {
+            jsGlDeleteBuffer(buffers[i]);
+        }
+    } else if (IsWindows) {
         winDeleteBuffers(n, buffers);
     } else {
-        sdl.glDeleteBuffers(n, buffers);
+        c.glDeleteBuffers(n, buffers);
     }
 }
 
