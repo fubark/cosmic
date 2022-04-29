@@ -231,6 +231,7 @@ const Worker = struct {
             .wakeup = undefined,
             .close_flag = std.atomic.Atomic(bool).init(false),
         };
+        self.wakeup.reset();
     }
 
     fn deinit(self: *Self) void {

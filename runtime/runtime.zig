@@ -250,6 +250,7 @@ pub const RuntimeContext = struct {
             .get_native_val_err = undefined,
             .env = env,
         };
+        self.main_wakeup.reset();
 
         self.initUv();
 

@@ -368,9 +368,9 @@ test "initDisplayProjection" {
 fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
     gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, msaa.fbo);
     if (IsDesktop) {
-        gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex);
+        gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex.?);
         gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
-        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex, 0);
+        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex.?, 0);
         gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
     } else {
         gl.bindRenderbuffer(gl.GL_RENDERBUFFER, msaa.rbo.?);
