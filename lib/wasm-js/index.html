@@ -178,14 +178,20 @@
             wasm.inputLen += 5
         }
 
-        const target_fps = 60;
-        const target_ms_per_frame = 1000 / target_fps;
-        // Since there is no sleep logic, we add up time to see if we should perform a frame update.
-        // Sometimes we could miss the target_ms_per_frame by a little and as a result affect the fps greatly,
-        // so we have a minimum target instead.
-        const min_ms_per_frame = target_ms_per_frame / 2;
+        let throttle_fps = true, target_fps, target_ms_per_frame, min_ms_per_frame
+        setTargetFps(30)
+
+        function setTargetFps(fps) {
+            target_fps = fps;
+            target_ms_per_frame = 1000 / target_fps;
+            // Since there is no sleep logic, we add up time to see if we should perform a frame update.
+            // Sometimes we could miss the target_ms_per_frame by a little and as a result affect the fps greatly,
+            // so we have a minimum target instead.
+            min_ms_per_frame = target_ms_per_frame / 2;
+        }
 
         let last_time_ms = performance.now();
+        let last_input_time_ms = last_time_ms;
 
         // App loop.
         function loop(now_ms) {
@@ -195,6 +201,18 @@
                 last_time_ms = now_ms;
                 // Perform app update after reaching target ms.
                 try {
+                    if (wasm.inputLen > 0) {
+                        if (target_fps != 60) {
+                            // If there are events. Increase the responsiveness.
+                            setTargetFps(60)
+                        }
+                        last_input_time_ms = now_ms
+                    } else {
+                        if (target_fps != 30 && (now_ms - last_input_time_ms) > 1000) {
+                            // After two seconds of no activity, throttle fps.
+                            setTargetFps(30)
+                        }
+                    }
                     const ptr = wasm.exports.wasmUpdate(now_ms, wasm.inputLen);
                     processWasmResult(ptr);
                 } catch (e) {
