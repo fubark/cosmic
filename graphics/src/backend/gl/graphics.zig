@@ -1806,14 +1806,13 @@ pub const Graphics = struct {
         self.cur_scissors = false;
         gl.disable(gl.GL_SCISSOR_TEST);
 
-        // This clears the main framebuffer that is swapped to window.
-        gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
-        gl.clear(gl.GL_COLOR_BUFFER_BIT);
-
-        if (custom_fbo != 0) {
+        if (custom_fbo == 0) {
+            // This clears the main framebuffer that is swapped to window.
+            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            gl.clear(gl.GL_COLOR_BUFFER_BIT);
+        } else {
             // Set the frame buffer we are drawing to.
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
-
             // Clears the custom frame buffer.
             gl.clear(gl.GL_COLOR_BUFFER_BIT);
         }
