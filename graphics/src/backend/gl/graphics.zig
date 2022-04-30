@@ -332,6 +332,15 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setClearColor(self: *Self, color: Color) void {
+        _ = self;
+        const r = @intToFloat(f32, color.channels.r) / 255;
+        const g = @intToFloat(f32, color.channels.g) / 255;
+        const b = @intToFloat(f32, color.channels.b) / 255;
+        const a = @intToFloat(f32, color.channels.a) / 255;
+        gl.clearColor(r, g, b, a);
+    }
+
     pub fn getFillColor(self: Self) Color {
         return self.cur_fill_color;
     }
