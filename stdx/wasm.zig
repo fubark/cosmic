@@ -271,6 +271,8 @@ comptime {
         @export(ldexp, .{ .name = "ldexp", .linkage = .Strong });
         @export(pow, .{ .name = "pow", .linkage = .Strong });
         @export(abs, .{ .name = "abs", .linkage = .Strong });
+        @export(memset, .{ .name = "memset", .linkage = .Strong });
+        @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
     }
 }
 
@@ -331,4 +333,19 @@ fn pow(x: f64, y: f64) callconv(.C) f64 {
 /// libc abs.
 fn abs(x: i32) callconv(.C) i32 {
     return std.math.absInt(x) catch unreachable;
+}
+
+/// libc memset.
+fn memset(s: ?*anyopaque, val: i32, n: usize) callconv(.C) ?*anyopaque {
+    const slice = @ptrCast([*]u8, s)[0..n];
+    std.mem.set(u8, slice, @intCast(u8, val));
+    return s;
+}
+
+/// libc memcpy.
+fn memcpy(dst: ?*anyopaque, src: ?*anyopaque, n: usize) callconv(.C) ?*anyopaque {
+    const dst_slice = @ptrCast([*]u8, dst)[0..n];
+    const src_slice = @ptrCast([*]u8, src)[0..n];
+    std.mem.copy(u8, dst_slice, src_slice);
+    return dst;
 }
