@@ -34,7 +34,8 @@ pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, p
     return std.math.round(advance);
 }
 
-pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics) void {
+/// For lower font sizes, snap_to_grid is desired since baked fonts don't have subpixel rendering. TODO: What if we precomputed 2 subpixel renders of the same character?
+pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics, comptime snap_to_grid: bool) void {
     const font_grp = g.font_cache.getFontGroup(group_id);
     var req_font_size = font_size;
     const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
@@ -51,7 +52,7 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32
     if (iter.nextCodepoint()) |first_cp| {
         const glyph_info = g.font_cache.getOrLoadFontGroupGlyph(g, font_grp, bm_font_size, first_cp);
         const glyph = glyph_info.glyph;
-        res.width += std.math.round(glyph.advance_width * scale);
+        res.width += glyph.advance_width * scale;
         prev_glyph_id = glyph.glyph_id;
         prev_font = glyph_info.font;
     } else return;
@@ -65,8 +66,12 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32
 
         res.width += computeKern(prev_glyph_id, prev_font, glyph.glyph_id, glyph_res.font, glyph_res.bm_font, scale, it);
 
+        if (snap_to_grid) {
+            res.width = std.math.round(res.width);
+        }
+
         // Add advance width.
-        res.width += std.math.round(glyph.advance_width * scale);
+        res.width += glyph.advance_width * scale;
         prev_glyph_id = glyph.glyph_id;
         prev_font = glyph_res.font;
     }
@@ -94,7 +99,7 @@ pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr:
 }
 
 // Writes the vertex data of the next codepoint to ctx.quad
-pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad) bool {
+pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad, comptime snap_to_grid: bool) bool {
     const code_pt = ctx.cp_iter.nextCodepoint() orelse return false;
 
     const glyph_info = ctx.g.font_cache.getOrLoadFontGroupGlyph(ctx.g, ctx.font_group, ctx.bm_font_size, code_pt);
@@ -114,7 +119,9 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad) bool
     }
 
     // Snap to pixel after applying advance and kern.
-    ctx.x = std.math.round(ctx.x);
+    if (snap_to_grid) {
+        ctx.x = std.math.round(ctx.x);
+    }
 
     // Update quad result.
     res_quad.image = glyph.image;
@@ -122,7 +129,11 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad) bool
     res_quad.is_color_bitmap = glyph.is_color_bitmap;
     // res_quad.x0 = ctx.x + glyph.x_offset * user_scale;
     // Snap to pixel for consistent glyph rendering.
-    res_quad.x0 = std.math.round(ctx.x + glyph.x_offset * user_scale);
+    if (snap_to_grid) {
+        res_quad.x0 = std.math.round(ctx.x + glyph.x_offset * user_scale);
+    } else {
+        res_quad.x0 = ctx.x + glyph.x_offset * user_scale;
+    }
     res_quad.y0 = ctx.y + glyph.y_offset * user_scale;
     res_quad.x1 = res_quad.x0 + glyph.dst_width * user_scale;
     res_quad.y1 = res_quad.y0 + glyph.dst_height * user_scale;

@@ -466,11 +466,11 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res, true);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res);
+        text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res, true);
     }
 
     // Since MeasureTextIterator init needs to do a fieldParentPtr, we pass the res pointer in.
@@ -508,7 +508,7 @@ pub const Graphics = struct {
         }
         var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
 
-        while (text_renderer.renderNextCodepoint(&ctx, &quad)) {
+        while (text_renderer.renderNextCodepoint(&ctx, &quad, true)) {
             self.setCurrentTexture(quad.image);
 
             if (quad.is_color_bitmap) {
