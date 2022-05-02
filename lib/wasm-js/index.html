@@ -113,11 +113,11 @@
             })
             window.addEventListener('keydown', function(e) {
                 // console.log('keydown', e.code, e.which, e.key);
-                ensureFreeCapacity(5)
+                ensureFreeCapacity(4)
                 var cur_ptr = wasm.inputPtr + wasm.inputLen
                 const view = new DataView(wasm.exports.memory.buffer)
                 view.setUint8(cur_ptr, KeyDownCommand)
-                view.setUint16(cur_ptr+1, e.which, true)
+                view.setUint8(cur_ptr+1, e.which)
                 let mod = 0
                 if (e.shiftKey) {
                     mod |= 8
@@ -131,17 +131,17 @@
                 if (e.metaKey) {
                     mod |= 1
                 }
-                view.setUint8(cur_ptr+3, mod)
-                view.setUint8(cur_ptr+4, e.repeat)
-                wasm.inputLen += 5
+                view.setUint8(cur_ptr+2, mod)
+                view.setUint8(cur_ptr+3, e.repeat)
+                wasm.inputLen += 4
             });
             window.addEventListener('keyup', function(e) {
                 // console.log('keyup', e.code, e.which, e.key, e.shiftKey);
-                ensureFreeCapacity(4);
+                ensureFreeCapacity(3);
                 var cur_ptr = wasm.inputPtr + wasm.inputLen
                 const view = new DataView(wasm.exports.memory.buffer)
                 view.setUint8(cur_ptr, KeyUpCommand)
-                view.setUint16(cur_ptr+1, e.which, true)
+                view.setUint8(cur_ptr+1, e.which)
                 let mod = 0
                 if (e.shiftKey) {
                     mod |= 8
@@ -155,8 +155,8 @@
                 if (e.metaKey) {
                     mod |= 1
                 }
-                view.setUint8(cur_ptr+3, mod)
-                wasm.inputLen += 4
+                view.setUint8(cur_ptr+2, mod)
+                wasm.inputLen += 3
             })
             window.addEventListener('resize', function() {
                 // A bit smaller so it doesn't trigger scrollbars in the browser page.

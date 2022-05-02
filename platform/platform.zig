@@ -6,12 +6,14 @@ const log = stdx.log.scoped(.input);
 const sdl = @import("sdl");
 
 const input_sdl = @import("input_sdl.zig");
-
 pub const initSdlKeyDownEvent = input_sdl.initKeyDownEvent;
 pub const initSdlKeyUpEvent = input_sdl.initKeyUpEvent;
 pub const initSdlMouseDownEvent = input_sdl.initMouseDownEvent;
 pub const initSdlMouseUpEvent = input_sdl.initMouseUpEvent;
 pub const initSdlMouseMoveEvent = input_sdl.initMouseMoveEvent;
+
+const input_web = @import("input_web.zig");
+pub const webToCanonicalKeyCode = input_web.toCanonicalKeyCode;
 
 const mouse = @import("mouse.zig");
 pub const MouseButton = mouse.MouseButton;

@@ -49,6 +49,8 @@ pub const EventDispatcher = struct {
         self.winresize_cbs.deinit();
     }
 
+    /// It is recommended to process events before a Window.beginFrame since an event can trigger
+    /// a user callback that alters the graphics buffer. eg. Resizing the window.
     pub fn processEvents(self: Self) void {
         if (IsWasm) {
             processWasmEvents(self);
@@ -220,22 +222,22 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
         const ctype = input_buf[i];
         switch (ctype) {
             Command.KeyDown => {
-                const code = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
-                const mods = input_buf[i+3];
-                const repeat = input_buf[i+4] == 1;
-                const std_code = std.meta.intToEnum(KeyCode, code) catch stdx.debug.panicFmt("unsupported key code: {}", .{code});
+                const code = input_buf[i+1];
+                const mods = input_buf[i+2];
+                const repeat = input_buf[i+3] == 1;
+                const std_code = platform.webToCanonicalKeyCode(code);
                 const std_event = KeyDownEvent.initWithMods(std_code, mods, repeat);
-                i += 5;
+                i += 4;
                 for (dispatcher.keydown_cbs.items) |handler| {
                     handler.cb(handler.ctx, std_event);
                 }
             },
             Command.KeyUp => {
-                const code = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
-                const mods = input_buf[i+3];
-                const std_code = std.meta.intToEnum(KeyCode, code) catch stdx.debug.panicFmt("unsupported key code: {}", .{code});
+                const code = input_buf[i+1];
+                const mods = input_buf[i+2];
+                const std_code = platform.webToCanonicalKeyCode(code);
                 const std_event = KeyUpEvent.initWithMods(std_code, mods);
-                i += 4;
+                i += 3;
                 for (dispatcher.keyup_cbs.items) |handler| {
                     handler.cb(handler.ctx, std_event);
                 }
