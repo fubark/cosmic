@@ -14,15 +14,19 @@ const ImageDesc = graphics_gl.ImageDesc;
 const Graphics = graphics_gl.Graphics;
 const font_cache = @import("font_cache.zig");
 
-// Measures each char from start incrementally and sets result. Useful for computing layout.
-pub fn measureTextIter(g: *Graphics, font_gid: FontGroupId, font_size: f32, str: []const u8, res: *MeasureTextIterator) void {
+/// Measures each char from start incrementally and sets result. Useful for computing layout.
+pub fn measureTextIter(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *MeasureTextIterator) void {
     const fgroup = g.font_cache.getFontGroup(font_gid);
-    res.init(g, fgroup, font_size, str);
+    res.init(g, fgroup, font_size, dpr, str);
 }
 
-pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
+pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, prev_cp: u21, cp: u21) f32 {
     const font_grp = g.font_cache.getFontGroup(font_gid);
-    const to_user_scale = font_grp.getBackendToUserFontSizeScale(font_size);
+    var req_font_size = font_size;
+    const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
+
+    const primary = g.font_cache.getOrCreateBitmapFont(font_grp.fonts[0], bm_font_size);
+    const to_user_scale = primary.getScaleToUserFontSize(req_font_size);
 
     const glyph_info = g.getOrLoadFontGroupGlyph(font_grp, cp);
     const glyph = glyph_info.glyph;
@@ -161,15 +165,21 @@ pub const MeasureTextIterator = struct {
     prev_glyph_id_opt: ?u16,
     prev_glyph_font: *Font,
 
-    fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, str: []const u8) void {
-        const user_scale = fgroup.getBackendToUserFontSizeScale(font_size);
+    bm_font_size: u16,
+
+    fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, dpr: u32, str: []const u8) void {
+        var req_font_size = font_size;
+        const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
+
+        const primary = g.font_cache.getOrCreateBitmapFont(fgroup.fonts[0], bm_font_size);
+        const user_scale = primary.getScaleToUserFontSize(req_font_size);
 
         const parent = @fieldParentPtr(graphics.MeasureTextIterator, "inner", self);
         parent.state = .{
-            // TODO: Currently fontgroup just uses the primary font's height. We'll need to update height for every character.
-            .ascent = fgroup.getAscent() * user_scale,
-            .descent = -fgroup.getDescent() * user_scale,
-            .height = fgroup.getFontHeight() * user_scale,
+            // TODO: Update ascent, descent, height depending on current font.
+            .ascent = primary.ascent * user_scale,
+            .descent = -primary.descent * user_scale,
+            .height = primary.font_height * user_scale,
             .start_idx = 0,
             .end_idx = 0,
             .cp = undefined,
@@ -183,6 +193,7 @@ pub const MeasureTextIterator = struct {
             .cp_iter = std.unicode.Utf8View.initUnchecked(str).iterator(),
             .prev_glyph_id_opt = null,
             .prev_glyph_font = undefined,
+            .bm_font_size = bm_font_size,
         };
     }
 
@@ -196,11 +207,11 @@ pub const MeasureTextIterator = struct {
         parent.state.cp = self.cp_iter.nextCodepoint() orelse return false;
         parent.state.end_idx = self.cp_iter.i;
 
-        const glyph_info = self.g.getOrLoadFontGroupGlyph(self.fgroup, parent.state.cp);
+        const glyph_info = self.g.font_cache.getOrLoadFontGroupGlyph(self.g, self.fgroup, self.bm_font_size, parent.state.cp);
         const glyph = glyph_info.glyph;
 
         if (self.prev_glyph_id_opt) |prev_glyph_id| {
-            parent.state.kern = computeKern(prev_glyph_id, self.prev_glyph_font, glyph.glyph_id, glyph_info.font, self.user_scale, parent.state.cp);
+            parent.state.kern = computeKern(prev_glyph_id, self.prev_glyph_font, glyph.glyph_id, glyph_info.font, glyph_info.bm_font, self.user_scale, parent.state.cp);
         } else {
             parent.state.kern = 0;
         }

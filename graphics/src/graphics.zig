@@ -928,7 +928,7 @@ pub const MeasureTextIterator = struct {
     pub fn nextCodepoint(self: *Self) bool {
         switch (Backend) {
             .Test => return testg.MeasureTextIterator.nextCodepoint(&self.inner),
-            .OpenGL => return gl.font_cache.MeasureTextIterator.nextCodepoint(&self.inner),
+            .OpenGL => return gl.MeasureTextIterator.nextCodepoint(&self.inner),
             else => stdx.panic("unsupported"),
         }
     }

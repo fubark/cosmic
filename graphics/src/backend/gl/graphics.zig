@@ -475,7 +475,7 @@ pub const Graphics = struct {
 
     // Since MeasureTextIterator init needs to do a fieldParentPtr, we pass the res pointer in.
     pub fn measureFontTextIter(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *MeasureTextIterator) void {
-        self.font_cache.measureTextIter(self, group_id, size, str, res);
+        text_renderer.measureTextIter(self, group_id, size, self.cur_dpr, str, res);
     }
 
     pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
