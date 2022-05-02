@@ -115,6 +115,24 @@ pub fn Function(comptime Param: type) type {
             };
         }
 
+        pub fn initContext(ctx_ptr: anytype, comptime func: anytype) Self {
+            const ContextPtr = @TypeOf(ctx_ptr);
+            if (@typeInfo(ContextPtr) != .Pointer) {
+                @compileError("Context must be a pointer.");
+            }
+            const gen = struct {
+                fn call(_: *const anyopaque, ptr: *anyopaque, arg: Param) void {
+                    const ctx = stdx.mem.ptrCastAlign(ContextPtr, ptr);
+                    func(ctx, arg);
+                }
+            };
+            return .{
+                .ctx = ctx_ptr,
+                .call_fn = gen.call,
+                .user_fn = undefined,
+            };
+        }
+
         pub fn init(comptime func: anytype) Self {
             const gen = struct {
                 fn call(_: *const anyopaque, _: *anyopaque, arg: Param) void {
