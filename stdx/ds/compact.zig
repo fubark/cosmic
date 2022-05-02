@@ -4,7 +4,8 @@ const t = stdx.testing;
 const ds = stdx.ds;
 const log = stdx.log.scoped(.compact);
 
-/// Useful for keeping a list buffer together in memory when you're using a bunch of insert/delete, while keeping realloc to a minimum.
+/// Useful for keeping elements closer together in memory when you're using a bunch of insert/delete,
+/// while keeping realloc to a minimum and preserving the element's initial insert index.
 /// Backed by std.ArrayList.
 /// Item ids are reused once removed.
 /// Items are assigned an id and have O(1) access time by id.
@@ -19,6 +20,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
 
         // Keep track of whether an item exists at id in order to perform iteration.
         // TODO: Rename to exists.
+        // TODO: Maybe the user should provide this if it's important. It would also simplify the api and remove optional return types. It also means iteration won't be possible.
         data_exists: ds.BitArrayList,
 
         const Self = @This();
@@ -85,7 +87,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             self.data_exists.deinit();
         }
 
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return Iterator.init(self);
         }
 
@@ -634,6 +636,27 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             return self.nodes.getPtrNoCheck(idx);
         }
 
+        pub fn iterator(self: Self) CompactUnorderedList(Id, Node).Iterator {
+            return self.nodes.iterator();
+        }
+
+        pub fn getLast(self: Self, id: Id) ?Id {
+            if (id == Null) {
+                return null;
+            }
+            if (self.nodes.has(id)) {
+                var cur = id;
+                while (cur != Null) {
+                    const next = self.getNextNoCheck(cur);
+                    if (next == Null) {
+                        return cur;
+                    }
+                    cur = next;
+                }
+                unreachable;
+            } else return null;
+        }
+
         pub fn get(self: Self, id: Id) ?T {
             if (self.nodes.has(id)) {
                 return self.nodes.getNoCheck(id).data;
@@ -686,6 +709,17 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
                 });
                 self.nodes.getPtrNoCheck(id).next = new;
                 return new;
+            } else return error.NoElement;
+        }
+
+        pub fn removeAfter(self: *Self, id: Id) !Id {
+            if (self.nodes.has(id)) {
+                const next = self.nodes.getNextNoCheck(id);
+                if (next != Null) {
+                    const next_next = self.nodes.getNextNoCheck(next);
+                    self.nodes.get(id).next = next_next;
+                    self.nodes.remove(next);
+                }
             } else return error.NoElement;
         }
 
