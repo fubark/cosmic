@@ -351,7 +351,7 @@ const BuilderContext = struct {
         step.setOutputDir(install_dir);
 
         self.addDeps(step) catch unreachable;
-        // self.copyAssets(step, output_dir_rel);
+        self.copyAssets(step, install_dir_rel);
 
         // index.html
         var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.builder.pathJoin(&.{ install_dir, "index.html" }));
@@ -495,6 +495,7 @@ const BuilderContext = struct {
             self.buildLinkWinPosix(step);
             self.buildLinkWinPthreads(step);
         }
+        addUi(step);
         self.addGraphics(step);
         if (self.link_graphics) {
             if (!self.isWasmTarget()) {
@@ -829,6 +830,21 @@ const BuilderContext = struct {
         step.addPackage(pkg);
     }
 };
+
+const ui_pkg = Pkg{
+    .name = "ui",
+    .path = FileSource.relative("./ui/ui.zig"),
+};
+
+fn addUi(step: *std.build.LibExeObjStep) void {
+    var pkg = ui_pkg;
+
+    var platform = platform_pkg;
+    platform.dependencies = &.{ sdl_pkg, stdx_pkg };
+
+    pkg.dependencies = &.{ stdx_pkg, graphics_pkg, platform };
+    step.addPackage(pkg);
+}
 
 const zig_v8_pkg = Pkg{
     .name = "v8",
