@@ -1,0 +1,63 @@
+const stdx = @import("stdx");
+
+const widget = @import("widget.zig");
+const WidgetUserId = widget.WidgetUserId;
+const WidgetTypeId = widget.WidgetTypeId;
+const WidgetKey = widget.WidgetKey;
+
+pub const FrameId = u32;
+pub const NullFrameId = stdx.ds.CompactNull(FrameId);
+
+/// A frame represents a declaration of a widget instance and is created in each Widget's `build` function.
+/// Before the ui engine performs layout, these frames are used to diff against an existing node tree to determine whether a new
+/// widget instance is created or updated.
+pub const Frame = struct {
+    const Self = @This();
+
+    type_id: WidgetTypeId,
+
+    /// Used to map a unique id to the created node.
+    id: ?WidgetUserId,
+
+    /// Binds the corresponding widget instance to a WidgetRef upon initialization.
+    bind: ?*anyopaque,
+
+    /// Used to find an existing node under the same parent.
+    /// Should only be of type WidgetKey.EnumLiteral.
+    /// WidgetKey.Idx keys are created during the diff op and used as a default key.
+    key: ?WidgetKey,
+
+    /// Used to map a common tag to the created node.
+    tag: ?[]const u8,
+
+    /// Pointer to the props data.
+    props: FramePropsPtr,
+
+    /// This is only used by the special Fragment frame which represents multiple frames.
+    fragment_children: FrameListPtr,
+
+    pub fn init(type_id: WidgetTypeId, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, fragment_children: FrameListPtr) Self {
+        return .{
+            .type_id = type_id,
+            .id = id,
+            .bind = bind,
+            .props = props,
+            .fragment_children = fragment_children,
+            .key = null,
+            .tag = null,
+        };
+    }
+};
+
+/// Sized pointer to props data.
+pub const FramePropsPtr = stdx.ds.DynamicArrayList(u32, u8).SizedPtr;
+
+/// Represent a list of frames as a slice since the buffer could have been reallocated.
+pub const FrameListPtr = struct {
+    id: FrameId,
+    len: u32,
+
+    pub fn init(id: FrameId, len: u32) @This() {
+        return .{ .id = id, .len = len };
+    }
+};
