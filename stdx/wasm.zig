@@ -337,8 +337,11 @@ fn abs(x: i32) callconv(.C) i32 {
 
 /// libc memset.
 fn memset(s: ?*anyopaque, val: i32, n: usize) callconv(.C) ?*anyopaque {
-    const slice = @ptrCast([*]u8, s)[0..n];
-    std.mem.set(u8, slice, @intCast(u8, val));
+    // Some user code may try to write to a bad location in wasm with n=0. Wasm doesn't allow that.
+    if (n > 0) {
+        const slice = @ptrCast([*]u8, s)[0..n];
+        std.mem.set(u8, slice, @intCast(u8, val));
+    }
     return s;
 }
 
