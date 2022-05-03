@@ -609,27 +609,28 @@ pub const Slider = struct {
     const Height = 25;
 
     props: struct {
-        value: i32 = 0,
-        minValue: i32 = 0,
-        maxValue: i32 = 100,
+        init_val: i32 = 0,
+        min_val: i32 = 0,
+        max_val: i32 = 100,
         onChangeEnd: ?Function(i32) = null,
         onChange: ?Function(i32) = null,
+        thumb_color: Color = Color.Blue,
     },
 
+    last_value: i32,
     value: i32,
     pressed: bool,
 
     pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
-        std.debug.assert(self.props.minValue <= self.props.maxValue);
-        self.value = self.props.value;
+        std.debug.assert(self.props.min_val <= self.props.max_val);
+        self.value = self.props.init_val;
         self.pressed = false;
-        if (self.value < self.props.minValue) {
-            self.value = self.props.minValue;
-        } else if (self.value > self.props.maxValue) {
-            self.value = self.props.maxValue;
+        if (self.value < self.props.min_val) {
+            self.value = self.props.min_val;
+        } else if (self.value > self.props.max_val) {
+            self.value = self.props.max_val;
         }
 
-        c.addMouseUpHandler(c.node, handleMouseUpEvent);
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
     }
 
@@ -637,11 +638,16 @@ pub const Slider = struct {
         var self = node.getWidget(Self);
         if (e.val.button == .Left and self.pressed) {
             self.pressed = false;
+            e.ctx.removeMouseUpHandler(*Node, handleMouseUpEvent);
             e.ctx.removeMouseMoveHandler(*Node, handleMouseMoveEvent);
             self.updateValueFromMouseX(node, e.val.x);
-            if (self.props.onChangeEnd) |cb| {
-                _ = cb;
-                cb.call(self.value);
+            if (self.last_value != self.value) {
+                if (self.props.onChange) |cb| {
+                    cb.call(self.value);
+                }
+                if (self.props.onChangeEnd) |cb| {
+                    cb.call(self.value);
+                }
             }
         }
     }
@@ -650,28 +656,34 @@ pub const Slider = struct {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             self.pressed = true;
+            self.last_value = self.value;
+            e.ctx.removeMouseUpHandler(*Node, handleMouseUpEvent);
+            e.ctx.addGlobalMouseUpHandler(node, handleMouseUpEvent);
             e.ctx.addMouseMoveHandler(node, handleMouseMoveEvent);
         }
     }
 
     fn updateValueFromMouseX(self: *Self, node: *Node, mouse_x: i16) void {
-        const num_values = self.props.maxValue - self.props.minValue + 1;
-        const rel_x = @intToFloat(f32, mouse_x) - node.layout.x - @intToFloat(f32, ThumbWidth)/2;
+        const num_values = self.props.max_val - self.props.min_val + 1;
+        const rel_x = @intToFloat(f32, mouse_x) - node.abs_pos.x - @intToFloat(f32, ThumbWidth)/2;
         const ratio = rel_x / (node.layout.width - ThumbWidth);
-        self.value = @floatToInt(i32, @intToFloat(f32, self.props.minValue) + ratio * @intToFloat(f32, num_values));
-        if (self.value > self.props.maxValue) {
-            self.value = self.props.maxValue;
-        } else if (self.value < self.props.minValue) {
-            self.value = self.props.minValue;
+        self.value = @floatToInt(i32, @intToFloat(f32, self.props.min_val) + ratio * @intToFloat(f32, num_values));
+        if (self.value > self.props.max_val) {
+            self.value = self.props.max_val;
+        } else if (self.value < self.props.min_val) {
+            self.value = self.props.min_val;
         }
     }
 
     fn handleMouseMoveEvent(node: *Node, e: Event(MouseMoveEvent)) void {
         var self = node.getWidget(Self);
         self.updateValueFromMouseX(node, e.val.x);
-        if (self.props.onChange) |cb| {
-            cb.call(self.value);
+        if (self.last_value != self.value) {
+            if (self.props.onChange) |cb| {
+                cb.call(self.value);
+            }
         }
+        self.last_value = self.value;
     }
 
     pub fn build(self: *Self, comptime C: Config, c: *C.Build()) FrameId {
@@ -682,24 +694,27 @@ pub const Slider = struct {
 
     pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
         _ = self;
-        _ = c;
-        const min_width = ThumbWidth;
+        const min_width: f32 = 200;
         const min_height = Height;
         const cstr = c.getSizeConstraint();
-        const width = std.math.max(cstr.width, min_width);
-        return LayoutSize.init(width, min_height);
+        
+        var res = LayoutSize.init(min_width, min_height);
+        if (c.prefer_exact_width) {
+            res.width = cstr.width;
+        }
+        return res;
     }
 
     pub fn render(self: *Self, ctx: *RenderContext) void {
         const g = ctx.g;
         const alo = ctx.getAbsLayout();
         g.setFillColor(Color.LightGray);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        g.fillRect(alo.x, alo.y+alo.height/2 - 5, alo.width, 10);
 
-        const val_range = self.props.maxValue - self.props.minValue;
-        const ratio = @intToFloat(f32, self.value - self.props.minValue) / @intToFloat(f32, val_range);
+        const val_range = self.props.max_val - self.props.min_val;
+        const ratio = @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
         var thumb_x = alo.x + (alo.width - ThumbWidth) * ratio;
-        g.setFillColor(Color.Red);
+        g.setFillColor(self.props.thumb_color);
         g.fillRect(thumb_x, alo.y, ThumbWidth, Height);
     }
 };
