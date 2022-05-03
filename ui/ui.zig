@@ -36,3 +36,15 @@ pub const widgets = @import("widgets.zig");
 
 const text = @import("text.zig");
 pub const TextMeasure = text.TextMeasure;
+
+pub const VAlign = enum(u2) {
+    Top = 0,
+    Center = 1,
+    Bottom = 2,
+};
+
+pub const HAlign = enum(u2) {
+    Left = 0,
+    Center = 1,
+    Right = 2,
+};
