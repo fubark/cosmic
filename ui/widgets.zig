@@ -49,6 +49,7 @@ pub const BaseWidgets = &[_]Import{
     Import.init(TextField),
     Import.init(TextFieldInner),
     Import.init(Center),
+    Import.init(ProgressBar),
     Import.init(Sized),
 };
 
@@ -191,6 +192,51 @@ pub const Row = struct {
             g.fillRect(alo.x, alo.y, alo.width, alo.height);
         }
         // TODO: draw border
+    }
+};
+
+pub const ProgressBar = struct {
+    const Self = @This();
+
+    props: struct {
+        max_val: f32 = 100,
+        init_val: f32 = 0,
+        bar_color: Color = Color.Blue,
+    },
+
+    value: f32,
+
+    pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
+        _ = c;
+        self.value = self.props.init_val;
+    }
+
+    pub fn setValue(self: *Self, value: f32) void {
+        self.value = value;
+    }
+
+    pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
+        _ = self;
+        const min_width = 200;
+        const min_height = 25;
+
+        const cstr = c.getSizeConstraint();
+        var res = LayoutSize.init(min_width, min_height);
+        if (c.prefer_exact_width) {
+            res.width = cstr.width;
+        }
+        return res;
+    }
+
+    pub fn render(self: *Self, c: *RenderContext) void {
+        const g = c.g;
+        const alo = c.getAbsLayout();
+
+        g.setFillColor(Color.DarkGray);
+        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        g.setFillColor(self.props.bar_color);
+        const progress_width = (self.value / self.props.max_val) * alo.width;
+        g.fillRect(alo.x, alo.y, progress_width, alo.height);
     }
 };
 
