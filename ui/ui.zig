@@ -7,14 +7,15 @@ pub const RenderContext = module.RenderContext;
 pub const LayoutContext = module.LayoutContext;
 pub const EventContext = module.EventContext;
 pub const InitContext = module.InitContext;
-
-const config = @import("config.zig");
-pub const Config = config.Config;
-pub const Import = config.Import;
 pub const ModuleContext = module.ModuleContext;
 pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
 pub const Event = module.Event;
+pub const IntervalEvent = module.IntervalEvent;
+
+const config = @import("config.zig");
+pub const Config = config.Config;
+pub const Import = config.Import;
 
 const frame = @import("frame.zig");
 pub const Frame = frame.Frame;

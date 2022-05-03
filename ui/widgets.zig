@@ -27,6 +27,7 @@ const Module = ui.Module;
 const Config = ui.Config;
 const TextMeasureId = ui.TextMeasureId;
 const Event = ui.Event;
+const IntervalEvent = ui.IntervalEvent;
 const FrameId = ui.FrameId;
 const FrameListPtr = ui.FrameListPtr;
 const NullFrameId = ui.NullFrameId;
@@ -356,8 +357,8 @@ pub const TextButton = struct {
     const Self = @This();
 
     props: struct {
-        on_click: ?Function(MouseUpEvent) = null,
-        bg_color: Color = Color.Gray.lighter(),
+        onClick: ?Function(MouseUpEvent) = null,
+        bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
         border_color: Color = Color.Gray,
@@ -367,7 +368,7 @@ pub const TextButton = struct {
 
     pub fn build(self: *Self, comptime C: Config, c: *C.Build()) FrameId {
         return c.decl(Button, .{
-            .on_click = self.props.on_click,
+            .onClick = self.props.onClick,
             .bg_color = self.props.bg_color,
             .bg_pressed_color = self.props.bg_pressed_color,
             .border_size = self.props.border_size,
@@ -1072,8 +1073,8 @@ pub const TextFieldInner = struct {
         self.ctx.resetInterval(self.caret_anim_id);
     }
 
-    fn onCaretInterval(self: *Self, c: *CommonContext) void {
-        _ = c;
+    fn onCaretInterval(self: *Self, e: IntervalEvent) void {
+        _ = e;
         self.caret_anim_show = !self.caret_anim_show;
     }
 
@@ -1433,8 +1434,8 @@ pub const TextEditorInner = struct {
         self.ctx.getTextMeasure(self.to_caret_measure).setText(line[0..self.editor.caret_col]);
     }
 
-    fn handleCaretInterval(self: *Self, c: *CommonContext) void {
-        _ = c;
+    fn handleCaretInterval(self: *Self, e: IntervalEvent) void {
+        _ = e;
         self.caret_anim_show_toggle = !self.caret_anim_show_toggle;
     }
 
