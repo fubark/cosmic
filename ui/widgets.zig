@@ -489,17 +489,30 @@ pub const TextButton = struct {
     }
 };
 
+const VAlign = enum(u2) {
+    Top = 0,
+    Center = 1,
+    Bottom = 2,
+};
+
+const HAlign = enum(u2) {
+    Left = 0,
+    Center = 1,
+    Right = 2,
+};
+
 pub const Button = struct {
     const Self = @This();
 
     props: struct {
-        on_click: ?Function(MouseUpEvent) = null,
-        bg_color: Color = Color.Gray.lighter(),
+        onClick: ?Function(MouseUpEvent) = null,
+        bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
         border_color: Color = Color.Gray,
         corner_radius: f32 = 0,
         child: FrameId = NullFrameId,
+        halign: HAlign = .Center,
     },
 
     pressed: bool,
@@ -520,7 +533,7 @@ pub const Button = struct {
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
-                if (self.props.on_click) |cb| {
+                if (self.props.onClick) |cb| {
                     cb.call(e.val);
                 }
             }
@@ -537,23 +550,34 @@ pub const Button = struct {
     pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
         const cstr = c.getSizeConstraint();
 
-        var res: LayoutSize = undefined;
+        var res: LayoutSize = cstr;
         if (self.props.child != NullFrameId) {
             const child_node = c.getNode().children.items[0];
             var child_size = c.computeLayout(child_node, cstr);
             child_size.cropTo(cstr);
-            c.setLayout(child_node, Layout.initWithSize(0, 0, child_size));
             res = child_size;
+            if (c.prefer_exact_width) {
+                res.width = cstr.width;
+            }
+            if (c.prefer_exact_height) {
+                res.height = cstr.height;
+            }
+            switch (self.props.halign) {
+                .Left => c.setLayout(child_node, Layout.initWithSize(0, 0, child_size)),
+                .Center => c.setLayout(child_node, Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
+                .Right => c.setLayout(child_node, Layout.initWithSize(res.width - child_size.width, 0, child_size)),
+            }
+            return res;
         } else {
             res = LayoutSize.init(150, 40);
+            if (c.prefer_exact_width) {
+                res.width = cstr.width;
+            }
+            if (c.prefer_exact_height) {
+                res.height = cstr.height;
+            }
+            return res;
         }
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        }
-        if (c.prefer_exact_height) {
-            res.height = cstr.height;
-        }
-        return res;
     }
 
     pub fn render(self: *Self, ctx: *RenderContext) void {
