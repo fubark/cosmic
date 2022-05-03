@@ -813,7 +813,7 @@ pub const RenderContext = struct {
 };
 
 fn IntervalHandler(comptime Context: type) type {
-    return fn (Context, *CommonContext) void;
+    return fn (Context, IntervalEvent) void;
 }
 
 /// Requires Context.common.
@@ -826,6 +826,10 @@ pub fn MixinContextEventOps(comptime Context: type) type {
 
         pub inline fn resetInterval(self: *Context, id: IntervalId) void {
             self.common.resetInterval(id);
+        }
+
+        pub inline fn removeInterval(self: *Context, id: IntervalId) void {
+            self.common.removeInterval(id);
         }
     };
 }
@@ -1112,14 +1116,18 @@ pub const CommonContext = struct {
     }
 
     pub fn addInterval(self: *Self, dur: Duration, ctx: anytype, cb: IntervalHandler(@TypeOf(ctx))) IntervalId {
-        const closure = Closure(@TypeOf(ctx), *CommonContext).init(self.alloc, ctx, cb).iface();
+        const closure = Closure(@TypeOf(ctx), IntervalEvent).init(self.alloc, ctx, cb).iface();
         const s = IntervalSession.init(dur, closure);
-        self.common.interval_sessions.append(s) catch unreachable;
-        return @intCast(u32, self.common.interval_sessions.items.len-1);
+        return self.common.interval_sessions.add(s) catch unreachable;
     }
 
     pub fn resetInterval(self: *Self, id: IntervalId) void {
-        self.common.interval_sessions.items[id].progress_ms = 0;
+        self.common.interval_sessions.getNoCheck(id).progress_ms = 0;
+    }
+
+    pub fn removeInterval(self: *Self, id: IntervalId) void {
+        self.common.interval_sessions.getNoCheck(id).deinit(self.alloc);
+        self.common.interval_sessions.remove(id);
     }
 
     pub fn requestFocus(self: *Self, node: *Node, on_blur: BlurHandler) void {
@@ -1317,7 +1325,7 @@ pub const ModuleCommon = struct {
     alloc: std.mem.Allocator,
     g: *Graphics,
     text_measures: ds.CompactUnorderedList(TextMeasureId, TextMeasure),
-    interval_sessions: std.ArrayList(IntervalSession),
+    interval_sessions: ds.CompactUnorderedList(u32, IntervalSession),
 
     // TODO: Use one buffer for all the handlers.
     /// Keyboard handlers.
@@ -1356,7 +1364,7 @@ pub const ModuleCommon = struct {
             .text_measures = ds.CompactUnorderedList(TextMeasureId, TextMeasure).init(alloc),
             // .default_font_gid = g.getFontGroupBySingleFontName("Nunito Sans"),
             .default_font_gid = g.getDefaultFontGroupId(),
-            .interval_sessions = std.ArrayList(IntervalSession).init(alloc),
+            .interval_sessions = ds.CompactUnorderedList(u32, IntervalSession).init(alloc),
 
             .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyUpEvent)).init(alloc),
             .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyDownEvent)).init(alloc),
@@ -1387,8 +1395,12 @@ pub const ModuleCommon = struct {
         self.next_post_layout_cbs.deinit();
         // self.next_post_render_cbs.deinit();
 
-        for (self.interval_sessions.items) |it| {
-            it.deinit(self.alloc);
+        {
+            var iter = self.interval_sessions.iterator();
+            while (iter.next()) |it| {
+                it.deinit(self.alloc);
+            }
+            self.interval_sessions.deinit();
         }
 
         {
@@ -1428,8 +1440,6 @@ pub const ModuleCommon = struct {
             it.deinit(self.alloc);
         }
         self.mouse_move_event_subs.deinit();
-
-        self.interval_sessions.deinit();
     }
 
     fn createTextMeasure(self: *Self, font_gid: FontGroupId, font_size: f32) TextMeasureId {
@@ -1445,11 +1455,12 @@ pub const ModuleCommon = struct {
     }
 
     fn updateIntervals(self: *Self, delta_ms: f32) void {
-        for (self.interval_sessions.items) |*it| {
+        var iter = self.interval_sessions.iterator();
+        while (iter.nextPtr()) |it| {
             it.progress_ms += delta_ms;
             if (it.progress_ms > @intToFloat(f32, it.dur.toMillis())) {
-                it.progress_ms = 0;
                 it.call(&self.ctx);
+                it.progress_ms = 0;
             }
         }
     }
@@ -1916,9 +1927,9 @@ const IntervalSession = struct {
     const Self = @This();
     dur: Duration,
     progress_ms: f32,
-    closure: ClosureIface(*CommonContext),
+    closure: ClosureIface(IntervalEvent),
 
-    fn init(dur: Duration, closure: ClosureIface(*CommonContext)) Self {
+    fn init(dur: Duration, closure: ClosureIface(IntervalEvent)) Self {
         return .{
             .dur = dur,
             .progress_ms = 0,
@@ -1930,9 +1941,17 @@ const IntervalSession = struct {
         self.closure.deinit(alloc);
     }
 
-    fn call(self: *Self, c: *CommonContext) void {
-        self.closure.call(c);
+    fn call(self: *Self, ctx: *CommonContext) void {
+        self.closure.call(IntervalEvent{
+            .progress_ms = self.progress_ms,
+            .ctx = ctx,
+        });
     }
+};
+
+pub const IntervalEvent = struct {
+    progress_ms: f32,
+    ctx: *CommonContext,
 };
 
 fn WidgetHasProps(comptime Widget: type) bool {
