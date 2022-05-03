@@ -49,6 +49,7 @@ pub const BaseWidgets = &[_]Import{
     Import.init(TextField),
     Import.init(TextFieldInner),
     Import.init(Center),
+    Import.init(Sized),
 };
 
 pub const Center = struct {
@@ -236,7 +237,47 @@ pub const Text = struct {
 //     const Self = @This();
 // };
 
-// TODO: Sized to provide an exact size for a child widget.
+pub const Sized = struct {
+    const Self = @This();
+
+    props: struct {
+        /// If width is not provided, this container will shrink to the child's width.
+        width: ?f32 = null,
+
+        /// If height is not provided, this container will shrink to the child's height.
+        height: ?f32 = null,
+
+        child: FrameId = NullFrameId,
+    },
+
+    pub fn build(self: *Self, comptime C: Config, c: *C.Build()) FrameId {
+        _ = c;
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
+        var child_cstr = c.getSizeConstraint();
+        var prefer_exact_width = c.prefer_exact_width;
+        var prefer_exact_height = c.prefer_exact_height;
+        if (self.props.width) |width| {
+            child_cstr.width = width;
+            prefer_exact_width = true;
+        }
+        if (self.props.height) |height| {
+            child_cstr.height = height;
+            prefer_exact_height = true;
+        }
+
+        const child = c.getNode().children.items[0];
+        const child_size = c.computeLayoutStretch(child, child_cstr, prefer_exact_width, prefer_exact_height);
+        c.setLayout(child, Layout.init(0, 0, child_size.width, child_size.height));
+
+        var res = LayoutSize.init(0, 0);
+        res.width = self.props.width orelse child_size.width;
+        res.height = self.props.height orelse child_size.height;
+        return res;
+    }
+};
 
 /// Lays out children vertically.
 pub const Column = struct {
