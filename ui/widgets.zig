@@ -89,6 +89,8 @@ pub const Row = struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
 
+        spacing: f32 = 0,
+
         /// Whether the row's width will shrink to the total width of it's children or expand to the parent container's width.
         /// Expands to the parent container's width by default.
         expand: bool = true,
@@ -110,6 +112,9 @@ pub const Row = struct {
 
         const RowId = comptime Module(C).WidgetIdByType(Row);
         const GrowId = comptime Module(C).WidgetIdByType(Grow);
+
+        const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
+        vacant_size.width -= total_spacing;
 
         // First pass computes non expanding children.
         var has_expanding_children = false;
@@ -133,7 +138,7 @@ pub const Row = struct {
             var child_size = c.computeLayout(it, vacant_size);
             child_size.cropTo(vacant_size);
             c.setLayout(it, Layout.init(cur_x, 0, child_size.width, child_size.height));
-            cur_x += child_size.width;
+            cur_x += child_size.width + self.props.spacing;
             vacant_size.width -= child_size.width;
             if (child_size.height > max_child_height) {
                 max_child_height = child_size.height;
@@ -166,7 +171,7 @@ pub const Row = struct {
                 var child_size = c.computeLayoutStretch(it, max_child_size, true, false);
                 child_size.cropTo(max_child_size);
                 c.setLayout(it, Layout.init(cur_x, 0, child_size.width, child_size.height));
-                cur_x += child_size.width;
+                cur_x += child_size.width + self.props.spacing;
                 if (child_size.height > max_child_height) {
                     max_child_height = child_size.height;
                 }
@@ -176,7 +181,11 @@ pub const Row = struct {
         if (self.props.expand) {
             return LayoutSize.init(cstr.width, max_child_height);
         } else {
-            return LayoutSize.init(cur_x, max_child_height);
+            if (c.node.children.items.len > 0) {
+                return LayoutSize.init(cur_x - self.props.spacing, max_child_height);
+            } else {
+                return LayoutSize.init(cur_x, max_child_height);
+            }
         }
     }
 
@@ -333,6 +342,8 @@ pub const Column = struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
 
+        spacing: f32 = 0,
+
         /// Whether the columns's height will shrink to the total height of it's children or expand to the parent container's height.
         /// Expands to the parent container's height by default.
         expand: bool = true,
@@ -354,6 +365,9 @@ pub const Column = struct {
 
         const ColumnId = comptime Module(C).WidgetIdByType(Column);
         const GrowId = comptime Module(C).WidgetIdByType(Grow);
+
+        const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
+        vacant_size.height -= total_spacing;
 
         // First pass computes non expanding children.
         var has_expanding_children = false;
@@ -377,7 +391,7 @@ pub const Column = struct {
             var child_size = c.computeLayout(it, vacant_size);
             child_size.cropTo(vacant_size);
             c.setLayout(it, Layout.init(0, cur_y, child_size.width, child_size.height));
-            cur_y += child_size.height;
+            cur_y += child_size.height + self.props.spacing;
             vacant_size.height -= child_size.height;
             if (child_size.width > max_child_width) {
                 max_child_width = child_size.width;
@@ -410,7 +424,7 @@ pub const Column = struct {
                 var child_size = c.computeLayoutStretch(it, max_child_size, false, true);
                 child_size.cropTo(max_child_size);
                 c.setLayout(it, Layout.init(0, cur_y, child_size.width, child_size.height));
-                cur_y += child_size.height;
+                cur_y += child_size.height + self.props.spacing;
                 if (child_size.width > max_child_width) {
                     max_child_width = child_size.width;
                 }
@@ -420,7 +434,11 @@ pub const Column = struct {
         if (self.props.expand) {
             return LayoutSize.init(max_child_width, cstr.height);
         } else {
-            return LayoutSize.init(max_child_width, cur_y);
+            if (c.node.children.items.len > 0) {
+                return LayoutSize.init(max_child_width, cur_y - self.props.spacing);
+            } else {
+                return LayoutSize.init(max_child_width, cur_y);
+            }
         }
     }
 
