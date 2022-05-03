@@ -393,6 +393,14 @@ pub fn Module(comptime C: Config) type {
         pub fn processMouseUpEvent(self: *Self, e: MouseUpEvent) void {
             const xf = @intToFloat(f32, e.x);
             const yf = @intToFloat(f32, e.y);
+            // Trigger global handlers first.
+            for (self.common.global_mouse_up_list.items) |id| {
+                const sub = self.common.mouse_up_event_subs.getNoCheck(id);
+                self.event_ctx.node = sub.sub.node;
+                sub.sub.handleEvent(&self.event_ctx, e);
+            }
+
+            // Greedy hit test starting from the root.
             if (self.root_node) |node| {
                 _ = self.processMouseUpEventRecurse(node, xf, yf, e);
             }
@@ -404,8 +412,10 @@ pub fn Module(comptime C: Config) type {
                 var cur = node.mouse_up_list;
                 while (cur != NullId) {
                     const sub = self.common.mouse_up_event_subs.getNoCheck(cur);
-                    sub.handleEvent(&self.event_ctx, e);
-                    cur = self.common.mouse_up_event_subs.getNextNoCheck(cur);
+                    if (!sub.is_global) {
+                        sub.sub.handleEvent(&self.event_ctx, e);
+                        cur = self.common.mouse_up_event_subs.getNextNoCheck(cur);
+                    }
                 }
                 for (node.children.items) |child| {
                     if (self.processMouseUpEventRecurse(child, xf, yf, e)) {
@@ -868,6 +878,10 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.addMouseUpHandler(self.node, ctx, cb);
         }
 
+        pub inline fn addGlobalMouseUpHandler(self: *Context, ctx: anytype, cb: MouseUpHandler(@TypeOf(ctx))) void {
+            self.common.addGlobalMouseUpHandler(self.node, ctx, cb);
+        }
+
         pub inline fn addMouseDownHandler(self: Context, ctx: anytype, cb: MouseDownHandler(@TypeOf(ctx))) void {
             self.common.addMouseDownHandler(self.node, ctx, cb);
         }
@@ -878,6 +892,10 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
 
         pub inline fn addMouseMoveHandler(self: *Context, ctx: anytype, cb: MouseMoveHandler(@TypeOf(ctx))) void {
             self.common.addMouseMoveHandler(self.node, ctx, cb);
+        }
+
+        pub inline fn removeMouseUpHandler(self: *Context, comptime Ctx: type, func: MouseUpHandler(Ctx)) void {
+            self.common.removeMouseUpHandler(self.node, Ctx, func);
         }
     };
 }
@@ -1136,9 +1154,12 @@ pub const CommonContext = struct {
 
     pub fn addMouseUpHandler(self: *Self, node: *Node, ctx: anytype, cb: MouseUpHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), Event(MouseUpEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(MouseUpEvent){
-            .closure = closure,
-            .node = node,
+        const sub = GlobalSubscriber(MouseUpEvent){
+            .sub = Subscriber(MouseUpEvent){
+                .closure = closure,
+                .node = node,
+            },
+            .is_global = false,
         };
         if (self.common.mouse_up_event_subs.getLast(node.mouse_up_list)) |last_id| {
             _ = self.common.mouse_up_event_subs.insertAfter(last_id, sub) catch unreachable;
@@ -1147,13 +1168,51 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn removeMouseUpHandler(self: *Self, comptime Context: type, func: MouseUpHandler(Context)) void {
-        for (self.common.mouse_up_event_subs.items) |*sub, i| {
-            if (sub.closure.iface.getUserFunctionPtr() == @ptrCast(*const anyopaque, func)) {
-                sub.deinit();
-                _ = self.common.mouse_up_event_subs.orderedRemove(i);
-                break;
+    pub fn addGlobalMouseUpHandler(self: *Self, node: *Node, ctx: anytype, cb: MouseUpHandler(@TypeOf(ctx))) void {
+        const closure = Closure(@TypeOf(ctx), Event(MouseUpEvent)).init(self.alloc, ctx, cb).iface();
+        const sub = GlobalSubscriber(MouseUpEvent){
+            .sub = Subscriber(MouseUpEvent){
+                .closure = closure,
+                .node = node,
+            },
+            .is_global = true,
+        };
+        var new_id: u32 = undefined;
+        if (self.common.mouse_up_event_subs.getLast(node.mouse_up_list)) |last_id| {
+            new_id = self.common.mouse_up_event_subs.insertAfter(last_id, sub) catch unreachable;
+        } else {
+            new_id = self.common.mouse_up_event_subs.add(sub) catch unreachable;
+            node.mouse_up_list = new_id;
+        }
+        // Insert into global list.
+        self.common.global_mouse_up_list.append(new_id) catch unreachable;
+    }
+
+    pub fn removeMouseUpHandler(self: *Self, node: *Node, comptime Context: type, func: MouseUpHandler(Context)) void {
+        var cur = node.mouse_up_list;
+        var prev = NullId;
+        while (cur != NullId) {
+            const sub = self.common.mouse_up_event_subs.getNoCheck(cur);
+            if (sub.sub.closure.user_fn == @ptrCast(*const anyopaque, func)) {
+                sub.sub.deinit(self.alloc);
+                if (prev == NullId) {
+                    node.mouse_up_list = self.common.mouse_up_event_subs.getNextNoCheck(cur);
+                    self.common.mouse_up_event_subs.removeAssumeNoPrev(cur) catch unreachable;
+                } else {
+                    self.common.mouse_up_event_subs.removeAfter(prev) catch unreachable;
+                }
+                if (sub.is_global) {
+                    for (self.common.global_mouse_up_list.items) |id, i| {
+                        if (id == cur) {
+                            _ = self.common.global_mouse_up_list.orderedRemove(i);
+                            break;
+                        }
+                    }
+                }
+                // Continue scanning for duplicates.
             }
+            prev = cur;
+            cur = self.common.mouse_up_event_subs.getNextNoCheck(cur);
         }
     }
 
@@ -1175,13 +1234,18 @@ pub const CommonContext = struct {
         var prev = NullId;
         while (cur != NullId) {
             const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
-            if (sub.closure.iface.getUserFunctionPtr() == @ptrCast(*const anyopaque, func)) {
-                sub.deinit();
-                self.common.mouse_down_event_subs.removeAfter(prev);
+            if (sub.closure.user_fn == @ptrCast(*const anyopaque, func)) {
+                sub.deinit(self.alloc);
+                if (prev == NullId) {
+                    node.mouse_down_list = self.common.mouse_down_event_subs.getNextNoCheck(cur);
+                    self.common.mouse_down_event_subs.removeAssumeNoPrev(cur) catch unreachable;
+                } else {
+                    self.common.mouse_down_event_subs.removeAfter(prev) catch unreachable;
+                }
                 // Continue scanning for duplicates.
             }
             prev = cur;
-            cur = self.common.mouse_down_event_subs.getNextNoCheck(cur) catch unreachable;
+            cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
         }
     }
 
@@ -1261,7 +1325,8 @@ pub const ModuleCommon = struct {
     key_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyDownEvent)),
 
     /// Mouse handlers.
-    mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseUpEvent)),
+    mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(MouseUpEvent)),
+    global_mouse_up_list: std.ArrayList(u32),
     mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseDownEvent)),
     /// Mouse move events fire far more frequently so it's better to just iterate a list and skip hit test.
     /// TODO: Implement a compact tree of nodes for mouse events.
@@ -1295,7 +1360,8 @@ pub const ModuleCommon = struct {
 
             .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyUpEvent)).init(alloc),
             .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyDownEvent)).init(alloc),
-            .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseUpEvent)).init(alloc),
+            .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(MouseUpEvent)).init(alloc),
+            .global_mouse_up_list = std.ArrayList(u32).init(alloc),
             .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseDownEvent)).init(alloc),
             .mouse_move_event_subs = std.ArrayList(Subscriber(MouseMoveEvent)).init(alloc),
             .has_mouse_move_subs = false,
@@ -1344,10 +1410,11 @@ pub const ModuleCommon = struct {
         {
             var iter = self.mouse_up_event_subs.iterator();
             while (iter.next()) |it| {
-                it.data.deinit(self.alloc);
+                it.data.sub.deinit(self.alloc);
             }
             self.mouse_up_event_subs.deinit();
         }
+        self.global_mouse_up_list.deinit();
 
         {
             var iter = self.mouse_down_event_subs.iterator();
@@ -1459,13 +1526,21 @@ pub fn InitContext(comptime C: Config) type {
     };
 }
 
-fn Subscriber(comptime EventType: type) type {
+/// Contains an extra global flag.
+fn GlobalSubscriber(comptime T: type) type {
+    return struct {
+        sub: Subscriber(T),
+        is_global: bool,
+    };
+}
+
+fn Subscriber(comptime T: type) type {
     return struct {
         const Self = @This();
-        closure: ClosureIface(Event(EventType)),
+        closure: ClosureIface(Event(T)),
         node: *Node,
 
-        fn handleEvent(self: Self, ctx: *EventContext, e: EventType) void {
+        fn handleEvent(self: Self, ctx: *EventContext, e: T) void {
             ctx.node = self.node;
             self.closure.call(.{ .ctx = ctx, .val = e });
         }
