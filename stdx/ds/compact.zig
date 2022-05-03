@@ -712,12 +712,12 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             } else return error.NoElement;
         }
 
-        pub fn removeAfter(self: *Self, id: Id) !Id {
+        pub fn removeAfter(self: *Self, id: Id) !void {
             if (self.nodes.has(id)) {
-                const next = self.nodes.getNextNoCheck(id);
+                const next = self.getNextNoCheck(id);
                 if (next != Null) {
-                    const next_next = self.nodes.getNextNoCheck(next);
-                    self.nodes.get(id).next = next_next;
+                    const next_next = self.getNextNoCheck(next);
+                    self.nodes.getNoCheck(id).next = next_next;
                     self.nodes.remove(next);
                 }
             } else return error.NoElement;
