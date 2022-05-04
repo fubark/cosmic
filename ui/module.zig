@@ -607,20 +607,28 @@ pub fn Module(comptime C: Config) type {
                     const child_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
                     const child_frame_ = self.build_ctx.getFrame(child_id);
                     if (node.children.items.len <= child_idx) {
+                        // TODO: Create nodes for the rest of the frames instead.
                         self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
-                        break;
+                        return;
                     }
                     const child_node = node.children.items[child_idx];
                     if (child_node.type_id != child_frame_.type_id) {
                         self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
-                        break;
+                        return;
                     }
                     const frame_key = if (child_frame_.key != null) child_frame_.key.? else WidgetKey{.Idx = child_idx};
                     if (!std.meta.eql(child_node.key, frame_key)) {
                         self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
-                        break;
+                        return;
                     }
                     self.updateExistingNode(node, child_id, child_node);
+                }
+                // Remove left over children.
+                if (child_idx < node.children.items.len) {
+                    for (node.children.items[child_idx..]) |it| {
+                        self.removeNode(it);
+                    }
+                    node.children.items.len = child_frames.len;
                 }
             } else {
                 // One child frame.
