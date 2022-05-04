@@ -679,7 +679,18 @@ pub fn Module(comptime C: Config) type {
                     }
                     parent.children.items[child_idx] = existing_node_q.?;
                 } else {
-
+                    if (parent.children.items.len == child_idx) {
+                        // Exceeded the size of the existing children list. Insert the rest from child frames.
+                        const new_child = self.createAndUpdateNode(parent, frame_id, child_idx);
+                        parent.children.append(new_child) catch unreachable;
+                        child_idx += 1;
+                        while (child_idx < child_frames.len) : (child_idx += 1) {
+                            const frame_id_ = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
+                            const new_child_ = self.createAndUpdateNode(parent, frame_id_, child_idx);
+                            parent.children.append(new_child_) catch unreachable;
+                        }
+                        break;
+                    }
                     if (parent.children.items.len > child_idx) {
                         // Move the child at the same idx to the end.
                         parent.children.append(parent.children.items[child_idx]) catch unreachable;
