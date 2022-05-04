@@ -72,9 +72,11 @@ pub const Node = struct {
     /// The child nodes.
     children: std.ArrayList(*Node),
 
+    // TODO: It might be better to keep things simple and only allow one callback per event type per node. If the widget wants more they can multiplex in their implementation.
     /// Singly linked lists of events attached to this node. Can be NullId.
     mouse_down_list: u32,
     mouse_up_list: u32,
+    mouse_scroll_list: u32,
     key_up_list: u32,
     key_down_list: u32,
 
@@ -94,6 +96,7 @@ pub const Node = struct {
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
             .mouse_down_list = NullId,
             .mouse_up_list = NullId,
+            .mouse_scroll_list = NullId,
             .key_up_list = NullId,
             .key_down_list = NullId,
         };

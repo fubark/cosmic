@@ -15,6 +15,7 @@ const KeyUpEvent = platform.KeyUpEvent;
 const KeyDownEvent = platform.KeyDownEvent;
 const MouseUpEvent = platform.MouseUpEvent;
 const MouseDownEvent = platform.MouseDownEvent;
+const MouseScrollEvent = platform.MouseScrollEvent;
 const MouseMoveEvent = platform.MouseMoveEvent;
 const EventDispatcher = platform.EventDispatcher;
 
@@ -373,6 +374,10 @@ pub fn Module(comptime C: Config) type {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processMouseUpEvent(e);
                 }
+                fn onMouseScroll(ctx: ?*anyopaque, e: MouseScrollEvent) void {
+                    const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
+                    self_.processMouseScrollEvent(e);
+                }
                 fn onMouseMove(ctx: ?*anyopaque, e: MouseMoveEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processMouseMoveEvent(e);
@@ -382,6 +387,7 @@ pub fn Module(comptime C: Config) type {
             dispatcher.addOnKeyUp(self, S.onKeyUp);
             dispatcher.addOnMouseDown(self, S.onMouseDown);
             dispatcher.addOnMouseUp(self, S.onMouseUp);
+            dispatcher.addOnMouseScroll(self, S.onMouseScroll);
             dispatcher.addOnMouseMove(self, S.onMouseMove);
         }
 
@@ -458,6 +464,32 @@ pub fn Module(comptime C: Config) type {
                 }
                 for (node.children.items) |child| {
                     if (self.processMouseDownEventRecurse(child, xf, yf, e)) {
+                        break;
+                    }
+                }
+                return true;
+            } else return false;
+        }
+
+        pub fn processMouseScrollEvent(self: *Self, e: MouseScrollEvent) void {
+            const xf = @intToFloat(f32, e.x);
+            const yf = @intToFloat(f32, e.y);
+            if (self.root_node) |node| {
+                _ = self.processMouseScrollEventRecurse(node, xf, yf, e);
+            }
+        }
+
+        fn processMouseScrollEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: MouseScrollEvent) bool {
+            const pos = node.abs_pos;
+            if (xf >= pos.x and xf <= pos.x + node.layout.width and yf >= pos.y and yf <= pos.y + node.layout.height) {
+                var cur = node.mouse_scroll_list;
+                while (cur != NullId) {
+                    const sub = self.common.mouse_scroll_event_subs.getNoCheck(cur);
+                    sub.handleEvent(&self.event_ctx, e);
+                    cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
+                }
+                for (node.children.items) |child| {
+                    if (self.processMouseScrollEventRecurse(child, xf, yf, e)) {
                         break;
                     }
                 }
@@ -909,6 +941,10 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.addMouseDownHandler(self.node, ctx, cb);
         }
 
+        pub inline fn addMouseScrollHandler(self: Context, ctx: anytype, cb: MouseScrollHandler(@TypeOf(ctx))) void {
+            self.common.addMouseScrollHandler(self.node, ctx, cb);
+        }
+
         pub inline fn addKeyDownHandler(self: *Context, ctx: anytype, cb: KeyDownHandler(@TypeOf(ctx))) void {
             self.common.addKeyDownHandler(self.node, ctx, cb);
         }
@@ -1091,6 +1127,10 @@ fn MouseDownHandler(comptime Context: type) type {
 
 fn MouseUpHandler(comptime Context: type) type {
     return fn (Context, Event(MouseUpEvent)) void;
+}
+
+fn MouseScrollHandler(comptime Context: type) type {
+    return fn (Context, Event(MouseScrollEvent)) void;
 }
 
 /// Does not depend on ModuleConfig so it can be embedded into Widget structs to access common utilities.
@@ -1276,6 +1316,39 @@ pub const CommonContext = struct {
         }
     }
 
+    pub fn addMouseScrollHandler(self: Self, node: *Node, ctx: anytype, cb: MouseScrollHandler(@TypeOf(ctx))) void {
+        const closure = Closure(@TypeOf(ctx), Event(MouseScrollEvent)).init(self.alloc, ctx, cb).iface();
+        const sub = Subscriber(MouseScrollEvent){
+            .closure = closure,
+            .node = node,
+        };
+        if (self.common.mouse_scroll_event_subs.getLast(node.mouse_scroll_list)) |last_id| {
+            _ = self.common.mouse_scroll_event_subs.insertAfter(last_id, sub) catch unreachable;
+        } else {
+            node.mouse_scroll_list = self.common.mouse_scroll_event_subs.add(sub) catch unreachable;
+        }
+    }
+
+    pub fn removeMouseScrollHandler(self: *Self, node: *Node, comptime Context: type, func: MouseScrollHandler(Context)) void {
+        var cur = node.mouse_scroll_list;
+        var prev = NullId;
+        while (cur != NullId) {
+            const sub = self.common.mouse_scroll_event_subs.getNoCheck(cur);
+            if (sub.closure.user_fn == @ptrCast(*const anyopaque, func)) {
+                sub.deinit(self.alloc);
+                if (prev == NullId) {
+                    node.mouse_scroll_list = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
+                    self.common.mouse_scroll_event_subs.removeAssumeNoPrev(cur) catch unreachable;
+                } else {
+                    self.common.mouse_scroll_event_subs.removeAfter(prev) catch unreachable;
+                }
+                // Continue scanning for duplicates.
+            }
+            prev = cur;
+            cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
+        }
+    }
+
     pub fn addMouseMoveHandler(self: *Self, node: *Node, ctx: anytype, cb: MouseMoveHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), Event(MouseMoveEvent)).init(self.alloc, ctx, cb).iface();
         const sub = Subscriber(MouseMoveEvent){
@@ -1355,6 +1428,7 @@ pub const ModuleCommon = struct {
     mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(MouseUpEvent)),
     global_mouse_up_list: std.ArrayList(u32),
     mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseDownEvent)),
+    mouse_scroll_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseScrollEvent)),
     /// Mouse move events fire far more frequently so it's better to just iterate a list and skip hit test.
     /// TODO: Implement a compact tree of nodes for mouse events.
     mouse_move_event_subs: std.ArrayList(Subscriber(MouseMoveEvent)),
@@ -1391,6 +1465,7 @@ pub const ModuleCommon = struct {
             .global_mouse_up_list = std.ArrayList(u32).init(alloc),
             .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseDownEvent)).init(alloc),
             .mouse_move_event_subs = std.ArrayList(Subscriber(MouseMoveEvent)).init(alloc),
+            .mouse_scroll_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
 
             .next_post_layout_cbs = std.ArrayList(ClosureIface(void)).init(alloc),
@@ -1453,6 +1528,14 @@ pub const ModuleCommon = struct {
                 it.data.deinit(self.alloc);
             }
             self.mouse_down_event_subs.deinit();
+        }
+
+        {
+            var iter = self.mouse_scroll_event_subs.iterator();
+            while (iter.next()) |it| {
+                it.data.deinit(self.alloc);
+            }
+            self.mouse_scroll_event_subs.deinit();
         }
 
         for (self.mouse_move_event_subs.items) |*it| {
