@@ -223,10 +223,8 @@ pub const TextEditor = struct {
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
         _ = self;
         return c.decl(ScrollView, .{
-            .children = c.list(.{
-                c.decl(TextEditorInner, .{
-                    .editor = self,
-                }),
+            .child = c.decl(TextEditorInner, .{
+                .editor = self,
             }),
         });
     }
