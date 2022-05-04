@@ -51,6 +51,10 @@ pub const TextField = struct {
         _ = std.fmt.bufPrint(self.buf.items, format, args) catch unreachable;
     }
 
+    pub fn getValue(self: Self) []const u8 {
+        return self.buf.items;
+    }
+
     fn onMouseDown(self: *Self, e: ui.Event(MouseDownEvent)) void {
         e.ctx.requestFocus(onBlur);
         self.inner.widget.setFocused();
