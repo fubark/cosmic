@@ -9,6 +9,7 @@ const MouseButton = platform.MouseButton;
 const MouseDownEvent = platform.MouseDownEvent;
 const MouseUpEvent = platform.MouseUpEvent;
 const MouseMoveEvent = platform.MouseMoveEvent;
+const MouseScrollEvent = platform.MouseScrollEvent;
 const WindowResizeEvent = platform.WindowResizeEvent;
 const sdl = @import("sdl");
 
@@ -25,6 +26,7 @@ pub const EventDispatcher = struct {
     mousedown_cbs: std.ArrayList(HandlerEntry(OnMouseDownHandler)),
     mouseup_cbs: std.ArrayList(HandlerEntry(OnMouseUpHandler)),
     mousemove_cbs: std.ArrayList(HandlerEntry(OnMouseMoveHandler)),
+    mousescroll_cbs: std.ArrayList(HandlerEntry(OnMouseScrollHandler)),
     winresize_cbs: std.ArrayList(HandlerEntry(OnWindowResizeHandler)),
 
     pub fn init(alloc: std.mem.Allocator) Self {
@@ -35,6 +37,7 @@ pub const EventDispatcher = struct {
             .mousedown_cbs = std.ArrayList(HandlerEntry(OnMouseDownHandler)).init(alloc),
             .mouseup_cbs = std.ArrayList(HandlerEntry(OnMouseUpHandler)).init(alloc),
             .mousemove_cbs = std.ArrayList(HandlerEntry(OnMouseMoveHandler)).init(alloc),
+            .mousescroll_cbs = std.ArrayList(HandlerEntry(OnMouseScrollHandler)).init(alloc),
             .winresize_cbs = std.ArrayList(HandlerEntry(OnWindowResizeHandler)).init(alloc),
         };
     }
@@ -46,6 +49,7 @@ pub const EventDispatcher = struct {
         self.mousedown_cbs.deinit();
         self.mouseup_cbs.deinit();
         self.mousemove_cbs.deinit();
+        self.mousescroll_cbs.deinit();
         self.winresize_cbs.deinit();
     }
 
@@ -131,6 +135,18 @@ pub const EventDispatcher = struct {
         }
     }
 
+    pub fn addOnMouseScroll(self: *Self, ctx: ?*anyopaque, handler: OnMouseScrollHandler) void {
+        self.mousescroll_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnMouseScroll(self: *Self, handler: OnMouseScrollHandler) void {
+        for (self.mousescroll_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.mousescroll_cbs.orderedRemove(idx);
+            }
+        }
+    }
+
     pub fn addOnWindowResize(self: *Self, ctx: ?*anyopaque, handler: OnWindowResizeHandler) void {
         self.winresize_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
     }
@@ -211,7 +227,8 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
         const MouseDown = 3;
         const MouseUp = 4;
         const MouseMove = 5;
-        const WindowResize = 6;
+        const MouseScroll = 6;
+        const WindowResize = 7;
     };
 
     const input_buf = stdx.wasm.js_buffer.input_buf.items;
@@ -277,6 +294,16 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                 }
                 i += 5;
             },
+            Command.MouseScroll => {
+                const x = std.mem.readIntLittle(i16, input_buf[i+1..i+3][0..2]);
+                const y = std.mem.readIntLittle(i16, input_buf[i+3..i+5][0..2]);
+                const delta_y = @bitCast(f32, std.mem.readIntLittle(u32, input_buf[i+5..i+9][0..4]));
+                const std_event = MouseScrollEvent.init(x, y, delta_y);
+                for (dispatcher.mousescroll_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+                i += 9;
+            },
             Command.WindowResize => {
                 const width = std.mem.readIntLittle(u16, input_buf[i+1..i+3][0..2]);
                 const height = std.mem.readIntLittle(u16, input_buf[i+3..i+5][0..2]);
@@ -306,4 +333,5 @@ const OnKeyUpHandler = fn(?*anyopaque, KeyUpEvent) void;
 const OnMouseDownHandler = fn(?*anyopaque, MouseDownEvent) void;
 const OnMouseUpHandler = fn(?*anyopaque, MouseUpEvent) void;
 const OnMouseMoveHandler = fn(?*anyopaque, MouseMoveEvent) void;
+const OnMouseScrollHandler = fn(?*anyopaque, MouseScrollEvent) void;
 const OnWindowResizeHandler = fn(?*anyopaque, WindowResizeEvent) void;

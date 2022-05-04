@@ -20,6 +20,7 @@ pub const MouseButton = mouse.MouseButton;
 pub const MouseUpEvent = mouse.MouseUpEvent;
 pub const MouseDownEvent = mouse.MouseDownEvent;
 pub const MouseMoveEvent = mouse.MouseMoveEvent;
+pub const MouseScrollEvent = mouse.MouseScrollEvent;
 
 const keyboard = @import("keyboard.zig");
 pub const KeyDownEvent = keyboard.KeyDownEvent;

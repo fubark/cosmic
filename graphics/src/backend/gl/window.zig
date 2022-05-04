@@ -80,7 +80,8 @@ pub const Window = struct {
 
         // Setup transforms.
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
-        res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
+        const view_transform = Transform.initIdentity();
+        res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, view_transform.mat);
 
         if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
             res.fbo_id = msaa.fbo;

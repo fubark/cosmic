@@ -49,3 +49,17 @@ pub const MouseMoveEvent = struct {
         };
     }
 };
+
+pub const MouseScrollEvent = struct {
+    x: i16,
+    y: i16,
+    delta_y: f32,
+
+    pub fn init(x: i16, y: i16, delta_y: f32) @This() {
+        return .{
+            .x = x,
+            .y = y,
+            .delta_y = delta_y,
+        };
+    }
+};
