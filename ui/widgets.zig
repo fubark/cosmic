@@ -45,6 +45,7 @@ const containers = @import("widgets/containers.zig");
 pub const Sized = containers.Sized;
 pub const Padding = containers.Padding;
 pub const Center = containers.Center;
+pub const Stretch = containers.Stretch;
 const button = @import("widgets/button.zig");
 pub const Button = button.Button;
 pub const TextButton = button.TextButton;
@@ -66,12 +67,134 @@ pub const BaseWidgets = &[_]Import{
     Import.init(ProgressBar),
     Import.init(Sized),
     Import.init(ScrollList),
+    Import.init(List),
+    Import.init(Stretch),
 };
 
 pub const ScrollList = struct {
+    const Self = @This();
+
+    props: struct {
+        children: FrameListPtr = FrameListPtr.init(0, 0),
+    },
+
+    list: ui.WidgetRef(List),
+
+    pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
+        return c.decl(ScrollView, .{
+            .pass_stretch_width = true,
+            .child = c.decl(List, .{
+                .bind = &self.list,
+                .children = self.props.children,
+            }),
+        });
+    }
+
+    /// Index of ui.NullId represents no selection.
+    pub fn getSelectedIdx(self: *Self) u32 {
+        return self.list.widget.selected_idx;
+    }
 };
 
+const NullId = std.math.maxInt(u32);
+
 pub const List = struct {
+    const Self = @This();
+
+    props: struct {
+        children: FrameListPtr = FrameListPtr.init(0, 0),
+    },
+
+    selected_idx: u32,
+
+    pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
+        self.selected_idx = NullId;
+        c.addMouseDownHandler(c.node, handleMouseDownEvent);
+    }
+
+    pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
+        return c.fragment(self.props.children);
+    }
+
+    fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) void {
+        var self = node.getWidget(Self);
+        if (e.val.button == .Left) {
+            const xf = @intToFloat(f32, e.val.x);
+            const yf = @intToFloat(f32, e.val.y);
+            if (xf >= node.abs_pos.x and xf <= node.abs_pos.x + node.layout.width) {
+                var i: u32 = 0;
+                while (i < node.children.items.len) : (i += 1) {
+                    const child = node.children.items[i];
+                    if (yf < child.abs_pos.y) {
+                        break;
+                    }
+                    if (yf >= child.abs_pos.y and yf <= child.abs_pos.y + child.layout.height) {
+                        self.selected_idx = i;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn postUpdate(self: *Self) void {
+        if (self.selected_idx != NullId) {
+            if (self.selected_idx >= self.props.children.len) {
+                if (self.props.children.len == 0) {
+                    self.selected_idx = NullId;
+                } else {
+                    self.selected_idx = self.props.children.len - 1;
+                }
+            }
+        }
+    }
+
+    pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
+        _ = self;
+        const node = c.getNode();
+
+        const cstr = c.getSizeConstraint();
+        var vacant_size = cstr;
+        var max_width: f32 = 0;
+        var cur_y: f32 = 0;
+        for (node.children.items) |child| {
+            const child_size = c.computeLayout(child, vacant_size);
+            c.setLayout(child, Layout.init(0, cur_y, child_size.width, child_size.height));
+            vacant_size.height -= child_size.height;
+            cur_y += child_size.height;
+            if (child_size.width > max_width) {
+                max_width = child_size.width;
+            }
+        }
+        var res = LayoutSize.init(max_width, cur_y);
+        if (c.prefer_exact_width) {
+            res.width = cstr.width;
+        }
+        return res;
+    }
+
+    pub fn render(self: *Self, c: *ui.RenderContext) void {
+        _ = self;
+        const g = c.g;
+        const alo = c.getAbsLayout();
+
+        g.setFillColor(Color.White);
+        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+    }
+    
+    pub fn postRender(self: *Self, c: *ui.RenderContext) void {
+        _ = self;
+        const g = c.g;
+        const alo = c.getAbsLayout();
+
+        if (self.selected_idx != NullId) {
+            // Highlight selected item.
+            g.setStrokeColor(Color.Blue);
+            g.setLineWidth(2);
+            const child = c.node.children.items[self.selected_idx];
+            g.drawRect(child.abs_pos.x, child.abs_pos.y, alo.width, child.layout.height);
+        }
+    }
 };
 
 pub const ProgressBar = struct {
