@@ -1,9 +1,13 @@
 const std = @import("std");
+const stdx = @import("stdx");
+const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("../ui.zig");
 const Node = ui.Node;
 const FrameListPtr = ui.FrameListPtr;
+
+const log = stdx.log.scoped(.scroll_view);
 
 /// Currently, the scrollbars do not contribute to the child container space and act like overlays.
 /// Doing so would require more complex logic and would either need to recompute the layout or defer recompute to the next frame.
@@ -13,7 +17,10 @@ pub const ScrollView = struct {
     const bar_size = 15;
 
     props: struct {
-        children: FrameListPtr = FrameListPtr.init(0, 0),
+        child: ui.FrameId = ui.NullFrameId,
+        bg_color: Color = Color.White,
+        border_color: Color = Color.DarkGray,
+        pass_stretch_width: bool = false,
     },
 
     /// Internal vars. They should not be modified after the layout phase.
@@ -23,17 +30,45 @@ pub const ScrollView = struct {
     scroll_width: f32,
     scroll_height: f32,
 
+    node: *Node,
+
     pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
         _ = c;
         self.scroll_x = 0;
         self.scroll_y = 0;
         self.scroll_width = 0;
         self.scroll_height = 0;
+        self.node = c.node;
+        c.addMouseScrollHandler(self, onMouseScroll);
+    }
+
+    fn onMouseScroll(self: *Self, e: ui.Event(platform.MouseScrollEvent)) void {
+        self.scroll_y += e.val.delta_y;
+        self.checkScroll();
+    }
+
+    pub fn postUpdate(self: *Self) void {
+        self.checkScroll();
+    }
+
+    fn checkScroll(self: *Self) void {
+        if (self.scroll_y < 0) {
+            self.scroll_y = 0;
+        }
+        if (self.scroll_height > self.node.layout.height) {
+            if (self.scroll_y > self.scroll_height - self.node.layout.height) {
+                self.scroll_y = self.scroll_height - self.node.layout.height;
+            }
+        } else {
+            if (self.scroll_y > 0) {
+                self.scroll_y = 0;
+            }
+        }
     }
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
-        _ = self;
-        return c.fragment(self.props.children);
+        _ = c;
+        return self.props.child;
     }
 
     /// In some cases, it's desirable to change the scroll view after the layout phase (when scroll width/height is updated) and before the render phase.
@@ -55,15 +90,22 @@ pub const ScrollView = struct {
         const size_cstr = ui.LayoutSize.init(std.math.inf(f32), std.math.inf(f32));
         self.scroll_height = 0;
         self.scroll_width = 0;
-        for (node.children.items) |it| {
-            const child_size = c.computeLayout(it, size_cstr);
+
+        if (self.props.child != ui.NullFrameId) {
+            const child = node.children.items[0];
+            var child_size: ui.LayoutSize = undefined;
+            if (c.prefer_exact_width and self.props.pass_stretch_width) {
+                child_size = c.computeLayoutStretch(child, ui.LayoutSize.init(c.getSizeConstraint().width, std.math.inf(f32)), true, false);
+            } else {
+                child_size = c.computeLayout(child, size_cstr);
+            }
             if (child_size.height > self.scroll_height) {
                 self.scroll_height = child_size.height;
             }
             if (child_size.width > self.scroll_width) {
                 self.scroll_width = child_size.width;
             }
-            c.setLayout(it, ui.Layout.init(-self.scroll_x, -self.scroll_y, child_size.width, child_size.height));
+            c.setLayout(child, ui.Layout.init(-self.scroll_x, -self.scroll_y, child_size.width, child_size.height));
         }
 
         const cstr = c.getSizeConstraint();
@@ -84,6 +126,11 @@ pub const ScrollView = struct {
     pub fn render(self: *Self, ctx: *ui.RenderContext) void {
         _ = self;
         const alo = ctx.getAbsLayout();
+        const g = ctx.getGraphics();
+
+        g.setFillColor(self.props.bg_color);
+        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+
         ctx.g.pushState();
         ctx.g.clipRect(alo.x, alo.y, alo.width, alo.height);
     }
@@ -98,7 +145,8 @@ pub const ScrollView = struct {
         const alo = ctx.getAbsLayout();
 
         const g = ctx.getGraphics();
-        g.setStrokeColor(Color.Red);
+        g.setStrokeColor(self.props.border_color);
+        g.setLineWidth(2);
         g.drawRect(alo.x, alo.y, alo.width, alo.height);
 
         // The view will show more than the scroll height if the scroll y is close to the bottom.
