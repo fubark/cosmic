@@ -134,6 +134,35 @@ pub const Center = struct {
     }
 };
 
+pub const Stretch = struct {
+    const Self = @This();
+
+    props: struct {
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+        _ = c;
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+        const cstr = c.getSizeConstraint();
+
+        if (self.props.child == ui.NullFrameId) {
+            return cstr;
+        }
+
+        const node = c.getNode();
+        const child = node.children.items[0];
+        var child_size = c.computeLayoutStretch(child, cstr, true, true);
+        child_size.cropTo(cstr);
+
+        c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
+        return cstr;
+    }
+};
+
 // TODO: Container with more comprehensive properties.
 // pub const Container = struct {
 //     const Self = @This();
