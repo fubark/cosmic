@@ -1644,6 +1644,18 @@ pub fn BuildContext(comptime C: Config) type {
             return Function(Param).initContext(ctx_ptr, user_fn);
         }
 
+        pub fn range(self: *Self, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *C.Build(), u32) FrameId) FrameListPtr {
+            const start_idx = self.frame_lists.items.len;
+            var i: u32 = 0;
+            while (i < count) : (i += 1) {
+                const frame_id = build_fn(ctx, self, @intCast(u32, i));
+                if (frame_id != NullFrameId) {
+                    self.frame_lists.append(frame_id) catch unreachable;
+                }
+            }
+            return FrameListPtr.init(@intCast(u32, start_idx), @intCast(u32, self.frame_lists.items.len-start_idx));
+        }
+
         fn resetBuffer(self: *Self) void {
             self.frames.clearRetainingCapacity();
             self.frame_lists.clearRetainingCapacity();
