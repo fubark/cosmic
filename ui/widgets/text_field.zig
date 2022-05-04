@@ -11,6 +11,7 @@ const Color = graphics.Color;
 const ui = @import("../ui.zig");
 const Node = ui.Node;
 const Padding = ui.widgets.Padding;
+const log = stdx.log.scoped(.text_field);
 
 /// Handles a single line of text input.
 pub const TextField = struct {
@@ -51,8 +52,6 @@ pub const TextField = struct {
     }
 
     fn onMouseDown(self: *Self, e: ui.Event(MouseDownEvent)) void {
-        _ = self;
-        _ = e;
         e.ctx.requestFocus(onBlur);
         self.inner.widget.setFocused();
         std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});

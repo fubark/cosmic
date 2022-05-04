@@ -1122,7 +1122,7 @@ pub const CommonContext = struct {
     }
 
     pub fn resetInterval(self: *Self, id: IntervalId) void {
-        self.common.interval_sessions.getNoCheck(id).progress_ms = 0;
+        self.common.interval_sessions.getPtrNoCheck(id).progress_ms = 0;
     }
 
     pub fn removeInterval(self: *Self, id: IntervalId) void {
