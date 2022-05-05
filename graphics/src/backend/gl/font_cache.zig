@@ -325,7 +325,7 @@ pub fn computeBitmapFontSize(font_size: *f32) u16 {
             return MinBitmapFontSize;
         } else {
             // Smaller font sizes are rounded up and get an exact bitmap font.
-            font_size.* = std.math.ceil(font_size.*);
+            font_size.* = @ceil(font_size.*);
             return @floatToInt(u16, font_size.*);
         }
     } else {
@@ -333,7 +333,7 @@ pub fn computeBitmapFontSize(font_size: *f32) u16 {
             font_size.* = MaxBitmapFontSize;
             return MaxBitmapFontSize;
         } else {
-            var next_pow = @floatToInt(u4, std.math.ceil(std.math.log2(font_size.*)));
+            var next_pow = @floatToInt(u4, @ceil(std.math.log2(font_size.*)));
             return @as(u16, 1) << next_pow;
         }
     }

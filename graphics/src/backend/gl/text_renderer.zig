@@ -35,7 +35,7 @@ pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, d
     const prev_glyph_info = g.getOrLoadFontGroupGlyph(font_grp, prev_cp);
     const prev_glyph = prev_glyph_info.glyph;
     advance += computeKern(prev_glyph.glyph_id, prev_glyph_info.font, glyph.glyph_id, glyph_info.font, to_user_scale, cp);
-    return std.math.round(advance);
+    return @round(advance);
 }
 
 /// For lower font sizes, snap_to_grid is desired since baked fonts don't have subpixel rendering. TODO: What if we precomputed 2 subpixel renders of the same character?
@@ -71,7 +71,7 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32
         res.width += computeKern(prev_glyph_id, prev_font, glyph.glyph_id, glyph_res.font, glyph_res.bm_font, scale, it);
 
         if (snap_to_grid) {
-            res.width = std.math.round(res.width);
+            res.width = @round(res.width);
         }
 
         // Add advance width.
@@ -90,8 +90,8 @@ pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr:
     return .{
         .str = str,
         // Start at snapped pos.
-        .x = std.math.round(x),
-        .y = std.math.round(y),
+        .x = @round(x),
+        .y = @round(y),
         .font_group = group,
         .req_font_size = req_font_size,
         .bm_font_size = bm_font_size,
@@ -124,7 +124,7 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad, comp
 
     // Snap to pixel after applying advance and kern.
     if (snap_to_grid) {
-        ctx.x = std.math.round(ctx.x);
+        ctx.x = @round(ctx.x);
     }
 
     // Update quad result.
@@ -134,7 +134,7 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad, comp
     // res_quad.x0 = ctx.x + glyph.x_offset * user_scale;
     // Snap to pixel for consistent glyph rendering.
     if (snap_to_grid) {
-        res_quad.x0 = std.math.round(ctx.x + glyph.x_offset * user_scale);
+        res_quad.x0 = @round(ctx.x + glyph.x_offset * user_scale);
     } else {
         res_quad.x0 = ctx.x + glyph.x_offset * user_scale;
     }

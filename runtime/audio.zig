@@ -246,7 +246,7 @@ pub const Sound = struct {
     pub fn getLength(self: *Self) !u64 {
         const format = self.getDataFormat();
         const len = try self.getLengthInPcmFrames();
-        return @floatToInt(u64, std.math.ceil(@intToFloat(f64, len) / @intToFloat(f64, format.sample_rate) * 1000));
+        return @floatToInt(u64, @ceil(@intToFloat(f64, len) / @intToFloat(f64, format.sample_rate) * 1000));
     }
 
     pub fn getCursorPcmFrame(self: *Self) u64 {

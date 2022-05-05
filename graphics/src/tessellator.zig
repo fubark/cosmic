@@ -532,7 +532,7 @@ pub const Tessellator = struct {
                 };
                 self.verts.append(v) catch unreachable;
 
-                if (std.math.absFloat(last_pt.x - pt.x) > 1e-4 or std.math.absFloat(last_pt.y - pt.y) > 1e-4) {
+                if (@fabs(last_pt.x - pt.x) > 1e-4 or @fabs(last_pt.y - pt.y) > 1e-4) {
                     break;
                 } else {
                     self.verts.items[self.verts.items.len-1].idx = NullId;
@@ -551,7 +551,7 @@ pub const Tessellator = struct {
                 };
                 self.verts.append(v) catch unreachable;
 
-                if (std.math.absFloat(last_v.pos.x - v.pos.x) < 1e-4 and std.math.absFloat(last_v.pos.y - v.pos.y) < 1e-4) {
+                if (@fabs(last_v.pos.x - v.pos.x) < 1e-4 and @fabs(last_v.pos.y - v.pos.y) < 1e-4) {
                     // Don't connect two vertices that are on top of each other.
                     // Allowing this would require edge cases during event processing to make sure things don't break.
                     // Push the vertex in anyway so there is consistency with the input.
@@ -912,7 +912,7 @@ fn compareEvent(a: Event, b: Event) std.math.Order {
 fn compareSweepEdge(_: SweepEdge, b: SweepEdge, evt: Event) std.math.Order {
     if (!b.edge.is_horiz) {
         const x_intersect = b.edge.x_slope * (evt.vert_y - b.edge.start_pos.y) + b.edge.start_pos.x;
-        if (std.math.absFloat(evt.vert_x - x_intersect) < SweepEdgeApproxEpsilon) {
+        if (@fabs(evt.vert_x - x_intersect) < SweepEdgeApproxEpsilon) {
             // Since there is a chance of having floating point error, check with an epsilon.
             // Always return .gt so the left sweep edge can be reliably checked for a joining edge.
             return .gt;
@@ -976,7 +976,7 @@ fn findSweepEdgeForEndEvent(sweep_edges: *RbTree(u16, SweepEdge, Event, compareS
     while (mb_cur) |cur| {
         se = sweep_edges.getNoCheck(cur);
         const x_intersect = getXIntersect(se.edge, target);
-        if (std.math.absFloat(e.vert_x - x_intersect) > SweepEdgeApproxEpsilon) {
+        if (@fabs(e.vert_x - x_intersect) > SweepEdgeApproxEpsilon) {
             break;
         } else if (se.to_vert_idx == e.vert_idx and se.vert_idx == e.to_vert_idx) {
             return cur;
@@ -988,7 +988,7 @@ fn findSweepEdgeForEndEvent(sweep_edges: *RbTree(u16, SweepEdge, Event, compareS
     while (mb_cur) |cur| {
         se = sweep_edges.getNoCheck(cur);
         const x_intersect = getXIntersect(se.edge, target);
-        if (std.math.absFloat(e.vert_x - x_intersect) > SweepEdgeApproxEpsilon) {
+        if (@fabs(e.vert_x - x_intersect) > SweepEdgeApproxEpsilon) {
             break;
         } else if (se.to_vert_idx == e.vert_idx and se.vert_idx == e.to_vert_idx) {
             return cur;
@@ -1006,7 +1006,7 @@ const SweepEdgeApproxEpsilon: f32 = 1e-4;
 fn compareSweepEdgeApprox(_: SweepEdge, b: SweepEdge, target: Vec2) std.math.Order {
     const x_intersect = getXIntersect(b.edge, target);
     // Relax the epsilon since larger floating point error can happen here. In the end it's surroundings is verified by linear search.
-    if (std.math.absFloat(target.x - x_intersect) < SweepEdgeApproxEpsilon) {
+    if (@fabs(target.x - x_intersect) < SweepEdgeApproxEpsilon) {
         return .eq;
     } else if (target.x < x_intersect) {
         return .lt;

@@ -97,7 +97,7 @@ pub const TextField = struct {
             if (x < cur_x + iter.state.advance_width/2) {
                 return idx;
             }
-            cur_x = std.math.round(cur_x + iter.state.kern);
+            cur_x = @round(cur_x + iter.state.kern);
             cur_x += iter.state.advance_width;
             idx += 1;
         }
@@ -328,7 +328,7 @@ pub const TextFieldInner = struct {
         // Draw caret.
         if (self.focused) {
             if (self.caret_anim_show) {
-                g.fillRect(std.math.round(alo.x - self.scroll_x + self.caret_pos_x), alo.y, 1, alo.height);
+                g.fillRect(@round(alo.x - self.scroll_x + self.caret_pos_x), alo.y, 1, alo.height);
             }
         }
 

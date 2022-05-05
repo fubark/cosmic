@@ -673,7 +673,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc sector per degree.
-        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.drawCircleArcN(x, y, radius, start_rad, sweep_rad, n);
     }
 
@@ -690,8 +690,8 @@ pub const Graphics = struct {
         vert.setUV(0, 0); // Currently we don't do uv mapping for strokes.
 
         // Add first two vertices.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
         self.batcher.mesh.addVertex(&vert);
         vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
@@ -704,8 +704,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_n * @intToFloat(f32, i);
 
             // Add inner/outer vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
             self.batcher.mesh.addVertex(&vert);
             vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
@@ -731,8 +731,8 @@ pub const Graphics = struct {
         self.batcher.mesh.addVertex(&vert);
 
         // Add first circle vertex.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setUV(0.5 + cos, 0.5 + sin);
         vert.setXY(x + cos * radius, y + sin * radius);
         self.batcher.mesh.addVertex(&vert);
@@ -744,8 +744,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_tri * @intToFloat(f32, i);
 
             // Add next circle vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setUV(0.5 + cos, 0.5 + sin);
             vert.setXY(x + cos * radius, y + sin * radius);
             self.batcher.mesh.addVertex(&vert);
@@ -763,7 +763,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 triangle per degree.
-        var num_tri = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var num_tri = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.fillCircleSectorN(x, y, radius, start_rad, sweep_rad, num_tri);
     }
 
@@ -791,8 +791,8 @@ pub const Graphics = struct {
         self.batcher.mesh.addVertex(&vert);
 
         // Add first circle vertex.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setUV(0.5 + cos, 0.5 + sin);
         vert.setXY(x + cos * h_radius, y + sin * v_radius);
         self.batcher.mesh.addVertex(&vert);
@@ -804,8 +804,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_tri * @intToFloat(f32, i);
 
             // Add next circle vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setUV(0.5 + cos, 0.5 + sin);
             vert.setXY(x + cos * h_radius, y + sin * v_radius);
             self.batcher.mesh.addVertex(&vert);
@@ -823,7 +823,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc section per degree.
-        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.fillEllipseSectorN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
@@ -837,7 +837,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc sector per degree.
-        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.drawEllipseArcN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
@@ -856,8 +856,8 @@ pub const Graphics = struct {
         vert.setUV(0, 0); // Currently we don't do uv mapping for strokes.
 
         // Add first two vertices.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
         self.batcher.mesh.addVertex(&vert);
         vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
@@ -870,8 +870,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_n * @intToFloat(f32, i);
 
             // Add inner/outer vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
             self.batcher.mesh.addVertex(&vert);
             vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);

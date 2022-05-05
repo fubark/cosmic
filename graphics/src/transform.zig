@@ -79,8 +79,8 @@ fn getTranslation(x: f32, y: f32) Mat4 {
 }
 
 fn getRotationX(rad: f32) Mat4 {
-    const c = std.math.cos(rad);
-    const s = std.math.sin(rad);
+    const c = @cos(rad);
+    const s = @sin(rad);
     return .{
         1, 0,  0, 0,
         0, c,  s, 0,
@@ -90,8 +90,8 @@ fn getRotationX(rad: f32) Mat4 {
 }
 
 fn getRotationY(rad: f32) Mat4 {
-    const c = std.math.cos(rad);
-    const s = std.math.sin(rad);
+    const c = @cos(rad);
+    const s = @sin(rad);
     return .{
         c, 0, -s, 0,
         0, 1, 0,  0,
@@ -101,8 +101,8 @@ fn getRotationY(rad: f32) Mat4 {
 }
 
 fn getRotationZ(rad: f32) Mat4 {
-    const c = std.math.cos(rad);
-    const s = std.math.sin(rad);
+    const c = @cos(rad);
+    const s = @sin(rad);
     return .{
         c, -s, 0, 0,
         s, c,  0, 0,

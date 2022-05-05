@@ -36,7 +36,7 @@ pub const QuadBez = struct {
         const x0 = r0 / cross;
         const x1 = r1 / cross;
         // There's probably a more elegant formulation of this...
-        const scale = math.absFloat(cross) / (math.hypot(f32, ddx, ddy) * math.absFloat(x1 - x0));
+        const scale = @fabs(cross) / (math.hypot(f32, ddx, ddy) * @fabs(x1 - x0));
         return BasicTransform{
             .x0 = x0,
             .x1 = x1,
@@ -64,12 +64,12 @@ pub const QuadBez = struct {
         const params = self.mapToBasic();
         const a0 = approx_myint(params.x0);
         const a1 = approx_myint(params.x1);
-        var count =  0.5 * math.absFloat(a1 - a0) * math.sqrt(params.scale / tol);
+        var count =  0.5 * @fabs(a1 - a0) * math.sqrt(params.scale / tol);
         // If count is NaN the curve can be approximated by a single straight line or a point.
         if (!math.isFinite(count)) {
             count = 1;
         }
-        const n = @floatToInt(u32, math.ceil(count));
+        const n = @floatToInt(u32, @ceil(count));
         const start = @intCast(u32, buf.items.len);
         buf.ensureUnusedCapacity(n + 1) catch unreachable;
         buf.items.len = start + n + 1;
@@ -136,7 +136,7 @@ pub const CubicBez = struct {
         const tol2 = tol - tol1; // error for subdivision of quads into lines
         const sqrt_tol2 = math.sqrt(tol2);
         const err2 = self.weightsum(1, -3, 3, -1).squareLength();
-        const n_quads = math.ceil(math.pow(f32, err2 / (432 * tol1 * tol1), @as(f32, 1)/@as(f32, 6)));
+        const n_quads = @ceil(math.pow(f32, err2 / (432 * tol1 * tol1), @as(f32, 1)/@as(f32, 6)));
         // n_quads is usually 2 or more quads.
         const n_quads_i = @floatToInt(u32, n_quads);
 
@@ -153,11 +153,11 @@ pub const CubicBez = struct {
             const a0 = approx_myint(params.x0);
             const a1 = approx_myint(params.x1);
             const scale = math.sqrt(params.scale);
-            var val = math.absFloat(a1 - a0) * scale;
+            var val = @fabs(a1 - a0) * scale;
             if (math.signbit(params.x0) != math.signbit(params.x1)) {
                 // min x value in basic parabola to make sure we don't skip cusp
                 const xmin = sqrt_tol2 / scale;
-                const cusp_val = sqrt_tol2 * math.absFloat(a1 - a0) / approx_myint(xmin);
+                const cusp_val = sqrt_tol2 * @fabs(a1 - a0) / approx_myint(xmin);
                 // I *think* it will always be larger, but just in case...
                 val = math.max(val, cusp_val);
             }
@@ -174,7 +174,7 @@ pub const CubicBez = struct {
         if (!math.isFinite(count)) {
             count = 1;
         }
-        const n = math.ceil(count);
+        const n = @ceil(count);
         const ni = @floatToInt(u32, n);
 
         const start = @intCast(u32, buf.items.len);

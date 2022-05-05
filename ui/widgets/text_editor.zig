@@ -89,7 +89,7 @@ pub const TextEditor = struct {
         self.font_size = font_size;
 
         const font_line_height_factor: f32 = 1.2;
-        const font_line_height = std.math.round(font_line_height_factor * font_size);
+        const font_line_height = @round(font_line_height_factor * font_size);
         const font_line_offset_y = (font_line_height - font_vmetrics.ascender) / 2;
         // log.warn("{} {} {}", .{font_vmetrics.height, font_line_height, font_line_offset_y});
 
@@ -319,8 +319,8 @@ pub const TextEditorInner = struct {
         g.setFont(editor.font_gid, editor.font_size);
         g.setFillColor(self.editor.props.text_color);
         // TODO: Use binary search when word wrap is enabled and we can't determine the first visible line with O(1)
-        const visible_start_idx = std.math.max(0, @floatToInt(i32, std.math.floor(editor.scroll_view.widget.scroll_y / line_height)));
-        const visible_end_idx = std.math.min(editor.lines.items.len, @floatToInt(i32, std.math.ceil((editor.scroll_view.widget.scroll_y + editor.scroll_view.getHeight()) / line_height)));
+        const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(editor.scroll_view.widget.scroll_y / line_height)));
+        const visible_end_idx = std.math.min(editor.lines.items.len, @floatToInt(i32, @ceil((editor.scroll_view.widget.scroll_y + editor.scroll_view.getHeight()) / line_height)));
         // log.warn("{} {}", .{visible_start_idx, visible_end_idx});
         const line_offset_y = editor.font_line_offset_y;
         var i: usize = @intCast(usize, visible_start_idx);
@@ -335,7 +335,7 @@ pub const TextEditorInner = struct {
             const width = c.common.getTextMeasure(self.to_caret_measure).metrics().width;
             // log.warn("width {d:2}", .{width});
             const height = self.editor.font_vmetrics.height;
-            g.fillRect(std.math.round(lo.x + width), lo.y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);
+            g.fillRect(@round(lo.x + width), lo.y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);
         }
     }
 };

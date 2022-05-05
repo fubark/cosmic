@@ -100,7 +100,7 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapF
     // glyph.x_offset = scale * @intToFloat(f32, h_metrics.left_side_bearing) - Glyph.Padding;
     glyph.x_offset = @intToFloat(f32, x0) - Glyph.Padding;
     // log.warn("lsb: {} x: {}", .{scale * @intToFloat(f32, h_metrics.left_side_bearing), x0});
-    glyph.y_offset = std.math.round(bm_font.ascent) - @intToFloat(f32, -y0) - Glyph.Padding;
+    glyph.y_offset = @round(bm_font.ascent) - @intToFloat(f32, -y0) - Glyph.Padding;
     glyph.x = glyph_x;
     glyph.y = glyph_y;
     glyph.width = glyph_width;
