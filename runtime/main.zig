@@ -471,6 +471,10 @@ const http_main =
     \\            resp.setHeader('content-type', 'text/css; charset=utf-8')
     \\        } else if (path.endsWith('.js')) {
     \\            resp.setHeader('content-type', 'text/javascript; charset=utf-8')
+    \\        } else if (path.endsWith('.png')) {
+    \\            resp.setHeader('content-type', 'image/png')
+    \\        } else if (path.endsWith('.ttf')) {
+    \\            resp.setHeader('content-type', 'font/ttf')
     \\        } else {
     \\            resp.setHeader('content-type', 'text/plain; charset=utf-8')
     \\        }
