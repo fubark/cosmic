@@ -48,7 +48,7 @@ pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
     const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
-    const link_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse true;
+    const link_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse false;
     const link_tess2 = b.option(bool, "tess2", "Link libtess2 for testing.") orelse false;
 
     const build_options = b.addOptions();

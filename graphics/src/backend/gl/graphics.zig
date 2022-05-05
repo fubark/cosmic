@@ -196,7 +196,7 @@ pub const Graphics = struct {
 
         self.setLineWidth(1);
 
-        if (!IsWasm) {
+        if (build_options.has_lyon) {
             lyon.init();
         }
 
@@ -219,7 +219,7 @@ pub const Graphics = struct {
         self.font_cache.deinit();
         self.state_stack.deinit();
 
-        if (!IsWasm) {
+        if (build_options.has_lyon) {
             lyon.deinit();
         }
 
