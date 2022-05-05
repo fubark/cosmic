@@ -587,8 +587,9 @@ pub const Graphics = struct {
         }
     }
 
-    // Assumes data is rgba in row major starting from top left of image.
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: []const u8, linear_filter: bool) ImageId {
+    /// Assumes data is rgba in row major starting from top left of image.
+    /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
+    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         switch (Backend) {
             .OpenGL => {
                 const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter, .{});
