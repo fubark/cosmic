@@ -388,6 +388,19 @@ fn getSdlWindowFlags(config: Config) c_int {
     return flags;
 }
 
+// TODO: Move both initTextureProjection and initDisplayProjection to graphics package.
+/// For drawing to textures. Similar to display projection but y isn't flipped.
+pub fn initTextureProjection(width: f32, height: f32) Transform {
+    var res = Transform.initIdentity();
+    // first reduce to [0,1] values
+    res.scale(1.0 / width, 1.0 / height);
+    // to [0,2] values
+    res.scale(2.0, 2.0);
+    // to clip space [-1,1]
+    res.translate(-1.0, -1.0);
+    return res;
+}
+
 pub fn initDisplayProjection(width: f32, height: f32) Transform {
     var res = Transform.initIdentity();
     // first reduce to [0,1] values
