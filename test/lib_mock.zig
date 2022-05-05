@@ -60,6 +60,7 @@ export fn glDeleteBuffers() void {}
 export fn glDeleteVertexArrays() void {}
 export fn glDeleteTextures() void {}
 export fn glUniformMatrix4fv() void {}
+export fn glGetUniformLocation() void {}
 export fn glUniform1i() void {}
 export fn glBufferData() void {}
 export fn glDrawElements() void {}
