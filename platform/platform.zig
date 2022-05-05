@@ -53,3 +53,8 @@ pub const WindowResizeEvent = struct {
         };
     }
 };
+
+pub const FetchResultEvent = struct {
+    fetch_id: u32,
+    buf: []const u8,
+};

@@ -138,7 +138,7 @@ pub fn createAndPromise(ids: []const PromiseId) Promise(void) {
     }) catch unreachable;
 
     for (ids) |parent_id| {
-        const p = promises.getPtr(parent_id);
+        const p = promises.getPtrNoCheck(parent_id);
         if (p.child_deps_list_id == null) {
             p.child_deps_list_id = promise_child_deps.addListWithHead(id) catch unreachable;
         } else {
@@ -152,9 +152,10 @@ pub fn createAndPromise(ids: []const PromiseId) Promise(void) {
     };
 }
 
-export fn wasmEnsureInputCapacity(size: u32) *const u8 {
-    // Also set length to capacity so we can read the data in bounds.
-    js_buffer.input_buf.resize(size) catch unreachable;
+export fn wasmEnsureFreeCapacity(size: u32, cur_input_len: u32) *const u8 {
+    // Must sync over the current input length or a realloc wouldn't know about the new data.
+    js_buffer.input_buf.items.len = cur_input_len;
+    js_buffer.input_buf.ensureUnusedCapacity(size) catch unreachable;
     return js_buffer.writeResult();
 }
 
@@ -236,12 +237,12 @@ pub fn Promise(comptime T: type) type {
         }
 
         pub fn thenCopyTo(self: Self, ptr: *T) Self {
-            promises.getPtr(self.id).then_copy_to = ptr;
+            promises.getPtrNoCheck(self.id).then_copy_to = ptr;
             return self;
         }
 
         pub fn autoFree(self: Self) Self {
-            promises.getPtr(self.id).auto_free = true;
+            promises.getPtrNoCheck(self.id).auto_free = true;
             return self;
         }
     };
@@ -289,7 +290,7 @@ fn malloc(size: usize) callconv(.C) *anyopaque {
 
 /// libc fabs.
 fn fabs(x: f64) callconv(.C) f64 {
-    return std.math.fabs(x);
+    return @fabs(x);
 }
 
 /// libc free.

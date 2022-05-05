@@ -52,11 +52,27 @@
         // If not, tells wasm to increase the buffer. Local view is updated afterwards.
         function ensureFreeCapacity(num_bytes) {
             if (wasm.inputLen + num_bytes > wasm.inputCap) {
-                const ptr = wasm.exports.ensureFreeCapacity(num_bytes)
+                const ptr = wasm.exports.wasmEnsureFreeCapacity(num_bytes, wasm.inputLen)
                 let view = new DataView(wasm.exports.memory.buffer)
                 wasm.inputPtr = view.getUint32(ptr, true)
                 wasm.inputCap = view.getUint32(ptr + 4, true)
             }
+        }
+
+        // buf is an ArrayBuffer.
+        wasm.postFetchResult = function(fetch_id, buf) {
+            ensureFreeCapacity(buf.byteLength + 9)
+
+            var cur_ptr = wasm.inputPtr + wasm.inputLen
+            const view = new DataView(wasm.exports.memory.buffer)
+            view.setUint8(cur_ptr, FetchResultCommand)
+            view.setUint32(cur_ptr+1, fetch_id, true)
+            view.setUint32(cur_ptr+5, buf.byteLength, true)
+            const buf_view = new Uint8Array(buf)
+            for (let i = 0; i < buf.byteLength; i+=1) {
+                view.setUint8(cur_ptr + 9 + i, buf_view[i])
+            }
+            wasm.inputLen += buf.byteLength + 9
         }
 
         const KeyDownCommand = 1;
@@ -66,6 +82,7 @@
         const MouseMoveCommand = 5;
         const MouseScrollCommand = 6;
         const WindowResizeCommand = 7;
+        const FetchResultCommand = 8;
 
         // Load wasm.
         const wasmFile = 'demo.wasm';
@@ -205,8 +222,9 @@
         let last_input_time_ms = last_time_ms;
 
         // App loop.
+        let raf_id = 0
         function loop(now_ms) {
-            const req_id = window.requestAnimationFrame(loop);
+            raf_id = window.requestAnimationFrame(loop);
             const delta_ms = now_ms - last_time_ms;
             if (delta_ms >= min_ms_per_frame) {
                 last_time_ms = now_ms;
@@ -229,7 +247,7 @@
                 } catch (e) {
                     // Report error and stop the loop.
                     console.error(e);
-                    window.cancelAnimationFrame(req_id);
+                    window.cancelAnimationFrame(raf_id);
                 }
             }
         }

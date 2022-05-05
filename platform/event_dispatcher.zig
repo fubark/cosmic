@@ -11,9 +11,11 @@ const MouseUpEvent = platform.MouseUpEvent;
 const MouseMoveEvent = platform.MouseMoveEvent;
 const MouseScrollEvent = platform.MouseScrollEvent;
 const WindowResizeEvent = platform.WindowResizeEvent;
+const FetchResultEvent = platform.FetchResultEvent;
 const sdl = @import("sdl");
 
 const IsWasm = builtin.target.isWasm();
+const log = stdx.log.scoped(.event_dispatcher);
 
 /// Responsible for transforming platform specific events and emitting them in a compatible format.
 /// Users can then register handlers for these events.
@@ -28,6 +30,7 @@ pub const EventDispatcher = struct {
     mousemove_cbs: std.ArrayList(HandlerEntry(OnMouseMoveHandler)),
     mousescroll_cbs: std.ArrayList(HandlerEntry(OnMouseScrollHandler)),
     winresize_cbs: std.ArrayList(HandlerEntry(OnWindowResizeHandler)),
+    fetchresult_cbs: std.ArrayList(HandlerEntry(OnFetchResultHandler)),
 
     pub fn init(alloc: std.mem.Allocator) Self {
         return .{
@@ -39,6 +42,7 @@ pub const EventDispatcher = struct {
             .mousemove_cbs = std.ArrayList(HandlerEntry(OnMouseMoveHandler)).init(alloc),
             .mousescroll_cbs = std.ArrayList(HandlerEntry(OnMouseScrollHandler)).init(alloc),
             .winresize_cbs = std.ArrayList(HandlerEntry(OnWindowResizeHandler)).init(alloc),
+            .fetchresult_cbs = std.ArrayList(HandlerEntry(OnFetchResultHandler)).init(alloc),
         };
     }
 
@@ -51,6 +55,7 @@ pub const EventDispatcher = struct {
         self.mousemove_cbs.deinit();
         self.mousescroll_cbs.deinit();
         self.winresize_cbs.deinit();
+        self.fetchresult_cbs.deinit();
     }
 
     /// It is recommended to process events before a Window.beginFrame since an event can trigger
@@ -158,6 +163,18 @@ pub const EventDispatcher = struct {
             }
         }
     }
+
+    pub fn addOnFetchResult(self: *Self, ctx: ?*anyopaque, handler: OnFetchResultHandler) void {
+        self.fetchresult_cbs.append(.{ .ctx = ctx, .cb = handler }) catch unreachable;
+    }
+
+    pub fn removeOnFetchResult(self: *Self, handler: OnFetchResultHandler) void {
+        for (self.fetchresult_cbs.items) |it, idx| {
+            if (it.cb == handler) {
+                self.fetchresult_cbs.orderedRemove(idx);
+            }
+        }
+    }
 };
 
 fn processSdlEvents(dispatcher: EventDispatcher) void {
@@ -168,6 +185,7 @@ fn processSdlEvents(dispatcher: EventDispatcher) void {
                 for (dispatcher.quit_cbs.items) |handler| {
                     handler.cb(handler.ctx);
                 }
+                break;
             },
             sdl.SDL_KEYDOWN => {
                 const std_event = platform.initSdlKeyDownEvent(event.key);
@@ -229,6 +247,7 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
         const MouseMove = 5;
         const MouseScroll = 6;
         const WindowResize = 7;
+        const FetchResult = 8;
     };
 
     const input_buf = stdx.wasm.js_buffer.input_buf.items;
@@ -313,6 +332,19 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                     handler.cb(handler.ctx, std_event);
                 }
             },
+            Command.FetchResult => {
+                const fetch_id = std.mem.readIntLittle(u32, input_buf[i+1..i+5][0..4]);
+                const len = std.mem.readIntLittle(u32, input_buf[i+5..i+9][0..4]);
+                const buf = input_buf[i+9..i+9+len];
+                const std_event = FetchResultEvent{
+                    .fetch_id = fetch_id,
+                    .buf = buf,
+                };
+                for (dispatcher.fetchresult_cbs.items) |handler| {
+                    handler.cb(handler.ctx, std_event);
+                }
+                i += 9 + len;
+            },
             else => {
                 stdx.panicFmt("unknown command {}", .{ctype});
             },
@@ -335,3 +367,4 @@ const OnMouseUpHandler = fn(?*anyopaque, MouseUpEvent) void;
 const OnMouseMoveHandler = fn(?*anyopaque, MouseMoveEvent) void;
 const OnMouseScrollHandler = fn(?*anyopaque, MouseScrollEvent) void;
 const OnWindowResizeHandler = fn(?*anyopaque, WindowResizeEvent) void;
+const OnFetchResultHandler = fn(?*anyopaque, FetchResultEvent) void;
