@@ -56,6 +56,7 @@ extern "graphics" fn jsGlBufferData(target: u32, data_ptr: ?*const u8, data_size
 extern "graphics" fn jsGlDrawElements(mode: u32, num_indices: u32, index_type: u32, index_offset: u32) void;
 extern "graphics" fn jsGlCreateRenderbuffer() u32;
 extern "graphics" fn jsGlFramebufferRenderbuffer(target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32) void;
+extern "graphics" fn jsGlFramebufferTexture2D(target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) void;
 extern "graphics" fn jsGlViewport(x: i32, y: i32, width: i32, height: i32) void;
 extern "graphics" fn jsGlClear(mask: u32) void;
 extern "graphics" fn jsGlBlendFunc(sfactor: u32, dfactor: u32) void;
@@ -242,7 +243,7 @@ pub fn checkFramebufferStatus(target: c.GLenum) c.GLenum {
     if (IsWasm) {
         return jsGlCheckFramebufferStatus(target);
     } else {
-        return c.jsGlCheckFramebufferStatus(target);
+        return c.glCheckFramebufferStatus(target);
     }
 } 
 
@@ -590,10 +591,12 @@ pub inline fn framebufferRenderbuffer(target: c.GLenum, attachment: c.GLenum, re
 }
 
 pub inline fn framebufferTexture2D(target: c.GLenum, attachment: c.GLenum, textarget: c.GLenum, texture: c.GLuint, level: c.GLint) void {
-    if (IsWindows) {
+    if (IsWasm) {
+        jsGlFramebufferTexture2D(target, attachment, textarget, texture, level);
+    } else if (IsWindows) {
         winFramebufferTexture2D(target, attachment, textarget, texture, level);
     } else {
-        sdl.glFramebufferTexture2D(target, attachment, textarget, texture, level);
+        c.glFramebufferTexture2D(target, attachment, textarget, texture, level);
     }
 }
 
