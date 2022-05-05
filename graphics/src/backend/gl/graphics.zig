@@ -588,7 +588,7 @@ pub const Graphics = struct {
     }
 
     // Uses path rendering.
-    pub fn strokeRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn strokeRectLyon(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         // log.debug("strokeRect {d:.2} {d:.2} {d:.2} {d:.2}", .{pos.x, pos.y, width, height});
         const b = lyon.initBuilder();
         lyon.addRectangle(b, &.{ .x = x, .y = y, .width = width, .height = height });
@@ -1668,6 +1668,12 @@ pub const Graphics = struct {
     }
 
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
+        _ = self;
+        _ = pts;
+        // TODO: Implement this.
+    }
+
+    pub fn drawPolygonLyon(self: *Self, pts: []const Vec2) void {
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
         var data = lyon.buildStroke(b, self.cur_line_width);

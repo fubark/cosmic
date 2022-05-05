@@ -599,6 +599,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub inline fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.bindImageBuffer(&self.g, image_id),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL => return gl.Graphics.drawImage(&self.g, x, y, image_id),
