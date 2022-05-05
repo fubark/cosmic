@@ -644,11 +644,13 @@ pub const Graphics = struct {
         return self.addTTF_Font(data);
     }
 
-    /// Wasm relies on css to load fonts so it doesn't have access to the font family name.
+    /// Wasm/Canvas relies on css to load fonts so it doesn't have access to the font family name.
     /// Other backends will just ignore the name arg. 
-    pub fn addTTF_FontFromPathForName(self: *Self, path: []const u8, name: []const u8) !FontId {
+    pub fn addTTF_FontFromPathCompat(self: *Self, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
-            .OpenGL => return self.addTTF_FontPath(path),
+            .OpenGL => {
+                return self.addTTF_FontFromPath(path);
+            },
             .WasmCanvas => return canvas.Graphics.addTTF_FontFromPath(&self.g, path, name),
             else => stdx.panic("unsupported"),
         }
