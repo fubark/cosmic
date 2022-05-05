@@ -862,14 +862,14 @@ pub const Graphics = struct {
         }
     }
 
-    //     pub fn flushDraw(self: *Self) void {
-    //         switch (Backend) {
-    //             .OpenGL => gl.Graphics.flushDraw(&self.g),
-    //             .WasmCanvas => canvas.Graphics.flushDraw(&self.g),
-    //             else => stdx.panic("unsupported"),
-    //         }
-    //     }
-
+    /// Flush any draw commands queued up.
+    pub inline fn flushDraw(self: *Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.flushDraw(&self.g),
+            .WasmCanvas => {},
+            else => stdx.panic("unsupported"),
+        }
+    }
 };
 
 // TOOL: https://www.andersriggelsen.dk/glblendfunc.php
