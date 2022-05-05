@@ -332,6 +332,11 @@ pub const Graphics = struct {
         }
     }
 
+    pub inline fn clear(self: Self) void {
+        _ = self;
+        gl.clear(gl.GL_COLOR_BUFFER_BIT);
+    }
+
     pub fn setClearColor(self: *Self, color: Color) void {
         _ = self;
         const r = @intToFloat(f32, color.channels.r) / 255;

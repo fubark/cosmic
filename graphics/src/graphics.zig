@@ -176,6 +176,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub inline fn clear(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.clear(self.g),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn getFillColor(self: Self) Color {
         return switch (Backend) {
             .OpenGL => gl.Graphics.getFillColor(self.g),
