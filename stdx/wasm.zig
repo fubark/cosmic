@@ -305,15 +305,18 @@ fn free(ptr: ?*anyopaque) callconv(.C) void {
 }
 
 /// libc realloc.
-fn realloc(ptr: *anyopaque, size: usize) callconv(.C) *anyopaque {
+fn realloc(ptr: ?*anyopaque, size: usize) callconv(.C) *anyopaque {
+    if (ptr == null) {
+        return malloc(size);
+    }
     const eff_size = 1 + (size + usize_len - 1) / usize_len;
-    const addr = @ptrToInt(ptr) - usize_len;
+    const addr = @ptrToInt(ptr.?) - usize_len;
     const block = @intToPtr([*]usize, addr);
     const len = block[0];
     const slice: []usize = block[0..len];
     const new_slice = galloc.realloc(slice, eff_size) catch unreachable;
     new_slice[0] = eff_size;
-    return &new_slice[1];
+    return @ptrCast(*anyopaque, &new_slice[1]);
 }
 
 /// libc sqrt.
