@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const stdx = @import("stdx");
 const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
@@ -587,7 +588,14 @@ pub const Graphics = struct {
     }
 };
 
-export fn wasmResolveImagePromise(promise_id: stdx.wasm.PromiseId, image_id: ImageId, width: usize, height: usize) void {
+comptime {
+    // Conditionally export, or desktop builds will have the wrong malloc.
+    if (builtin.target.isWasm()) {
+        @export(wasmResolveImagePromise, .{ .name = "wasmResolveImagePromise", .linkage = .Strong });
+    }
+}
+
+fn wasmResolveImagePromise(promise_id: stdx.wasm.PromiseId, image_id: ImageId, width: usize, height: usize) callconv(.C) void {
     stdx.wasm.resolvePromise(promise_id, Image{
         .id = image_id,
         .width = width,
