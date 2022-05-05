@@ -215,6 +215,7 @@ pub const Config = struct {
     resizable: bool = false,
     high_dpi: bool = false,
     mode: Mode = .Windowed,
+    anti_alias: bool = false,
 };
 
 const TestWindow = struct {
