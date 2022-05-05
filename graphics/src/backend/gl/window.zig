@@ -56,7 +56,21 @@ pub const Window = struct {
             try sdl.ensureVideoInit();
         }
 
-        var res: Window = undefined;
+        var res = Window{
+            .id = undefined,
+            .sdl_window = undefined,
+            .alloc = alloc,
+            .gl_ctx_ref_count = undefined,
+            .gl_ctx = undefined,
+            .graphics = undefined,
+            .width = undefined,
+            .height = undefined,
+            .buf_width = undefined,
+            .buf_height = undefined,
+            .dpr = undefined,
+            .proj_transform = undefined,
+            .initial_mvp = undefined,
+        };
         if (IsDesktop) {
             const flags = getSdlWindowFlags(config);
             try initGL_Window(alloc, &res, config, flags);
@@ -69,7 +83,6 @@ pub const Window = struct {
             res.buf_height = dpr * res.height;
             res.dpr = dpr;
         }
-        res.alloc = alloc;
         res.gl_ctx_ref_count = alloc.create(u32) catch unreachable;
         res.gl_ctx_ref_count.* = 1;
 
@@ -101,7 +114,21 @@ pub const Window = struct {
     pub fn initWithSharedContext(alloc: std.mem.Allocator, config: Config, existing_win: Self) !Self {
         try sdl.ensureVideoInit();
 
-        var res: Window = undefined;
+        var res = Window{
+            .id = undefined,
+            .sdl_window = undefined,
+            .alloc = alloc,
+            .gl_ctx_ref_count = undefined,
+            .gl_ctx = undefined,
+            .graphics = undefined,
+            .width = undefined,
+            .height = undefined,
+            .buf_width = undefined,
+            .buf_height = undefined,
+            .dpr = undefined,
+            .proj_transform = undefined,
+            .initial_mvp = undefined,
+        };
         const flags = getSdlWindowFlags(config);
         try initGL_Window(alloc, &res, config, flags);
         // Reuse existing window's GL context.
