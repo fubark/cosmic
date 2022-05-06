@@ -21,9 +21,12 @@ test {
     const gl_graphics = @import("../graphics/src/backend/gl/graphics.zig");
     t.refAllDecls(gl_graphics);
 
-    const input = @import("../input/input.zig");
-    t.refAllDecls(input);
+    const ui = @import("../ui/ui.zig");
+    t.refAllDecls(ui);
 
-    const main = @import("../cosmic/main.zig");
+    const platform = @import("../platform/platform.zig");
+    t.refAllDecls(platform);
+
+    const main = @import("../runtime/main.zig");
     t.refAllDecls(main);
 }

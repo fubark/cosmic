@@ -1,6 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+pub const pkg = std.build.Pkg{
+    .name = "uv",
+    .path = .{ .path = srcPath() ++ "/uv.zig" },
+};
+
+pub fn addPackage(step: *std.build.LibExeObjStep) void {
+    step.addPackage(pkg);
+    step.addIncludeDir(srcPath() ++ "/vendor/include");
+}
+
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
@@ -113,7 +123,7 @@ pub fn create(
     }
 
     for (c_files.items) |file| {
-        const path = b.fmt("{s}/vendor/{s}", .{ root(), file });
+        const path = b.fmt("{s}/vendor/{s}", .{ srcPath(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
@@ -149,13 +159,14 @@ pub fn linkLibPath(step: *std.build.LibExeObjStep, path: []const u8) void {
 fn linkDeps(step: *std.build.LibExeObjStep) void {
     if (step.target.getOsTag() == .windows and step.target.getAbi() == .gnu) {
         step.linkSystemLibrary("iphlpapi");
+        step.linkSystemLibrary("userenv");
     }
 }
 
-fn root() []const u8 {
-    return (std.fs.path.dirname(@src().file) orelse unreachable);
+fn srcPath() []const u8 {
+    return std.fs.path.dirname(@src().file) orelse unreachable;
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
 }

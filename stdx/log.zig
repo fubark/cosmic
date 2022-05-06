@@ -2,8 +2,7 @@ const std = @import("std");
 pub const wasm = @import("log_wasm.zig");
 const builtin = @import("builtin");
 
-const UseStd = builtin.target.cpu.arch != .wasm32;
-
+const UseStd = !builtin.target.isWasm();
 const UseTimer = builtin.mode == .Debug and true;
 
 var timer: ?std.time.Timer = null;

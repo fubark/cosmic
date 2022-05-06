@@ -18,6 +18,7 @@ pub fn getDefaultAllocator() std.mem.Allocator {
 
 pub fn deinitDefaultAllocator() void {
     if (!IsWasm) {
+        // This will report memory leaks in debug mode.
         _ = gpa.?.deinit();
         gpa = null;
     }

@@ -14,15 +14,19 @@ const ImageDesc = graphics_gl.ImageDesc;
 const Graphics = graphics_gl.Graphics;
 const font_cache = @import("font_cache.zig");
 
-// Measures each char from start incrementally and sets result. Useful for computing layout.
-pub fn measureTextIter(g: *Graphics, font_gid: FontGroupId, font_size: f32, str: []const u8, res: *MeasureTextIterator) void {
+/// Measures each char from start incrementally and sets result. Useful for computing layout.
+pub fn measureTextIter(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *MeasureTextIterator) void {
     const fgroup = g.font_cache.getFontGroup(font_gid);
-    res.init(g, fgroup, font_size, str);
+    res.init(g, fgroup, font_size, dpr, str);
 }
 
-pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
+pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, prev_cp: u21, cp: u21) f32 {
     const font_grp = g.font_cache.getFontGroup(font_gid);
-    const to_user_scale = font_grp.getBackendToUserFontSizeScale(font_size);
+    var req_font_size = font_size;
+    const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
+
+    const primary = g.font_cache.getOrCreateBitmapFont(font_grp.fonts[0], bm_font_size);
+    const to_user_scale = primary.getScaleToUserFontSize(req_font_size);
 
     const glyph_info = g.getOrLoadFontGroupGlyph(font_grp, cp);
     const glyph = glyph_info.glyph;
@@ -31,10 +35,11 @@ pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, p
     const prev_glyph_info = g.getOrLoadFontGroupGlyph(font_grp, prev_cp);
     const prev_glyph = prev_glyph_info.glyph;
     advance += computeKern(prev_glyph.glyph_id, prev_glyph_info.font, glyph.glyph_id, glyph_info.font, to_user_scale, cp);
-    return std.math.round(advance);
+    return @round(advance);
 }
 
-pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics) void {
+/// For lower font sizes, snap_to_grid is desired since baked fonts don't have subpixel rendering. TODO: What if we precomputed 2 subpixel renders of the same character?
+pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics, comptime snap_to_grid: bool) void {
     const font_grp = g.font_cache.getFontGroup(group_id);
     var req_font_size = font_size;
     const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
@@ -51,7 +56,7 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32
     if (iter.nextCodepoint()) |first_cp| {
         const glyph_info = g.font_cache.getOrLoadFontGroupGlyph(g, font_grp, bm_font_size, first_cp);
         const glyph = glyph_info.glyph;
-        res.width += std.math.round(glyph.advance_width * scale);
+        res.width += glyph.advance_width * scale;
         prev_glyph_id = glyph.glyph_id;
         prev_font = glyph_info.font;
     } else return;
@@ -65,8 +70,12 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32
 
         res.width += computeKern(prev_glyph_id, prev_font, glyph.glyph_id, glyph_res.font, glyph_res.bm_font, scale, it);
 
+        if (snap_to_grid) {
+            res.width = @round(res.width);
+        }
+
         // Add advance width.
-        res.width += std.math.round(glyph.advance_width * scale);
+        res.width += glyph.advance_width * scale;
         prev_glyph_id = glyph.glyph_id;
         prev_font = glyph_res.font;
     }
@@ -81,8 +90,8 @@ pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr:
     return .{
         .str = str,
         // Start at snapped pos.
-        .x = std.math.round(x),
-        .y = std.math.round(y),
+        .x = @round(x),
+        .y = @round(y),
         .font_group = group,
         .req_font_size = req_font_size,
         .bm_font_size = bm_font_size,
@@ -94,7 +103,7 @@ pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr:
 }
 
 // Writes the vertex data of the next codepoint to ctx.quad
-pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad) bool {
+pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad, comptime snap_to_grid: bool) bool {
     const code_pt = ctx.cp_iter.nextCodepoint() orelse return false;
 
     const glyph_info = ctx.g.font_cache.getOrLoadFontGroupGlyph(ctx.g, ctx.font_group, ctx.bm_font_size, code_pt);
@@ -114,7 +123,9 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad) bool
     }
 
     // Snap to pixel after applying advance and kern.
-    ctx.x = std.math.round(ctx.x);
+    if (snap_to_grid) {
+        ctx.x = @round(ctx.x);
+    }
 
     // Update quad result.
     res_quad.image = glyph.image;
@@ -122,7 +133,11 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad) bool
     res_quad.is_color_bitmap = glyph.is_color_bitmap;
     // res_quad.x0 = ctx.x + glyph.x_offset * user_scale;
     // Snap to pixel for consistent glyph rendering.
-    res_quad.x0 = std.math.round(ctx.x + glyph.x_offset * user_scale);
+    if (snap_to_grid) {
+        res_quad.x0 = @round(ctx.x + glyph.x_offset * user_scale);
+    } else {
+        res_quad.x0 = ctx.x + glyph.x_offset * user_scale;
+    }
     res_quad.y0 = ctx.y + glyph.y_offset * user_scale;
     res_quad.x1 = res_quad.x0 + glyph.dst_width * user_scale;
     res_quad.y1 = res_quad.y0 + glyph.dst_height * user_scale;
@@ -150,15 +165,21 @@ pub const MeasureTextIterator = struct {
     prev_glyph_id_opt: ?u16,
     prev_glyph_font: *Font,
 
-    fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, str: []const u8) void {
-        const user_scale = fgroup.getBackendToUserFontSizeScale(font_size);
+    bm_font_size: u16,
+
+    fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, dpr: u32, str: []const u8) void {
+        var req_font_size = font_size;
+        const bm_font_size = font_cache.computeBitmapFontSize(&req_font_size) * @intCast(u16, dpr);
+
+        const primary = g.font_cache.getOrCreateBitmapFont(fgroup.fonts[0], bm_font_size);
+        const user_scale = primary.getScaleToUserFontSize(req_font_size);
 
         const parent = @fieldParentPtr(graphics.MeasureTextIterator, "inner", self);
         parent.state = .{
-            // TODO: Currently fontgroup just uses the primary font's height. We'll need to update height for every character.
-            .ascent = fgroup.getAscent() * user_scale,
-            .descent = -fgroup.getDescent() * user_scale,
-            .height = fgroup.getFontHeight() * user_scale,
+            // TODO: Update ascent, descent, height depending on current font.
+            .ascent = primary.ascent * user_scale,
+            .descent = -primary.descent * user_scale,
+            .height = primary.font_height * user_scale,
             .start_idx = 0,
             .end_idx = 0,
             .cp = undefined,
@@ -172,6 +193,7 @@ pub const MeasureTextIterator = struct {
             .cp_iter = std.unicode.Utf8View.initUnchecked(str).iterator(),
             .prev_glyph_id_opt = null,
             .prev_glyph_font = undefined,
+            .bm_font_size = bm_font_size,
         };
     }
 
@@ -185,11 +207,11 @@ pub const MeasureTextIterator = struct {
         parent.state.cp = self.cp_iter.nextCodepoint() orelse return false;
         parent.state.end_idx = self.cp_iter.i;
 
-        const glyph_info = self.g.getOrLoadFontGroupGlyph(self.fgroup, parent.state.cp);
+        const glyph_info = self.g.font_cache.getOrLoadFontGroupGlyph(self.g, self.fgroup, self.bm_font_size, parent.state.cp);
         const glyph = glyph_info.glyph;
 
         if (self.prev_glyph_id_opt) |prev_glyph_id| {
-            parent.state.kern = computeKern(prev_glyph_id, self.prev_glyph_font, glyph.glyph_id, glyph_info.font, self.user_scale, parent.state.cp);
+            parent.state.kern = computeKern(prev_glyph_id, self.prev_glyph_font, glyph.glyph_id, glyph_info.font, glyph_info.bm_font, self.user_scale, parent.state.cp);
         } else {
             parent.state.kern = 0;
         }

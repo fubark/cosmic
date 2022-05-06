@@ -710,7 +710,7 @@ pub const SvgParser = struct {
         return DrawCommandList{
             .alloc = null,
             .extra_data = self.extra_data.items,
-            .cmd_data = self.cmd_data.data.items,
+            .cmd_data = self.cmd_data.buf.items,
             .cmds = self.cmds.items,
             .sub_cmds = self.sub_cmds.items,
         };

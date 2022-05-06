@@ -5,14 +5,14 @@ const v8 = @import("v8");
 const t = stdx.testing;
 const uv = @import("uv");
 
-const runtime = @import("../cosmic/runtime.zig");
+const runtime = @import("../runtime/runtime.zig");
 const RuntimeContext = runtime.RuntimeContext;
-const main = @import("../cosmic/main.zig");
-const env_ns = @import("../cosmic/env.zig");
+const main = @import("../runtime/main.zig");
+const env_ns = @import("../runtime/env.zig");
 const Environment = env_ns.Environment;
 const WriterIface = env_ns.WriterIface;
 const log = stdx.log.scoped(.behavior_test);
-const adapter = @import("../cosmic/adapter.zig");
+const adapter = @import("../runtime/adapter.zig");
 const FuncDataUserPtr = adapter.FuncDataUserPtr;
 
 // For tests that need to verify what the runtime is doing.

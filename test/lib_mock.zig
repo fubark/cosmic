@@ -60,6 +60,7 @@ export fn glDeleteBuffers() void {}
 export fn glDeleteVertexArrays() void {}
 export fn glDeleteTextures() void {}
 export fn glUniformMatrix4fv() void {}
+export fn glGetUniformLocation() void {}
 export fn glUniform1i() void {}
 export fn glBufferData() void {}
 export fn glDrawElements() void {}
@@ -158,6 +159,7 @@ export fn SDL_InitSubSystem() void {}
 export fn SDL_GetError() void {}
 export fn SDL_GetWindowID() void {}
 export fn stbi_load_from_memory() void {}
+export fn stbi_failure_reason() void {}
 export fn stbi_image_free() void {}
 export fn glGenTextures() void {}
 export fn glBindTexture() void {}

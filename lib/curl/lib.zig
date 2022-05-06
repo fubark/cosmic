@@ -1,11 +1,21 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+pub const pkg = std.build.Pkg{
+    .name = "curl",
+    .path = .{ .path = srcPath() ++ "/curl.zig" },
+};
+
 const Options = struct {
     openssl_includes: []const []const u8,
     nghttp2_includes: []const []const u8,
     zlib_includes: []const []const u8,
 };
+
+pub fn addPackage(step: *std.build.LibExeObjStep) void {
+    step.addPackage(pkg);
+    step.addIncludeDir(srcPath() ++ "/vendor/include/curl");
+}
 
 pub fn create(
     b: *std.build.Builder,
@@ -216,7 +226,7 @@ pub fn create(
     };
 
     for (c_files) |file| {
-        const path = b.fmt("{s}/vendor/lib/{s}", .{ root(), file });
+        const path = b.fmt("{s}/vendor/lib/{s}", .{ srcPath(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
@@ -274,10 +284,10 @@ fn linkDeps(step: *std.build.LibExeObjStep) void {
     }
 }
 
-fn root() []const u8 {
+fn srcPath() []const u8 {
     return (std.fs.path.dirname(@src().file) orelse unreachable);
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
 }

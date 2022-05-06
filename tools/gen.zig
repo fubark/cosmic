@@ -1,9 +1,9 @@
 const std = @import("std");
 const process = std.process;
 
-const runtime = @import("../cosmic/runtime.zig");
+const runtime = @import("../runtime/runtime.zig");
 const doc_gen = @import("../docs/doc_gen.zig");
-const js_gen = @import("../cosmic/js_gen.zig");
+const js_gen = @import("../runtime/js_gen.zig");
 
 pub fn main() !void {
     // Fast temporary memory allocator.

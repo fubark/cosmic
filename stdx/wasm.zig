@@ -1,17 +1,26 @@
 const std = @import("std");
 const stdx = @import("stdx.zig");
 const ds = stdx.ds;
+const builtin = @import("builtin");
 
-const log_wasm = @import("log_wasm.zig");
 const log = stdx.log.scoped(.wasm);
 
-var js_buffer: WasmJsBuffer = undefined;
+/// A global buffer for wasm that can be used for:
+/// Writing to js: In some cases in order to share the same abstraction as desktop code, a growing buffer is useful without needing an allocator. eg. logging.
+/// Reading from js: If js needs to return dynamic data, it would need to write to memory which wasm knows about.
+pub var js_buffer: WasmJsBuffer = undefined;
+
+var galloc: std.mem.Allocator = undefined;
 
 pub fn init(alloc: std.mem.Allocator) void {
+    galloc = alloc;
     js_buffer.init(alloc);
-    log_wasm.js_buf = &js_buffer;
     promises = ds.CompactUnorderedList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
+}
+
+pub fn deinit() void {
+    js_buffer.deinit();
 }
 
 pub fn getJsBuffer() *WasmJsBuffer {
@@ -129,7 +138,7 @@ pub fn createAndPromise(ids: []const PromiseId) Promise(void) {
     }) catch unreachable;
 
     for (ids) |parent_id| {
-        const p = promises.getPtr(parent_id);
+        const p = promises.getPtrNoCheck(parent_id);
         if (p.child_deps_list_id == null) {
             p.child_deps_list_id = promise_child_deps.addListWithHead(id) catch unreachable;
         } else {
@@ -143,9 +152,10 @@ pub fn createAndPromise(ids: []const PromiseId) Promise(void) {
     };
 }
 
-export fn wasmEnsureInputCapacity(size: u32) *const u8 {
-    // Also set length to capacity so we can read the data in bounds.
-    js_buffer.input_buf.resize(size) catch unreachable;
+export fn wasmEnsureFreeCapacity(size: u32, cur_input_len: u32) *const u8 {
+    // Must sync over the current input length or a realloc wouldn't know about the new data.
+    js_buffer.input_buf.items.len = cur_input_len;
+    js_buffer.input_buf.ensureUnusedCapacity(size) catch unreachable;
     return js_buffer.writeResult();
 }
 
@@ -227,12 +237,12 @@ pub fn Promise(comptime T: type) type {
         }
 
         pub fn thenCopyTo(self: Self, ptr: *T) Self {
-            promises.getPtr(self.id).then_copy_to = ptr;
+            promises.getPtrNoCheck(self.id).then_copy_to = ptr;
             return self;
         }
 
         pub fn autoFree(self: Self) Self {
-            promises.getPtr(self.id).auto_free = true;
+            promises.getPtrNoCheck(self.id).auto_free = true;
             return self;
         }
     };
@@ -248,3 +258,101 @@ const PromiseInternal = struct {
     resolved: bool,
     dynamic_size: bool,
 };
+
+const usize_len = @sizeOf(usize);
+
+comptime {
+    // Conditionally export, or desktop builds will have the wrong malloc.
+    if (builtin.target.isWasm()) {
+        @export(malloc, .{ .name = "malloc", .linkage = .Strong });
+        @export(free, .{ .name = "free", .linkage = .Strong });
+        @export(realloc, .{ .name = "realloc", .linkage = .Strong });
+        @export(fabs, .{ .name = "fabs", .linkage = .Strong });
+        @export(sqrt, .{ .name = "sqrt", .linkage = .Strong });
+        @export(ldexp, .{ .name = "ldexp", .linkage = .Strong });
+        @export(pow, .{ .name = "pow", .linkage = .Strong });
+        @export(abs, .{ .name = "abs", .linkage = .Strong });
+        @export(memset, .{ .name = "memset", .linkage = .Strong });
+        @export(memcpy, .{ .name = "memcpy", .linkage = .Strong });
+    }
+}
+
+/// libc malloc.
+fn malloc(size: usize) callconv(.C) *anyopaque {
+    // Allocates a block that is a multiple of usize that fits the header and the user allocation.
+    const eff_size = 1 + (size + usize_len - 1) / usize_len;
+    const block = galloc.alloc(usize, eff_size) catch unreachable;
+    // Header stores the length.
+    block[0] = eff_size;
+    // Return the user allocation.
+    return &block[1];
+}
+
+/// libc fabs.
+fn fabs(x: f64) callconv(.C) f64 {
+    return @fabs(x);
+}
+
+/// libc free.
+fn free(ptr: ?*anyopaque) callconv(.C) void {
+    if (ptr == null) {
+        return;
+    }
+    const addr = @ptrToInt(ptr) - usize_len;
+    const block = @intToPtr([*]const usize, addr);
+    const len = block[0];
+    galloc.free(block[0..len]);
+}
+
+/// libc realloc.
+fn realloc(ptr: ?*anyopaque, size: usize) callconv(.C) *anyopaque {
+    if (ptr == null) {
+        return malloc(size);
+    }
+    const eff_size = 1 + (size + usize_len - 1) / usize_len;
+    const addr = @ptrToInt(ptr.?) - usize_len;
+    const block = @intToPtr([*]usize, addr);
+    const len = block[0];
+    const slice: []usize = block[0..len];
+    const new_slice = galloc.realloc(slice, eff_size) catch unreachable;
+    new_slice[0] = eff_size;
+    return @ptrCast(*anyopaque, &new_slice[1]);
+}
+
+/// libc sqrt.
+fn sqrt(x: f64) callconv(.C) f64 {
+    return std.math.sqrt(x);
+}
+
+/// libc ldexp.
+fn ldexp(x: f64, n: i32) callconv(.C) f64 {
+    return std.math.ldexp(x, n);
+}
+
+/// libc pow.
+fn pow(x: f64, y: f64) callconv(.C) f64 {
+    return std.math.pow(f64, x, y);
+}
+
+/// libc abs.
+fn abs(x: i32) callconv(.C) i32 {
+    return std.math.absInt(x) catch unreachable;
+}
+
+/// libc memset.
+fn memset(s: ?*anyopaque, val: i32, n: usize) callconv(.C) ?*anyopaque {
+    // Some user code may try to write to a bad location in wasm with n=0. Wasm doesn't allow that.
+    if (n > 0) {
+        const slice = @ptrCast([*]u8, s)[0..n];
+        std.mem.set(u8, slice, @intCast(u8, val));
+    }
+    return s;
+}
+
+/// libc memcpy.
+fn memcpy(dst: ?*anyopaque, src: ?*anyopaque, n: usize) callconv(.C) ?*anyopaque {
+    const dst_slice = @ptrCast([*]u8, dst)[0..n];
+    const src_slice = @ptrCast([*]u8, src)[0..n];
+    std.mem.copy(u8, dst_slice, src_slice);
+    return dst;
+}

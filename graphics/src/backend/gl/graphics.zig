@@ -18,6 +18,7 @@ const t = stdx.testing;
 const trace = stdx.debug.tracy.trace;
 
 const graphics = @import("../../graphics.zig");
+const window = @import("window.zig");
 const QuadBez = graphics.curve.QuadBez;
 const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
@@ -35,7 +36,7 @@ const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.font.FontId;
 const FontGroupId = graphics.font.FontGroupId;
-const log = std.log.scoped(.graphics_gl);
+const log = stdx.log.scoped(.graphics_gl);
 const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
 const TexShaderVertex = mesh.TexShaderVertex;
@@ -52,7 +53,12 @@ const Tessellator = tessellator.Tessellator;
 const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
 const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
 
+const tex_vert_webgl2 = @embedFile("../../shaders/tex_vert_webgl2.glsl");
+const tex_frag_webgl2 = @embedFile("../../shaders/tex_frag_webgl2.glsl");
+
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
+
+const IsWasm = builtin.target.isWasm();
 
 /// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {
@@ -72,6 +78,7 @@ pub const Graphics = struct {
     cur_buf_height: u32,
 
     default_font_id: FontId,
+    default_font_gid: FontGroupId,
     cur_font_gid: FontGroupId,
     cur_font_size: f32,
     cur_text_align: TextAlign,
@@ -112,6 +119,7 @@ pub const Graphics = struct {
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
+            .default_font_gid = undefined,
             .cur_buf_width = 0,
             .cur_buf_height = 0,
             .cur_font_gid = undefined,
@@ -143,7 +151,11 @@ pub const Graphics = struct {
         log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
 
         // Initialize shaders.
-        self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
+        if (IsWasm) {
+            self.tex_shader = Shader.init(tex_vert_webgl2, tex_frag_webgl2) catch unreachable;
+        } else {
+            self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
+        }
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
@@ -174,6 +186,7 @@ pub const Graphics = struct {
         // TODO: Embed a default ttf monospace font.
 
         self.default_font_id = self.addTTF_Font(vera_ttf);
+        self.default_font_gid = self.font_cache.getOrLoadFontGroup(&.{self.default_font_id});
         self.setFont(self.default_font_id);
 
         // Set default font size.
@@ -184,19 +197,21 @@ pub const Graphics = struct {
 
         self.setLineWidth(1);
 
-        lyon.init();
+        if (build_options.has_lyon) {
+            lyon.init();
+        }
 
         // Clear color. Default to white.
-        gl.glClearColor(1, 1, 1, 1.0);
-        // gl.glClearColor(0.1, 0.2, 0.3, 1.0);
-        // gl.glClearColor(0, 0, 0, 1.0);
+        gl.clearColor(1, 1, 1, 1.0);
+        // gl.clearColor(0.1, 0.2, 0.3, 1.0);
+        // gl.clearColor(0, 0, 0, 1.0);
 
         // 2D graphics for now. Turn off 3d options.
-        gl.glDisable(gl.GL_DEPTH_TEST);
-        gl.glDisable(gl.GL_CULL_FACE);
+        gl.disable(gl.GL_DEPTH_TEST);
+        gl.disable(gl.GL_CULL_FACE);
 
         // Enable blending by default.
-        gl.glEnable(gl.GL_BLEND);
+        gl.enable(gl.GL_BLEND);
     }
 
     pub fn deinit(self: *Self) void {
@@ -204,7 +219,10 @@ pub const Graphics = struct {
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
-        lyon.deinit();
+
+        if (build_options.has_lyon) {
+            lyon.deinit();
+        }
 
         // Delete images after since some deinit could have removed images.
         var iter = self.images.iterator();
@@ -243,8 +261,8 @@ pub const Graphics = struct {
         // Execute current draw calls before we alter state.
         self.flushDraw();
 
-        gl.glScissor(@floatToInt(c_int, r.x), @floatToInt(c_int, r.y), @floatToInt(c_int, r.width), @floatToInt(c_int, r.height));
-        gl.glEnable(gl.GL_SCISSOR_TEST);
+        gl.scissor(@floatToInt(c_int, r.x), @floatToInt(c_int, r.y), @floatToInt(c_int, r.width), @floatToInt(c_int, r.height));
+        gl.enable(gl.GL_SCISSOR_TEST);
     }
 
     pub fn resetTransform(self: *Self) void {
@@ -278,7 +296,7 @@ pub const Graphics = struct {
         } else {
             // log.debug("disable scissors", .{});
             self.cur_scissors = false;
-            gl.glDisable(gl.GL_SCISSOR_TEST);
+            gl.disable(gl.GL_SCISSOR_TEST);
         }
         if (state.blend_mode != self.cur_blend_mode) {
             self.setBlendMode(state.blend_mode);
@@ -313,6 +331,20 @@ pub const Graphics = struct {
         if (font_gid != self.cur_font_gid) {
             self.cur_font_gid = font_gid;
         }
+    }
+
+    pub inline fn clear(self: Self) void {
+        _ = self;
+        gl.clear(gl.GL_COLOR_BUFFER_BIT);
+    }
+
+    pub fn setClearColor(self: *Self, color: Color) void {
+        _ = self;
+        const r = @intToFloat(f32, color.channels.r) / 255;
+        const g = @intToFloat(f32, color.channels.g) / 255;
+        const b = @intToFloat(f32, color.channels.b) / 255;
+        const a = @intToFloat(f32, color.channels.a) / 255;
+        gl.clearColor(r, g, b, a);
     }
 
     pub fn getFillColor(self: Self) Color {
@@ -364,9 +396,9 @@ pub const Graphics = struct {
             image.update_fn = @field(props, "update");
         }
 
-        gl.glGenTextures(1, &image.tex_id);
+        gl.genTextures(1, &image.tex_id);
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, image.tex_id);
+        gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
 
         // A GLint specifying the level of detail. Level 0 is the base image level and level n is the nth mipmap reduction level.
         const level = 0;
@@ -379,14 +411,14 @@ pub const Graphics = struct {
         // TEXTURE_MIN_FILTER - filter for scaled down texture
         // TEXTURE_MAG_FILTER - filter for scaled up texture
         // Linear filter is better for anti-aliased font bitmaps.
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
+        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
         const data_ptr = if (data != null) data.?.ptr else null;
-        gl.glTexImage2D(gl.GL_TEXTURE_2D, level, gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height), border, gl.GL_RGBA, data_type, data_ptr);
+        gl.texImage2D(gl.GL_TEXTURE_2D, level, gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height), border, gl.GL_RGBA, data_type, data_ptr);
 
-        gl.glBindTexture(gl.GL_TEXTURE_2D, 0);
+        gl.bindTexture(gl.GL_TEXTURE_2D, 0);
     }
 
     pub fn createImageFromData(self: *Self, data: []const u8) !graphics.Image {
@@ -395,7 +427,11 @@ pub const Graphics = struct {
         var channels: c_int = undefined;
         const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
         defer stbi.stbi_image_free(bitmap);
-        // log.debug("loaded image: {} {} {} ", .{src_width, src_height, channels});
+        if (bitmap == null) {
+            log.debug("{s}", .{stbi.stbi_failure_reason()});
+            return error.BadImage;
+        }
+        // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
 
         const bitmap_len = @intCast(usize, src_width * src_height * channels);
         const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true, .{});
@@ -440,16 +476,16 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res, true);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, group_id, size, str, res);
+        text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res, true);
     }
 
     // Since MeasureTextIterator init needs to do a fieldParentPtr, we pass the res pointer in.
     pub fn measureFontTextIter(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *MeasureTextIterator) void {
-        self.font_cache.measureTextIter(self, group_id, size, str, res);
+        text_renderer.measureTextIter(self, group_id, size, self.cur_dpr, str, res);
     }
 
     pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
@@ -482,7 +518,7 @@ pub const Graphics = struct {
         }
         var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
 
-        while (text_renderer.renderNextCodepoint(&ctx, &quad)) {
+        while (text_renderer.renderNextCodepoint(&ctx, &quad, true)) {
             self.setCurrentTexture(quad.image);
 
             if (quad.is_color_bitmap) {
@@ -557,7 +593,7 @@ pub const Graphics = struct {
     }
 
     // Uses path rendering.
-    pub fn strokeRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn strokeRectLyon(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         // log.debug("strokeRect {d:.2} {d:.2} {d:.2} {d:.2}", .{pos.x, pos.y, width, height});
         const b = lyon.initBuilder();
         lyon.addRectangle(b, &.{ .x = x, .y = y, .width = width, .height = height });
@@ -647,7 +683,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc sector per degree.
-        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.drawCircleArcN(x, y, radius, start_rad, sweep_rad, n);
     }
 
@@ -664,8 +700,8 @@ pub const Graphics = struct {
         vert.setUV(0, 0); // Currently we don't do uv mapping for strokes.
 
         // Add first two vertices.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
         self.batcher.mesh.addVertex(&vert);
         vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
@@ -678,8 +714,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_n * @intToFloat(f32, i);
 
             // Add inner/outer vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
             self.batcher.mesh.addVertex(&vert);
             vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
@@ -705,8 +741,8 @@ pub const Graphics = struct {
         self.batcher.mesh.addVertex(&vert);
 
         // Add first circle vertex.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setUV(0.5 + cos, 0.5 + sin);
         vert.setXY(x + cos * radius, y + sin * radius);
         self.batcher.mesh.addVertex(&vert);
@@ -718,8 +754,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_tri * @intToFloat(f32, i);
 
             // Add next circle vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setUV(0.5 + cos, 0.5 + sin);
             vert.setXY(x + cos * radius, y + sin * radius);
             self.batcher.mesh.addVertex(&vert);
@@ -737,7 +773,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 triangle per degree.
-        var num_tri = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var num_tri = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.fillCircleSectorN(x, y, radius, start_rad, sweep_rad, num_tri);
     }
 
@@ -765,8 +801,8 @@ pub const Graphics = struct {
         self.batcher.mesh.addVertex(&vert);
 
         // Add first circle vertex.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setUV(0.5 + cos, 0.5 + sin);
         vert.setXY(x + cos * h_radius, y + sin * v_radius);
         self.batcher.mesh.addVertex(&vert);
@@ -778,8 +814,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_tri * @intToFloat(f32, i);
 
             // Add next circle vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setUV(0.5 + cos, 0.5 + sin);
             vert.setXY(x + cos * h_radius, y + sin * v_radius);
             self.batcher.mesh.addVertex(&vert);
@@ -797,7 +833,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc section per degree.
-        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.fillEllipseSectorN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
@@ -811,7 +847,7 @@ pub const Graphics = struct {
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
         }
         // Approx 1 arc sector per degree.
-        var n = @floatToInt(u32, std.math.ceil(std.math.absFloat(sweep_rad) / math.pi_2 * 360));
+        var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
         self.drawEllipseArcN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
@@ -830,8 +866,8 @@ pub const Graphics = struct {
         vert.setUV(0, 0); // Currently we don't do uv mapping for strokes.
 
         // Add first two vertices.
-        var cos = std.math.cos(start_rad);
-        var sin = std.math.sin(start_rad);
+        var cos = @cos(start_rad);
+        var sin = @sin(start_rad);
         vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
         self.batcher.mesh.addVertex(&vert);
         vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
@@ -844,8 +880,8 @@ pub const Graphics = struct {
             const rad = start_rad + rad_per_n * @intToFloat(f32, i);
 
             // Add inner/outer vertex.
-            cos = std.math.cos(rad);
-            sin = std.math.sin(rad);
+            cos = @cos(rad);
+            sin = @sin(rad);
             vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
             self.batcher.mesh.addVertex(&vert);
             vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
@@ -894,6 +930,7 @@ pub const Graphics = struct {
             .x1 = x1,
             .y1 = y1,
         };
+        self.vec2_helper_buf.clearRetainingCapacity();
         stroke.strokeQuadBez(&self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.cur_line_width_half, self.cur_stroke_color);
     }
 
@@ -919,6 +956,8 @@ pub const Graphics = struct {
             .x1 = x1,
             .y1 = y1,
         };
+        self.qbez_helper_buf.clearRetainingCapacity();
+        self.vec2_helper_buf.clearRetainingCapacity();
         stroke.strokeCubicBez(&self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.cur_line_width_half, self.cur_stroke_color);
     }
 
@@ -1634,6 +1673,12 @@ pub const Graphics = struct {
     }
 
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
+        _ = self;
+        _ = pts;
+        // TODO: Implement this.
+    }
+
+    pub fn drawPolygonLyon(self: *Self, pts: []const Vec2) void {
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
         var data = lyon.buildStroke(b, self.cur_line_width);
@@ -1716,7 +1761,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
-        const image = self.images.get(image_id);
+        const image = self.images.getNoCheck(image_id);
         self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
@@ -1749,6 +1794,36 @@ pub const Graphics = struct {
         self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
+    /// Binds an image to the write buffer. 
+    pub fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+        var image = self.images.getPtrNoCheck(image_id);
+        if (image.fbo_id == null) {
+            image.fbo_id = self.createTextureFramebuffer(image.tex_id);
+        }
+        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, image.fbo_id.?);
+        gl.viewport(0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height));
+        self.cur_proj_transform = window.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
+        self.view_transform = Transform.initIdentity();
+        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
+        self.batcher.setMvp(mvp);
+    }
+
+    fn createTextureFramebuffer(self: Self, tex_id: gl.GLuint) gl.GLuint {
+        _ = self;
+        var fbo_id: gl.GLuint = 0;
+        gl.genFramebuffers(1, &fbo_id);
+        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, fbo_id);
+
+        gl.bindTexture(gl.GL_TEXTURE_2D, tex_id);
+        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, tex_id, 0);
+        const status = gl.checkFramebufferStatus(gl.GL_FRAMEBUFFER);
+        if (status != gl.GL_FRAMEBUFFER_COMPLETE) {
+            log.debug("unexpected status: {}", .{status});
+            unreachable;
+        }
+        return fbo_id;
+    }
+
     /// Begin frame sets up the context before any other draw call.
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
     pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
@@ -1761,7 +1836,7 @@ pub const Graphics = struct {
         self.cur_proj_transform = proj_transform;
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
-        gl.glViewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
+        gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
@@ -1775,18 +1850,17 @@ pub const Graphics = struct {
             .height = @intToFloat(f32, buf_height),
         };
         self.cur_scissors = false;
-        gl.glDisable(gl.GL_SCISSOR_TEST);
+        gl.disable(gl.GL_SCISSOR_TEST);
 
-        // This clears the main framebuffer that is swapped to window.
-        gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT);
-
-        if (custom_fbo != 0) {
+        if (custom_fbo == 0) {
+            // This clears the main framebuffer that is swapped to window.
+            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            gl.clear(gl.GL_COLOR_BUFFER_BIT);
+        } else {
             // Set the frame buffer we are drawing to.
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
-
             // Clears the custom frame buffer.
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT);
+            gl.clear(gl.GL_COLOR_BUFFER_BIT);
         }
 
         // Straight alpha by default.
@@ -1833,7 +1907,7 @@ pub const Graphics = struct {
     // GL Only.
     pub fn setBlendModeCustom(self: *Self, src: gl.GLenum, dst: gl.GLenum, eq: gl.GLenum) void {
         _ = self;
-        gl.glBlendFunc(src, dst);
+        gl.blendFunc(src, dst);
         gl.blendEquation(eq);
     }
 
@@ -1841,29 +1915,29 @@ pub const Graphics = struct {
         if (self.cur_blend_mode != mode) {
             self.flushDraw();
             switch (mode) {
-                .StraightAlpha => gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
+                .StraightAlpha => gl.blendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
                 .Add, .Glow => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Subtract => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_SUBTRACT);
                 },
                 .Multiplied => {
-                    gl.glBlendFunc(gl.GL_DST_COLOR, gl.GL_ONE_MINUS_SRC_ALPHA);
+                    gl.blendFunc(gl.GL_DST_COLOR, gl.GL_ONE_MINUS_SRC_ALPHA);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Opaque => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ZERO);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ZERO);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .Additive => {
-                    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
+                    gl.blendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 .PremultipliedAlpha => {
-                    gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
+                    gl.blendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
                     gl.blendEquation(gl.GL_FUNC_ADD);
                 },
                 else => @panic("unsupported"),
@@ -1886,9 +1960,9 @@ pub const Graphics = struct {
     pub fn updateTextureData(self: *const Self, image: *const Image, buf: []const u8) void {
         _ = self;
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, image.tex_id);
-        gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, 0);
+        gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
+        gl.texSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
+        gl.bindTexture(gl.GL_TEXTURE_2D, 0);
     }
 };
 
@@ -1919,6 +1993,9 @@ pub const Image = struct {
     width: usize,
     height: usize,
 
+    /// Framebuffer used to draw to the texture.
+    fbo_id: ?gl.GLuint = null,
+
     // Whether this texture needs to be updated in the gpu the next time we draw with it.
     needs_update: bool,
 
@@ -1926,7 +2003,7 @@ pub const Image = struct {
     update_fn: fn (*Self) void,
 
     pub fn deinit(self: Self) void {
-        gl.glDeleteTextures(1, &self.tex_id);
+        gl.deleteTextures(1, &self.tex_id);
     }
 
     fn update(self: *Self) void {

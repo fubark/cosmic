@@ -1,27 +1,31 @@
 const std = @import("std");
 const stdx = @import("stdx");
 
-const wasm = @import("backend/wasm/window.zig");
 const gl = @import("backend/gl/window.zig");
-const canvas = @import("backend/wasm/window.zig");
+const canvas = @import("backend/canvas/window.zig");
 const log = stdx.log.scoped(.window);
 const graphics = @import("graphics.zig");
 const Graphics = graphics.Graphics;
 const Backend = graphics.Backend;
 
+const platform = @import("platform");
+const WindowResizeEvent = platform.WindowResizeEvent;
+const EventDispatcher = platform.EventDispatcher;
+
+// TODO: Move Window to the platform package.
 pub const Window = struct {
     const Self = @This();
 
     inner: switch (Backend) {
         .OpenGL => gl.Window,
-        .WasmCanvas => wasm.Window,
+        .WasmCanvas => canvas.Window,
         .Test => TestWindow,
     },
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         const inner = switch (Backend) {
             .OpenGL => try gl.Window.init(alloc, config),
-            .WasmCanvas => try wasm.Window.init(alloc, config),
+            .WasmCanvas => try canvas.Window.init(alloc, config),
             .Test => TestWindow{ .width = config.width, .height = config.height },
         };
         return Self{
@@ -42,9 +46,19 @@ pub const Window = struct {
     pub fn deinit(self: Self) void {
         switch (Backend) {
             .OpenGL => gl.Window.deinit(self.inner),
-            .WasmCanvas => wasm.Window.deinit(&self.inner),
+            .WasmCanvas => canvas.Window.deinit(&self.inner),
             else => stdx.panic("unsupported"),
         }
+    }
+
+    pub fn addDefaultHandlers(self: *Self, dispatcher: *EventDispatcher) void {
+        const S = struct {
+            fn onWindowResize(ctx: ?*anyopaque, e: WindowResizeEvent) void {
+                const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
+                self_.handleResize(e.width, e.height);
+            }
+        };
+        dispatcher.addOnWindowResize(self, S.onWindowResize);
     }
 
     /// Should be called before beginFrame if multiple windows are being rendered together.
@@ -201,6 +215,7 @@ pub const Config = struct {
     resizable: bool = false,
     high_dpi: bool = false,
     mode: Mode = .Windowed,
+    anti_alias: bool = false,
 };
 
 const TestWindow = struct {

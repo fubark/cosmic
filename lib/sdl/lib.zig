@@ -1,6 +1,21 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const stdx = @import("../../stdx/lib.zig");
+
+pub const pkg = std.build.Pkg{
+    .name = "sdl",
+    .path = .{ .path = srcPath() ++ "/sdl.zig" },
+};
+
+pub fn addPackage(step: *std.build.LibExeObjStep) void {
+    var new_pkg = pkg;
+    new_pkg.dependencies = &.{ stdx.pkg };
+    step.addPackage(new_pkg);
+    step.linkLibC();
+    step.addIncludeDir(srcPath() ++ "/vendor/include");
+}
+
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
@@ -321,13 +336,13 @@ pub fn create(
     }
 
     for (c_files.items) |file| {
-        const path = b.fmt("{s}/vendor/src/{s}", .{ root(), file });
+        const path = b.fmt("{s}/vendor/src/{s}", .{ srcPath(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
     lib.linkLibC();
     // Look for our custom SDL_config.h.
-    lib.addIncludeDir(root());
+    lib.addIncludeDir(srcPath());
     // For local CMake generated config.
     // lib.addIncludeDir(fromRoot(b, "vendor/build/include"));
     lib.addIncludeDir(fromRoot(b, "vendor/include"));
@@ -384,13 +399,27 @@ pub fn linkDeps(step: *std.build.LibExeObjStep) void {
         step.linkSystemLibrary("gdi32");
         step.linkSystemLibrary("imm32");
         step.linkSystemLibrary("version");
+        step.linkSystemLibrary("winmm");
     }
 }
 
-fn root() []const u8 {
+pub const Options = struct {
+    lib_path: ?[]const u8 = null,
+};
+
+pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
+    if (opts.lib_path) |path| {
+        linkLibPath(step, path);
+    } else {
+        const lib = create(step.builder, step.target, step.build_mode) catch unreachable;
+        linkLib(step, lib);
+    }
+}
+
+fn srcPath() []const u8 {
     return (std.fs.path.dirname(@src().file) orelse unreachable);
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
 }

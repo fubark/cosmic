@@ -14,6 +14,11 @@ const Config = window.Config;
 const Mode = window.Mode;
 const log = stdx.log.scoped(.window_gl);
 
+const IsWebGL2 = builtin.target.isWasm();
+extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) u8;
+
+const IsDesktop = !IsWebGL2;
+
 pub const Window = struct {
     const Self = @This();
 
@@ -47,13 +52,37 @@ pub const Window = struct {
     initial_mvp: Mat4,
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
-        try sdl.ensureVideoInit();
+        if (IsDesktop) {
+            try sdl.ensureVideoInit();
+        }
 
-        var res: Window = undefined;
-        const flags = getSdlWindowFlags(config);
-        try initGL_Window(alloc, &res, config, flags);
-        try initGL_Context(&res);
-        res.alloc = alloc;
+        var res = Window{
+            .id = undefined,
+            .sdl_window = undefined,
+            .alloc = alloc,
+            .gl_ctx_ref_count = undefined,
+            .gl_ctx = undefined,
+            .graphics = undefined,
+            .width = undefined,
+            .height = undefined,
+            .buf_width = undefined,
+            .buf_height = undefined,
+            .dpr = undefined,
+            .proj_transform = undefined,
+            .initial_mvp = undefined,
+        };
+        if (IsDesktop) {
+            const flags = getSdlWindowFlags(config);
+            try initGL_Window(alloc, &res, config, flags);
+            try initGL_Context(&res);
+        } else if (IsWebGL2) {
+            const dpr = jsSetCanvasBuffer(config.width, config.height);
+            res.width = @intCast(u32, config.width);
+            res.height = @intCast(u32, config.height);
+            res.buf_width = dpr * res.width;
+            res.buf_height = dpr * res.height;
+            res.dpr = dpr;
+        }
         res.gl_ctx_ref_count = alloc.create(u32) catch unreachable;
         res.gl_ctx_ref_count.* = 1;
 
@@ -64,11 +93,14 @@ pub const Window = struct {
 
         // Setup transforms.
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
-        res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
+        const view_transform = Transform.initIdentity();
+        res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, view_transform.mat);
 
-        if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
-            res.fbo_id = msaa.fbo;
-            res.msaa = msaa;
+        if (config.anti_alias) {
+            if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
+                res.fbo_id = msaa.fbo;
+                res.msaa = msaa;
+            }
         }
 
         return res;
@@ -82,7 +114,21 @@ pub const Window = struct {
     pub fn initWithSharedContext(alloc: std.mem.Allocator, config: Config, existing_win: Self) !Self {
         try sdl.ensureVideoInit();
 
-        var res: Window = undefined;
+        var res = Window{
+            .id = undefined,
+            .sdl_window = undefined,
+            .alloc = alloc,
+            .gl_ctx_ref_count = undefined,
+            .gl_ctx = undefined,
+            .graphics = undefined,
+            .width = undefined,
+            .height = undefined,
+            .buf_width = undefined,
+            .buf_height = undefined,
+            .dpr = undefined,
+            .proj_transform = undefined,
+            .initial_mvp = undefined,
+        };
         const flags = getSdlWindowFlags(config);
         try initGL_Window(alloc, &res, config, flags);
         // Reuse existing window's GL context.
@@ -97,21 +143,27 @@ pub const Window = struct {
         res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
         res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
-        if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
-            res.fbo_id = msaa.fbo;
-            res.msaa = msaa;
+        if (config.anti_alias) {
+            if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
+                res.fbo_id = msaa.fbo;
+                res.msaa = msaa;
+            }
         }
 
         return res;
     }
 
     pub fn deinit(self: Self) void {
-        sdl.SDL_DestroyWindow(self.sdl_window);
+        if (IsDesktop) {
+            sdl.SDL_DestroyWindow(self.sdl_window);
+        }
         if (self.gl_ctx_ref_count.* == 1) {
             self.graphics.deinit();
             self.alloc.destroy(self.graphics);
 
-            sdl.SDL_GL_DeleteContext(self.gl_ctx);
+            if (IsDesktop) {
+                sdl.SDL_GL_DeleteContext(self.gl_ctx);
+            }
             self.alloc.destroy(self.gl_ctx_ref_count);
         } else {
             self.gl_ctx_ref_count.* -= 1;
@@ -122,11 +174,16 @@ pub const Window = struct {
         self.width = width;
         self.height = height;
 
-        var buf_width: c_int = undefined;
-        var buf_height: c_int = undefined;
-        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
-        self.buf_width = @intCast(u32, buf_width);
-        self.buf_height = @intCast(u32, buf_height);
+        if (IsDesktop) {
+            var buf_width: c_int = undefined;
+            var buf_height: c_int = undefined;
+            sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+            self.buf_width = @intCast(u32, buf_width);
+            self.buf_height = @intCast(u32, buf_height);
+        } else {
+            self.buf_width = self.dpr * self.width;
+            self.buf_height = self.dpr * self.height;
+        }
 
         // Resize the transforms.
         self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
@@ -140,19 +197,26 @@ pub const Window = struct {
     }
 
     pub fn resize(self: *Self, width: u32, height: u32) void {
-        sdl.SDL_SetWindowSize(self.sdl_window, @intCast(c_int, width), @intCast(c_int, height));
+        if (IsDesktop) {
+            sdl.SDL_SetWindowSize(self.sdl_window, @intCast(c_int, width), @intCast(c_int, height));
+            var cur_width: c_int = undefined;
+            var cur_height: c_int = undefined;
+            sdl.SDL_GetWindowSize(self.sdl_window, &cur_width, &cur_height);
+            self.width = @intCast(u32, cur_width);
+            self.height = @intCast(u32, cur_height);
 
-        var cur_width: c_int = undefined;
-        var cur_height: c_int = undefined;
-        sdl.SDL_GetWindowSize(self.sdl_window, &cur_width, &cur_height);
-        self.width = @intCast(u32, cur_width);
-        self.height = @intCast(u32, cur_height);
-
-        var buf_width: c_int = undefined;
-        var buf_height: c_int = undefined;
-        sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
-        self.buf_width = @intCast(u32, buf_width);
-        self.buf_height = @intCast(u32, buf_height);
+            var buf_width: c_int = undefined;
+            var buf_height: c_int = undefined;
+            sdl.SDL_GL_GetDrawableSize(self.sdl_window, &buf_width, &buf_height);
+            self.buf_width = @intCast(u32, buf_width);
+            self.buf_height = @intCast(u32, buf_height);
+        } else {
+            _ = jsSetCanvasBuffer(width, height);
+            self.width = width;
+            self.height = height;
+            self.buf_width = width * self.dpr;
+            self.buf_height = height * self.dpr;
+        }
 
         self.proj_transform = initDisplayProjection(@intToFloat(f32, self.width), @intToFloat(f32, self.height));
         self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
@@ -211,9 +275,11 @@ pub const Window = struct {
     }
 
     pub fn swapBuffers(self: Self) void {
-        // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
-        // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
-        sdl.SDL_GL_SwapWindow(self.sdl_window);
+        if (IsDesktop) {
+            // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
+            // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
+            sdl.SDL_GL_SwapWindow(self.sdl_window);
+        }
     }
 
     pub fn setTitle(self: Self, title: []const u8) void {
@@ -281,8 +347,8 @@ fn initGL_Context(win: *Window) !void {
         // This also means it's better to start initing opengl functions (GetProcAddress) on windows after an opengl context is created.
         var major: i32 = undefined;
         var minor: i32 = undefined;
-        gl.glGetIntegerv(gl.GL_MAJOR_VERSION, &major);
-        gl.glGetIntegerv(gl.GL_MINOR_VERSION, &minor);
+        gl.getIntegerv(gl.GL_MAJOR_VERSION, &major);
+        gl.getIntegerv(gl.GL_MINOR_VERSION, &minor);
         _ = minor;
         if (major < 3) {
             log.err("OpenGL Version Unsupported: {s}", .{gl.glGetString(gl.GL_VERSION)});
@@ -322,6 +388,19 @@ fn getSdlWindowFlags(config: Config) c_int {
     return flags;
 }
 
+// TODO: Move both initTextureProjection and initDisplayProjection to graphics package.
+/// For drawing to textures. Similar to display projection but y isn't flipped.
+pub fn initTextureProjection(width: f32, height: f32) Transform {
+    var res = Transform.initIdentity();
+    // first reduce to [0,1] values
+    res.scale(1.0 / width, 1.0 / height);
+    // to [0,2] values
+    res.scale(2.0, 2.0);
+    // to clip space [-1,1]
+    res.translate(-1.0, -1.0);
+    return res;
+}
+
 pub fn initDisplayProjection(width: f32, height: f32) Transform {
     var res = Transform.initIdentity();
     // first reduce to [0,1] values
@@ -345,10 +424,16 @@ test "initDisplayProjection" {
 
 fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
     gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, msaa.fbo);
-    gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex);
-    gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
-    gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex, 0);
-    gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+    if (IsDesktop) {
+        gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex.?);
+        gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, msaa.num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
+        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, msaa.tex.?, 0);
+        gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+    } else {
+        gl.bindRenderbuffer(gl.GL_RENDERBUFFER, msaa.rbo.?);
+        gl.renderbufferStorageMultisample(gl.GL_RENDERBUFFER, @intCast(c_int, msaa.num_samples), gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height));
+        gl.framebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_RENDERBUFFER, msaa.rbo.?);
+    }
 }
 
 pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer {
@@ -363,27 +448,48 @@ pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer 
             2 => 4,
             else => 2,
         };
+        const num_samples = std.math.min(max_samples, msaa_preferred_samples);
+
         var ms_fbo: gl.GLuint = 0;
         gl.genFramebuffers(1, &ms_fbo);
         gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, ms_fbo);
 
-        var ms_tex: gl.GLuint = 0;
-        gl.glGenTextures(1, &ms_tex);
+        if (IsDesktop) {
+            var ms_tex: gl.GLuint = undefined;
+            gl.genTextures(1, &ms_tex);
 
-        gl.glEnable(gl.GL_MULTISAMPLE);
-        // gl.glHint(gl.GL_MULTISAMPLE_FILTER_HINT_NV, gl.GL_NICEST);
-        const num_samples = std.math.min(max_samples, msaa_preferred_samples);
-        gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
-        gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
-        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
-
-        log.debug("msaa framebuffer created with {} samples", .{num_samples});
-        return MsaaFrameBuffer{
-            .fbo = ms_fbo,
-            .tex = ms_tex,
-            .num_samples = num_samples,
-        };
+            gl.enable(gl.GL_MULTISAMPLE);
+            // gl.glHint(gl.GL_MULTISAMPLE_FILTER_HINT_NV, gl.GL_NICEST);
+            gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex);
+            gl.texImage2DMultisample(gl.GL_TEXTURE_2D_MULTISAMPLE, @intCast(c_int, num_samples), gl.GL_RGB, @intCast(c_int, width), @intCast(c_int, height), gl.GL_TRUE);
+            gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D_MULTISAMPLE, ms_tex, 0);
+            gl.bindTexture(gl.GL_TEXTURE_2D_MULTISAMPLE, 0);
+            log.debug("msaa framebuffer created with {} samples", .{num_samples});
+            return MsaaFrameBuffer{
+                .fbo = ms_fbo,
+                .tex = ms_tex,
+                .rbo = null,
+                .num_samples = num_samples,
+            };
+        } else if (IsWebGL2) {
+            // webgl2 does not support texture multisampling but it does support renderbuffer multisampling.
+            var rbo: gl.GLuint = undefined;
+            gl.genRenderbuffers(1, &rbo);
+            gl.bindRenderbuffer(gl.GL_RENDERBUFFER, rbo);
+            gl.renderbufferStorageMultisample(gl.GL_RENDERBUFFER, @intCast(c_int, num_samples), gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height));
+            gl.framebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_RENDERBUFFER, rbo);
+            const status = gl.checkFramebufferStatus(gl.GL_FRAMEBUFFER);
+            if (status != gl.GL_FRAMEBUFFER_COMPLETE) {
+                log.debug("unexpected status: {}", .{status});
+                unreachable;
+            }
+            return MsaaFrameBuffer{
+                .fbo = ms_fbo,
+                .tex = null,
+                .rbo = rbo,
+                .num_samples = num_samples,
+            };
+        } else unreachable;
     } else {
         return null;
     }
@@ -391,6 +497,12 @@ pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer 
 
 const MsaaFrameBuffer = struct {
     fbo: gl.GLuint,
-    tex: gl.GLuint,
+
+    // For desktop.
+    tex: ?gl.GLuint,
+
+    // For webgl2.
+    rbo: ?gl.GLuint,
+
     num_samples: u32,
 };

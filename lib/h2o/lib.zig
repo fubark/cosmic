@@ -1,11 +1,34 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const uv = @import("../uv/lib.zig");
+const ssl = @import("../openssl/lib.zig");
+
 const Options = struct {
     openssl_includes: []const []const u8,
     libuv_includes: []const []const u8,
     zlib_includes: []const []const u8,
 };
+
+pub const pkg = std.build.Pkg{
+    .name = "h2o",
+    .path = .{ .path = srcPath() ++ "/h2o.zig" },
+};
+
+pub fn addPackage(step: *std.build.LibExeObjStep) void {
+    var new_pkg = pkg;
+    new_pkg.dependencies = &.{ uv.pkg, ssl.pkg };
+    step.addPackage(new_pkg);
+    step.addIncludeDir(srcPath() ++ "/");
+    step.addIncludeDir(srcPath() ++ "/vendor/include");
+    step.addIncludeDir(srcPath() ++ "/vendor/deps/picotls/include");
+    step.addIncludeDir(srcPath() ++ "/vendor/deps/quicly/include");
+    step.addIncludeDir(srcPath() ++ "/../openssl/vendor/include");
+    if (step.target.getOsTag() == .windows) {
+        step.addIncludeDir(srcPath() ++ "/../mingw/win_posix/include");
+        step.addIncludeDir(srcPath() ++ "/../mingw/winpthreads/include");
+    }
+}
 
 pub fn create(
     b: *std.build.Builder,
@@ -185,7 +208,7 @@ pub fn create(
     });
 
     for (c_files.items) |file| {
-        const path = b.fmt("{s}/vendor/{s}", .{ root(), file });
+        const path = b.fmt("{s}/vendor/{s}", .{ srcPath(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
@@ -209,7 +232,7 @@ pub fn create(
     lib.linkLibC();
 
     // Load user_config.h here. include/h2o.h was patched to include user_config.h
-    lib.addIncludeDir(root());
+    lib.addIncludeDir(srcPath());
 
     for (opts.openssl_includes) |path| {
         lib.addIncludeDir(path);
@@ -255,10 +278,10 @@ pub fn linkLibPath(step: *std.build.LibExeObjStep, path: []const u8) void {
     step.addAssemblyFile(path);
 }
 
-fn root() []const u8 {
+fn srcPath() []const u8 {
     return (std.fs.path.dirname(@src().file) orelse unreachable);
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
 }

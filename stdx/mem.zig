@@ -9,12 +9,17 @@ pub fn ptrCastTo(ptr_to_ptr: anytype, from: anytype) void {
     ptr_to_ptr.* = @ptrCast(Ptr, from);
 }
 
+/// @alignCast seems to be broken (does not insert runtime checks) when passed a comptime int from an expression like @typeInfo(Ptr).Pointer.alignment (for cases where Ptr has a custom alignment, eg. *align(1) u32).
+/// Current fix is to branch to common alignments.
 pub fn ptrCastAlign(comptime Ptr: type, ptr: anytype) Ptr {
     const alignment = @typeInfo(Ptr).Pointer.alignment;
-    if (alignment == 0) {
-        return @ptrCast(Ptr, ptr);
-    } else {
-        return @ptrCast(Ptr, @alignCast(alignment, ptr));
+    switch (alignment) {
+        0 => return @ptrCast(Ptr, ptr),
+        1 => return @ptrCast(Ptr, @alignCast(1, ptr)),
+        2 => return @ptrCast(Ptr, @alignCast(2, ptr)),
+        4 => return @ptrCast(Ptr, @alignCast(4, ptr)),
+        8 => return @ptrCast(Ptr, @alignCast(8, ptr)),
+        else => unreachable,
     }
 }
 
@@ -97,4 +102,8 @@ pub fn lastIndexOfPos(comptime T: type, haystack: []const T, start: usize, needl
         if (std.mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
     }
     if (std.mem.eql(T, haystack[0..needle.len], needle)) return i else return null;
+}
+
+pub fn removeConst(comptime T: type, val: *const T) *T {
+    return @intToPtr(*T, @ptrToInt(val));
 }

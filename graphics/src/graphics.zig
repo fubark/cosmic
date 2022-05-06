@@ -25,7 +25,7 @@ const _font_group = @import("font_group.zig");
 const FontGroup = _font_group.FontGroup;
 const text_renderer = @import("backend/gl/text_renderer.zig");
 const FontCache = gl.FontCache;
-const log = std.log.scoped(.graphics);
+const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
 
 pub const tessellator = @import("tessellator.zig");
@@ -58,28 +58,31 @@ pub const font = struct {
 const FontGroupId = font.FontGroupId;
 const FontId = font.FontId;
 
-pub const canvas = @import("backend/wasm/graphics.zig");
+pub const canvas = @import("backend/canvas/graphics.zig");
 pub const gl = @import("backend/gl/graphics.zig");
 pub const testg = @import("backend/test/graphics.zig");
 
 // LINKS:
 // https://github.com/michal-z/zig-gamedev (windows directx/2d graphics)
-// https://github.com/mapbox/earcut (polygon triangulation)
 // https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-25-rendering-vector-art-gpu
 // https://github.com/intel/fastuidraw
 // https://github.com/microsoft/Win2D, https://github.com/microsoft/microsoft-ui-xaml
 
 const BackendType = enum {
+    /// Stub for testing.
     Test,
+    /// Deprecated. Uses html canvas context for graphics. Kept for historical reference.
     WasmCanvas,
+    /// For Desktop and WebGL.
     OpenGL,
 };
 
 pub const Backend: BackendType = b: {
     if (builtin.is_test) {
         break :b .Test;
-    } else if (builtin.target.cpu.arch == .wasm32) {
-        break :b .WasmCanvas;
+    } else if (builtin.target.isWasm()) {
+        // break :b .WasmCanvas;
+        break :b .OpenGL;
     } else {
         break :b .OpenGL;
     }
@@ -162,6 +165,20 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => gl.Graphics.resetTransform(&self.g),
             .WasmCanvas => canvas.Graphics.resetTransform(&self.g),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn setClearColor(self: *Self, color: Color) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.setClearColor(&self.g, color),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn clear(self: Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.clear(self.g),
             else => stdx.panic("unsupported"),
         }
     }
@@ -570,13 +587,21 @@ pub const Graphics = struct {
         }
     }
 
-    // Assumes data is rgba in row major starting from top left of image.
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: []const u8, linear_filter: bool) ImageId {
+    /// Assumes data is rgba in row major starting from top left of image.
+    /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
+    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         switch (Backend) {
             .OpenGL => {
                 const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter, .{});
                 return image.image_id;
             },
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.bindImageBuffer(&self.g, image_id),
             else => stdx.panic("unsupported"),
         }
     }
@@ -627,11 +652,13 @@ pub const Graphics = struct {
         return self.addTTF_Font(data);
     }
 
-    /// Wasm relies on css to load fonts so it doesn't have access to the font family name.
+    /// Wasm/Canvas relies on css to load fonts so it doesn't have access to the font family name.
     /// Other backends will just ignore the name arg. 
-    pub fn addTTF_FontFromPathForName(self: *Self, path: []const u8, name: []const u8) !FontId {
+    pub fn addTTF_FontFromPathCompat(self: *Self, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
-            .OpenGL => return self.addTTF_FontPath(path),
+            .OpenGL => {
+                return self.addTTF_FontFromPath(path);
+            },
             .WasmCanvas => return canvas.Graphics.addTTF_FontFromPath(&self.g, path, name),
             else => stdx.panic("unsupported"),
         }
@@ -706,7 +733,7 @@ pub const Graphics = struct {
         self.fillText(x, y, self.text_buf.items);
     }
 
-    // Measure many text at once.
+    /// Measure many text at once.
     pub fn measureTextBatch(self: *Self, arr: []*TextMeasure) void {
         switch (Backend) {
             .OpenGL => {
@@ -719,6 +746,7 @@ pub const Graphics = struct {
         }
     }
 
+    /// Measure the char advance between two codepoints.
     pub fn measureCharAdvance(self: *Self, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
         switch (Backend) {
             .OpenGL => return text_renderer.measureCharAdvance(&self.g.font_cache, &self.g, font_gid, font_size, prev_cp, cp),
@@ -730,6 +758,15 @@ pub const Graphics = struct {
         }
     }
 
+    /// Measure some text with a given font.
+    pub fn measureFontText(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8, out: *TextMetrics) void {
+        switch (Backend) {
+            .OpenGL => return self.g.measureFontText(font_gid, font_size, str, out),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Return an iterator to measure each character.
     pub fn measureFontTextIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) MeasureTextIterator {
         switch (Backend) {
             .OpenGL => {
@@ -766,6 +803,14 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => return self.g.default_font_id,
             .Test => return self.g.default_font_id,
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
+        switch (Backend) {
+            .OpenGL => return self.g.default_font_gid,
+            .Test => return self.g.default_font_gid,
             else => stdx.panic("unsupported"),
         }
     }
@@ -825,14 +870,14 @@ pub const Graphics = struct {
         }
     }
 
-    //     pub fn flushDraw(self: *Self) void {
-    //         switch (Backend) {
-    //             .OpenGL => gl.Graphics.flushDraw(&self.g),
-    //             .WasmCanvas => canvas.Graphics.flushDraw(&self.g),
-    //             else => stdx.panic("unsupported"),
-    //         }
-    //     }
-
+    /// Flush any draw commands queued up.
+    pub inline fn flushDraw(self: *Self) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.flushDraw(&self.g),
+            .WasmCanvas => {},
+            else => stdx.panic("unsupported"),
+        }
+    }
 };
 
 // TOOL: https://www.andersriggelsen.dk/glblendfunc.php
@@ -900,7 +945,7 @@ pub const MeasureTextIterator = struct {
     pub fn nextCodepoint(self: *Self) bool {
         switch (Backend) {
             .Test => return testg.MeasureTextIterator.nextCodepoint(&self.inner),
-            .OpenGL => return gl.font_cache.MeasureTextIterator.nextCodepoint(&self.inner),
+            .OpenGL => return gl.MeasureTextIterator.nextCodepoint(&self.inner),
             else => stdx.panic("unsupported"),
         }
     }
@@ -933,16 +978,6 @@ pub const Image = struct {
     width: usize,
     height: usize,
 };
-
-pub fn delay(us: u64) void {
-    if (builtin.target.cpu.arch != .wasm32) {
-        // TODO: How does this compare to std.time.sleep ?
-        sdl.SDL_Delay(@intCast(u32, us / 1000));
-    } else {
-        // There isn't a good sleep mechanism in js since it's run on event loop.
-        // stdx.time.sleep(self.target_ms_per_frame - render_time_ms);
-    }
-}
 
 pub const TextAlign = enum {
     Left,

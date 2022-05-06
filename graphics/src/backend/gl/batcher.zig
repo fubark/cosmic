@@ -130,14 +130,13 @@ pub const Batcher = struct {
         gl.useProgram(self.tex_shader.prog_id);
 
         gl.activeTexture(gl.GL_TEXTURE0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.cur_tex_image.tex_id);
+        gl.bindTexture(gl.GL_TEXTURE_2D, self.cur_tex_image.tex_id);
 
         // set u_mvp, since transpose is false, it expects to receive in column major order.
-        gl.uniformMatrix4fv(0, 1, gl.GL_FALSE, &self.mvp);
+        gl.uniformMatrix4fv(self.tex_shader.u_mvp_loc, 1, gl.GL_FALSE, &self.mvp);
 
-        // text_program.get_uniform_loc("u_texture");
-        // set u_tex
-        gl.uniform1i(1, gl.GL_TEXTURE0 + 0);
+        // set tex to active texture.
+        gl.uniform1i(self.tex_shader.u_tex_loc, 0);
 
         // Recall how to pull data from the buffer for shader.
         gl.bindVertexArray(self.tex_shader.vao_id);

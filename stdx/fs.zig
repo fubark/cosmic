@@ -3,7 +3,7 @@ const stdx = @import("stdx.zig");
 const builtin = @import("builtin");
 const log = stdx.log.scoped(.fs);
 
-extern "stdx" fn jsFetchData(promise_id: u32, ptr: [*]const u8, len: usize) void;
+extern "stdx" fn jsFetchData(ptr: [*]const u8, len: usize) u32;
 
 // Path can be absolute or relative to the cwd.
 pub fn appendFile(path: []const u8, data: []const u8) !void {
@@ -18,16 +18,11 @@ pub fn appendFile(path: []const u8, data: []const u8) !void {
 }
 
 /// Path can be absolute or relative to the cwd.
-pub fn readFilePromise(alloc: std.mem.Allocator, path: []const u8, max_size: usize) stdx.wasm.Promise([]const u8) {
-    _ = alloc;
-    _ = max_size;
-    // Currently only supported for web wasm.
-    if (builtin.target.cpu.arch == .wasm32) {
-        const p = stdx.wasm.createPromise([]const u8);
-        jsFetchData(p.id, path.ptr, path.len);
-        return p;
+pub fn readFileWasm(path: []const u8) u32 {
+    if (comptime builtin.target.isWasm()) {
+        return jsFetchData(path.ptr, path.len);
     } else {
-        @compileError("unsupported");
+        unreachable;
     }
 }
 

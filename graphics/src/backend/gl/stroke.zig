@@ -89,7 +89,7 @@ pub fn computeOffsetNormal(v1: Vec2, v2: Vec2) Vec2 {
     const n1 = vec2(-v1.y, v1.x);
     const inv_len = n.dot(n1);
 
-    if (math.absFloat(inv_len) < epsilon) {
+    if (@fabs(inv_len) < epsilon) {
         return n1;
     }
     return n.div(inv_len);

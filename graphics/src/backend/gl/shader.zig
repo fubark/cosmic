@@ -13,6 +13,9 @@ pub const Shader = struct {
     // Vertex array object used to record vbo layout.
     vao_id: gl.GLuint,
 
+    u_mvp_loc: gl.GLint,
+    u_tex_loc: gl.GLint,
+
     pub fn init(vert_src: []const u8, frag_src: []const u8) !Self {
         const vert_id = gl.createShader(gl.GL_VERTEX_SHADER);
         var src_len = @intCast(c_int, vert_src.len);
@@ -63,6 +66,9 @@ pub const Shader = struct {
             return error.Failed;
         }
 
+        const mvp_loc = gl.getUniformLocation(prog_id, "u_mvp");
+        const tex_loc = gl.getUniformLocation(prog_id, "u_tex");
+
         // Cleanup.
         gl.detachShader(prog_id, vert_id);
         gl.deleteShader(vert_id);
@@ -77,6 +83,8 @@ pub const Shader = struct {
             .vert_id = vert_id,
             .frag_id = frag_id,
             .prog_id = prog_id,
+            .u_mvp_loc = mvp_loc,
+            .u_tex_loc = tex_loc,
         };
     }
 

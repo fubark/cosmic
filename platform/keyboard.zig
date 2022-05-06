@@ -66,6 +66,7 @@ pub const KeyCode = enum(u8) {
     Y = 89,
     Z = 90,
 
+    Meta = 91,
     ContextMenu = 93,
 
     F1 = 112,
@@ -191,6 +192,14 @@ pub const KeyDownEvent = struct {
 
     // Whether it's a repeated key down, pressed and held. Frequency depends on target platform settings.
     is_repeat: bool,
+
+    pub fn initWithMods(code: KeyCode, mods: u8, is_repeat: bool) @This() {
+        return .{
+            .code = code,
+            .mods = mods,
+            .is_repeat = is_repeat,
+        };
+    }
 
     pub fn init(code: KeyCode, is_repeat: bool, shift_pressed: bool, control_pressed: bool, alt_pressed: bool, meta_pressed: bool) Self {
         var mods: u8 = 0;

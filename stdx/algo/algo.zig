@@ -11,8 +11,20 @@ pub const walkPrePost = walk.walkPrePost;
 pub const Walker = walk.Walker;
 pub const WalkerContext = walk.WalkerContext;
 pub const VisitContext = walk.VisitContext;
-
 pub const WalkIterator = walk_iterator.WalkIterator;
+
+const walk_recursive = @import("walk_recursive.zig");
+pub const recursive = struct {
+    pub const searchPreMany = walk_recursive.searchPreMany;
+    pub const ChildArrayListSearchWalker = walk_recursive.ChildArrayListSearchWalker;
+    pub const walkPost = walk_recursive.walkPost;
+    pub const walkPrePost = walk_recursive.walkPrePost;
+    pub const walkPreMany = walk_recursive.walkPreMany;
+    pub const walkPrePostMany = walk_recursive.walkPrePostMany;
+    pub const ChildArrayListWalker = walk_recursive.ChildArrayListWalker;
+    pub const Walker = walk_recursive.Walker;
+    pub const WalkContext = walk_recursive.WalkContext;
+};
 
 // For binarySearch, use std.sort.binarySearch
 

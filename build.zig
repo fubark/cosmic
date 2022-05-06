@@ -6,6 +6,12 @@ const print = std.debug.print;
 const builtin = @import("builtin");
 const Pkg = std.build.Pkg;
 const log = std.log.scoped(.build);
+
+const stdx = @import("stdx/lib.zig");
+const platform = @import("platform/lib.zig");
+const graphics = @import("graphics/lib.zig");
+const ui = @import("ui/lib.zig");
+
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
 const zlib = @import("lib/zlib/lib.zig");
@@ -13,6 +19,10 @@ const http2 = @import("lib/nghttp2/lib.zig");
 const curl = @import("lib/curl/lib.zig");
 const uv = @import("lib/uv/lib.zig");
 const h2o = @import("lib/h2o/lib.zig");
+const stb = @import("lib/stb/lib.zig");
+const gl = @import("lib/gl/lib.zig");
+const lyon = @import("lib/clyon/lib.zig");
+const tess2 = @import("lib/tess2/lib.zig");
 
 const VersionName = "v0.1";
 const DepsRevision = "5c31d18797ccb0c71adaf6a31beab53a8c070b5c";
@@ -38,7 +48,7 @@ pub fn build(b: *Builder) !void {
     const path = b.option([]const u8, "path", "Path to main file, for: build, run, test-file") orelse "";
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
-    const graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const link_graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
@@ -48,7 +58,7 @@ pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
     const wsl = b.option(bool, "wsl", "Whether this running in wsl.") orelse false;
-    const link_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse true;
+    const link_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse false;
     const link_tess2 = b.option(bool, "tess2", "Link libtess2 for testing.") orelse false;
 
     const build_options = b.addOptions();
@@ -83,7 +93,7 @@ pub fn build(b: *Builder) !void {
     var ctx = BuilderContext{
         .builder = b,
         .enable_tracy = tracy,
-        .link_graphics = graphics,
+        .link_graphics = link_graphics,
         .link_audio = audio,
         .link_v8 = v8,
         .link_net = net,
@@ -138,7 +148,7 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
-        ctx_.path = "cosmic/main.zig";
+        ctx_.path = "runtime/main.zig";
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
@@ -184,8 +194,35 @@ pub fn build(b: *Builder) !void {
         step.dependOn(&ctx.addInstallArtifact(ssl_).step);
     }
 
-    const build_wasm = ctx.createBuildWasmBundleStep();
-    b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+    {
+        var ctx_ = ctx;
+        ctx_.target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .abi = .musl,
+        };
+        const build_wasm = ctx_.createBuildWasmBundleStep(ctx_.path);
+        b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+    }
+
+    {
+        const step = b.addLog("", .{});
+        var ctx_ = ctx;
+        ctx_.target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .abi = .musl,
+        };
+        const counter = ctx_.createBuildWasmBundleStep("ui/examples/counter.zig");
+        step.step.dependOn(&counter.step);
+        const converter = ctx_.createBuildWasmBundleStep("ui/examples/converter.zig");
+        step.step.dependOn(&converter.step);
+        const timer = ctx_.createBuildWasmBundleStep("ui/examples/timer.zig");
+        step.step.dependOn(&timer.step);
+        const crud = ctx_.createBuildWasmBundleStep("ui/examples/crud.zig");
+        step.step.dependOn(&crud.step);
+        b.step("wasm-examples", "Builds all the wasm examples.").dependOn(&step.step);
+    }
 
     const get_version = b.addLog("{s}", .{getVersionString(is_official_build)});
     b.step("version", "Get the build version.").dependOn(&get_version.step);
@@ -218,7 +255,7 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
-        ctx_.path = "cosmic/main.zig";
+        ctx_.path = "runtime/main.zig";
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
@@ -239,7 +276,7 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
-        ctx_.path = "cosmic/main.zig";
+        ctx_.path = "runtime/main.zig";
         const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
@@ -258,7 +295,7 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
-        ctx_.path = "cosmic/main.zig";
+        ctx_.path = "runtime/main.zig";
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
@@ -318,62 +355,83 @@ const BuilderContext = struct {
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const build_options = self.buildOptionsPkg();
         const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
         self.setBuildMode(step);
         self.setTarget(step);
         self.setOutputDir(step, name);
-
-        addStdx(step, build_options);
-        addInput(step);
-        self.addGraphics(step);
         self.addDeps(step) catch unreachable;
-
         return step;
     }
 
-    // Similar to createBuildLibStep except we also copy over index.html and required js libs.
-    fn createBuildWasmBundleStep(self: *Self) *LibExeObjStep {
-        const basename = std.fs.path.basename(self.path);
+    /// Similar to createBuildLibStep except we also copy over index.html and required js libs.
+    fn createBuildWasmBundleStep(self: *Self, path: []const u8) *LibExeObjStep {
+        const basename = std.fs.path.basename(path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const build_options = self.buildOptionsPkg();
-        const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
+        const step = self.builder.addSharedLibrary(name, path, .unversioned);
+        // const step = self.builder.addStaticLibrary(name, path);
         self.setBuildMode(step);
-        step.setTarget(.{
-            .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
-        });
+        self.setTarget(step);
 
-        const output_dir_rel = std.mem.concat(self.builder.allocator, u8, &.{ "zig-out/", name }) catch unreachable;
-        const output_dir = self.fromRoot(output_dir_rel);
-        step.setOutputDir(output_dir);
-
-        addStdx(step, build_options);
-        self.addGraphics(step);
         self.addDeps(step) catch unreachable;
-        self.copyAssets(step, output_dir_rel);
 
-        // index.html
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.joinResolvePath(&.{ output_dir, "index.html" }));
+        _ = self.addInstallArtifact(step);
+        // This is needed for wasm builds or the main .wasm file won't output to the custom directory. 
+        self.setOutputDir(step, step.install_step.?.dest_dir.custom);
+
+        self.copyAssets(step);
+
+        // Create copy of index.html.
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.fromRoot("./lib/wasm-js/gen-index.html"));
         step.step.dependOn(&cp.step);
 
-        // Replace wasm file name in index.html
-        const index_path = self.joinResolvePath(&[_][]const u8{ output_dir, "index.html" });
+        // Replace wasm file name in gen-index.html
+        const index_path = self.fromRoot("./lib/wasm-js/gen-index.html");
         const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
         step.step.dependOn(&replace.step);
 
+        // Install gen-index.html
+        const install_index = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/gen-index.html", "index.html");
+        step.step.dependOn(&install_index.step);
+
         // graphics.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics.js"), self.joinResolvePath(&.{ output_dir, "graphics.js" }));
-        step.step.dependOn(&cp.step);
+        // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-canvas.js", "graphics.js");
+        const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-webgl2.js", "graphics.js");
+        step.step.dependOn(&install_graphics.step);
 
         // stdx.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.joinResolvePath(&.{ output_dir, "stdx.js" }));
-        step.step.dependOn(&cp.step);
+        const install_stdx = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/stdx.js", "stdx.js");
+        step.step.dependOn(&install_stdx.step);
 
         return step;
+    }
+
+    /// dst_rel_path is relative to the step's custom dest directory.
+    fn addStepInstallFile(self: *Self, step: *LibExeObjStep, src_path: []const u8, dst_rel_path: []const u8) *std.build.InstallFileStep {
+        return self.builder.addInstallFile(.{ .path = src_path }, self.builder.fmt("{s}/{s}", .{step.install_step.?.dest_dir.custom, dst_rel_path}));
+    }
+
+    fn copyAssets(self: *Self, step: *LibExeObjStep) void {
+        if (self.path.len == 0) {
+            return;
+        }
+        if (!std.mem.endsWith(u8, self.path, ".zig")) {
+            return;
+        }
+
+        const assets_file = self.builder.fmt("{s}_assets.txt", .{self.path[0..self.path.len-4]});
+        const assets = std.fs.cwd().readFileAlloc(self.builder.allocator, assets_file, 1e12) catch return;
+
+        var iter = std.mem.tokenize(u8, assets, "\n");
+        while (iter.next()) |path| {
+            const basename = std.fs.path.basename(path);
+            const src_path = self.builder.fmt("{s}{s}", .{srcPath(), path});
+
+            const install_file = self.addStepInstallFile(step, src_path, basename);
+            step.step.dependOn(&install_file.step);
+        }
     }
 
     fn joinResolvePath(self: *Self, paths: []const []const u8) []const u8 {
@@ -393,7 +451,7 @@ const BuilderContext = struct {
             const path = self.builder.fmt("{s}/{s}", .{ triple, name });
             artifact.override_dest_dir = .{ .custom = path };
         } else if (artifact.kind == .lib) {
-            const path = self.builder.fmt("{s}/lib", .{ triple });
+            const path = self.builder.fmt("{s}/{s}", .{ triple, artifact.name });
             artifact.override_dest_dir = .{ .custom = path };
         }
         return self.builder.addInstallArtifact(artifact);
@@ -404,16 +462,12 @@ const BuilderContext = struct {
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const build_options = self.buildOptionsPkg();
         const exe = self.builder.addExecutable(name, self.path);
         self.setBuildMode(exe);
         self.setTarget(exe);
         exe.setMainPkgPath(".");
 
-        exe.addPackage(build_options);
-        addStdx(exe, build_options);
-        addInput(exe);
-        self.addGraphics(exe);
+        exe.addPackage(self.buildOptionsPkg());
         self.addDeps(exe) catch unreachable;
 
         if (self.enable_tracy) {
@@ -421,8 +475,7 @@ const BuilderContext = struct {
         }
 
         _ = self.addInstallArtifact(exe);
-        const install_dir = self.builder.fmt("zig-out/{s}", .{exe.install_step.?.dest_dir.custom });
-        self.copyAssets(exe, install_dir);
+        self.copyAssets(exe);
         return exe;
     }
 
@@ -432,14 +485,9 @@ const BuilderContext = struct {
         self.setTarget(step);
         step.setMainPkgPath(".");
 
-        const build_options = self.buildOptionsPkg();
-        addStdx(step, build_options);
-        addCommon(step);
-        self.addGraphics(step);
-        addInput(step);
         self.addDeps(step) catch unreachable;
 
-        step.addPackage(build_options);
+        step.addPackage(self.buildOptionsPkg());
         self.postStep(step);
         return step;
     }
@@ -451,17 +499,11 @@ const BuilderContext = struct {
         // This fixes test files that import above, eg. @import("../foo")
         step.setMainPkgPath(".");
 
-        const build_options = self.buildOptionsPkg();
-        addStdx(step, build_options);
-        addCommon(step);
-        self.addGraphics(step);
-        addInput(step);
-
         // Add external lib headers but link with mock lib.
         self.addDeps(step) catch unreachable;
         self.buildLinkMock(step);
 
-        step.addPackage(build_options);
+        step.addPackage(self.buildOptionsPkg());
         self.postStep(step);
         return step;
     }
@@ -475,11 +517,20 @@ const BuilderContext = struct {
         }
     }
 
+    fn isWasmTarget(self: Self) bool {
+        return self.target.getCpuArch() == .wasm32 or self.target.getCpuArch() == .wasm64;
+    }
+
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
-        addCurl(step);
-        addUv(step);
-        addH2O(step);
-        addOpenSSL(step);
+        stdx.addPackage(step, .{
+            .enable_tracy = self.enable_tracy,
+        });
+        addCommon(step);
+        platform.addPackage(step, .{ .add_dep_pkgs = false });
+        curl.addPackage(step);
+        uv.addPackage(step);
+        h2o.addPackage(step);
+        ssl.addPackage(step);
         if (self.link_net) {
             buildLinkCrypto(step);
             buildLinkSsl(step);
@@ -489,13 +540,13 @@ const BuilderContext = struct {
             buildLinkUv(step);
             buildLinkH2O(step);
         }
-        addSDL(step);
-        addStbtt(step);
-        addGL(step);
+        sdl.addPackage(step);
+        stb.addStbttPackage(step);
+        stb.addStbiPackage(step);
+        gl.addPackage(step);
         addMiniaudio(step);
-        addLyon(step, self.link_lyon);
-        addTess2(step, self.link_tess2);
-        addStbi(step);
+        lyon.addPackage(step, self.link_lyon);
+        tess2.addPackage(step, self.link_tess2);
         if (self.target.getOsTag() == .macos) {
             self.buildLinkMacSys(step);
         }
@@ -504,17 +555,20 @@ const BuilderContext = struct {
             self.buildLinkWinPosix(step);
             self.buildLinkWinPthreads(step);
         }
+        ui.addPackage(step, .{
+            .add_dep_pkgs = false,
+        });
+
+        const graphics_opts = graphics.Options{
+            .enable_tracy = self.enable_tracy,
+            .link_lyon = self.link_lyon,
+            .link_tess2 = self.link_tess2,
+            .sdl_lib_path = LibSdlPath,
+            .add_dep_pkgs = false,
+        };
+        graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
-            buildLinkSDL2(step);
-            self.buildLinkStbtt(step);
-            linkGL(step, self.target);
-            if (self.link_lyon) {
-                self.linkLyon(step, self.target);
-            }
-            if (self.link_tess2) {
-                buildLinkLibTess2(self.builder, step, self.target, self.mode);
-            }
-            self.buildLinkStbi(step);
+            graphics.buildAndLink(step, graphics_opts);
         }
         if (self.link_audio) {
             self.buildLinkMiniaudio(step);
@@ -653,35 +707,6 @@ const BuilderContext = struct {
         lib.addCSourceFile(self.fromRoot(path), c_flags);
     }
 
-    fn buildLinkStbtt(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("stbtt", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        lib.addIncludeDir(self.fromRoot("./lib/stb/vendor"));
-        lib.linkLibC();
-        const c_flags = &[_][]const u8{ "-DSTB_TRUETYPE_IMPLEMENTATION" };
-        lib.addCSourceFile(self.fromRoot("./lib/stb/stb_truetype.c"), c_flags);
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkStbi(self: *Self, step: *std.build.LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("stbi", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        lib.addIncludeDir(self.fromRoot("./lib/stb/vendor"));
-        lib.linkLibC();
-
-        const c_flags = &[_][]const u8{ "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
-        const src_files: []const []const u8 = &.{
-            self.fromRoot("./lib/stb/stb_image.c"),
-            self.fromRoot("./lib/stb/stb_image_write.c")
-        };
-        lib.addCSourceFiles(src_files, c_flags);
-        step.linkLibrary(lib);
-    }
-
     fn buildLinkMiniaudio(self: *Self, step: *std.build.LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("miniaudio", null);
         lib.setTarget(self.target);
@@ -718,121 +743,18 @@ const BuilderContext = struct {
         }
     }
 
-    /// Static link clyon.
-    fn linkLyon(self: *Self, step: *LibExeObjStep, target: std.zig.CrossTarget) void {
-        if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
-            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/linux64/libclyon.a"));
-            // Currently clyon needs unwind. How to remove?
-            step.linkSystemLibrary("unwind");
-        } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
-            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/mac64/libclyon.a"));
-        } else if (target.getOsTag() == .macos and target.getCpuArch() == .aarch64) {
-            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/mac-arm64/libclyon.a"));
-        } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
-            step.addAssemblyFile(self.fromRoot("./deps/prebuilt/win64/clyon.lib"));
-            step.linkSystemLibrary("bcrypt");
-            step.linkSystemLibrary("userenv");
-        } else {
-            step.addLibPath("./lib/clyon/target/release");
-            step.linkSystemLibrary("clyon");
-        }
-    }
-
     fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
-        addStdx(lib, self.buildOptionsPkg());
-        addGL(lib);
-        addUv(lib);
+        stdx.addPackage(lib, .{
+            .enable_tracy = self.enable_tracy,
+        });
+        gl.addPackage(lib);
+        uv.addPackage(lib);
         addZigV8(lib);
         addMiniaudio(lib);
         step.linkLibrary(lib);
-    }
-
-    fn copyAssets(self: *Self, step: *LibExeObjStep, output_dir_rel: []const u8) void {
-        if (self.path.len == 0) {
-            return;
-        }
-        if (!std.mem.endsWith(u8, self.path, ".zig")) {
-            return;
-        }
-        // Parses the main file for @buildCopy in doc comments
-        const main_path = self.fromRoot(self.path);
-        const main_dir = std.fs.path.dirname(main_path).?;
-        const file = std.fs.openFileAbsolute(main_path, .{ .mode = .read_only }) catch unreachable;
-        defer file.close();
-        const source = file.readToEndAllocOptions(self.builder.allocator, 1024 * 1000 * 10, null, @alignOf(u8), 0) catch unreachable;
-        defer self.builder.allocator.free(source);
-
-        var tree = std.zig.parse(self.builder.allocator, source) catch unreachable;
-        defer tree.deinit(self.builder.allocator);
-
-        const mkpath = MakePathStep.create(self.builder, output_dir_rel);
-        step.step.dependOn(&mkpath.step);
-
-        const output_dir_abs = self.fromRoot(output_dir_rel);
-
-        const root_members = tree.rootDecls();
-        for (root_members) |member| {
-            // Search for doc comments.
-            const tok_start = tree.firstToken(member);
-            if (tok_start == 0) {
-                continue;
-            }
-            var tok = tok_start - 1;
-            while (tok >= 0) {
-                if (tree.tokens.items(.tag)[tok] == .doc_comment) {
-                    const str = tree.tokenSlice(tok);
-                    var i: usize = 0;
-                    i = std.mem.indexOfScalarPos(u8, str, i, '@') orelse continue;
-                    var end = std.mem.indexOfScalarPos(u8, str, i, ' ') orelse continue;
-                    if (!std.mem.eql(u8, str[i..end], "@buildCopy")) continue;
-                    i = std.mem.indexOfScalarPos(u8, str, i, '"') orelse continue;
-                    end = std.mem.indexOfScalarPos(u8, str, i + 1, '"') orelse continue;
-                    const src_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{ main_dir, str[i + 1 .. end] }) catch unreachable;
-                    i = std.mem.indexOfScalarPos(u8, str, end + 1, '"') orelse continue;
-                    end = std.mem.indexOfScalarPos(u8, str, i + 1, '"') orelse continue;
-                    const dst_path = std.fs.path.resolve(self.builder.allocator, &[_][]const u8{ output_dir_abs, str[i + 1 .. end] }) catch unreachable;
-
-                    const cp = CopyFileStep.create(self.builder, src_path, dst_path);
-                    step.step.dependOn(&cp.step);
-                } else {
-                    break;
-                }
-                if (tok > 0) tok -= 1;
-            }
-        }
-    }
-
-    fn addGraphics(self: Self, step: *std.build.LibExeObjStep) void {
-        var pkg = graphics_pkg;
-
-        var lyon: Pkg = undefined;
-        if (self.link_lyon) {
-            lyon = lyon_pkg;
-            lyon.dependencies = &.{stdx_pkg};
-        } else {
-            lyon = lyon_dummy_pkg;
-            lyon.dependencies = &.{stdx_pkg};
-        }
-
-        var tess2: Pkg = undefined;
-        if (self.link_tess2) {
-            tess2 = tess2_pkg;
-            step.addIncludeDir("./lib/libtess2/Include");
-        } else {
-            tess2 = tess2_dummy_pkg;
-        }
-
-        var sdl_ = sdl_pkg;
-        sdl_.dependencies = &.{stdx_pkg};
-
-        var gl = gl_pkg;
-        gl.dependencies = &.{ sdl_pkg, stdx_pkg };
-
-        pkg.dependencies = &.{ stbi_pkg, stbtt_pkg, gl, sdl_, stdx_pkg, lyon, tess2, self.buildOptionsPkg() };
-        step.addPackage(pkg);
     }
 };
 
@@ -847,167 +769,6 @@ fn addZigV8(step: *LibExeObjStep) void {
     step.addIncludeDir("./lib/zig-v8/src");
 }
 
-const sdl_pkg = Pkg{
-    .name = "sdl",
-    .path = FileSource.relative("./lib/sdl/sdl.zig"),
-};
-
-fn addSDL(step: *LibExeObjStep) void {
-    var pkg = sdl_pkg;
-    pkg.dependencies = &.{ stdx_pkg };
-    step.addPackage(pkg);
-    step.linkLibC();
-    step.addIncludeDir("./lib/sdl/vendor/include");
-}
-
-const openssl_pkg = Pkg{
-    .name = "openssl",
-    .path = FileSource.relative("./lib/openssl/openssl.zig"),
-};
-
-fn addOpenSSL(step: *LibExeObjStep) void {
-    step.addPackage(openssl_pkg);
-    step.addIncludeDir("./deps/openssl/include");
-}
-
-const h2o_pkg = Pkg{
-    .name = "h2o",
-    .path = FileSource.relative("./lib/h2o/h2o.zig"),
-};
-
-fn addH2O(step: *LibExeObjStep) void {
-    var pkg = h2o_pkg;
-    pkg.dependencies = &.{uv_pkg, openssl_pkg};
-    step.addPackage(pkg);
-    step.addIncludeDir("./lib/h2o");
-    step.addIncludeDir("./lib/h2o/vendor/include");
-    step.addIncludeDir("./lib/h2o/vendor/deps/picotls/include");
-    step.addIncludeDir("./lib/h2o/vendor/deps/quicly/include");
-    step.addIncludeDir("./lib/openssl/vendor/include");
-    if (step.target.getOsTag() == .windows) {
-        step.addIncludeDir("./lib/mingw/win_posix/include");
-        step.addIncludeDir("./lib/mingw/winpthreads/include");
-    }
-}
-
-const uv_pkg = Pkg{
-    .name = "uv",
-    .path = FileSource.relative("./lib/uv/uv.zig"),
-};
-
-fn addUv(step: *LibExeObjStep) void {
-    step.addPackage(uv_pkg);
-    step.addIncludeDir("./lib/uv/vendor/include");
-}
-
-const curl_pkg = Pkg{
-    .name = "curl",
-    .path = FileSource.relative("./lib/curl/curl.zig"),
-};
-
-fn addCurl(step: *LibExeObjStep) void {
-    step.addPackage(curl_pkg);
-    step.addIncludeDir("./lib/curl/vendor/include/curl");
-}
-
-const lyon_pkg = Pkg{
-    .name = "lyon",
-    .path = FileSource.relative("./lib/clyon/lyon.zig"),
-};
-
-const lyon_dummy_pkg = Pkg{
-    .name = "lyon",
-    .path = FileSource.relative("./lib/clyon/lyon_dummy.zig"),
-};
-
-fn addLyon(step: *LibExeObjStep, link_lyon: bool) void {
-    step.addIncludeDir("./lib/clyon");
-    if (link_lyon) {
-        step.addPackage(lyon_pkg);
-    } else {
-        step.addPackage(lyon_dummy_pkg);
-    }
-}
-
-const tess2_pkg = Pkg{
-    .name = "tess2",
-    .path = FileSource.relative("./lib/tess2.zig"),
-};
-
-const tess2_dummy_pkg = Pkg{
-    .name = "tess2",
-    .path = FileSource.relative("./lib/tess2_dummy.zig"),
-};
-
-fn addTess2(step: *LibExeObjStep, link_tess2: bool) void {
-    if (link_tess2) {
-        step.addIncludeDir("./lib/libtess2");
-        step.addPackage(tess2_pkg);
-    } else {
-        step.addPackage(tess2_dummy_pkg);
-    }
-}
-
-const gl_pkg = Pkg{
-    .name = "gl",
-    .path = FileSource.relative("./lib/gl/gl.zig"),
-};
-
-fn addGL(step: *LibExeObjStep) void {
-    var pkg = gl_pkg;
-    pkg.dependencies = &.{ sdl_pkg };
-    step.addIncludeDir("./lib/gl/vendor");
-    step.addPackage(pkg);
-    step.linkLibC();
-}
-
-fn linkGL(step: *LibExeObjStep, target: std.zig.CrossTarget) void {
-    switch (target.getOsTag()) {
-        .macos => {
-            // TODO: Fix this, should be linkFramework instead.
-
-            // TODO: See what this path returns $(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/OpenGL.framework/Headers
-            // https://github.com/ziglang/zig/issues/2208
-            step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
-            step.linkSystemLibrary("GL");
-        },
-        .windows =>{
-            // Link with OpenGL 1.1 API. Higher API functions should be loaded at runtime through vendors.
-            step.linkSystemLibrary("opengl32");
-        },
-        .linux => {
-            // Unable to find libraries if linux is provided in triple.
-            // https://github.com/ziglang/zig/issues/8103
-            step.addLibPath("/usr/lib/x86_64-linux-gnu");
-            step.linkSystemLibrary("GL");
-        },
-        else => {
-            step.linkSystemLibrary("GL");
-        },
-    }
-}
-
-const stbi_pkg = Pkg{
-    .name = "stbi",
-    .path = FileSource.relative("./lib/stb/stbi.zig"),
-};
-
-fn addStbi(step: *std.build.LibExeObjStep) void {
-    step.addPackage(stbi_pkg);
-    step.addIncludeDir("./lib/stb/vendor");
-}
-
-const stbtt_pkg = Pkg{
-    .name = "stbtt",
-    .path = FileSource.relative("./lib/stb/stbtt.zig"),
-};
-
-fn addStbtt(step: *std.build.LibExeObjStep) void {
-    step.addPackage(stbtt_pkg);
-    step.addIncludeDir("./lib/stb/vendor");
-    step.linkLibC();
-}
-
 const miniaudio_pkg = Pkg{
     .name = "miniaudio",
     .path = FileSource.relative("./lib/miniaudio/miniaudio.zig"),
@@ -1016,28 +777,6 @@ const miniaudio_pkg = Pkg{
 fn addMiniaudio(step: *std.build.LibExeObjStep) void {
     step.addPackage(miniaudio_pkg);
     step.addIncludeDir("./lib/miniaudio/src");
-}
-
-const stdx_pkg = Pkg{
-    .name = "stdx",
-    .path = FileSource.relative("./stdx/stdx.zig"),
-};
-
-fn addStdx(step: *std.build.LibExeObjStep, build_options: Pkg) void {
-    var pkg = stdx_pkg;
-    pkg.dependencies = &.{build_options, curl_pkg, uv_pkg};
-    step.addPackage(pkg);
-}
-
-const input_pkg = Pkg{
-    .name = "input",
-    .path = FileSource.relative("./input/input.zig"),
-};
-
-fn addInput(step: *std.build.LibExeObjStep) void {
-    var pkg = input_pkg;
-    pkg.dependencies = &.{ sdl_pkg, stdx_pkg };
-    step.addPackage(pkg);
 }
 
 const graphics_pkg = Pkg{
@@ -1052,7 +791,7 @@ const common_pkg = Pkg{
 
 fn addCommon(step: *std.build.LibExeObjStep) void {
     var pkg = common_pkg;
-    pkg.dependencies = &.{stdx_pkg};
+    pkg.dependencies = &.{stdx.pkg};
     step.addPackage(pkg);
 }
 
@@ -1177,7 +916,12 @@ const MakePathStep = struct {
 
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
-        try self.b.makePath(self.path);
+        std.fs.cwd().access(self.path, .{ .mode = .read_only }) catch |err| switch (err) {
+            error.FileNotFound => {
+                try self.b.makePath(self.path);
+            },
+            else => {},
+        };
     }
 };
 
@@ -1238,7 +982,7 @@ const ReplaceInFileStep = struct {
         const new_source = std.mem.replaceOwned(u8, self.b.allocator, source, self.old_str, self.new_str) catch unreachable;
         file.close();
 
-        const write = std.fs.openFileAbsolute(self.path, .{ .mode = .read_only }) catch unreachable;
+        const write = std.fs.openFileAbsolute(self.path, .{ .mode = .write_only }) catch unreachable;
         defer write.close();
         write.writeAll(new_source) catch unreachable;
     }
@@ -1375,15 +1119,6 @@ fn getVersionString(is_official_build: bool) []const u8 {
     }
 }
 
-fn buildLinkSDL2(step: *LibExeObjStep) void {
-    if (LibSdlPath) |path| {
-        sdl.linkLibPath(step, path);
-    } else {
-        const lib = sdl.create(step.builder, step.target, step.build_mode) catch unreachable;
-        sdl.linkLib(step, lib);
-    }
-}
-
 fn buildLinkSsl(step: *LibExeObjStep) void {
     if (LibSslPath) |path| {
         ssl.linkLibSslPath(step, path);
@@ -1472,38 +1207,10 @@ fn buildLinkH2O(step: *LibExeObjStep) void {
     }
 }
 
-fn buildLinkLibTess2(b: *Builder, step: *LibExeObjStep, target: std.zig.CrossTarget, mode: std.builtin.Mode) void {
-    const lib = b.addStaticLibrary("tess2", null);
-    lib.setTarget(target);
-    lib.setBuildMode(mode);
-
-    const c_flags = &[_][]const u8{
-    };
-
-    const c_files = &[_][]const u8{
-        "bucketalloc.c",
-        "dict.c",
-        "geom.c",
-        "mesh.c",
-        "priorityq.c",
-        "sweep.c",
-        "tess.c",
-    };
-
-    for (c_files) |file| {
-        const path = b.fmt("{s}/lib/libtess2/Source/{s}", .{ root(), file });
-        lib.addCSourceFile(path, c_flags);
-    }
-
-    lib.addIncludeDir("./lib/libtess2/Include");
-    lib.linkLibC();
-    step.linkLibrary(lib);
-}
-
-fn root() []const u8 {
+fn srcPath() []const u8 {
     return (std.fs.path.dirname(@src().file) orelse unreachable);
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ root(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
 }

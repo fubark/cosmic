@@ -2,24 +2,34 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const time_wasm = @import("time_wasm.zig");
+const IsWasm = builtin.target.isWasm();
 
-pub usingnamespace switch (builtin.target.cpu.arch) {
-    .wasm32 => struct {
-        pub const Timer = time_wasm.Timer;
-    },
-    else => struct {
-        pub const Timer = std.time.Timer;
-    },
+pub usingnamespace if (IsWasm) struct {
+    pub const Timer = time_wasm.Timer;
+} else struct {
+    pub const Timer = std.time.Timer;
 };
 
 pub const Duration = struct {
     const Self = @This();
 
-    ms: u32,
+    ns: u64,
 
-    pub fn initSecs(secs: f32) Self {
+    pub fn initSecsF(secs: f32) Self {
         return .{
-            .ms = @floatToInt(u32, secs * 1000),
+            .ns = @floatToInt(u64, secs * 1e9),
         };
     }
+
+    pub fn toMillis(self: Self) u32 {
+        return @intCast(u32, self.ns / 1000000);
+    }
 };
+
+pub fn getMillisTime() f64 {
+    if (IsWasm) {
+        return time_wasm.getMillisTime();
+    } else {
+        unreachable;
+    }
+}

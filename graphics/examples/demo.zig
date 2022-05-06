@@ -3,71 +3,65 @@ const stdx = @import("stdx");
 const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
 const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const graphics = @import("graphics");
 const Window = graphics.Window;
 const Graphics = graphics.Graphics;
 const FontId = graphics.font.FontId;
 const Image = graphics.Image;
 const Color = graphics.Color;
-const svg = graphics.svg;
-const sdl = @import("sdl");
-const WasmJsBuffer = stdx.wasm.WasmJsBuffer;
+const platform = @import("platform");
 
 const log = stdx.log.scoped(.demo);
 
-const IsWasm = builtin.target.cpu.arch == .wasm32;
-
+var dispatcher: platform.EventDispatcher = undefined;
 var win: Window = undefined;
 var g: *Graphics = undefined;
+var quit = false;
 
 var zig_logo_svg: []const u8 = undefined;
-var tiger_head_draw_list: graphics.DrawCommandList = undefined;
+var tiger_head_image: graphics.ImageId = undefined;
 var game_char_image: Image = undefined;
 var last_frame_time_ns: u64 = undefined;
 var font_id: FontId = undefined;
 
-
-/// @buildCopy "../../examples/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
-/// @buildCopy "../../examples/assets/tiger-head.svg" "tiger-head.svg"
-/// @buildCopy "../../examples/assets/NunitoSans-Regular.ttf" "NunitoSans-Regular.ttf"
-/// @buildCopy "../../examples/assets/NotoColorEmoji.ttf" "NotoColorEmoji.ttf"
-/// @buildCopy "../../examples/assets/game-char.png" "game-char.png"
 pub fn main() !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
+
+    dispatcher = platform.EventDispatcher.init(alloc);
+    defer dispatcher.deinit();
 
     win = try Window.init(alloc, .{
         .title = "Demo",
         .width = 1200,
         .height = 720,
-        .resizable = false,
+        .resizable = true,
+        .high_dpi = true,
+        .anti_alias = true,
     });
     defer win.deinit();
+    win.addDefaultHandlers(&dispatcher);
+
+    const S = struct {
+        fn onQuit(_: ?*anyopaque) void {
+            quit = true;
+        }
+    };
+    dispatcher.addOnQuit(null, S.onQuit);
 
     g = win.getGraphics();
 
     try initAssets(alloc);
     defer deinitAssets(alloc);
 
-    const timer = std.time.Timer.start() catch unreachable;
+    var timer = std.time.Timer.start() catch unreachable;
     last_frame_time_ns = timer.read();
-
-    var loop = true;
-    while (loop) {
-        var event: sdl.SDL_Event = undefined;
-        while (sdl.SDL_PollEvent(&event) != 0) {
-            switch (event.@"type") {
-                sdl.SDL_QUIT => {
-                    loop = false;
-                    break;
-                },
-                else => {},
-            }
-        }
-
+    while (!quit) {
         const diff_ms = @intToFloat(f32, timer.read() - last_frame_time_ns) / 1e6;
         last_frame_time_ns = timer.read();
 
+        dispatcher.processEvents();
         update(diff_ms);
         std.time.sleep(15);
     }
@@ -166,14 +160,8 @@ fn update(delta_ms: f32) void {
     g.drawSvgContent(zig_logo_svg) catch unreachable;
     g.resetTransform();
 
-    // Bigger Svg.
-    if (IsWasm) {
-        // It's much faster to use an svg image on web canvas.
-        g.drawImageSized(670, 220, 500, 500, tiger_head_image.id);
-    } else {
-        g.translate(840, 360);
-        g.executeDrawList(tiger_head_draw_list);
-    }
+    // Rasterize big svg.
+    g.drawImage(650, 150, tiger_head_image);
 
     // g.drawSvgPathStr(0, 0,
     //     \\M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1
@@ -200,84 +188,121 @@ fn update(delta_ms: f32) void {
     win.swapBuffers();
 }
 
-fn addFontFromExeDir(alloc: std.mem.Allocator, path: []const u8) !FontId {
-    const abs = try stdx.fs.pathFromExeDir(alloc, path);
-    defer alloc.free(abs);
-    return try g.addTTF_FontFromPath(abs);
-}
-
 fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 20e6;
 
-    font_id = try addFontFromExeDir(alloc, "NunitoSans-Regular.ttf");
-    const emoji_font = try addFontFromExeDir(alloc, "NotoColorEmoji.ttf");
+    font_id = try g.addTTF_FontFromPath(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
+    const emoji_font = try g.addTTF_FontFromPath(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
     g.addFallbackFont(emoji_font);
 
-    const abs = try stdx.fs.pathFromExeDir(alloc, "game-char.png");
-    defer alloc.free(abs);
-    game_char_image = try g.createImageFromPath(abs);
+    const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
+    defer alloc.free(game_char_data);
+    game_char_image = try g.createImage(game_char_data);
 
-    zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
+    zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
 
-    const tiger_head_svg = try stdx.fs.readFileFromExeDir(alloc, "tiger-head.svg", MaxFileSize);
+    const tiger_head_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/tiger-head.svg", MaxFileSize);
+    defer alloc.free(tiger_head_svg);
 
-    var parser = svg.SvgParser.init(alloc);
+    var parser = graphics.svg.SvgParser.init(alloc);
     defer parser.deinit();
 
-    tiger_head_draw_list = try parser.parseAlloc(alloc, tiger_head_svg);
-    alloc.free(tiger_head_svg);
+    rasterizeTigerHead(tiger_head_svg);
 }
 
 fn deinitAssets(alloc: std.mem.Allocator) void {
-    tiger_head_draw_list.deinit();
     alloc.free(zig_logo_svg);
 }
 
-var js_buf: *WasmJsBuffer = undefined;
-var load_assets_p: stdx.wasm.Promise(void) = undefined;
-var tiger_head_image: Image = undefined;
-
-export fn wasmInit() *const u8 {
-    if (!IsWasm) {
-        unreachable;
-    }
-    const alloc = stdx.heap.getDefaultAllocator();
-    stdx.wasm.init(alloc);
-    js_buf = stdx.wasm.getJsBuffer();
-
-    win = Window.init(alloc, .{
-        .title = "Demo",
-        .width = 1200,
-        .height = 720,
-    }) catch unreachable;
-
-    g = win.getGraphics();
-
-    const MaxFileSize = 20e6;
-    const p1 = stdx.fs.readFilePromise(alloc, "./zig-logo-dark.svg", MaxFileSize).thenCopyTo(&zig_logo_svg).autoFree();
-    const p2 = g.createImageFromPathPromise("./game-char.png").thenCopyTo(&game_char_image).autoFree();
-    const p3 = g.createImageFromPathPromise("./tiger-head.svg").thenCopyTo(&tiger_head_image).autoFree();
-    load_assets_p = stdx.wasm.createAndPromise(&.{ p1.id, p2.id, p3.id });
-
-    font_id = g.addTTF_FontFromPathForName("./NunitoSans-Regular.ttf", "Nunito Sans") catch unreachable;
-
-    return js_buf.writeResult();
+fn rasterizeTigerHead(tiger_head_svg: []const u8) void {
+    // Renders the svg to an image and then the image is drawn.
+    // The graphics context also supports drawing the svg directly to the main frame buffer, although it isn't recommended for large svgs like the tiger head.
+    tiger_head_image = g.createImageFromBitmap(600, 600, null, true);
+    g.bindImageBuffer(tiger_head_image);
+    g.setFillColor(Color.Transparent);
+    g.fillRect(0, 0, 600, 600);
+    g.translate(200, 200);
+    g.drawSvgContent(tiger_head_svg) catch unreachable;
+    g.flushDraw();
 }
 
-export fn wasmUpdate(cur_time_ms: f32) *const u8 {
-    if (!IsWasm) {
-        unreachable;
+// Below is the bootstrap code for wasm.
+
+var galloc: std.mem.Allocator = undefined;
+var zig_logo_id: u32 = undefined;
+var game_char_id: u32 = undefined;
+var nunito_font_id: u32 = undefined;
+var noto_emoji_id: u32 = undefined;
+var tiger_head_id: u32 = undefined;
+var loaded_assets: u32 = 0;
+
+pub usingnamespace if (IsWasm) struct {
+    export fn wasmInit() *const u8 {
+        const alloc = stdx.heap.getDefaultAllocator();
+        galloc = alloc;
+        stdx.wasm.init(alloc);
+
+        dispatcher = platform.EventDispatcher.init(alloc);
+        win = Window.init(alloc, .{
+            .title = "Demo",
+            .width = 1200,
+            .height = 720,
+            .anti_alias = true,
+        }) catch unreachable;
+        win.addDefaultHandlers(&dispatcher);
+        g = win.getGraphics();
+
+        const S = struct {
+            fn onFetchResult(_: ?*anyopaque, e: platform.FetchResultEvent) void {
+                if (e.fetch_id == zig_logo_id) {
+                    zig_logo_svg = galloc.dupe(u8, e.buf) catch unreachable;
+                    loaded_assets += 1;
+                } else if (e.fetch_id == game_char_id) {
+                    game_char_image = g.createImage(e.buf) catch unreachable;
+                    loaded_assets += 1;
+                } else if (e.fetch_id == nunito_font_id) {
+                    font_id = g.addTTF_Font(e.buf);
+                    loaded_assets += 1;
+                } else if (e.fetch_id == tiger_head_id) {
+                    rasterizeTigerHead(e.buf);
+                    loaded_assets += 1;
+                } else if (e.fetch_id == noto_emoji_id) {
+                    const emoji_font = g.addTTF_Font(e.buf);
+                    g.addFallbackFont(emoji_font);
+                    loaded_assets += 1;
+                }
+            }
+        };
+        dispatcher.addOnFetchResult(null, S.onFetchResult);
+
+        // TODO: Should be able to create async resources. In the case of fonts, it would use the default font. In the case of images it would be blank.
+        zig_logo_id = stdx.fs.readFileWasm("./zig-logo-dark.svg");
+        game_char_id = stdx.fs.readFileWasm("./game-char.png");
+        nunito_font_id = stdx.fs.readFileWasm("./NunitoSans-Regular.ttf");
+        noto_emoji_id = stdx.fs.readFileWasm("./NotoColorEmoji.ttf");
+        tiger_head_id = stdx.fs.readFileWasm("./tiger-head.svg");
+
+        return stdx.wasm.js_buffer.writeResult();
     }
 
-    // Wait for assets to load in the browser before getting to main loop.
-    if (!load_assets_p.isResolved()) {
-        return js_buf.writeResult();
+    export fn wasmUpdate(cur_time_ms: f32, input_len: u32) *const u8 {
+        stdx.wasm.js_buffer.input_buf.items.len = input_len;
+        dispatcher.processEvents();
+
+        // Wait for assets to load in the browser before getting to main loop.
+        if (loaded_assets < 5) {
+            return stdx.wasm.js_buffer.writeResult();
+        }
+
+        const now_ns = @floatToInt(u64, cur_time_ms * 1e6);
+        const diff_ms = @intToFloat(f32, now_ns - last_frame_time_ns) / 1e6;
+        last_frame_time_ns = now_ns;
+
+        update(diff_ms);
+        return stdx.wasm.js_buffer.writeResult();
     }
+} else struct {};
 
-    const now_ns = @floatToInt(u64, cur_time_ms * 1e6);
-    const diff_ms = @intToFloat(f32, now_ns - last_frame_time_ns) / 1e6;
-    last_frame_time_ns = now_ns;
-
-    update(diff_ms);
-    return js_buf.writeResult();
+fn srcPath() []const u8 {
+    return (std.fs.path.dirname(@src().file) orelse unreachable);
 }

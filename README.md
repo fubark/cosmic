@@ -12,7 +12,7 @@ The Cosmic API is subject to change during the Alpha version. After version 1.0,
 
 Here are some zig libs we have built while working on Cosmic:
 - 2D Graphics ([Source](https://github.com/fubark/cosmic/tree/master/graphics))
-- UI and animation framework. (*In progress*)
+- UI and animation framework. ([Source](https://github.com/fubark/cosmic/tree/master/ui))
 - V8 bindings ([Source](https://github.com/fubark/zig-v8))
 - General purpose text editor. (*In progress*)
 - Incremental AST parser and tokenizer. ([Source](https://github.com/fubark/cosmic/tree/master/parser))
@@ -43,7 +43,7 @@ zig build get-deps
 zig build get-v8-lib
 
 # Generates supplementary js for some API functions.
-zig build gen -Darg="api-js" -Darg="cosmic/snapshots/gen_api.js"
+zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js"
 
 # Run unit tests.
 zig build test
