@@ -110,15 +110,41 @@ pub const List = struct {
     pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
         self.selected_idx = NullId;
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
+        c.addKeyDownHandler(self, onKeyDown);
     }
 
     pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
         return c.fragment(self.props.children);
     }
 
+    fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
+        _ = ctx;
+        _ = node;
+    }
+
+    fn onKeyDown(self: *Self, e: ui.Event(KeyDownEvent)) void {
+        _ = self;
+        const ke = e.val;
+        switch (ke.code) {
+            .ArrowDown => {
+                self.selected_idx += 1;
+                if (self.selected_idx >= self.props.children.len) {
+                    self.selected_idx = self.props.children.len-1;
+                } 
+            },
+            .ArrowUp => {
+                if (self.selected_idx > 0) {
+                    self.selected_idx -= 1;
+                }
+            },
+            else => {},
+        }
+    }
+
     fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) void {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
+            e.ctx.requestFocus(onBlur);
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
             if (xf >= node.abs_pos.x and xf <= node.abs_pos.x + node.layout.width) {
