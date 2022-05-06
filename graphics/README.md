@@ -31,7 +31,7 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 | ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | demo - ** |
 | ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/demo) | demo.wasm - 461 KB |
 | ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | demo.exe - ** |
-| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 3.3 M |
+| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 3.1 M |
 | ✅ | macOS arm64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 2.8 M |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |

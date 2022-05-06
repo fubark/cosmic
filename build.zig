@@ -201,8 +201,27 @@ pub fn build(b: *Builder) !void {
             .os_tag = .freestanding,
             .abi = .musl,
         };
-        const build_wasm = ctx_.createBuildWasmBundleStep();
+        const build_wasm = ctx_.createBuildWasmBundleStep(ctx_.path);
         b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
+    }
+
+    {
+        const step = b.addLog("", .{});
+        var ctx_ = ctx;
+        ctx_.target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .abi = .musl,
+        };
+        const counter = ctx_.createBuildWasmBundleStep("ui/examples/counter.zig");
+        step.step.dependOn(&counter.step);
+        const converter = ctx_.createBuildWasmBundleStep("ui/examples/converter.zig");
+        step.step.dependOn(&converter.step);
+        const timer = ctx_.createBuildWasmBundleStep("ui/examples/timer.zig");
+        step.step.dependOn(&timer.step);
+        const crud = ctx_.createBuildWasmBundleStep("ui/examples/crud.zig");
+        step.step.dependOn(&crud.step);
+        b.step("wasm-examples", "Builds all the wasm examples.").dependOn(&step.step);
     }
 
     const get_version = b.addLog("{s}", .{getVersionString(is_official_build)});
@@ -345,13 +364,13 @@ const BuilderContext = struct {
     }
 
     /// Similar to createBuildLibStep except we also copy over index.html and required js libs.
-    fn createBuildWasmBundleStep(self: *Self) *LibExeObjStep {
-        const basename = std.fs.path.basename(self.path);
+    fn createBuildWasmBundleStep(self: *Self, path: []const u8) *LibExeObjStep {
+        const basename = std.fs.path.basename(path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const step = self.builder.addSharedLibrary(name, self.path, .unversioned);
-        // const step = self.builder.addStaticLibrary(name, self.path);
+        const step = self.builder.addSharedLibrary(name, path, .unversioned);
+        // const step = self.builder.addStaticLibrary(name, path);
         self.setBuildMode(step);
         self.setTarget(step);
 
@@ -363,6 +382,9 @@ const BuilderContext = struct {
         self.addDeps(step) catch unreachable;
 
         self.copyAssets(step, install_dir);
+
+        const mkpath = MakePathStep.create(self.builder, install_dir);
+        step.step.dependOn(&mkpath.step);
 
         // index.html
         var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.builder.pathJoin(&.{ install_dir, "index.html" }));
