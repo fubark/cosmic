@@ -18,6 +18,7 @@ const t = stdx.testing;
 const trace = stdx.debug.tracy.trace;
 
 const graphics = @import("../../graphics.zig");
+const window = @import("window.zig");
 const QuadBez = graphics.curve.QuadBez;
 const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
@@ -426,7 +427,11 @@ pub const Graphics = struct {
         var channels: c_int = undefined;
         const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
         defer stbi.stbi_image_free(bitmap);
-        // log.debug("loaded image: {} {} {} ", .{src_width, src_height, channels});
+        if (bitmap == null) {
+            log.debug("{s}", .{stbi.stbi_failure_reason()});
+            return error.BadImage;
+        }
+        // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
 
         const bitmap_len = @intCast(usize, src_width * src_height * channels);
         const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true, .{});
@@ -1756,7 +1761,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
-        const image = self.images.get(image_id);
+        const image = self.images.getNoCheck(image_id);
         self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
@@ -1787,6 +1792,36 @@ pub const Graphics = struct {
 
         // add rect
         self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+    }
+
+    /// Binds an image to the write buffer. 
+    pub fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+        var image = self.images.getPtrNoCheck(image_id);
+        if (image.fbo_id == null) {
+            image.fbo_id = self.createTextureFramebuffer(image.tex_id);
+        }
+        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, image.fbo_id.?);
+        gl.viewport(0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height));
+        self.cur_proj_transform = window.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
+        self.view_transform = Transform.initIdentity();
+        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
+        self.batcher.setMvp(mvp);
+    }
+
+    fn createTextureFramebuffer(self: Self, tex_id: gl.GLuint) gl.GLuint {
+        _ = self;
+        var fbo_id: gl.GLuint = 0;
+        gl.genFramebuffers(1, &fbo_id);
+        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, fbo_id);
+
+        gl.bindTexture(gl.GL_TEXTURE_2D, tex_id);
+        gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, tex_id, 0);
+        const status = gl.checkFramebufferStatus(gl.GL_FRAMEBUFFER);
+        if (status != gl.GL_FRAMEBUFFER_COMPLETE) {
+            log.debug("unexpected status: {}", .{status});
+            unreachable;
+        }
+        return fbo_id;
     }
 
     /// Begin frame sets up the context before any other draw call.
@@ -1957,6 +1992,9 @@ pub const Image = struct {
     tex_id: GLTextureId,
     width: usize,
     height: usize,
+
+    /// Framebuffer used to draw to the texture.
+    fbo_id: ?gl.GLuint = null,
 
     // Whether this texture needs to be updated in the gpu the next time we draw with it.
     needs_update: bool,
