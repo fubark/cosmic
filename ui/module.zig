@@ -399,10 +399,18 @@ pub fn Module(comptime C: Config) type {
         pub fn processMouseUpEvent(self: *Self, e: MouseUpEvent) void {
             const xf = @intToFloat(f32, e.x);
             const yf = @intToFloat(f32, e.y);
+
+            self.common.last_focused_widget = self.common.focused_widget;
+            self.common.hit_last_focused = false;
+
             // Trigger global handlers first.
             for (self.common.global_mouse_up_list.items) |id| {
                 const sub = self.common.mouse_up_event_subs.getNoCheck(id);
-                self.event_ctx.node = sub.sub.node;
+                const node = sub.sub.node;
+                if (node == self.common.last_focused_widget) {
+                    self.common.hit_last_focused = true;
+                }
+                self.event_ctx.node = node;
                 sub.sub.handleEvent(&self.event_ctx, e);
             }
 
@@ -410,11 +418,20 @@ pub fn Module(comptime C: Config) type {
             if (self.root_node) |node| {
                 _ = self.processMouseUpEventRecurse(node, xf, yf, e);
             }
+
+            if (self.common.last_focused_widget != null and self.common.last_focused_widget == self.common.focused_widget and !self.common.hit_last_focused) {
+                self.common.focused_onblur(self.common.focused_widget.?, &self.common.ctx);
+                self.common.focused_widget = null;
+                self.common.focused_onblur = undefined;
+            }
         }
 
         fn processMouseUpEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: MouseUpEvent) bool {
             const pos = node.abs_pos;
             if (xf >= pos.x and xf <= pos.x + node.layout.width and yf >= pos.y and yf <= pos.y + node.layout.height) {
+                if (node == self.common.last_focused_widget) {
+                    self.common.hit_last_focused = true;
+                }
                 var cur = node.mouse_up_list;
                 while (cur != NullId) {
                     const sub = self.common.mouse_up_event_subs.getNoCheck(cur);

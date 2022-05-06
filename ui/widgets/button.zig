@@ -81,9 +81,15 @@ pub const Button = struct {
     }
 
     fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) void {
-        _ = e;
+        e.ctx.requestFocus(onBlur);
         var self = node.getWidget(Self);
         self.pressed = true;
+    }
+
+    fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
+        _ = ctx;
+        var self = node.getWidget(Self);
+        self.pressed = false;
     }
 
     /// Defaults to a fixed size if there is no child widget.
