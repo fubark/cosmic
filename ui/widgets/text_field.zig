@@ -119,6 +119,12 @@ pub const TextField = struct {
                 self.inner.widget.keepCaretFixedInView();
                 self.inner.widget.resetCaretAnim();
             }
+        } else if (ke.code == .Delete) {
+            if (self.inner.widget.caret_idx < self.buf.items.len) {
+                _ = self.buf.orderedRemove(self.inner.widget.caret_idx);
+                self.inner.widget.keepCaretFixedInView();
+                self.inner.widget.resetCaretAnim();
+            }
         } else if (ke.code == .Enter) {
             var hash: [16]u8 = undefined;
             std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
