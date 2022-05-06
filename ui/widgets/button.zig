@@ -81,9 +81,11 @@ pub const Button = struct {
     }
 
     fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) void {
-        e.ctx.requestFocus(onBlur);
         var self = node.getWidget(Self);
-        self.pressed = true;
+        if (e.val.button == .Left) {
+            e.ctx.requestFocus(onBlur);
+            self.pressed = true;
+        }
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
