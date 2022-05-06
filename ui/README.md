@@ -16,18 +16,17 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 - [ ] Cross compilation. (Might work already, needs verification.)
 - [ ] C bindings.
 
-| Status | Platform | Size (counter)* |
+| Status | Platform | Size (counter.zig)* |
 | --- | --- | --- |
 | ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/zig-ui) | counter.wasm - 412 KB |
-| ✅ | Linux x64 with OpenGL | counter - ** |
-| ✅ | Windows x64 with OpenGL | counter.exe - ** |
+| ✅ | Linux x64 with OpenGL | counter - 2.2 M |
+| ✅ | Windows x64 with OpenGL | counter.exe - 2.7 M |
 | ✅ | macOS x64 with OpenGL | counter - 3.0 M |
 | ✅ | macOS arm64 with OpenGL | counter - 2.8 M |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
-  \* Static binary size. Compiled with -Drelease-safe.
-  \** To be updated.
+\* Static binary size. Compiled with -Drelease-safe.
 
 ## Dependencies
 Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/).
