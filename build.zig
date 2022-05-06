@@ -374,41 +374,44 @@ const BuilderContext = struct {
         self.setBuildMode(step);
         self.setTarget(step);
 
-        _ = self.addInstallArtifact(step);
-        const install_dir_rel = self.builder.fmt("zig-out/{s}", .{step.install_step.?.dest_dir.custom });
-        const install_dir = self.fromRoot(install_dir_rel);
-        step.setOutputDir(install_dir);
-
         self.addDeps(step) catch unreachable;
 
-        self.copyAssets(step, install_dir);
+        _ = self.addInstallArtifact(step);
 
-        const mkpath = MakePathStep.create(self.builder, install_dir);
-        step.step.dependOn(&mkpath.step);
+        self.copyAssets(step);
 
-        // index.html
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.builder.pathJoin(&.{ install_dir, "index.html" }));
+        // Create copy of index.html.
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.fromRoot("./lib/wasm-js/gen-index.html"));
         step.step.dependOn(&cp.step);
 
-        // Replace wasm file name in index.html
-        const index_path = self.builder.pathJoin(&.{ install_dir, "index.html" });
+        // Replace wasm file name in gen-index.html
+        const index_path = self.fromRoot("./lib/wasm-js/gen-index.html");
         const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
         step.step.dependOn(&replace.step);
 
+        // Install gen-index.html
+        const install_index = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/gen-index.html", "index.html");
+        step.step.dependOn(&install_index.step);
+
         // graphics.js
-        // cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics-canvas.js"), self.builder.pathJoin(&.{ install_dir, "graphics.js" }));
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/graphics-webgl2.js"), self.builder.pathJoin(&.{ install_dir, "graphics.js" }));
-        step.step.dependOn(&cp.step);
+        // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-canvas.js", "graphics.js");
+        const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-webgl2.js", "graphics.js");
+        step.step.dependOn(&install_graphics.step);
 
         // stdx.js
-        cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/stdx.js"), self.builder.pathJoin(&.{ install_dir, "stdx.js" }));
-        step.step.dependOn(&cp.step);
+        const install_stdx = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/stdx.js", "stdx.js");
+        step.step.dependOn(&install_stdx.step);
 
         return step;
     }
 
-    fn copyAssets(self: *Self, step: *LibExeObjStep, output_dir_abs: []const u8) void {
+    /// dst_rel_path is relative to the step's custom dest directory.
+    fn addStepInstallFile(self: *Self, step: *LibExeObjStep, src_path: []const u8, dst_rel_path: []const u8) *std.build.InstallFileStep {
+        return self.builder.addInstallFile(.{ .path = src_path }, self.builder.fmt("{s}/{s}", .{step.install_step.?.dest_dir.custom, dst_rel_path}));
+    }
+
+    fn copyAssets(self: *Self, step: *LibExeObjStep) void {
         if (self.path.len == 0) {
             return;
         }
@@ -419,16 +422,13 @@ const BuilderContext = struct {
         const assets_file = self.builder.fmt("{s}_assets.txt", .{self.path[0..self.path.len-4]});
         const assets = std.fs.cwd().readFileAlloc(self.builder.allocator, assets_file, 1e12) catch return;
 
-        const mkpath = MakePathStep.create(self.builder, output_dir_abs);
-        step.step.dependOn(&mkpath.step);
-
         var iter = std.mem.tokenize(u8, assets, "\n");
         while (iter.next()) |path| {
             const basename = std.fs.path.basename(path);
             const src_path = self.builder.fmt("{s}{s}", .{srcPath(), path});
-            const dst_path = self.builder.fmt("{s}/{s}", .{output_dir_abs, basename});
-            const cp = CopyFileStep.create(self.builder, src_path, dst_path);
-            step.step.dependOn(&cp.step);
+
+            const install_file = self.addStepInstallFile(step, src_path, basename);
+            step.step.dependOn(&install_file.step);
         }
     }
 
@@ -473,8 +473,7 @@ const BuilderContext = struct {
         }
 
         _ = self.addInstallArtifact(exe);
-        const install_dir_rel = self.builder.fmt("zig-out/{s}", .{exe.install_step.?.dest_dir.custom });
-        self.copyAssets(exe, self.fromRoot(install_dir_rel));
+        self.copyAssets(exe);
         return exe;
     }
 

@@ -7,6 +7,7 @@
 /lib/zig-v8
 /lib/tracy
 /lib/macos.libc
+/lib/wasm-js/gen-index.html
 /deps
 /ignored/
 /notes.md
