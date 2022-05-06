@@ -189,7 +189,7 @@ pub const App = struct {
                                     d(Padding, .{
                                         .padding = 10,
                                         .child = d(Text, .{
-                                            .text = "Search: ",
+                                            .text = c.fmt("Search: ({} Entries)", .{self.buf.items.len}),
                                             .color = Color.White,
                                         }),
                                     }),
