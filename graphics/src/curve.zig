@@ -334,7 +334,7 @@ test "Cubic bezier flatten." {
     try t.eq(buf.items.len, exp.len);
     var i: usize = 0;
     while (i < buf.items.len) : (i += 1) {
-        try t.eqApprox(buf.items[i].x, exp[i].x, 1e-4);
-        try t.eqApprox(buf.items[i].y, exp[i].y, 1e-4);
+        try t.eqApprox(buf.items[i].x, exp[i].x, 1e-3);
+        try t.eqApprox(buf.items[i].y, exp[i].y, 1e-3);
     }
 }
