@@ -11,7 +11,11 @@ pub const pkg = std.build.Pkg{
     .path = .{ .path = srcPath() ++ "/ui.zig" },
 };
 
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
+pub const Options = struct {
+    add_dep_pkgs: bool = true,
+};
+
+pub fn addPackage(step: *std.build.LibExeObjStep, opts: Options) void {
     var new_pkg = pkg;
 
     var platform_pkg = platform.pkg;
@@ -19,6 +23,17 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
 
     new_pkg.dependencies = &.{ stdx.pkg, graphics.pkg, platform_pkg };
     step.addPackage(new_pkg);
+
+    if (opts.add_dep_pkgs) {
+        graphics.addPackage(step, .{
+            .add_dep_pkgs = opts.add_dep_pkgs,
+        });
+    }
+}
+
+pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
+    _ = opts;
+    graphics.buildAndLink(step, .{});
 }
 
 fn srcPath() []const u8 {

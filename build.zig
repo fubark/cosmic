@@ -377,6 +377,8 @@ const BuilderContext = struct {
         self.addDeps(step) catch unreachable;
 
         _ = self.addInstallArtifact(step);
+        // This is needed for wasm builds or the main .wasm file won't output to the custom directory. 
+        self.setOutputDir(step, step.install_step.?.dest_dir.custom);
 
         self.copyAssets(step);
 
@@ -553,7 +555,9 @@ const BuilderContext = struct {
             self.buildLinkWinPosix(step);
             self.buildLinkWinPthreads(step);
         }
-        ui.addPackage(step);
+        ui.addPackage(step, .{
+            .add_dep_pkgs = false,
+        });
 
         const graphics_opts = graphics.Options{
             .enable_tracy = self.enable_tracy,

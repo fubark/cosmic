@@ -25,6 +25,8 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 - [ ] Gradients.
 - [ ] Custom Shaders.
 - [x] Cross platform.
+- [ ] Cross compilation. (Might work already, needs verification.)
+- [ ] C bindings.
 
 | Status | Platform | Size (demo)* |
 | --- | --- | --- |
@@ -38,9 +40,6 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 
   \* Static binary size not including the demo assets. Compiled with -Drelease-safe.
   \** To be updated.
-
-- [ ] Cross compilation.
-- [ ] C bindings.
 
 ## Screenshot
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
