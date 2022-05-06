@@ -1,0 +1,5 @@
+/examples/assets/zig-logo-dark.svg
+/examples/assets/game-char.png
+/examples/assets/NunitoSans-Regular.ttf
+/examples/assets/NotoColorEmoji.ttf
+/examples/assets/tiger-head.svg

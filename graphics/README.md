@@ -1,8 +1,8 @@
 # Cosmic Graphics
 
-2D graphics library for GUI and games in Zig. See the [Web Demo](https://fubark.github.io/cosmic-site/demo).
+Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/graphics context creation. See the [Web Demo](https://fubark.github.io/cosmic-site/demo).
 
-- [x] Create window with OpenGL(3.3) context.
+- [x] Create window with OpenGL(3.3) context. WebGL2 for wasm build.
 - [x] Canvas API / Vector graphics
   - [x] Fill/stroke shapes.
   - [x] Complex polygons.
@@ -19,7 +19,7 @@
   - [ ] Smoother render on macOS with CoreText.
   - [ ] Smoother render on Windows with Direct2D.
 - [x] Load/draw images. (JPG, PNG, BMP)
-- [ ] Draw on in memory images with the same Canvas API.
+- [x] Draw to offscreen images with the same Canvas API.
 - [x] Transforms.
 - [x] Blending.
 - [ ] Gradients.
@@ -28,15 +28,16 @@
 
 | Status | Platform | Size (demo)* |
 | --- | --- | --- |
-| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | demo - 953 KB |
-| ✅ | Web with Wasm/Canvas [(Demo)](https://fubark.github.io/cosmic-site/demo) | demo.wasm - 151 KB |
-| ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | demo.exe - 442 KB |
-| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 620 KB |
-| Soon | macOS arm64 with OpenGL | |
+| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | demo - ** |
+| ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/demo) | demo.wasm - 461 KB |
+| ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | demo.exe - ** |
+| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 3.3 M |
+| ✅ | macOS arm64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 2.8 M |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
-  \* Size does not include dynamic libs (SDL2, lyon) and demo assets. Compiled with -Drelease-safe.
+  \* Static binary size not including the demo assets. Compiled with -Drelease-safe.
+  \** To be updated.
 
 - [ ] Cross compilation.
 - [ ] C bindings.
@@ -45,12 +46,19 @@
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
 
 ## Dependencies
-Get the Zig compiler (0.9.0) [here](https://ziglang.org/download/). You need to pull the deps repo which has header files and prebuilt libs:
+Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/).
+
+Clone the cosmic repo which includes:
+- cosmic/graphics: This module.
+- cosmic/platform: Used to facilitate events from the window.
+- cosmic/stdx: Used for additional utilities.
+- cosmic/lib/sdl: SDL2 source. Used to create a window and OpenGL 3.3 context. Built automatically.
+- cosmic/lib/stb: stb_truetype and stb_image source. Used to rasterize fonts and decode images. Built automatically.
+- cosmic/lib/wasm-js: Wasm/js bootstrap and glue code.
 ```sh
 git clone https://github.com/fubark/cosmic.git
-zig build get-deps
+cd cosmic
 ```
-Cosmic will soon drop the lyon dependency for a tessellator built from scratch. See #13 for progress.
 
 ## Run demo (Desktop)
 ```sh
@@ -60,15 +68,40 @@ zig build run -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
 ## Run demo (Web/Wasm)
 
 ```sh
-zig build wasm -Dpath="graphics/examples/demo.zig" -Drelease-safe
-cd zig-out/demo
+zig build wasm -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
+cd zig-out/wasm32-freestanding-musl/demo
 python3 -m http.server
+# Or "cosmic http ." if you have cosmic installed.
+# Then fire up your browser to see the demo.
 ```
-Then fire up your browser to see the demo.
 
 ## Using as a Zig library.
-* To use this library in your own projects, use this repo as a template including build.zig and build your main just like demo.zig.
-* TODO: Improve this step, after lyon dep is dropped.
+The lib.zig in this graphics module provides simple helpers for you add the package, build, and link this library in your own build.zig file. Here is how you would do that:
+```zig
+// build.zig
+// cosmic repo should be a subdirectory.
+const std = @import("std");
+const graphics = @import("cosmic/graphics/lib.zig");
+
+pub fn build(b: *std.build.Builder) void {
+    const target = b.standardTargetOptions(.{});
+    const mode = b.standardReleaseOptions();
+
+    // main.zig would be your app code. You could copy over examples/demo.zig as a template.
+    const exe = b.addExecutable("myapp", "main.zig");
+    exe.setTarget(target);
+    exe.setBuildMode(mode);
+
+    graphics.addPackage(exe, .{});
+    graphics.buildAndLink(exe, .{});
+
+    exe.setOutputDir("zig-out");
+
+    const run = exe.run();
+    b.default_step.dependOn(&run.step);
+}
+```
+Then run `zig build` in your own project directory and it will build and run your app.
 
 ## Using as a C Library.
 * TODO: Provide c headers.

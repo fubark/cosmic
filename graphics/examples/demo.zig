@@ -25,11 +25,6 @@ var game_char_image: Image = undefined;
 var last_frame_time_ns: u64 = undefined;
 var font_id: FontId = undefined;
 
-/// @buildCopy "../../examples/assets/zig-logo-dark.svg" "zig-logo-dark.svg"
-/// @buildCopy "../../examples/assets/tiger-head.svg" "tiger-head.svg"
-/// @buildCopy "../../examples/assets/NunitoSans-Regular.ttf" "NunitoSans-Regular.ttf"
-/// @buildCopy "../../examples/assets/NotoColorEmoji.ttf" "NotoColorEmoji.ttf"
-/// @buildCopy "../../examples/assets/game-char.png" "game-char.png"
 pub fn main() !void {
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
@@ -192,26 +187,20 @@ fn update(delta_ms: f32) void {
     win.swapBuffers();
 }
 
-fn addFontFromExeDir(alloc: std.mem.Allocator, path: []const u8) !FontId {
-    const abs = try stdx.fs.pathFromExeDir(alloc, path);
-    defer alloc.free(abs);
-    return try g.addTTF_FontFromPath(abs);
-}
-
 fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 20e6;
 
-    font_id = try addFontFromExeDir(alloc, "NunitoSans-Regular.ttf");
-    const emoji_font = try addFontFromExeDir(alloc, "NotoColorEmoji.ttf");
+    font_id = try g.addTTF_FontFromPath(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
+    const emoji_font = try g.addTTF_FontFromPath(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
     g.addFallbackFont(emoji_font);
 
-    const abs = try stdx.fs.pathFromExeDir(alloc, "game-char.png");
-    defer alloc.free(abs);
-    game_char_image = try g.createImageFromPath(abs);
+    const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
+    defer alloc.free(game_char_data);
+    game_char_image = try g.createImage(game_char_data);
 
-    zig_logo_svg = try stdx.fs.readFileFromExeDir(alloc, "zig-logo-dark.svg", MaxFileSize);
+    zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
 
-    const tiger_head_svg = try stdx.fs.readFileFromExeDir(alloc, "tiger-head.svg", MaxFileSize);
+    const tiger_head_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/tiger-head.svg", MaxFileSize);
     defer alloc.free(tiger_head_svg);
 
     var parser = graphics.svg.SvgParser.init(alloc);
@@ -312,3 +301,7 @@ pub usingnamespace if (IsWasm) struct {
         return stdx.wasm.js_buffer.writeResult();
     }
 } else struct {};
+
+fn srcPath() []const u8 {
+    return (std.fs.path.dirname(@src().file) orelse unreachable);
+}
