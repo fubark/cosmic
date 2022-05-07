@@ -35,15 +35,12 @@ Once you have zig, checkout, run tests, and build.
 git clone https://github.com/fubark/cosmic.git
 cd cosmic
 
-# This will fetch prebuilt lyon for vector graphics. This dependency will be dropped with our own implementation in the near future.
-# It also fetches windows prebuilt libs. Once zig can build the deps those will be dropped as well.
-zig build get-deps 
-
 # This will fetch the prebuilt v8 lib for your platform.
 zig build get-v8-lib
 
 # Generates supplementary js for some API functions.
-zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js"
+# For the first time running this command, you'll need -Dfetch to get any deps.
+zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js" -Dfetch
 
 # Run unit tests.
 zig build test
@@ -57,8 +54,6 @@ zig build test-cosmic-js
 # Build the main app. Final binary will be at ./zig-out/{platform}/main/main. Use -Drelease-safe for an optimized version.
 zig build cosmic
 ```
-
-
 
 ## Docs
 See the latest docs at [API docs](https://cosmic-js.com/docs).

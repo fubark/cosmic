@@ -23,15 +23,15 @@ pub fn addPackage(step: *std.build.LibExeObjStep, link_lyon: bool) void {
 pub fn link(step: *std.build.LibExeObjStep) void {
     const target = step.target;
     if (target.getOsTag() == .linux and target.getCpuArch() == .x86_64) {
-        step.addAssemblyFile(srcPath() ++ "/../../deps/prebuilt/linux64/libclyon.a");
+        step.addAssemblyFile(srcPath() ++ "/../../lib/extras/prebuilt/linux64/libclyon.a");
         // Currently clyon needs unwind.
         step.linkSystemLibrary("unwind");
     } else if (target.getOsTag() == .macos and target.getCpuArch() == .x86_64) {
-        step.addAssemblyFile(srcPath() ++ "/../../deps/prebuilt/mac64/libclyon.a");
+        step.addAssemblyFile(srcPath() ++ "/../../lib/extras/prebuilt/mac64/libclyon.a");
     } else if (target.getOsTag() == .macos and target.getCpuArch() == .aarch64) {
-        step.addAssemblyFile(srcPath() ++ "/../../deps/prebuilt/mac-arm64/libclyon.a");
+        step.addAssemblyFile(srcPath() ++ "/../../lib/extras/prebuilt/mac-arm64/libclyon.a");
     } else if (target.getOsTag() == .windows and target.getCpuArch() == .x86_64) {
-        step.addAssemblyFile(srcPath() ++ "/../../deps/prebuilt/win64/clyon.lib");
+        step.addAssemblyFile(srcPath() ++ "/../../lib/extras/prebuilt/win64/clyon.lib");
         step.linkSystemLibrary("bcrypt");
         step.linkSystemLibrary("userenv");
     } else {
