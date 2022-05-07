@@ -45,4 +45,3 @@ pub fn link(step: *std.build.LibExeObjStep) void {
 fn srcPath() []const u8 {
     return std.fs.path.dirname(@src().file) orelse unreachable;
 }
-

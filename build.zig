@@ -23,6 +23,7 @@ const stb = @import("lib/stb/lib.zig");
 const gl = @import("lib/gl/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
+const maudio = @import("lib/miniaudio/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -576,7 +577,7 @@ const BuilderContext = struct {
         stb.addStbttPackage(step);
         stb.addStbiPackage(step);
         gl.addPackage(step);
-        addMiniaudio(step);
+        maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
         tess2.addPackage(step, self.link_tess2);
         if (self.target.getOsTag() == .macos) {
@@ -603,7 +604,7 @@ const BuilderContext = struct {
             graphics.buildAndLink(step, graphics_opts);
         }
         if (self.link_audio) {
-            self.buildLinkMiniaudio(step);
+            maudio.buildAndLink(step);
         }
 
         if (self.add_v8_pkg or self.link_v8) {
@@ -751,29 +752,6 @@ const BuilderContext = struct {
         lib.addCSourceFile(self.fromRoot(path), c_flags);
     }
 
-    fn buildLinkMiniaudio(self: *Self, step: *std.build.LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("miniaudio", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (!self.target.isNative()) {
-                lib.addFrameworkDir("/System/Library/Frameworks");
-                lib.addSystemIncludeDir("/usr/include");
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            }
-            lib.linkFramework("CoreAudio");
-        }
-        // TODO: vorbis has UB when doing seekToPcmFrame.
-        lib.disable_sanitize_c = true;
-
-        const c_flags = &[_][]const u8{
-        };
-        lib.addCSourceFile(self.fromRoot("./lib/miniaudio/src/miniaudio.c"), c_flags);
-        lib.linkLibC();
-        step.linkLibrary(lib);
-    }
-
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
         const path = getV8_StaticLibPath(self.builder, step.target);
         step.addAssemblyFile(path);
@@ -797,7 +775,7 @@ const BuilderContext = struct {
         gl.addPackage(lib);
         uv.addPackage(lib);
         addZigV8(lib);
-        addMiniaudio(lib);
+        maudio.addPackage(lib);
         step.linkLibrary(lib);
     }
 };
@@ -812,21 +790,6 @@ fn addZigV8(step: *LibExeObjStep) void {
     step.linkLibC();
     step.addIncludeDir("./lib/zig-v8/src");
 }
-
-const miniaudio_pkg = Pkg{
-    .name = "miniaudio",
-    .path = FileSource.relative("./lib/miniaudio/miniaudio.zig"),
-};
-
-fn addMiniaudio(step: *std.build.LibExeObjStep) void {
-    step.addPackage(miniaudio_pkg);
-    step.addIncludeDir("./lib/miniaudio/src");
-}
-
-const graphics_pkg = Pkg{
-    .name = "graphics",
-    .path = FileSource.relative("./graphics/src/graphics.zig"),
-};
 
 const common_pkg = Pkg{
     .name = "common",
