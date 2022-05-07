@@ -1034,6 +1034,24 @@ pub fn createCrypto(
     return lib;
 }
 
+pub const CryptoOptions = struct {
+    lib_path: ?[]const u8 = null,
+};
+
+pub fn buildAndLinkCrypto(step: *std.build.LibExeObjStep, opts: CryptoOptions) void {
+    if (opts.lib_path) |path| {
+        linkLibCryptoPath(step, path);
+    } else {
+        if (builtin.os.tag == .windows) {
+            // Can't build, too many args in build-lib will break zig :)
+            step.addAssemblyFile(srcPath() ++ "/lib/extras/prebuilt/win64/crypto.lib");
+            return;
+        }
+        const lib = createCrypto(step.builder, step.target, step.build_mode) catch unreachable;
+        linkLibCrypto(step, lib);
+    }
+}
+
 pub fn linkLibCrypto(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {
     linkLibCryptoDeps(step);
     step.linkLibrary(lib);
@@ -1150,6 +1168,23 @@ pub fn createSsl(
     lib.addIncludeDir(fromRoot(b, "vendor/include"));
     lib.addIncludeDir(fromRoot(b, "vendor"));
     return lib;
+}
+
+pub const SslOptions = struct {
+    lib_path: ?[]const u8 = null,
+};
+
+pub fn buildAndLinkSsl(step: *std.build.LibExeObjStep, opts: SslOptions) void {
+    if (opts.lib_path) |path| {
+        linkLibSslPath(step, path);
+    } else {
+        if (builtin.os.tag == .windows) {
+            step.addAssemblyFile(srcPath() ++ "/lib/extras/prebuilt/win64/ssl.lib");
+            return;
+        }
+        const lib = createSsl(step.builder, step.target, step.build_mode) catch unreachable;
+        linkLibSsl(step, lib);
+    }
 }
 
 pub fn linkLibSsl(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {
