@@ -159,6 +159,7 @@ pub fn linkLibPath(step: *std.build.LibExeObjStep, path: []const u8) void {
 fn linkDeps(step: *std.build.LibExeObjStep) void {
     if (step.target.getOsTag() == .windows and step.target.getAbi() == .gnu) {
         step.linkSystemLibrary("iphlpapi");
+        step.linkSystemLibrary("userenv");
     }
 }
 
