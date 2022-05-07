@@ -1073,7 +1073,7 @@ fn syncRepo(b: *Builder, step: *std.build.Step, rel_path: []const u8, remote_url
         } else {
             cur_revision = try b.execFromStep(&.{ "git", "-C", repo_path, "rev-parse", "HEAD" }, step);
         }
-        if (!std.mem.eql(u8, cur_revision[0..revision.len], revision)) {
+        if (cur_revision.len < revision.len or !std.mem.eql(u8, cur_revision[0..revision.len], revision)) {
             // Fetch and checkout.
             // Need -f or it will fail if the remote tag now points to a different revision.
             _ = try b.execFromStep(&.{ "git", "-C", repo_path, "fetch", "--tags", "-f" }, step);
