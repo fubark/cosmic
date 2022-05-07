@@ -121,14 +121,15 @@ jobs:
           restore-keys:
             build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-3
 
-      - name: Get deps.
-        run: zig build get-deps ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
+      - name: Get extras.
+        run: zig build get-extras ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
 
       - name: Get prebuilt v8.
         run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
 
+      # Will fetch zig-v8 if missing.
       - name: Generate js API supplement.
-        run: zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js"
+        run: zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js" -Dfetch
 
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
