@@ -8,6 +8,9 @@
 /lib/tracy
 /lib/macos.libc
 /lib/wasm-js/gen-index.html
+/lib/libc_v8*.a
+/lib/c_v8*.lib
+/lib/extras
 /deps
 /ignored/
 /notes.md

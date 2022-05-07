@@ -24,9 +24,13 @@ const gl = @import("lib/gl/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
 
+const GitRepoStep = @import("GitRepoStep.zig");
+
 const VersionName = "v0.1";
-const DepsRevision = "5c31d18797ccb0c71adaf6a31beab53a8c070b5c";
-const V8_Revision = "9.9.115.9";
+
+const EXTRAS_REPO_SHA = "5c31d18797ccb0c71adaf6a31beab53a8c070b5c";
+const ZIG_V8_BRANCH = "9.9.115.9";
+const ZIG_V8_SHA = "8e6837d6d517134fcef0527ed7e933efeb1ee9db";
 
 // Debugging:
 // Set to true to show generated build-lib and other commands created from execFromStep.
@@ -53,7 +57,7 @@ pub fn build(b: *Builder) !void {
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
-    const deps_rev = b.option([]const u8, "deps-rev", "Override the deps revision.") orelse DepsRevision;
+    const extras_sha = b.option([]const u8, "deps-rev", "Override the extras repo sha.") orelse EXTRAS_REPO_SHA;
     const is_official_build = b.option(bool, "is-official-build", "Whether the build should be an official build.") orelse false;
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
@@ -95,6 +99,7 @@ pub fn build(b: *Builder) !void {
         .enable_tracy = tracy,
         .link_graphics = link_graphics,
         .link_audio = audio,
+        .add_v8_pkg = v8,
         .link_v8 = v8,
         .link_net = net,
         .link_lyon = link_lyon,
@@ -108,14 +113,32 @@ pub fn build(b: *Builder) !void {
         .wsl = wsl,
     };
 
-    const get_deps = GetDepsStep.create(b, deps_rev);
-    b.step("get-deps", "Clone/pull the required external dependencies into deps folder").dependOn(&get_deps.step);
+    // Contains optional prebuilt lyon lib as well as windows crypto/ssl prebuilt libs.
+    // TODO: Remove this dependency once windows can build crypto/ssl.
+    const extras_repo = GitRepoStep.create(b, .{
+        .url = "https://github.com/fubark/cosmic-deps",
+        .branch = "master",
+        .sha = extras_sha,
+        .path = srcPath() ++ "/lib/extras",
+    });
+
+    {
+        // Like extras_repo step but with auto-fetch enabled.
+        const extras_repo_fetch = GitRepoStep.create(b, .{
+            .url = "https://github.com/fubark/cosmic-deps",
+            .branch = "master",
+            .sha = extras_sha,
+            .path = srcPath() ++ "/lib/extras",
+            .fetch_enabled = true,
+        });
+        b.step("get-extras", "Clone/pull the extras repo.").dependOn(&extras_repo_fetch.step);
+    }
 
     const get_v8_lib = createGetV8LibStep(b, target);
     b.step("get-v8-lib", "Fetches prebuilt static lib. Use -Dtarget to indicate target platform").dependOn(&get_v8_lib.step);
 
     const build_lyon = BuildLyonStep.create(b, ctx.target);
-    b.step("lyon", "Builds rust lib with cargo and copies to deps/prebuilt").dependOn(&build_lyon.step);
+    b.step("lyon", "Builds rust lib with cargo and copies to lib/extras/prebuilt").dependOn(&build_lyon.step);
 
     {
         const step = b.addLog("", .{});
@@ -136,7 +159,9 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
-        const test_exe = ctx.createTestExeStep();
+        var ctx_ = ctx;
+        ctx_.add_v8_pkg = true;
+        const test_exe = ctx_.createTestExeStep();
         const run_test = test_exe.run();
         step.step.dependOn(&run_test.step);
         b.step("test", "Run tests").dependOn(&step.step);
@@ -154,6 +179,7 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
+        step.step.dependOn(&extras_repo.step);
         const test_exe = ctx_.createTestFileStep("test/behavior_test.zig");
         // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
         test_exe.setFilter("behavior:");
@@ -237,14 +263,15 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = false;
         ctx_.link_lyon = false;
         ctx_.link_audio = false;
+        ctx_.add_v8_pkg = true;
         ctx_.link_v8 = false;
         ctx_.link_mock = true;
         ctx_.path = "tools/gen.zig";
         ctx_.build_options = build_options_;
 
-        const step = ctx_.createBuildExeStep();
-        ctx_.buildLinkMock(step);
-        const run = step.run();
+        const exe = ctx_.createBuildExeStep();
+        ctx_.buildLinkMock(exe);
+        const run = exe.run();
         run.addArgs(args);
         b.step("gen", "Generate tool.").dependOn(&run.step);
     }
@@ -261,6 +288,7 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
+        step.step.dependOn(&extras_repo.step);
         const run = ctx_.createBuildExeStep().run();
         run.addArgs(&.{ "test", "test/js/test.js" });
         // run.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
@@ -282,6 +310,7 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
+        step.step.dependOn(&extras_repo.step);
         const exe = ctx_.createBuildExeStep();
         const exe_install = ctx_.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
@@ -300,6 +329,8 @@ pub fn build(b: *Builder) !void {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
+        step.step.dependOn(&extras_repo.step);
+
         const exe = ctx_.createBuildExeStep();
         const exe_install = ctx_.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
@@ -332,6 +363,7 @@ const BuilderContext = struct {
     link_tess2: bool = false,
 
     link_audio: bool,
+    add_v8_pkg: bool = false,
     link_v8: bool,
     link_net: bool,
     link_mock: bool,
@@ -573,7 +605,19 @@ const BuilderContext = struct {
         if (self.link_audio) {
             self.buildLinkMiniaudio(step);
         }
-        addZigV8(step);
+
+        if (self.add_v8_pkg or self.link_v8) {
+            // Only add zig-v8 package when this flag is set to let unrelated builds continue. eg. graphics/ui examples.
+            // Must dependOn before adding the zig-v8 package.
+            const zig_v8_repo = GitRepoStep.create(self.builder, .{
+                .url = "https://github.com/fubark/zig-v8",
+                .branch = ZIG_V8_BRANCH,
+                .sha = ZIG_V8_SHA,
+                .path = srcPath() ++ "/lib/zig-v8",
+            });
+            step.step.dependOn(&zig_v8_repo.step);
+            addZigV8(step);
+        }
         if (self.link_v8) {
             self.linkZigV8(step);
         }
@@ -860,12 +904,12 @@ const BuildLyonStep = struct {
     fn make(step: *std.build.Step) anyerror!void {
         const self = @fieldParentPtr(Self, "step", step);
 
-        const toml_path = self.builder.pathFromRoot("./lib/clyon/Cargo.toml");
+        const toml_path = srcPath() ++ "/lib/clyon/Cargo.toml";
 
         if (self.target.getOsTag() == .linux and self.target.getCpuArch() == .x86_64) {
             _ = try self.builder.exec(&.{ "cargo", "build", "--release", "--manifest-path", toml_path });
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/release/libclyon.a");
-            const to_path = self.builder.pathFromRoot("./deps/prebuilt/linux64/libclyon.a");
+            const out_file = srcPath() ++ "/lib/clyon/target/release/libclyon.a";
+            const to_path = srcPath() ++ "/lib/extras/prebuilt/linux64/libclyon.a";
             _ = try self.builder.exec(&.{ "cp", out_file, to_path });
             _ = try self.builder.exec(&.{ "strip", "--strip-debug", to_path });
         } else if (self.target.getOsTag() == .windows and self.target.getCpuArch() == .x86_64 and self.target.getAbi() == .gnu) {
@@ -878,20 +922,20 @@ const BuildLyonStep = struct {
             try self.builder.spawnChildEnvMap(null, env_map, &.{
                 "cargo", "build", "--target=x86_64-pc-windows-gnu", "--release", "--manifest-path", toml_path,
             });
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-pc-windows-gnu/release/libclyon.a");
-            const to_path = self.builder.pathFromRoot("./deps/prebuilt/win64/clyon.lib");
+            const out_file = srcPath() ++ "/lib/clyon/target/x86_64-pc-windows-gnu/release/libclyon.a";
+            const to_path = srcPath() ++ "/lib/extras/prebuilt/win64/clyon.lib";
             _ = try self.builder.exec(&.{ "cp", out_file, to_path });
         } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .x86_64) {
             _ = try self.builder.exec(&.{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/x86_64-apple-darwin/release/libclyon.a");
-            const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac64/libclyon.a");
+            const out_file = srcPath() ++ "/lib/clyon/target/x86_64-apple-darwin/release/libclyon.a";
+            const to_path = srcPath() ++ "/lib/extras/prebuilt/mac64/libclyon.a";
             _ = try self.builder.exec(&.{ "cp", out_file, to_path });
             // This actually corrupts the lib and zig will fail to parse it after linking.
             // _ = try self.builder.exec(&[_][]const u8{ "strip", "-S", to_path });
         } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .aarch64) {
             _ = try self.builder.exec(&.{ "cargo", "build", "--target=aarch64-apple-darwin", "--release", "--manifest-path", toml_path });
-            const out_file = self.builder.pathFromRoot("./lib/clyon/target/aarch64-apple-darwin/release/libclyon.a");
-            const to_path = self.builder.pathFromRoot("./deps/prebuilt/mac-arm64/libclyon.a");
+            const out_file = srcPath() ++ "/lib/clyon/target/aarch64-apple-darwin/release/libclyon.a";
+            const to_path = srcPath() ++ "/lib/extras/prebuilt/mac-arm64/libclyon.a";
             _ = try self.builder.exec(&.{ "cp", out_file, to_path });
         }
     }
@@ -988,37 +1032,10 @@ const ReplaceInFileStep = struct {
     }
 };
 
-const GetDepsStep = struct {
-    const Self = @This();
-
-    step: std.build.Step,
-    b: *Builder,
-    deps_rev: []const u8,
-
-    fn create(b: *Builder, deps_rev: []const u8) *Self {
-        const new = b.allocator.create(Self) catch unreachable;
-        new.* = .{
-            .step = std.build.Step.init(.custom, b.fmt("get_deps", .{}), b.allocator, make),
-            .deps_rev = deps_rev,
-            .b = b,
-        };
-        return new;
-    }
-
-    fn make(step: *std.build.Step) anyerror!void {
-        const self = @fieldParentPtr(Self, "step", step);
-
-        try syncRepo(self.b, step, "./deps", "https://github.com/fubark/cosmic-deps", self.deps_rev, false);
-
-        // zig-v8 is still changing frequently so pull the repo.
-        try syncRepo(self.b, step, "./lib/zig-v8", "https://github.com/fubark/zig-v8", V8_Revision, true);
-    }
-};
-
 fn createGetV8LibStep(b: *Builder, target: std.zig.CrossTarget) *std.build.LogStep {
     const step = b.addLog("Get V8 Lib\n", .{});
 
-    const url = getV8_StaticLibGithubUrl(b.allocator, V8_Revision, target);
+    const url = getV8_StaticLibGithubUrl(b.allocator, ZIG_V8_BRANCH, target);
     // log.debug("Url: {s}", .{url});
     const lib_path = getV8_StaticLibPath(b, target);
 
@@ -1057,7 +1074,7 @@ fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
     const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
     const triple = BuilderContext.getSimpleTriple(b, target);
-    const path = std.fmt.allocPrint(b.allocator, "./lib/zig-v8/{s}-{s}.{s}", .{ lib_name, triple, lib_ext }) catch unreachable;
+    const path = std.fmt.allocPrint(b.allocator, "./lib/{s}-{s}.{s}", .{ lib_name, triple, lib_ext }) catch unreachable;
     return b.pathFromRoot(path);
 }
 
@@ -1124,7 +1141,7 @@ fn buildLinkSsl(step: *LibExeObjStep) void {
         ssl.linkLibSslPath(step, path);
     } else {
         if (builtin.os.tag == .windows) {
-            step.addAssemblyFile("./deps/prebuilt/win64/ssl.lib");
+            step.addAssemblyFile(srcPath() ++ "/lib/extras/prebuilt/win64/ssl.lib");
             return;
         }
         const lib = ssl.createSsl(step.builder, step.target, step.build_mode) catch unreachable;
@@ -1138,7 +1155,7 @@ fn buildLinkCrypto(step: *LibExeObjStep) void {
     } else {
         if (builtin.os.tag == .windows) {
             // Can't build, too many args in build-lib will break zig :)
-            step.addAssemblyFile("./deps/prebuilt/win64/crypto.lib");
+            step.addAssemblyFile(srcPath() ++ "/lib/extras/prebuilt/win64/crypto.lib");
             return;
         }
         const lib = ssl.createCrypto(step.builder, step.target, step.build_mode) catch unreachable;

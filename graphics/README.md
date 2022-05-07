@@ -105,7 +105,7 @@ Then run `zig build` in your own project directory and it will build and run you
 * TODO: Provide c headers.
 
 ## Lyon bindings
-There is an optional integration with lyon (a Rust path tessellation lib) to provide a good comparison with Cosmic for development. Pulling the dependencies (zig build get-deps) will get prebuilt lyon bindings. If that doesn't work you'll need rust and cargo to do:
+There is an optional integration with lyon (a Rust path tessellation lib) to provide a good comparison with Cosmic for development. `zig build get-extras` will get prebuilt lyon bindings. If that doesn't work you'll need rust and cargo to do:
 ```sh
 zig build lyon
 ```
