@@ -399,6 +399,7 @@ pub fn linkDeps(step: *std.build.LibExeObjStep) void {
         step.linkSystemLibrary("gdi32");
         step.linkSystemLibrary("imm32");
         step.linkSystemLibrary("version");
+        step.linkSystemLibrary("winmm");
     }
 }
 

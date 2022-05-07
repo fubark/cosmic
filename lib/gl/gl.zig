@@ -84,6 +84,8 @@ pub inline fn getUniformLocation(program: c.GLuint, name: [:0]const u8) c.GLint 
     if (IsWasm) {
         const len = std.mem.indexOfSentinel(u8, 0, name);
         return @intCast(i32, jsGlGetUniformLocation(program, &name[0], len));
+    } else if (IsWindows) {
+        return winGetUniformLocation(program, name);
     } else {
         return c.glGetUniformLocation(program, name);
     }
@@ -242,6 +244,8 @@ pub fn getDrawFrameBufferBinding() usize {
 pub fn checkFramebufferStatus(target: c.GLenum) c.GLenum {
     if (IsWasm) {
         return jsGlCheckFramebufferStatus(target);
+    } else if (IsWindows) {
+        return winCheckFramebufferStatus(target);
     } else {
         return c.glCheckFramebufferStatus(target);
     }
@@ -700,6 +704,7 @@ var winGetShaderiv: fn (shader: c.GLuint, pname: c.GLenum, params: [*c]c.GLint) 
 var winBindBuffer: fn (target: c.GLenum, buffer: c.GLuint) void = undefined;
 var winBufferData: fn (target: c.GLenum, size: c.GLsizeiptr, data: ?*const anyopaque, usage: c.GLenum) void = undefined;
 var winUniformMatrix4fv: fn (location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void = undefined;
+var winGetUniformLocation: fn (program: c.GLuint, name: [*c]const c.GLchar) c.GLint = undefined;
 var winUniform1i: fn (location: c.GLint, v0: c.GLint) void = undefined;
 var winGenBuffers: fn (n: c.GLsizei, buffers: [*c]c.GLuint) void = undefined;
 var winDeleteBuffers: fn (n: c.GLsizei, buffers: [*c]const c.GLuint) void = undefined;
@@ -715,6 +720,7 @@ var winGenFramebuffers: fn (n: c.GLsizei, framebuffers: [*c]c.GLuint) void = und
 var winEnableVertexAttribArray: fn (index: c.GLuint) void = undefined;
 var winActiveTexture: fn (texture: c.GLenum) void = undefined;
 var winBindFramebuffer: fn (target: c.GLenum, framebuffer: c.GLuint) void = undefined;
+var winCheckFramebufferStatus: fn (target: c.GLenum) c.GLenum = undefined;
 
 var initedWinGL = false;
 
@@ -755,8 +761,10 @@ pub fn initWinGL_Functions() void {
     loadGlFunc(&winBlitFramebuffer, "glBlitFramebuffer");
     loadGlFunc(&winBlendEquation, "glBlendEquation");
     loadGlFunc(&winUniformMatrix4fv, "glUniformMatrix4fv");
+    loadGlFunc(&winGetUniformLocation, "glGetUniformLocation");
     loadGlFunc(&winUniform1i, "glUniform1i");
     loadGlFunc(&winBufferData, "glBufferData");
+    loadGlFunc(&winCheckFramebufferStatus, "glCheckFramebufferStatus");
 }
 
 fn loadGlFunc(ptr_to_local: anytype, name: [:0]const u8) void {

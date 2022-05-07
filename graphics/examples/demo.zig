@@ -36,7 +36,7 @@ pub fn main() !void {
         .title = "Demo",
         .width = 1200,
         .height = 720,
-        .resizable = false,
+        .resizable = true,
         .anti_alias = true,
     });
     defer win.deinit();
