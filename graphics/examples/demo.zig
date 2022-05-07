@@ -37,6 +37,7 @@ pub fn main() !void {
         .width = 1200,
         .height = 720,
         .resizable = true,
+        .high_dpi = true,
         .anti_alias = true,
     });
     defer win.deinit();

@@ -229,6 +229,14 @@ fn processSdlEvents(dispatcher: EventDispatcher) void {
                         // Restored.
                         // TODO: Reenable drawing.
                     },
+                    sdl.SDL_WINDOWEVENT_RESIZED => {
+                        const width = @intCast(u16, event.window.data1);
+                        const height = @intCast(u16, event.window.data2);
+                        const std_event = WindowResizeEvent.init(width, height);
+                        for (dispatcher.winresize_cbs.items) |handler| {
+                            handler.cb(handler.ctx, std_event);
+                        }
+                    },
                     else => {},
                 }
             },
