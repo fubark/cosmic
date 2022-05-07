@@ -11,6 +11,7 @@ const stdx = @import("stdx/lib.zig");
 const platform = @import("platform/lib.zig");
 const graphics = @import("graphics/lib.zig");
 const ui = @import("ui/lib.zig");
+const parser = @import("parser/lib.zig");
 
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
@@ -558,7 +559,6 @@ const BuilderContext = struct {
         stdx.addPackage(step, .{
             .enable_tracy = self.enable_tracy,
         });
-        addCommon(step);
         platform.addPackage(step, .{ .add_dep_pkgs = false });
         curl.addPackage(step);
         uv.addPackage(step);
@@ -789,28 +789,6 @@ fn addZigV8(step: *LibExeObjStep) void {
     step.addPackage(zig_v8_pkg);
     step.linkLibC();
     step.addIncludeDir("./lib/zig-v8/src");
-}
-
-const common_pkg = Pkg{
-    .name = "common",
-    .path = FileSource.relative("./common/common.zig"),
-};
-
-fn addCommon(step: *std.build.LibExeObjStep) void {
-    var pkg = common_pkg;
-    pkg.dependencies = &.{stdx.pkg};
-    step.addPackage(pkg);
-}
-
-const parser_pkg = Pkg{
-    .name = "parser",
-    .path = FileSource.relative("./parser/parser.zig"),
-};
-
-fn addParser(step: *std.build.LibExeObjStep) void {
-    var pkg = parser_pkg;
-    pkg.dependencies = &.{common_pkg};
-    step.addPackage(pkg);
 }
 
 const GenMacLibCStep = struct {

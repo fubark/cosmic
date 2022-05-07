@@ -7,7 +7,7 @@ const t = stdx.testing;
 const builtin = @import("builtin");
 
 const tracy = stdx.debug.tracy;
-const document = @import("common").document;
+const document = stdx.textbuf.document;
 const Document = document.Document;
 const LineChunkId = document.LineChunkId;
 
