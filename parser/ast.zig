@@ -2,7 +2,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 const log = stdx.log.scoped(.ast);
 
-const document = @import("common").document;
+const document = stdx.textbuf.document;
 
 const _parser = @import("parser.zig");
 const Parser = _parser.Parser;

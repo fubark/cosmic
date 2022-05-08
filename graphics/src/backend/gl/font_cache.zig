@@ -228,7 +228,7 @@ pub const FontCache = struct {
                 }
             }
             if (match) {
-                return iter.idx - 1;
+                return iter.cur_id;
             }
         }
         return null;

@@ -11,6 +11,7 @@ const stdx = @import("stdx/lib.zig");
 const platform = @import("platform/lib.zig");
 const graphics = @import("graphics/lib.zig");
 const ui = @import("ui/lib.zig");
+const parser = @import("parser/lib.zig");
 
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
@@ -23,6 +24,8 @@ const stb = @import("lib/stb/lib.zig");
 const gl = @import("lib/gl/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
+const maudio = @import("lib/miniaudio/lib.zig");
+const mingw = @import("lib/mingw/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -557,35 +560,34 @@ const BuilderContext = struct {
         stdx.addPackage(step, .{
             .enable_tracy = self.enable_tracy,
         });
-        addCommon(step);
         platform.addPackage(step, .{ .add_dep_pkgs = false });
         curl.addPackage(step);
         uv.addPackage(step);
         h2o.addPackage(step);
         ssl.addPackage(step);
         if (self.link_net) {
-            buildLinkCrypto(step);
-            buildLinkSsl(step);
-            buildLinkCurl(step);
-            buildLinkNghttp2(step);
-            buildLinkZlib(step);
-            buildLinkUv(step);
-            buildLinkH2O(step);
+            ssl.buildAndLinkCrypto(step, .{ .lib_path = LibCryptoPath });
+            ssl.buildAndLinkSsl(step, .{ .lib_path = LibSslPath });
+            curl.buildAndLink(step, .{ .lib_path = LibCurlPath });
+            http2.buildAndLink(step);
+            zlib.buildAndLink(step);
+            uv.buildAndLink(step, .{ .lib_path = LibUvPath });
+            h2o.buildAndLink(step, .{ .lib_path = LibH2oPath });
         }
         sdl.addPackage(step);
         stb.addStbttPackage(step);
         stb.addStbiPackage(step);
         gl.addPackage(step);
-        addMiniaudio(step);
+        maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
         tess2.addPackage(step, self.link_tess2);
         if (self.target.getOsTag() == .macos) {
             self.buildLinkMacSys(step);
         }
         if (self.target.getOsTag() == .windows and self.target.getAbi() == .gnu) {
-            self.buildMingwExtra(step);
-            self.buildLinkWinPosix(step);
-            self.buildLinkWinPthreads(step);
+            mingw.buildExtra(step);
+            mingw.buildAndLinkWinPosix(step);
+            mingw.buildAndLinkWinPthreads(step);
         }
         ui.addPackage(step, .{
             .add_dep_pkgs = false,
@@ -603,7 +605,7 @@ const BuilderContext = struct {
             graphics.buildAndLink(step, graphics_opts);
         }
         if (self.link_audio) {
-            self.buildLinkMiniaudio(step);
+            maudio.buildAndLink(step);
         }
 
         if (self.add_v8_pkg or self.link_v8) {
@@ -677,51 +679,6 @@ const BuilderContext = struct {
         // }
     }
 
-    fn buildLinkWinPthreads(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("winpthreads", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-        lib.linkLibC();
-        lib.addIncludeDir("./lib/mingw/winpthreads/include");
-
-        const c_files: []const []const u8 = &.{
-            "mutex.c",
-            "thread.c",
-            "spinlock.c",
-            "rwlock.c",
-            "cond.c",
-            "misc.c",
-            "sched.c",
-        };
-
-        for (c_files) |c_file| {
-            const path = self.builder.fmt("./lib/mingw/winpthreads/{s}", .{c_file});
-            lib.addCSourceFile(path, &.{});
-        }
-
-        step.linkLibrary(lib);
-    }
-
-    fn buildLinkWinPosix(self: *Self, step: *LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("win_posix", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-        lib.linkLibC();
-        lib.addIncludeDir("./lib/mingw/win_posix/include");
-
-        const c_files: []const []const u8 = &.{
-            "wincompat.c",
-            "mman.c",
-        };
-
-        for (c_files) |c_file| {
-            const path = self.builder.fmt("./lib/mingw/win_posix/{s}", .{c_file});
-            lib.addCSourceFile(path, &.{});
-        }
-
-        step.linkLibrary(lib);
-    }
-
     fn buildLinkMacSys(self: *Self, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mac_sys", null);
         lib.setTarget(self.target);
@@ -739,39 +696,9 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    // Missing sources in zig's mingw distribution.
-    fn buildMingwExtra(self: *Self, step: *LibExeObjStep) void {
-        _ = self;
-        step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorA.c", &.{});
-        step.addCSourceFile("./lib/mingw/ws2tcpip/gai_strerrorW.c", &.{});
-    }
-
     fn addCSourceFileFmt(self: *Self, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
         const path = std.fmt.allocPrint(self.builder.allocator, format, args) catch unreachable;
         lib.addCSourceFile(self.fromRoot(path), c_flags);
-    }
-
-    fn buildLinkMiniaudio(self: *Self, step: *std.build.LibExeObjStep) void {
-        const lib = self.builder.addStaticLibrary("miniaudio", null);
-        lib.setTarget(self.target);
-        lib.setBuildMode(self.mode);
-
-        if (builtin.os.tag == .macos and self.target.getOsTag() == .macos) {
-            if (!self.target.isNative()) {
-                lib.addFrameworkDir("/System/Library/Frameworks");
-                lib.addSystemIncludeDir("/usr/include");
-                lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            }
-            lib.linkFramework("CoreAudio");
-        }
-        // TODO: vorbis has UB when doing seekToPcmFrame.
-        lib.disable_sanitize_c = true;
-
-        const c_flags = &[_][]const u8{
-        };
-        lib.addCSourceFile(self.fromRoot("./lib/miniaudio/src/miniaudio.c"), c_flags);
-        lib.linkLibC();
-        step.linkLibrary(lib);
     }
 
     fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
@@ -797,7 +724,7 @@ const BuilderContext = struct {
         gl.addPackage(lib);
         uv.addPackage(lib);
         addZigV8(lib);
-        addMiniaudio(lib);
+        maudio.addPackage(lib);
         step.linkLibrary(lib);
     }
 };
@@ -811,43 +738,6 @@ fn addZigV8(step: *LibExeObjStep) void {
     step.addPackage(zig_v8_pkg);
     step.linkLibC();
     step.addIncludeDir("./lib/zig-v8/src");
-}
-
-const miniaudio_pkg = Pkg{
-    .name = "miniaudio",
-    .path = FileSource.relative("./lib/miniaudio/miniaudio.zig"),
-};
-
-fn addMiniaudio(step: *std.build.LibExeObjStep) void {
-    step.addPackage(miniaudio_pkg);
-    step.addIncludeDir("./lib/miniaudio/src");
-}
-
-const graphics_pkg = Pkg{
-    .name = "graphics",
-    .path = FileSource.relative("./graphics/src/graphics.zig"),
-};
-
-const common_pkg = Pkg{
-    .name = "common",
-    .path = FileSource.relative("./common/common.zig"),
-};
-
-fn addCommon(step: *std.build.LibExeObjStep) void {
-    var pkg = common_pkg;
-    pkg.dependencies = &.{stdx.pkg};
-    step.addPackage(pkg);
-}
-
-const parser_pkg = Pkg{
-    .name = "parser",
-    .path = FileSource.relative("./parser/parser.zig"),
-};
-
-fn addParser(step: *std.build.LibExeObjStep) void {
-    var pkg = parser_pkg;
-    pkg.dependencies = &.{common_pkg};
-    step.addPackage(pkg);
 }
 
 const GenMacLibCStep = struct {
@@ -1133,94 +1023,6 @@ fn getVersionString(is_official_build: bool) []const u8 {
         return VersionName;
     } else {
         return VersionName ++ "-Dev";
-    }
-}
-
-fn buildLinkSsl(step: *LibExeObjStep) void {
-    if (LibSslPath) |path| {
-        ssl.linkLibSslPath(step, path);
-    } else {
-        if (builtin.os.tag == .windows) {
-            step.addAssemblyFile(srcPath() ++ "/lib/extras/prebuilt/win64/ssl.lib");
-            return;
-        }
-        const lib = ssl.createSsl(step.builder, step.target, step.build_mode) catch unreachable;
-        ssl.linkLibSsl(step, lib);
-    }
-}
-
-fn buildLinkCrypto(step: *LibExeObjStep) void {
-    if (LibCryptoPath) |path| {
-        ssl.linkLibCryptoPath(step, path);
-    } else {
-        if (builtin.os.tag == .windows) {
-            // Can't build, too many args in build-lib will break zig :)
-            step.addAssemblyFile(srcPath() ++ "/lib/extras/prebuilt/win64/crypto.lib");
-            return;
-        }
-        const lib = ssl.createCrypto(step.builder, step.target, step.build_mode) catch unreachable;
-        ssl.linkLibCrypto(step, lib);
-    }
-}
-
-fn buildLinkZlib(step: *LibExeObjStep) void {
-    const lib = zlib.create(step.builder, step.target, step.build_mode) catch unreachable;
-    zlib.linkLib(step, lib);
-}
-
-fn buildLinkNghttp2(step: *LibExeObjStep) void {
-    const lib = http2.create(step.builder, step.target, step.build_mode) catch unreachable;
-    http2.linkLib(step, lib);
-}
-
-fn buildLinkCurl(step: *LibExeObjStep) void {
-    const b = step.builder;
-    if (LibCurlPath) |path| {
-        curl.linkLibPath(step, path);
-    } else {
-        const lib = curl.create(step.builder, step.target, step.build_mode, .{
-            // Use the same openssl config so curl knows what features it has.
-            .openssl_includes = &.{
-                fromRoot(b, "lib/openssl/include"),
-                fromRoot(b, "lib/openssl/vendor/include"),
-            },
-            .nghttp2_includes = &.{
-                fromRoot(b, "lib/nghttp2/vendor/lib/includes"),
-            },
-            .zlib_includes = &.{
-                fromRoot(b, "lib/zlib/vendor"),
-            },
-        }) catch unreachable;
-        curl.linkLib(step, lib);
-    }
-}
-
-fn buildLinkUv(step: *LibExeObjStep) void {
-    if (LibUvPath) |path| {
-        uv.linkLibPath(step, path);
-    } else {
-        const lib = uv.create(step.builder, step.target, step.build_mode) catch unreachable;
-        uv.linkLib(step, lib);
-    }
-}
-
-fn buildLinkH2O(step: *LibExeObjStep) void {
-    if (LibH2oPath) |path| {
-        h2o.linkLibPath(step, path);
-    } else {
-        const b = step.builder;
-        const lib = h2o.create(step.builder, step.target, step.build_mode, .{
-            .openssl_includes = &.{
-                fromRoot(b, "lib/openssl/vendor/include"),
-            },
-            .libuv_includes = &.{
-                fromRoot(b, "lib/uv/vendor/include"),
-            },
-            .zlib_includes = &.{
-                fromRoot(b, "lib/zlib/vendor"),
-            },
-        }) catch unreachable;
-        h2o.linkLib(step, lib);
     }
 }
 

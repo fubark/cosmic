@@ -270,6 +270,30 @@ pub fn create(
     return lib;
 }
 
+pub const LinkOptions = struct {
+    lib_path: ?[]const u8 = null,
+};
+
+pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: LinkOptions) void {
+    if (opts.lib_path) |path| {
+        linkLibPath(step, path);
+    } else {
+        const b = step.builder;
+        const lib = create(b, step.target, step.build_mode, .{
+            .openssl_includes = &.{
+                srcPath() ++ "/../openssl/vendor/include",
+            },
+            .libuv_includes = &.{
+                srcPath() ++ "/../uv/vendor/include",
+            },
+            .zlib_includes = &.{
+                srcPath() ++ "/../zlib/vendor",
+            },
+        }) catch unreachable;
+        linkLib(step, lib);
+    }
+}
+
 pub fn linkLib(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {
     step.linkLibrary(lib);
 }

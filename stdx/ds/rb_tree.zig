@@ -79,7 +79,7 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
             self.root = NullId;
             var iter = self.buf.iterator();
             while (iter.next()) |node| {
-                self.buf.remove(iter.idx-1);
+                self.buf.remove(iter.cur_id);
                 _ = try self.insertCustom(node.val, ctx, cmp);
             }
         }

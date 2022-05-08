@@ -266,6 +266,32 @@ pub fn create(
     return lib;
 }
 
+pub const LinkOptions = struct {
+    lib_path: ?[]const u8 = null,
+};
+
+pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: LinkOptions) void {
+    const b = step.builder;
+    if (opts.lib_path) |path| {
+        linkLibPath(step, path);
+    } else {
+        const lib = create(b, step.target, step.build_mode, .{
+            // Use the same openssl config so curl knows what features it has.
+            .openssl_includes = &.{
+                srcPath() ++ "/../openssl/include",
+                srcPath() ++ "/../openssl/vendor/include",
+            },
+            .nghttp2_includes = &.{
+                srcPath() ++ "/../nghttp2/vendor/lib/includes",
+            },
+            .zlib_includes = &.{
+                srcPath() ++ "/../zlib/vendor",
+            },
+        }) catch unreachable;
+        linkLib(step, lib);
+    }
+}
+
 pub fn linkLib(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {
     linkDeps(step);
     step.linkLibrary(lib);

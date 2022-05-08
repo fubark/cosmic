@@ -6,6 +6,10 @@ pub const pkg = std.build.Pkg{
     .path = .{ .path = srcPath() ++ "/uv.zig" },
 };
 
+pub const Options = struct {
+    lib_path: ?[]const u8 = null,
+};
+
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
     step.addIncludeDir(srcPath() ++ "/vendor/include");
@@ -144,6 +148,15 @@ pub fn create(
     }
 
     return lib;
+}
+
+pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
+    if (opts.lib_path) |path| {
+        linkLibPath(step, path);
+    } else {
+        const lib = create(step.builder, step.target, step.build_mode) catch unreachable;
+        linkLib(step, lib);
+    }
 }
 
 pub fn linkLib(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {

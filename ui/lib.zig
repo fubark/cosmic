@@ -8,7 +8,7 @@ const sdl = @import("../lib/sdl/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "ui",
-    .path = .{ .path = srcPath() ++ "/ui.zig" },
+    .path = .{ .path = srcPath() ++ "/src/ui.zig" },
 };
 
 pub const Options = struct {

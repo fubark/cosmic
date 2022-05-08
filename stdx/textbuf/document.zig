@@ -1,5 +1,5 @@
 const std = @import("std");
-const stdx = @import("stdx");
+const stdx = @import("../stdx.zig");
 const ds = stdx.ds;
 const t = stdx.testing;
 
