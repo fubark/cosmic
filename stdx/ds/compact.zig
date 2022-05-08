@@ -655,13 +655,8 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             return iter.next().?.data;
         }
 
-        pub fn count(self: Self) Id {
-            var iter = self.nodes.iterator();
-            var res: Id = 0;
-            while (iter.next()) |_| {
-                res += 1;
-            }
-            return res;
+        pub fn size(self: Self) usize {
+            return self.nodes.size();
         }
 
         pub fn getLast(self: Self, id: Id) ?Id {
