@@ -46,12 +46,14 @@ pub const App = struct {
     step_interval: ?u32,
 
     ctx: *ui.CommonContext,
+    node: *ui.Node,
 
     pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
         self.step_interval = c.addInterval(Duration.initSecsF(0.01), self, onStep);
         self.progress_ms = 0;
         self.duration_secs = 15;
         self.ctx = c.common;
+        self.node = c.node;
     }
 
     fn onStep(self: *Self, e: ui.IntervalEvent) void {
@@ -66,7 +68,7 @@ pub const App = struct {
 
     fn reset(self: *Self) void {
         if (self.step_interval == null) {
-            self.step_interval = self.ctx.addInterval(Duration.initSecsF(0.01), self, onStep);
+            self.step_interval = self.ctx.addInterval(self.node, Duration.initSecsF(0.01), self, onStep);
         } else {
             self.ctx.resetInterval(self.step_interval.?);
         }

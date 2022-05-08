@@ -300,14 +300,10 @@ pub const TextFieldInner = struct {
     pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
-        // log.debug("here", .{});
         const vmetrics = c.getPrimaryFontVMetrics(self.props.font_gid, self.props.font_size);
-        // log.debug("here2", .{});
         const metrics = c.measureText(self.props.font_gid, self.props.font_size, self.props.text);
-        // log.debug("here3", .{});
         self.text_width = metrics.width;
         self.caret_pos_x = c.measureText(self.props.font_gid, self.props.font_size, self.props.text[0..self.caret_idx]).width;
-        // log.debug("here4", .{});
 
         var res = ui.LayoutSize.init(metrics.width, vmetrics.height);
         if (c.prefer_exact_width) {
