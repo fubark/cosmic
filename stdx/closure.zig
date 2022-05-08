@@ -5,9 +5,6 @@ const t = stdx.testing;
 const log = stdx.log.scoped(.closure);
 
 pub fn Closure(comptime Capture: type, comptime Param: type) type {
-    if (@sizeOf(Capture) == 0) {
-        @compileError("Captured type has no size: " ++ @typeName(Capture));
-    }
     return struct {
         const Self = @This();
 
@@ -15,12 +12,19 @@ pub fn Closure(comptime Capture: type, comptime Param: type) type {
         user_fn: UserClosureFn(Capture, Param),
 
         pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: UserClosureFn(Capture, Param)) Self {
-            const dupe = alloc.create(Capture) catch unreachable;
-            dupe.* = capture;
-            return .{
-                .capture = dupe,
-                .user_fn = user_fn,
-            };
+            if (@sizeOf(Capture) == 0) {
+                return .{
+                    .capture = undefined,
+                    .user_fn = user_fn,
+                };
+            } else {
+                const dupe = alloc.create(Capture) catch unreachable;
+                dupe.* = capture;
+                return .{
+                    .capture = dupe,
+                    .user_fn = user_fn,
+                };
+            }
         }
 
         pub fn iface(self: Self) ClosureIface(Param) {
@@ -28,15 +32,25 @@ pub fn Closure(comptime Capture: type, comptime Param: type) type {
         }
 
         pub fn call(self: *Self, arg: Param) void {
-            if (Param == void) {
-                self.user_fn(self.capture.*);
+            if (@sizeOf(Capture) == 0) {
+                if (Param == void) {
+                    self.user_fn({});
+                } else {
+                    self.user_fn({}, arg);
+                }
             } else {
-                self.user_fn(self.capture.*, arg);
+                if (Param == void) {
+                    self.user_fn(self.capture.*);
+                } else {
+                    self.user_fn(self.capture.*, arg);
+                }
             }
         }
 
         pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
-            alloc.destroy(self.capture);
+            if (@sizeOf(Capture) > 0) {
+                alloc.destroy(self.capture);
+            }
         }
     };
 }
@@ -58,20 +72,33 @@ pub fn ClosureIface(comptime Param: type) type {
             const gen = struct {
                 fn call(user_fn_ptr: *const anyopaque, ptr: *anyopaque, arg: Param) void {
                     const user_fn = @ptrCast(UserFn, user_fn_ptr);
-                    const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
-                    if (Param == void) {
-                        user_fn(capture.*);
+                    if (@sizeOf(CapturePtr) == 0) {
+                        // *void
+                        if (Param == void) {
+                            user_fn({});
+                        } else {
+                            user_fn({}, arg);
+                        }
                     } else {
-                        user_fn(capture.*, arg);
+                        const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
+                        if (Param == void) {
+                            user_fn(capture.*);
+                        } else {
+                            user_fn(capture.*, arg);
+                        }
                     }
                 }
                 fn deinit(alloc: std.mem.Allocator, ptr: *anyopaque) void {
-                    const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
-                    alloc.destroy(capture);
+                    if (@sizeOf(CapturePtr) > 0) {
+                        // not *void
+                        const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
+                        alloc.destroy(capture);
+                    }
                 }
             };
             return .{
-                .capture_ptr = @ptrCast(*anyopaque, closure.capture),
+                // Check for *void.
+                .capture_ptr = if (@sizeOf(CapturePtr) == 0) undefined else @ptrCast(*anyopaque, closure.capture),
                 .user_fn = closure.user_fn,
                 .call_fn = gen.call,
                 .deinit_fn = gen.deinit,
