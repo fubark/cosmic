@@ -21,7 +21,7 @@ test {
     const gl_graphics = @import("../graphics/src/backend/gl/graphics.zig");
     t.refAllDecls(gl_graphics);
 
-    const ui = @import("../ui/ui.zig");
+    const ui = @import("../ui/src/ui.zig");
     t.refAllDecls(ui);
 
     const platform = @import("../platform/platform.zig");
