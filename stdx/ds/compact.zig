@@ -12,6 +12,9 @@ const log = stdx.log.scoped(.compact);
 /// TODO: Iterating can be just as fast as a dense array if CompactIdGenerator kept a sorted list of freed id ranges.
 ///       Although that also means delete ops would need to be O(logn).
 pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
+    if (@typeInfo(Id).Int.signedness != .unsigned) {
+        @compileError("Unsigned id type required.");
+    }
     return struct {
         id_gen: CompactIdGenerator(Id),
 
@@ -25,29 +28,30 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
 
         const Self = @This();
         const Iterator = struct {
-            idx: Id,
+            // The current id should reflect the id of the value returned from next or nextPtr.
+            cur_id: Id,
             list: *const Self,
 
             fn init(list: *const Self) @This() {
                 return .{
-                    .idx = 0,
+                    .cur_id = std.math.maxInt(Id),
                     .list = list,
                 };
             }
 
             pub fn reset(self: *@This()) void {
-                self.idx = 0;
+                self.idx = std.math.maxInt(Id);
             }
 
             pub fn nextPtr(self: *@This()) ?*T {
+                self.cur_id +%= 1;
                 while (true) {
-                    if (self.idx < self.list.data.items.len) {
-                        if (!self.list.data_exists.isSet(self.idx)) {
-                            self.idx += 1;
+                    if (self.cur_id < self.list.data.items.len) {
+                        if (!self.list.data_exists.isSet(self.cur_id)) {
+                            self.cur_id += 1;
                             continue;
                         } else {
-                            defer self.idx += 1;
-                            return &self.list.data.items[self.idx];
+                            return &self.list.data.items[self.cur_id];
                         }
                     } else {
                         return null;
@@ -56,14 +60,14 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             }
 
             pub fn next(self: *@This()) ?T {
+                self.cur_id +%= 1;
                 while (true) {
-                    if (self.idx < self.list.data.items.len) {
-                        if (!self.list.data_exists.isSet(self.idx)) {
-                            self.idx += 1;
+                    if (self.cur_id < self.list.data.items.len) {
+                        if (!self.list.data_exists.isSet(self.cur_id)) {
+                            self.cur_id += 1;
                             continue;
                         } else {
-                            defer self.idx += 1;
-                            return self.list.data.items[self.idx];
+                            return self.list.data.items[self.cur_id];
                         }
                     } else {
                         return null;
@@ -638,6 +642,26 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
 
         pub fn iterator(self: Self) CompactUnorderedList(Id, Node).Iterator {
             return self.nodes.iterator();
+        }
+
+        pub fn iterFirstNoCheck(self: Self) Id {
+            var iter = self.nodes.iterator();
+            _ = iter.next();
+            return iter.cur_id;
+        }
+
+        pub fn iterFirstValueNoCheck(self: Self) T {
+            var iter = self.nodes.iterator();
+            return iter.next().?.data;
+        }
+
+        pub fn count(self: Self) Id {
+            var iter = self.nodes.iterator();
+            var res: Id = 0;
+            while (iter.next()) |_| {
+                res += 1;
+            }
+            return res;
         }
 
         pub fn getLast(self: Self, id: Id) ?Id {

@@ -411,7 +411,7 @@ pub const RuntimeContext = struct {
         {
             var iter = self.resources.nodes.iterator();
             while (iter.nextPtr()) |_| {
-                const res_id = iter.idx - 1;
+                const res_id = iter.cur_id;
                 self.destroyResourceHandle(res_id);
             }
             self.resources.deinit();
@@ -2040,7 +2040,7 @@ fn shutdownRuntime(rt: *RuntimeContext) void {
     // Resources like the http server will need some time to close out their connections.
     var iter = rt.resources.nodes.iterator();
     while (iter.nextPtr()) |it| {
-        const res_id = iter.idx - 1;
+        const res_id = iter.cur_id;
         if (!it.data.deinited) {
             rt.startDeinitResourceHandle(res_id);
         }
