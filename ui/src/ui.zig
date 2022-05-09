@@ -12,6 +12,11 @@ pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
 pub const Event = module.Event;
 pub const IntervalEvent = module.IntervalEvent;
+pub const KeyDownEvent = module.KeyDownEvent;
+pub const KeyUpEvent = module.KeyUpEvent;
+pub const MouseDownEvent = module.MouseDownEvent;
+pub const MouseUpEvent = module.MouseUpEvent;
+pub const MouseMoveEvent = module.MouseMoveEvent;
 
 const config = @import("config.zig");
 pub const Config = config.Config;

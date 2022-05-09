@@ -11,12 +11,6 @@ const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
 const FontGroupId = graphics.font.FontGroupId;
 const platform = @import("platform");
-const KeyUpEvent = platform.KeyUpEvent;
-const KeyDownEvent = platform.KeyDownEvent;
-const MouseUpEvent = platform.MouseUpEvent;
-const MouseDownEvent = platform.MouseDownEvent;
-const MouseScrollEvent = platform.MouseScrollEvent;
-const MouseMoveEvent = platform.MouseMoveEvent;
 const EventDispatcher = platform.EventDispatcher;
 
 const ui = @import("ui.zig");
@@ -354,27 +348,27 @@ pub fn Module(comptime C: Config) type {
         /// Attaches handlers to the event dispatcher.
         pub fn addInputHandlers(self: *Self, dispatcher: *EventDispatcher) void {
             const S = struct {
-                fn onKeyDown(ctx: ?*anyopaque, e: KeyDownEvent) void {
+                fn onKeyDown(ctx: ?*anyopaque, e: platform.KeyDownEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processKeyDownEvent(e);
                 }
-                fn onKeyUp(ctx: ?*anyopaque, e: KeyUpEvent) void {
+                fn onKeyUp(ctx: ?*anyopaque, e: platform.KeyUpEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processKeyUpEvent(e);
                 }
-                fn onMouseDown(ctx: ?*anyopaque, e: MouseDownEvent) void {
+                fn onMouseDown(ctx: ?*anyopaque, e: platform.MouseDownEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processMouseDownEvent(e);
                 }
-                fn onMouseUp(ctx: ?*anyopaque, e: MouseUpEvent) void {
+                fn onMouseUp(ctx: ?*anyopaque, e: platform.MouseUpEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processMouseUpEvent(e);
                 }
-                fn onMouseScroll(ctx: ?*anyopaque, e: MouseScrollEvent) void {
+                fn onMouseScroll(ctx: ?*anyopaque, e: platform.MouseScrollEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processMouseScrollEvent(e);
                 }
-                fn onMouseMove(ctx: ?*anyopaque, e: MouseMoveEvent) void {
+                fn onMouseMove(ctx: ?*anyopaque, e: platform.MouseMoveEvent) void {
                     const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                     self_.processMouseMoveEvent(e);
                 }
@@ -392,7 +386,7 @@ pub fn Module(comptime C: Config) type {
             return stdx.mem.ptrCastAlign(*Widget, node.widget);
         }
 
-        pub fn processMouseUpEvent(self: *Self, e: MouseUpEvent) void {
+        pub fn processMouseUpEvent(self: *Self, e: platform.MouseUpEvent) void {
             const xf = @intToFloat(f32, e.x);
             const yf = @intToFloat(f32, e.y);
 
@@ -422,7 +416,7 @@ pub fn Module(comptime C: Config) type {
             }
         }
 
-        fn processMouseUpEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: MouseUpEvent) bool {
+        fn processMouseUpEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: platform.MouseUpEvent) bool {
             const pos = node.abs_pos;
             if (xf >= pos.x and xf <= pos.x + node.layout.width and yf >= pos.y and yf <= pos.y + node.layout.height) {
                 if (node == self.common.last_focused_widget) {
@@ -447,7 +441,7 @@ pub fn Module(comptime C: Config) type {
 
         /// Start at the root node and propagate downwards on the first hit box.
         /// TODO: Handlers should be able to return Stop to prevent propagation.
-        pub fn processMouseDownEvent(self: *Self, e: MouseDownEvent) void {
+        pub fn processMouseDownEvent(self: *Self, e: platform.MouseDownEvent) void {
             const xf = @intToFloat(f32, e.x);
             const yf = @intToFloat(f32, e.y);
             self.common.last_focused_widget = self.common.focused_widget;
@@ -463,7 +457,7 @@ pub fn Module(comptime C: Config) type {
             }
         }
 
-        fn processMouseDownEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: MouseDownEvent) bool {
+        fn processMouseDownEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: platform.MouseDownEvent) bool {
             const pos = node.abs_pos;
             if (xf >= pos.x and xf <= pos.x + node.layout.width and yf >= pos.y and yf <= pos.y + node.layout.height) {
                 if (node == self.common.last_focused_widget) {
@@ -484,7 +478,7 @@ pub fn Module(comptime C: Config) type {
             } else return false;
         }
 
-        pub fn processMouseScrollEvent(self: *Self, e: MouseScrollEvent) void {
+        pub fn processMouseScrollEvent(self: *Self, e: platform.MouseScrollEvent) void {
             const xf = @intToFloat(f32, e.x);
             const yf = @intToFloat(f32, e.y);
             if (self.root_node) |node| {
@@ -492,7 +486,7 @@ pub fn Module(comptime C: Config) type {
             }
         }
 
-        fn processMouseScrollEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: MouseScrollEvent) bool {
+        fn processMouseScrollEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: platform.MouseScrollEvent) bool {
             const pos = node.abs_pos;
             if (xf >= pos.x and xf <= pos.x + node.layout.width and yf >= pos.y and yf <= pos.y + node.layout.height) {
                 var cur = node.mouse_scroll_list;
@@ -510,13 +504,13 @@ pub fn Module(comptime C: Config) type {
             } else return false;
         }
 
-        pub fn processMouseMoveEvent(self: *Self, e: MouseMoveEvent) void {
+        pub fn processMouseMoveEvent(self: *Self, e: platform.MouseMoveEvent) void {
             for (self.common.mouse_move_event_subs.items) |*it| {
                 it.handleEvent(&self.event_ctx, e);
             }
         }
 
-        pub fn processKeyDownEvent(self: *Self, e: KeyDownEvent) void {
+        pub fn processKeyDownEvent(self: *Self, e: platform.KeyDownEvent) void {
             // Only the focused widget receives input.
             if (self.common.focused_widget) |focused_widget| {
                 var cur = focused_widget.key_down_list;
@@ -528,7 +522,7 @@ pub fn Module(comptime C: Config) type {
             }
         }
 
-        pub fn processKeyUpEvent(self: *Self, e: KeyUpEvent) void {
+        pub fn processKeyUpEvent(self: *Self, e: platform.KeyUpEvent) void {
             // Only the focused widget receives input.
             if (self.common.focused_widget) |focused_widget| {
                 var cur = focused_widget.key_up_list;
@@ -567,7 +561,7 @@ pub fn Module(comptime C: Config) type {
         // 3. Compute layout.
         // 4. Run next post layout cbs.
         pub fn preUpdate(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *C.Build()) FrameId, layout_size: LayoutSize) void {
-            self.common.updateIntervals(delta_ms);
+            self.common.updateIntervals(delta_ms, &self.event_ctx);
 
             // TODO: check if we have to update
 
@@ -603,7 +597,7 @@ pub fn Module(comptime C: Config) type {
 
             // Run logic that needs to happen after layout.
             for (self.common.next_post_layout_cbs.items) |*it| {
-                it.call({});
+                it.call(.{});
                 it.deinit(self.alloc);
             }
             self.common.next_post_layout_cbs.clearRetainingCapacity();
@@ -1207,28 +1201,35 @@ pub const EventContext = struct {
     pub usingnamespace MixinContextEventOps(Self);
 };
 
+pub const KeyDownEvent = Event(platform.KeyDownEvent);
+pub const KeyUpEvent = Event(platform.KeyUpEvent);
+pub const MouseDownEvent = Event(platform.MouseDownEvent);
+pub const MouseUpEvent = Event(platform.MouseUpEvent);
+pub const MouseMoveEvent = Event(platform.MouseMoveEvent);
+pub const MouseScrollEvent = Event(platform.MouseScrollEvent);
+
 fn KeyDownHandler(comptime Context: type) type {
-    return fn (Context, Event(KeyDownEvent)) void;
+    return fn (Context, KeyDownEvent) void;
 }
 
 fn KeyUpHandler(comptime Context: type) type {
-    return fn (Context, Event(KeyUpEvent)) void;
+    return fn (Context, KeyUpEvent) void;
 }
 
 fn MouseMoveHandler(comptime Context: type) type {
-    return fn (Context, Event(MouseMoveEvent)) void;
+    return fn (Context, MouseMoveEvent) void;
 }
 
 fn MouseDownHandler(comptime Context: type) type {
-    return fn (Context, Event(MouseDownEvent)) void;
+    return fn (Context, MouseDownEvent) void;
 }
 
 fn MouseUpHandler(comptime Context: type) type {
-    return fn (Context, Event(MouseUpEvent)) void;
+    return fn (Context, MouseUpEvent) void;
 }
 
 fn MouseScrollHandler(comptime Context: type) type {
-    return fn (Context, Event(MouseScrollEvent)) void;
+    return fn (Context, MouseScrollEvent) void;
 }
 
 /// Does not depend on ModuleConfig so it can be embedded into Widget structs to access common utilities.
@@ -1273,7 +1274,7 @@ pub const CommonContext = struct {
     }
 
     pub fn addInterval(self: *Self, node: *Node, dur: Duration, ctx: anytype, cb: IntervalHandler(@TypeOf(ctx))) IntervalId {
-        const closure = Closure(@TypeOf(ctx), IntervalEvent).init(self.alloc, ctx, cb).iface();
+        const closure = Closure(@TypeOf(ctx), fn (IntervalEvent) void).init(self.alloc, ctx, cb).iface();
         const s = IntervalSession.init(dur, node, closure);
         return self.common.interval_sessions.add(s) catch unreachable;
     }
@@ -1318,9 +1319,9 @@ pub const CommonContext = struct {
     }
 
     pub fn addMouseUpHandler(self: *Self, node: *Node, ctx: anytype, cb: MouseUpHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(MouseUpEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = GlobalSubscriber(MouseUpEvent){
-            .sub = Subscriber(MouseUpEvent){
+        const closure = Closure(@TypeOf(ctx), fn (MouseUpEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = GlobalSubscriber(platform.MouseUpEvent){
+            .sub = Subscriber(platform.MouseUpEvent){
                 .closure = closure,
                 .node = node,
             },
@@ -1334,9 +1335,9 @@ pub const CommonContext = struct {
     }
 
     pub fn addGlobalMouseUpHandler(self: *Self, node: *Node, ctx: anytype, cb: MouseUpHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(MouseUpEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = GlobalSubscriber(MouseUpEvent){
-            .sub = Subscriber(MouseUpEvent){
+        const closure = Closure(@TypeOf(ctx), fn (MouseUpEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = GlobalSubscriber(platform.MouseUpEvent){
+            .sub = Subscriber(platform.MouseUpEvent){
                 .closure = closure,
                 .node = node,
             },
@@ -1382,8 +1383,8 @@ pub const CommonContext = struct {
     }
 
     pub fn addMouseDownHandler(self: Self, node: *Node, ctx: anytype, cb: MouseDownHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(MouseDownEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(MouseDownEvent){
+        const closure = Closure(@TypeOf(ctx), fn (MouseDownEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = Subscriber(platform.MouseDownEvent){
             .closure = closure,
             .node = node,
         };
@@ -1415,8 +1416,8 @@ pub const CommonContext = struct {
     }
 
     pub fn addMouseScrollHandler(self: Self, node: *Node, ctx: anytype, cb: MouseScrollHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(MouseScrollEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(MouseScrollEvent){
+        const closure = Closure(@TypeOf(ctx), fn (MouseScrollEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = Subscriber(platform.MouseScrollEvent){
             .closure = closure,
             .node = node,
         };
@@ -1448,8 +1449,8 @@ pub const CommonContext = struct {
     }
 
     pub fn addMouseMoveHandler(self: *Self, node: *Node, ctx: anytype, cb: MouseMoveHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(MouseMoveEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(MouseMoveEvent){
+        const closure = Closure(@TypeOf(ctx), fn (MouseMoveEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = Subscriber(platform.MouseMoveEvent){
             .closure = closure,
             .node = node,
         };
@@ -1458,8 +1459,8 @@ pub const CommonContext = struct {
     }
 
     pub fn addKeyUpHandler(self: *Self, node: *Node, ctx: anytype, cb: KeyUpHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(KeyUpEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(KeyUpEvent){
+        const closure = Closure(@TypeOf(ctx), fn (KeyUpEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = Subscriber(platform.KeyUpEvent){
             .closure = closure,
             .node = node,
         };
@@ -1487,8 +1488,8 @@ pub const CommonContext = struct {
     }
 
     pub fn addKeyDownHandler(self: *Self, node: *Node, ctx: anytype, cb: KeyDownHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), Event(KeyDownEvent)).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(KeyDownEvent){
+        const closure = Closure(@TypeOf(ctx), fn (KeyDownEvent) void).init(self.alloc, ctx, cb).iface();
+        const sub = Subscriber(platform.KeyDownEvent){
             .closure = closure,
             .node = node,
         };
@@ -1535,17 +1536,17 @@ pub const ModuleCommon = struct {
 
     // TODO: Use one buffer for all the handlers.
     /// Keyboard handlers.
-    key_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyUpEvent)),
-    key_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyDownEvent)),
+    key_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)),
+    key_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)),
 
     /// Mouse handlers.
-    mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(MouseUpEvent)),
+    mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)),
     global_mouse_up_list: std.ArrayList(u32),
-    mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseDownEvent)),
-    mouse_scroll_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseScrollEvent)),
+    mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseDownEvent)),
+    mouse_scroll_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     /// Mouse move events fire far more frequently so it's better to just iterate a list and skip hit test.
     /// TODO: Implement a compact tree of nodes for mouse events.
-    mouse_move_event_subs: std.ArrayList(Subscriber(MouseMoveEvent)),
+    mouse_move_event_subs: std.ArrayList(Subscriber(platform.MouseMoveEvent)),
     has_mouse_move_subs: bool,
 
     /// Currently focused widget.
@@ -1555,7 +1556,7 @@ pub const ModuleCommon = struct {
     last_focused_widget: ?*Node,
     hit_last_focused: bool,
 
-    next_post_layout_cbs: std.ArrayList(ClosureIface(void)),
+    next_post_layout_cbs: std.ArrayList(ClosureIface(fn () void)),
 
     // next_post_render_cbs: std.ArrayList(*Node),
 
@@ -1584,16 +1585,16 @@ pub const ModuleCommon = struct {
             .default_font_gid = g.getDefaultFontGroupId(),
             .interval_sessions = ds.CompactUnorderedList(u32, IntervalSession).init(alloc),
 
-            .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyUpEvent)).init(alloc),
-            .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(KeyDownEvent)).init(alloc),
-            .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(MouseUpEvent)).init(alloc),
+            .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
+            .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
+            .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)).init(alloc),
             .global_mouse_up_list = std.ArrayList(u32).init(alloc),
-            .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseDownEvent)).init(alloc),
-            .mouse_move_event_subs = std.ArrayList(Subscriber(MouseMoveEvent)).init(alloc),
-            .mouse_scroll_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(MouseScrollEvent)).init(alloc),
+            .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseDownEvent)).init(alloc),
+            .mouse_move_event_subs = std.ArrayList(Subscriber(platform.MouseMoveEvent)).init(alloc),
+            .mouse_scroll_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
 
-            .next_post_layout_cbs = std.ArrayList(ClosureIface(void)).init(alloc),
+            .next_post_layout_cbs = std.ArrayList(ClosureIface(fn () void)).init(alloc),
             // .next_post_render_cbs = std.ArrayList(*Node).init(alloc),
 
             .focused_widget = null,
@@ -1685,19 +1686,19 @@ pub const ModuleCommon = struct {
         self.text_measures.remove(id);
     }
 
-    fn updateIntervals(self: *Self, delta_ms: f32) void {
+    fn updateIntervals(self: *Self, delta_ms: f32, event_ctx: *EventContext) void {
         var iter = self.interval_sessions.iterator();
         while (iter.nextPtr()) |it| {
             it.progress_ms += delta_ms;
             if (it.progress_ms > @intToFloat(f32, it.dur.toMillis())) {
-                it.call(&self.ctx);
+                it.call(event_ctx);
                 it.progress_ms = 0;
             }
         }
     }
 
-    fn nextPostLayout(self: *Self, ctx: anytype, cb: fn(@TypeOf(ctx)) void) void {
-        const closure = Closure(@TypeOf(ctx), void).init(self.alloc, ctx, cb).iface();
+    fn nextPostLayout(self: *Self, ctx: anytype, cb: fn (@TypeOf(ctx)) void) void {
+        const closure = Closure(@TypeOf(ctx), fn () void).init(self.alloc, ctx, cb).iface();
         self.next_post_layout_cbs.append(closure) catch unreachable;
     }
 };
@@ -1780,12 +1781,17 @@ fn GlobalSubscriber(comptime T: type) type {
 fn Subscriber(comptime T: type) type {
     return struct {
         const Self = @This();
-        closure: ClosureIface(Event(T)),
+        closure: ClosureIface(fn (Event(T)) void),
         node: *Node,
 
         fn handleEvent(self: Self, ctx: *EventContext, e: T) void {
             ctx.node = self.node;
-            self.closure.call(.{ .ctx = ctx, .val = e });
+            self.closure.call(.{
+                Event(T){
+                    .ctx = ctx,
+                    .val = e,
+                },
+            });
         }
 
         fn deinit(self: Self, alloc: std.mem.Allocator) void {
@@ -1840,26 +1846,33 @@ pub fn BuildContext(comptime C: Config) type {
         }
 
         /// Creates a closure in arena buffer, and returns an iface.
-        pub fn closure(self: *Self, comptime Context: type, ctx: Context, comptime Param: type, user_fn: fn (Context, Param) void) Function(Param) {
-            const c = Closure(Context, Param).init(self.mod.common.arena_alloc, ctx, user_fn).iface();
-            return Function(Param).initClosureIface(c);
+        pub fn closure(self: *Self, ctx: anytype, user_fn: anytype) Function(stdx.meta.FnAfterFirstParam(@TypeOf(user_fn))) {
+            const Params = comptime stdx.meta.FnParams(@TypeOf(user_fn));
+            if (Params.len == 0) {
+                @compileError("Expected first param to be: " ++ @typeName(@TypeOf(ctx)));
+            }
+            const InnerFn = stdx.meta.FnAfterFirstParam(@TypeOf(user_fn));
+            const c = Closure(@TypeOf(ctx), InnerFn).init(self.mod.common.arena_alloc, ctx, user_fn).iface();
+            return Function(InnerFn).initClosureIface(c);
         }
 
         /// Returns a wrapper over a free function.
-        pub fn func(self: *Self, comptime Param: type, comptime user_fn: fn (Param) void) Function(Param) {
+        pub fn func(self: *Self, user_fn: anytype) Function(@TypeOf(user_fn)) {
             _ = self;
-            return Function(Param).init(user_fn);
+            const Fn = @TypeOf(user_fn);
+            stdx.meta.assertFunctionType(Fn);
+            return Function(Fn).init(user_fn);
         }
 
         /// Returns a wrapper over a free function with a context pointer. This doesn't need any allocations.
-        pub fn funcExt(self: *Self, ctx_ptr: anytype, comptime user_fn: anytype) Function(stdx.meta.FnParamAt(@TypeOf(user_fn), 1)) {
+        pub fn funcExt(self: *Self, ctx_ptr: anytype, comptime user_fn: anytype) Function(stdx.meta.FnAfterFirstParam(@TypeOf(user_fn))) {
             _ = self;
-            const Params = comptime stdx.meta.FunctionParams(@TypeOf(user_fn));
+            const Params = comptime stdx.meta.FnParams(@TypeOf(user_fn));
             if (Params[0].arg_type.? != @TypeOf(ctx_ptr)) {
                 @compileError("Expected first param to be: " ++ @typeName(@TypeOf(ctx_ptr)));
             }
-            const Param = stdx.meta.FnParamAt(@TypeOf(user_fn), 1);
-            return Function(Param).initContext(ctx_ptr, user_fn);
+            const InnerFn = stdx.meta.FnAfterFirstParam(@TypeOf(user_fn));
+            return Function(InnerFn).initContext(ctx_ptr, user_fn);
         }
 
         pub fn range(self: *Self, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *C.Build(), u32) FrameId) FrameListPtr {
@@ -2039,11 +2052,11 @@ test "Widget instance lifecycle." {
         }
         fn onInterval(_: void, _: ui.IntervalEvent) void {}
         fn onBlur(_: *ui.Node, _: *ui.CommonContext) void {}
-        fn onKeyUp(_: void, _: Event(KeyUpEvent)) void {}
-        fn onKeyDown(_: void, _: Event(KeyDownEvent)) void {}
-        fn onMouseDown(_: void, _: Event(MouseDownEvent)) void {}
-        fn onMouseUp(_: void, _: Event(MouseUpEvent)) void {}
-        fn onMouseMove(_: void, _: Event(MouseMoveEvent)) void {}
+        fn onKeyUp(_: void, _: KeyUpEvent) void {}
+        fn onKeyDown(_: void, _: KeyDownEvent) void {}
+        fn onMouseDown(_: void, _: MouseDownEvent) void {}
+        fn onMouseUp(_: void, _: MouseUpEvent) void {}
+        fn onMouseMove(_: void, _: MouseMoveEvent) void {}
     };
     const TestConfig = comptime Config{
         .Imports = &.{
@@ -2258,9 +2271,9 @@ const IntervalSession = struct {
     dur: Duration,
     progress_ms: f32,
     node: *Node,
-    closure: ClosureIface(IntervalEvent),
+    closure: ClosureIface(fn (IntervalEvent) void),
 
-    fn init(dur: Duration, node: *Node, closure: ClosureIface(IntervalEvent)) Self {
+    fn init(dur: Duration, node: *Node, closure: ClosureIface(fn (IntervalEvent) void)) Self {
         return .{
             .dur = dur,
             .progress_ms = 0,
@@ -2273,17 +2286,20 @@ const IntervalSession = struct {
         self.closure.deinit(alloc);
     }
 
-    fn call(self: *Self, ctx: *CommonContext) void {
-        self.closure.call(IntervalEvent{
-            .progress_ms = self.progress_ms,
-            .ctx = ctx,
+    fn call(self: *Self, ctx: *EventContext) void {
+        ctx.node = self.node;
+        self.closure.call(.{
+            IntervalEvent{
+                .progress_ms = self.progress_ms,
+                .ctx = ctx,
+            },
         });
     }
 };
 
 pub const IntervalEvent = struct {
     progress_ms: f32,
-    ctx: *CommonContext,
+    ctx: *EventContext,
 };
 
 fn WidgetHasProps(comptime Widget: type) bool {

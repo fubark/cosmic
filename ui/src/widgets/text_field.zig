@@ -21,8 +21,8 @@ pub const TextField = struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
         font_size: f32 = 20,
-        onChangeEnd: ?Function([]const u8) = null,
-        onKeyDown: ?Function(KeyDownEvent) = null,
+        onChangeEnd: ?Function(fn ([]const u8) void) = null,
+        onKeyDown: ?Function(fn (KeyDownEvent) void) = null,
         padding: f32 = 10,
         width: ?f32 = null,
     },
@@ -70,13 +70,14 @@ pub const TextField = struct {
         return self.buf.items;
     }
 
-    fn onMouseDown(self: *Self, e: ui.Event(MouseDownEvent)) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+        const me = e.val;
         e.ctx.requestFocus(onBlur);
         self.inner.widget.setFocused();
         std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
 
         // Map mouse pos to caret pos.
-        const xf = @intToFloat(f32, e.val.x);
+        const xf = @intToFloat(f32, me.x);
         self.inner.widget.caret_idx = self.getCaretIdx(e.ctx.common, xf - self.inner.node.abs_pos.x + self.inner.widget.scroll_x);
     }
 
@@ -93,7 +94,7 @@ pub const TextField = struct {
 
     fn fireOnChangeEnd(self: *Self) void {
         if (self.props.onChangeEnd) |cb| {
-            cb.call(self.buf.items);
+            cb.call(.{ self.buf.items });
         }
     }
 
@@ -119,13 +120,11 @@ pub const TextField = struct {
         return idx;
     }
 
-    fn onKeyDown(self: *Self, e: ui.Event(KeyDownEvent)) void {
-        _ = self;
+    fn onKeyDown(self: *Self, e: ui.KeyDownEvent) void {
         const ke = e.val;
-
         // User onKeyDown is fired first. In the future this could let the user cancel the default behavior.
         if (self.props.onKeyDown) |cb| {
-            cb.call(ke);
+            cb.call(.{ ke });
         }
 
         if (ke.code == .Backspace) {

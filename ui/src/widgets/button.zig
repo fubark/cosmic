@@ -14,7 +14,7 @@ pub const TextButton = struct {
     const Self = @This();
 
     props: struct {
-        onClick: ?Function(MouseUpEvent) = null,
+        onClick: ?Function(fn (MouseUpEvent) void) = null,
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -45,7 +45,7 @@ pub const Button = struct {
     const Self = @This();
 
     props: struct {
-        onClick: ?Function(MouseUpEvent) = null,
+        onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -68,13 +68,13 @@ pub const Button = struct {
         c.addMouseUpHandler(c.node, handleMouseUpEvent);
     }
 
-    fn handleMouseUpEvent(node: *ui.Node, e: ui.Event(MouseUpEvent)) void {
+    fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
                 if (self.props.onClick) |cb| {
-                    cb.call(e.val);
+                    cb.call(.{ e.val });
                 }
             }
         }

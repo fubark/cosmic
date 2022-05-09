@@ -21,8 +21,8 @@ pub const Slider = struct {
         init_val: i32 = 0,
         min_val: i32 = 0,
         max_val: i32 = 100,
-        onChangeEnd: ?Function(i32) = null,
-        onChange: ?Function(i32) = null,
+        onChangeEnd: ?Function(fn (i32) void) = null,
+        onChange: ?Function(fn (i32) void) = null,
         thumb_color: Color = Color.Blue,
     },
 
@@ -52,10 +52,10 @@ pub const Slider = struct {
             self.updateValueFromMouseX(node, e.val.x);
             if (self.last_value != self.value) {
                 if (self.props.onChange) |cb| {
-                    cb.call(self.value);
+                    cb.call(.{ self.value });
                 }
                 if (self.props.onChangeEnd) |cb| {
-                    cb.call(self.value);
+                    cb.call(.{ self.value });
                 }
             }
         }
@@ -89,7 +89,7 @@ pub const Slider = struct {
         self.updateValueFromMouseX(node, e.val.x);
         if (self.last_value != self.value) {
             if (self.props.onChange) |cb| {
-                cb.call(self.value);
+                cb.call(.{ self.value });
             }
         }
         self.last_value = self.value;

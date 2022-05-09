@@ -141,7 +141,7 @@ pub const List = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) void {
+    fn handleMouseDownEvent(node: *Node, e: ui.MouseDownEvent) void {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);

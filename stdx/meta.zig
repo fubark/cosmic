@@ -61,6 +61,20 @@ pub fn FnWithPrefixParam(comptime Fn: type, comptime Param: type) type {
     });
 }
 
+pub fn FnAfterFirstParam(comptime Fn: type) type {
+    assertFunctionType(Fn);
+    return @Type(.{
+        .Fn = .{
+            .calling_convention = .Unspecified,
+            .alignment = 0,
+            .is_generic = false,
+            .is_var_args = false,
+            .return_type = FnReturn(Fn),
+            .args = &[_]std.builtin.Type.Fn.Param{} ++ @typeInfo(Fn).Fn.args[1..],
+        },
+    });
+}
+
 pub fn FieldType(comptime T: type, comptime Field: std.meta.FieldEnum(T)) type {
     return std.meta.fieldInfo(T, Field).field_type;
 }
