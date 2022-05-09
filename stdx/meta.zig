@@ -3,7 +3,22 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const log = stdx.log.scoped(.meta);
 
-pub fn FunctionArgs(comptime Fn: type) []const std.builtin.TypeInfo.FnArg {
+pub fn isFunc(comptime Fn: type) bool {
+    return @typeInfo(Fn) == .Fn;
+}
+
+pub fn FnParamAt(comptime Fn: type, comptime idx: u32) type {
+    if (!comptime isFunc(Fn)) {
+        @compileError("Expected function.");
+    }
+    const Params = comptime FunctionParams(Fn);
+    if (Params.len <= idx) {
+        @compileError(std.fmt.comptimePrint("Expected {} params for function.", .{idx + 1}));
+    }
+    return Params[idx].arg_type.?;
+}
+
+pub fn FunctionParams(comptime Fn: type) []const std.builtin.TypeInfo.FnArg {
     return @typeInfo(Fn).Fn.args;
 }
 

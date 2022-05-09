@@ -60,7 +60,7 @@ pub const App = struct {
                     c.decl(TextField, .{
                         .bind = &self.tc_field,
                         .width = 200,
-                        .onChangeEnd = c.funcExt(self, []const u8, S.onChangeTc),
+                        .onChangeEnd = c.funcExt(self, S.onChangeTc),
                     }),
                     c.decl(Padding, .{
                         .child = c.decl(Text, .{
@@ -71,7 +71,7 @@ pub const App = struct {
                     c.decl(TextField, .{
                         .bind = &self.tf_field,
                         .width = 200,
-                        .onChangeEnd = c.funcExt(self, []const u8, S.onChangeTf),
+                        .onChangeEnd = c.funcExt(self, S.onChangeTf),
                     }),
                     c.decl(Padding, .{
                         .child = c.decl(Text, .{

@@ -61,7 +61,7 @@ pub const App = struct {
                     }),
                     c.decl(TextButton, .{
                         .text = "Count",
-                        .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
+                        .onClick = c.funcExt(self, S.onClick),
                         .corner_radius = 10,
                     }),
                 }),

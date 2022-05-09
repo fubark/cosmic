@@ -1852,8 +1852,13 @@ pub fn BuildContext(comptime C: Config) type {
         }
 
         /// Returns a wrapper over a free function with a context pointer. This doesn't need any allocations.
-        pub fn funcExt(self: *Self, ctx_ptr: anytype, comptime Param: type, comptime user_fn: fn (@TypeOf(ctx_ptr), Param) void) Function(Param) {
+        pub fn funcExt(self: *Self, ctx_ptr: anytype, comptime user_fn: anytype) Function(stdx.meta.FnParamAt(@TypeOf(user_fn), 1)) {
             _ = self;
+            const Params = comptime stdx.meta.FunctionParams(@TypeOf(user_fn));
+            if (Params[0].arg_type.? != @TypeOf(ctx_ptr)) {
+                @compileError("Expected first param to be: " ++ @typeName(@TypeOf(ctx_ptr)));
+            }
+            const Param = stdx.meta.FnParamAt(@TypeOf(user_fn), 1);
             return Function(Param).initContext(ctx_ptr, user_fn);
         }
 

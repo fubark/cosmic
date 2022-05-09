@@ -152,21 +152,21 @@ pub const App = struct {
                             .child = d(TextButton, .{
                                 .text = "Create",
                                 .corner_radius = 10,
-                                .onClick = c.funcExt(self, MouseUpEvent, S.onClickCreate),
+                                .onClick = c.funcExt(self, S.onClickCreate),
                             }),
                         }),
                         d(Grow, .{
                             .child = d(TextButton, .{
                                 .text = "Update",
                                 .corner_radius = 10,
-                                .onClick = c.funcExt(self, MouseUpEvent, S.onClickUpdate),
+                                .onClick = c.funcExt(self, S.onClickUpdate),
                             }),
                         }),
                         d(Grow, .{
                             .child = d(TextButton, .{
                                 .text = "Delete",
                                 .corner_radius = 10,
-                                .onClick = c.funcExt(self, MouseUpEvent, S.onClickDelete),
+                                .onClick = c.funcExt(self, S.onClickDelete),
                             }),
                         }),
                     }),
@@ -195,7 +195,7 @@ pub const App = struct {
                                     }),
                                     d(Grow, .{
                                         .child = d(TextField, .{
-                                            .onChangeEnd = c.funcExt(self, []const u8, S.onChangeSearch),
+                                            .onChangeEnd = c.funcExt(self, S.onChangeSearch),
                                         }),
                                     })
                                 }),
