@@ -102,7 +102,7 @@ pub const TextEditor = struct {
         }
 
         if (self.inner) |inner| {
-            self.ctx.getTextMeasure(inner.widget.to_caret_measure).setFont(self.font_gid, font_size);
+            self.ctx.getTextMeasure(inner.getWidget().to_caret_measure).setFont(self.font_gid, font_size);
         }
     }
 
@@ -126,42 +126,43 @@ pub const TextEditor = struct {
     }
 
     fn getCaretX(self: *Self) f32 {
-        return self.ctx.getTextMeasure(self.inner.?.widget.to_caret_measure).metrics().width;
+        return self.ctx.getTextMeasure(self.inner.?.getWidget().to_caret_measure).metrics().width;
     }
 
     fn postLineUpdate(self: *Self, idx: usize) void {
         const line = &self.lines.items[idx];
         self.ctx.getTextMeasure(line.measure).setText(line.text.items);
-        self.inner.?.widget.resetCaretAnimation();
+        self.inner.?.getWidget().resetCaretAnimation();
     }
 
     fn postCaretUpdate(self: *Self) void {
-        self.inner.?.widget.postCaretUpdate();
+        self.inner.?.getWidget().postCaretUpdate();
 
         // Scroll to caret.
         const S = struct {
             fn cb(self_: *Self) void {
-                const sv = self_.scroll_view;
+                const sv = self_.scroll_view.getWidget();
+                const svn = self_.scroll_view.node;
 
                 const caret_x = self_.getCaretX();
                 const caret_bottom_y = self_.getCaretBottomY();
                 const caret_top_y = self_.getCaretTopY();
-                const view_width = sv.getWidth();
-                const view_height = sv.getHeight();
+                const view_width = self_.scroll_view.getWidth();
+                const view_height = self_.scroll_view.getHeight();
 
-                if (caret_bottom_y > sv.widget.scroll_y + view_height) {
+                if (caret_bottom_y > sv.scroll_y + view_height) {
                     // Below current view
-                    sv.widget.setScrollPosAfterLayout(sv.node, sv.widget.scroll_x, caret_bottom_y - view_height);
-                } else if (caret_top_y < sv.widget.scroll_y) {
+                    sv.setScrollPosAfterLayout(svn, sv.scroll_x, caret_bottom_y - view_height);
+                } else if (caret_top_y < sv.scroll_y) {
                     // Above current view
-                    sv.widget.setScrollPosAfterLayout(sv.node, sv.widget.scroll_x, caret_top_y);
+                    sv.setScrollPosAfterLayout(svn, sv.scroll_x, caret_top_y);
                 }
-                if (caret_x > sv.widget.scroll_x + view_width) {
+                if (caret_x > sv.scroll_x + view_width) {
                     // Right of current view
-                    sv.widget.setScrollPosAfterLayout(sv.node, caret_x - view_width, sv.widget.scroll_y);
-                } else if (caret_x < sv.widget.scroll_x) {
+                    sv.setScrollPosAfterLayout(svn, caret_x - view_width, sv.scroll_y);
+                } else if (caret_x < sv.scroll_x) {
                     // Left of current view
-                    sv.widget.setScrollPosAfterLayout(sv.node, caret_x, sv.widget.scroll_y);
+                    sv.setScrollPosAfterLayout(svn, caret_x, sv.scroll_y);
                 }
             }
         };
@@ -319,8 +320,9 @@ pub const TextEditorInner = struct {
         g.setFont(editor.font_gid, editor.font_size);
         g.setFillColor(self.editor.props.text_color);
         // TODO: Use binary search when word wrap is enabled and we can't determine the first visible line with O(1)
-        const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(editor.scroll_view.widget.scroll_y / line_height)));
-        const visible_end_idx = std.math.min(editor.lines.items.len, @floatToInt(i32, @ceil((editor.scroll_view.widget.scroll_y + editor.scroll_view.getHeight()) / line_height)));
+        const scroll_view = editor.scroll_view.getWidget();
+        const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(scroll_view.scroll_y / line_height)));
+        const visible_end_idx = std.math.min(editor.lines.items.len, @floatToInt(i32, @ceil((scroll_view.scroll_y + editor.scroll_view.getHeight()) / line_height)));
         // log.warn("{} {}", .{visible_start_idx, visible_end_idx});
         const line_offset_y = editor.font_line_offset_y;
         var i: usize = @intCast(usize, visible_start_idx);

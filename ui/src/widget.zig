@@ -17,25 +17,28 @@ pub const WidgetKey = union(enum) {
 
 /// Contains the widget and it's corresponding node in the layout tree.
 /// Although the widget can be obtained from the node, this is more type safe and can provide convenience functions.
-pub fn WidgetRef(comptime T: type) type {
+pub fn WidgetRef(comptime Widget: type) type {
     return struct {
         const Self = @This();
 
-        widget: *T,
+        /// Use widget's *anyopaque pointer in node to avoid "depends on itself" when WidgetRef(Widget) is declared in Widget.
         node: *Node,
 
-        pub fn init(widget: *T, node: *Node) Self {
+        pub fn init(node: *Node) Self {
             return .{
-                .widget = widget,
                 .node = node,
             };
         }
 
-        pub fn getHeight(self: Self) f32 {
+        pub inline fn getWidget(self: Self) *Widget {
+            return stdx.mem.ptrCastAlign(*Widget, self.node.widget);
+        }
+
+        pub inline fn getHeight(self: Self) f32 {
             return self.node.layout.height;
         }
 
-        pub fn getWidth(self: Self) f32 {
+        pub inline fn getWidth(self: Self) f32 {
             return self.node.layout.width;
         }
     };

@@ -22,7 +22,7 @@ pub const TextField = struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
         onChangeEnd: ?Function(fn ([]const u8) void) = null,
-        onKeyDown: ?Function(fn (KeyDownEvent) void) = null,
+        onKeyDown: ?Function(fn (ui.WidgetRef(Self), KeyDownEvent) void) = null,
         padding: f32 = 10,
         width: ?f32 = null,
     },
@@ -73,18 +73,19 @@ pub const TextField = struct {
     fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
         const me = e.val;
         e.ctx.requestFocus(onBlur);
-        self.inner.widget.setFocused();
+        const inner = self.inner.getWidget();
+        inner.setFocused();
         std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
 
         // Map mouse pos to caret pos.
         const xf = @intToFloat(f32, me.x);
-        self.inner.widget.caret_idx = self.getCaretIdx(e.ctx.common, xf - self.inner.node.abs_pos.x + self.inner.widget.scroll_x);
+        inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
     }
 
     fn onBlur(node: *Node, ctx: *ui.CommonContext) void {
         _ = ctx;
         const self = node.getWidget(Self);
-        self.inner.widget.focused = false;
+        self.inner.getWidget().focused = false;
         var hash: [16]u8 = undefined;
         std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
         if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
@@ -124,26 +125,27 @@ pub const TextField = struct {
         const ke = e.val;
         // User onKeyDown is fired first. In the future this could let the user cancel the default behavior.
         if (self.props.onKeyDown) |cb| {
-            cb.call(.{ ke });
+            cb.call(.{ ui.WidgetRef(Self).init(e.ctx.node), ke });
         }
 
+        const inner = self.inner.getWidget();
         if (ke.code == .Backspace) {
-            if (self.inner.widget.caret_idx > 0) {
-                if (self.buf.items.len == self.inner.widget.caret_idx) {
+            if (inner.caret_idx > 0) {
+                if (self.buf.items.len == inner.caret_idx) {
                     self.buf.resize(self.buf.items.len-1) catch unreachable;
                 } else {
-                    _ = self.buf.orderedRemove(self.inner.widget.caret_idx-1);
+                    _ = self.buf.orderedRemove(inner.caret_idx-1);
                 }
                 // self.postLineUpdate(self.caret_line);
-                self.inner.widget.caret_idx -= 1;
-                self.inner.widget.keepCaretFixedInView();
-                self.inner.widget.resetCaretAnim();
+                inner.caret_idx -= 1;
+                inner.keepCaretFixedInView();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .Delete) {
-            if (self.inner.widget.caret_idx < self.buf.items.len) {
-                _ = self.buf.orderedRemove(self.inner.widget.caret_idx);
-                self.inner.widget.keepCaretFixedInView();
-                self.inner.widget.resetCaretAnim();
+            if (inner.caret_idx < self.buf.items.len) {
+                _ = self.buf.orderedRemove(inner.caret_idx);
+                inner.keepCaretFixedInView();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .Enter) {
             var hash: [16]u8 = undefined;
@@ -151,31 +153,31 @@ pub const TextField = struct {
             if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
                 self.fireOnChangeEnd();
                 self.last_buf_hash = hash;
-                self.inner.widget.resetCaretAnim();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .ArrowLeft) {
-            if (self.inner.widget.caret_idx > 0) {
-                self.inner.widget.caret_idx -= 1;
-                self.inner.widget.keepCaretInView();
-                self.inner.widget.resetCaretAnim();
+            if (inner.caret_idx > 0) {
+                inner.caret_idx -= 1;
+                inner.keepCaretInView();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .ArrowRight) {
-            if (self.inner.widget.caret_idx < self.buf.items.len) {
-                self.inner.widget.caret_idx += 1;
-                self.inner.widget.keepCaretInView();
-                self.inner.widget.resetCaretAnim();
+            if (inner.caret_idx < self.buf.items.len) {
+                inner.caret_idx += 1;
+                inner.keepCaretInView();
+                inner.resetCaretAnim();
             }
         } else {
             if (ke.getPrintChar()) |ch| {
-                if (self.inner.widget.caret_idx == self.buf.items.len) {
+                if (inner.caret_idx == self.buf.items.len) {
                     self.buf.append(ch) catch unreachable;
                 } else {
-                    self.buf.insert(self.inner.widget.caret_idx, ch) catch unreachable;
+                    self.buf.insert(inner.caret_idx, ch) catch unreachable;
                 }
                 // self.postLineUpdate(self.caret_line);
-                self.inner.widget.caret_idx += 1;
-                self.inner.widget.keepCaretInView();
-                self.inner.widget.resetCaretAnim();
+                inner.caret_idx += 1;
+                inner.keepCaretInView();
+                inner.resetCaretAnim();
             }
         }
     }

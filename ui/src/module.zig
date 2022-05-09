@@ -66,7 +66,7 @@ fn genWidgetVTable(comptime C: Config, comptime Widget: type) *const WidgetVTabl
             }
             // Set bind.
             if (node.bind) |bind| {
-                stdx.mem.ptrCastAlign(*WidgetRef(Widget), bind).* = WidgetRef(Widget).init(new, node);
+                stdx.mem.ptrCastAlign(*WidgetRef(Widget), bind).* = WidgetRef(Widget).init(node);
             }
             if (@sizeOf(Widget) > 0) {
                 return new;
@@ -1755,8 +1755,7 @@ pub fn InitContext(comptime C: Config) type {
             };
             const res = stdx.algo.recursive.searchPreMany(WidgetTypeId, ct_typeid, *Node, self.node.children.items, walker, S.pred);
             if (res != null) {
-                const state = self.mod.getWidget(Widget, res.?);
-                return WidgetRef(Widget).init(state, res.?);
+                return WidgetRef(Widget).init(res.?);
             } else {
                 return null;
             }
