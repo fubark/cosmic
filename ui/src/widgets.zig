@@ -92,7 +92,7 @@ pub const ScrollList = struct {
 
     /// Index of ui.NullId represents no selection.
     pub fn getSelectedIdx(self: *Self) u32 {
-        return self.list.widget.selected_idx;
+        return self.list.getWidget().selected_idx;
     }
 };
 
@@ -141,7 +141,7 @@ pub const List = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) void {
+    fn handleMouseDownEvent(node: *Node, e: ui.MouseDownEvent) void {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);

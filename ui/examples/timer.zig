@@ -63,7 +63,7 @@ pub const App = struct {
             e.ctx.removeInterval(self.step_interval.?);
             self.step_interval = null;
         }
-        self.progress_bar.widget.setValue(self.progress_ms/1000);
+        self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
     fn reset(self: *Self) void {
@@ -73,7 +73,7 @@ pub const App = struct {
             self.ctx.resetInterval(self.step_interval.?);
         }
         self.progress_ms = 0;
-        self.progress_bar.widget.setValue(self.progress_ms/1000);
+        self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
@@ -129,7 +129,7 @@ pub const App = struct {
                                         .init_val = @floatToInt(i32, self.duration_secs),
                                         .min_val = 1,
                                         .max_val = 30,
-                                        .onChange = c.funcExt(self, i32, S.onChangeDuration),
+                                        .onChange = c.funcExt(self, S.onChangeDuration),
                                     }),
                                 }),
                             }),
@@ -140,7 +140,7 @@ pub const App = struct {
                                     .child = c.decl(TextButton, .{
                                         .text = "Reset",
                                         .corner_radius = 10,
-                                        .onClick = c.funcExt(self, MouseUpEvent, S.onClickReset),
+                                        .onClick = c.funcExt(self, S.onClickReset),
                                     }),
                                 }),
                             }),

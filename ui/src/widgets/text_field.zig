@@ -18,9 +18,11 @@ pub const TextField = struct {
     const Self = @This();
 
     props: struct {
+        bg_color: Color = Color.White,
         text_color: Color = Color.Black,
         font_size: f32 = 20,
-        onChangeEnd: ?Function([]const u8) = null,
+        onChangeEnd: ?Function(fn ([]const u8) void) = null,
+        onKeyDown: ?Function(fn (ui.WidgetRef(Self), KeyDownEvent) void) = null,
         padding: f32 = 10,
         width: ?f32 = null,
     },
@@ -46,6 +48,19 @@ pub const TextField = struct {
         self.buf.deinit();
     }
 
+    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+        return c.decl(Padding, .{
+            .padding = self.props.padding,
+            .child = c.decl(TextFieldInner, .{
+                .bind = &self.inner,
+                .text = self.buf.items,
+                .font_size = self.props.font_size,
+                .font_gid = self.font_gid,
+                .text_color = self.props.text_color,
+            }),
+        });
+    }
+
     pub fn setValueFmt(self: *Self, comptime format: []const u8, args: anytype) void {
         self.buf.resize(@intCast(usize, std.fmt.count(format, args))) catch unreachable;
         _ = std.fmt.bufPrint(self.buf.items, format, args) catch unreachable;
@@ -55,20 +70,22 @@ pub const TextField = struct {
         return self.buf.items;
     }
 
-    fn onMouseDown(self: *Self, e: ui.Event(MouseDownEvent)) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+        const me = e.val;
         e.ctx.requestFocus(onBlur);
-        self.inner.widget.setFocused();
+        const inner = self.inner.getWidget();
+        inner.setFocused();
         std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
 
         // Map mouse pos to caret pos.
-        const xf = @intToFloat(f32, e.val.x);
-        self.inner.widget.caret_idx = self.getCaretIdx(e.ctx.common, xf - self.inner.node.abs_pos.x + self.inner.widget.scroll_x);
+        const xf = @intToFloat(f32, me.x);
+        inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
     }
 
     fn onBlur(node: *Node, ctx: *ui.CommonContext) void {
         _ = ctx;
         const self = node.getWidget(Self);
-        self.inner.widget.focused = false;
+        self.inner.getWidget().focused = false;
         var hash: [16]u8 = undefined;
         std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
         if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
@@ -78,7 +95,7 @@ pub const TextField = struct {
 
     fn fireOnChangeEnd(self: *Self) void {
         if (self.props.onChangeEnd) |cb| {
-            cb.call(self.buf.items);
+            cb.call(.{ self.buf.items });
         }
     }
 
@@ -104,26 +121,31 @@ pub const TextField = struct {
         return idx;
     }
 
-    fn onKeyDown(self: *Self, e: ui.Event(KeyDownEvent)) void {
-        _ = self;
+    fn onKeyDown(self: *Self, e: ui.KeyDownEvent) void {
         const ke = e.val;
+        // User onKeyDown is fired first. In the future this could let the user cancel the default behavior.
+        if (self.props.onKeyDown) |cb| {
+            cb.call(.{ ui.WidgetRef(Self).init(e.ctx.node), ke });
+        }
+
+        const inner = self.inner.getWidget();
         if (ke.code == .Backspace) {
-            if (self.inner.widget.caret_idx > 0) {
-                if (self.buf.items.len == self.inner.widget.caret_idx) {
+            if (inner.caret_idx > 0) {
+                if (self.buf.items.len == inner.caret_idx) {
                     self.buf.resize(self.buf.items.len-1) catch unreachable;
                 } else {
-                    _ = self.buf.orderedRemove(self.inner.widget.caret_idx-1);
+                    _ = self.buf.orderedRemove(inner.caret_idx-1);
                 }
                 // self.postLineUpdate(self.caret_line);
-                self.inner.widget.caret_idx -= 1;
-                self.inner.widget.keepCaretFixedInView();
-                self.inner.widget.resetCaretAnim();
+                inner.caret_idx -= 1;
+                inner.keepCaretFixedInView();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .Delete) {
-            if (self.inner.widget.caret_idx < self.buf.items.len) {
-                _ = self.buf.orderedRemove(self.inner.widget.caret_idx);
-                self.inner.widget.keepCaretFixedInView();
-                self.inner.widget.resetCaretAnim();
+            if (inner.caret_idx < self.buf.items.len) {
+                _ = self.buf.orderedRemove(inner.caret_idx);
+                inner.keepCaretFixedInView();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .Enter) {
             var hash: [16]u8 = undefined;
@@ -131,45 +153,33 @@ pub const TextField = struct {
             if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
                 self.fireOnChangeEnd();
                 self.last_buf_hash = hash;
-                self.inner.widget.resetCaretAnim();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .ArrowLeft) {
-            if (self.inner.widget.caret_idx > 0) {
-                self.inner.widget.caret_idx -= 1;
-                self.inner.widget.keepCaretInView();
-                self.inner.widget.resetCaretAnim();
+            if (inner.caret_idx > 0) {
+                inner.caret_idx -= 1;
+                inner.keepCaretInView();
+                inner.resetCaretAnim();
             }
         } else if (ke.code == .ArrowRight) {
-            if (self.inner.widget.caret_idx < self.buf.items.len) {
-                self.inner.widget.caret_idx += 1;
-                self.inner.widget.keepCaretInView();
-                self.inner.widget.resetCaretAnim();
+            if (inner.caret_idx < self.buf.items.len) {
+                inner.caret_idx += 1;
+                inner.keepCaretInView();
+                inner.resetCaretAnim();
             }
         } else {
             if (ke.getPrintChar()) |ch| {
-                if (self.inner.widget.caret_idx == self.buf.items.len) {
+                if (inner.caret_idx == self.buf.items.len) {
                     self.buf.append(ch) catch unreachable;
                 } else {
-                    self.buf.insert(self.inner.widget.caret_idx, ch) catch unreachable;
+                    self.buf.insert(inner.caret_idx, ch) catch unreachable;
                 }
                 // self.postLineUpdate(self.caret_line);
-                self.inner.widget.caret_idx += 1;
-                self.inner.widget.keepCaretInView();
-                self.inner.widget.resetCaretAnim();
+                inner.caret_idx += 1;
+                inner.keepCaretInView();
+                inner.resetCaretAnim();
             }
         }
-    }
-
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
-        return c.decl(Padding, .{
-            .padding = self.props.padding,
-            .child = c.decl(TextFieldInner, .{
-                .bind = &self.inner,
-                .text = self.buf.items,
-                .font_size = self.props.font_size,
-                .font_gid = self.font_gid,
-            }),
-        });
     }
 
     pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
@@ -192,7 +202,7 @@ pub const TextField = struct {
         const g = c.getGraphics();
 
         // Background.
-        g.setFillColor(Color.White);
+        g.setFillColor(self.props.bg_color);
         g.fillRect(alo.x, alo.y, alo.width, alo.height);
 
         if (c.isFocused()) {

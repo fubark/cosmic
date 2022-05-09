@@ -22,11 +22,13 @@ pub const textbuf = struct {
 const closure = @import("closure.zig");
 pub const Closure = closure.Closure;
 pub const ClosureIface = closure.ClosureIface;
+pub const Function = closure.Function;
+pub const ClosureSimple = closure.ClosureSimple;
+pub const ClosureSimpleIface = closure.ClosureSimpleIface;
+pub const FunctionSimple = closure.FunctionSimple;
 const callback = @import("callback.zig");
 pub const Callback = callback.Callback;
 
 // Common utils.
 pub const panic = debug.panic;
 pub const panicFmt = debug.panicFmt;
-
-pub const Function = closure.Function;
