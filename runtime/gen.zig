@@ -264,7 +264,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                 const return_value = info.getReturnValue();
                 return_value.setValueHandle(rt.getJsValuePtr(promise));
             } else {
-                const ReturnType = comptime stdx.meta.FunctionReturnType(NativeFn);
+                const ReturnType = comptime stdx.meta.FnReturn(NativeFn);
                 if (ReturnType == void) {
                     @call(.{}, native_fn, native_args);
                 } else if (@typeInfo(ReturnType) == .ErrorUnion) {
@@ -386,7 +386,7 @@ pub fn getJsFuncInfo(comptime param_fields: []const std.builtin.TypeInfo.StructF
 
 /// native_cb: fn () Param | fn (Ptr) Param
 pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
-    const Args = stdx.meta.FunctionParams(@TypeOf(native_cb));
+    const Args = stdx.meta.FnParams(@TypeOf(native_cb));
     const HasSelf = Args.len > 0;
     const HasSelfPtr = Args.len > 0 and comptime std.meta.trait.isSingleItemPtr(Args[0].arg_type.?);
     const gen = struct {
@@ -430,7 +430,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
 
 // native_cb: fn (Param) void | fn (Ptr, Param) void
 pub fn genJsSetter(comptime native_cb: anytype) v8.AccessorNameSetterCallback {
-    const Args = stdx.meta.FunctionParams(@TypeOf(native_cb));
+    const Args = stdx.meta.FnParams(@TypeOf(native_cb));
     const HasPtr = Args.len > 0 and comptime std.meta.trait.isSingleItemPtr(Args[0].arg_type.?);
     const Param = if (HasPtr) Args[1].arg_type.? else Args[0].arg_type.?;
     const gen = struct {

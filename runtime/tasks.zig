@@ -10,7 +10,7 @@ pub fn ClosureTask(comptime func: anytype) type {
     const Fn = @TypeOf(func);
     const Args = std.meta.ArgsTuple(Fn);
     const ArgFields = std.meta.fields(Args);
-    const ReturnType = stdx.meta.FunctionReturnType(Fn);
+    const ReturnType = stdx.meta.FnReturn(Fn);
     return struct {
         const Self = @This();
 
