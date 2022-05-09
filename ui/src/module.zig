@@ -347,6 +347,10 @@ pub fn Module(comptime C: Config) type {
             self.common.deinit();
         }
 
+        pub fn setContextProvider(self: *Self, provider: fn (key: u32) ?*anyopaque) void {
+            self.common.context_provider = provider;
+        }
+
         /// Attaches handlers to the event dispatcher.
         pub fn addInputHandlers(self: *Self, dispatcher: *EventDispatcher) void {
             const S = struct {
@@ -967,6 +971,15 @@ pub fn MixinContextEventOps(comptime Context: type) type {
 }
 
 /// Requires Context.common.
+pub fn MixinContextSharedOps(comptime Context: type) type {
+    return struct {
+        pub inline fn getContext(self: Context, key: u32) ?*anyopaque {
+            return self.common.common.context_provider(key);
+        }
+    };
+}
+
+/// Requires Context.common.
 pub fn MixinContextFontOps(comptime Context: type) type {
     return struct {
 
@@ -1551,7 +1564,15 @@ pub const ModuleCommon = struct {
 
     ctx: CommonContext,
 
+    context_provider: fn (key: u32) ?*anyopaque,
+
     fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics) void {
+        const S = struct {
+            fn defaultContextProvider(key: u32) ?*anyopaque {
+                _ = key;
+                return null;
+            }
+        };
         self.* = .{
             .alloc = alloc,
             .arena_allocator = std.heap.ArenaAllocator.init(alloc),
@@ -1584,6 +1605,7 @@ pub const ModuleCommon = struct {
                 .common = self,
                 .alloc = alloc, 
             },
+            .context_provider = S.defaultContextProvider,
         };
         self.arena_alloc = self.arena_allocator.allocator();
     }
@@ -1743,6 +1765,7 @@ pub fn InitContext(comptime C: Config) type {
         pub usingnamespace MixinContextEventOps(Self);
         pub usingnamespace MixinContextNodeOps(Self);
         pub usingnamespace MixinContextFontOps(Self);
+        pub usingnamespace MixinContextSharedOps(Self);
     };
 }
 
