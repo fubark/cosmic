@@ -18,9 +18,11 @@ pub const TextField = struct {
     const Self = @This();
 
     props: struct {
+        bg_color: Color = Color.White,
         text_color: Color = Color.Black,
         font_size: f32 = 20,
         onChangeEnd: ?Function([]const u8) = null,
+        onKeyDown: ?Function(KeyDownEvent) = null,
         padding: f32 = 10,
         width: ?f32 = null,
     },
@@ -44,6 +46,19 @@ pub const TextField = struct {
     pub fn deinit(node: *Node, _: std.mem.Allocator) void {
         const self = node.getWidget(Self);
         self.buf.deinit();
+    }
+
+    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+        return c.decl(Padding, .{
+            .padding = self.props.padding,
+            .child = c.decl(TextFieldInner, .{
+                .bind = &self.inner,
+                .text = self.buf.items,
+                .font_size = self.props.font_size,
+                .font_gid = self.font_gid,
+                .text_color = self.props.text_color,
+            }),
+        });
     }
 
     pub fn setValueFmt(self: *Self, comptime format: []const u8, args: anytype) void {
@@ -107,6 +122,12 @@ pub const TextField = struct {
     fn onKeyDown(self: *Self, e: ui.Event(KeyDownEvent)) void {
         _ = self;
         const ke = e.val;
+
+        // User onKeyDown is fired first. In the future this could let the user cancel the default behavior.
+        if (self.props.onKeyDown) |cb| {
+            cb.call(ke);
+        }
+
         if (ke.code == .Backspace) {
             if (self.inner.widget.caret_idx > 0) {
                 if (self.buf.items.len == self.inner.widget.caret_idx) {
@@ -160,18 +181,6 @@ pub const TextField = struct {
         }
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
-        return c.decl(Padding, .{
-            .padding = self.props.padding,
-            .child = c.decl(TextFieldInner, .{
-                .bind = &self.inner,
-                .text = self.buf.items,
-                .font_size = self.props.font_size,
-                .font_gid = self.font_gid,
-            }),
-        });
-    }
-
     pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
         const child = c.getNode().children.items[0];
@@ -192,7 +201,7 @@ pub const TextField = struct {
         const g = c.getGraphics();
 
         // Background.
-        g.setFillColor(Color.White);
+        g.setFillColor(self.props.bg_color);
         g.fillRect(alo.x, alo.y, alo.width, alo.height);
 
         if (c.isFocused()) {
