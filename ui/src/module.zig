@@ -839,6 +839,7 @@ pub fn Module(comptime C: Config) type {
             var iter = self.common.interval_sessions.iterator();
             while (iter.next()) |it| {
                 if (it.node == node) {
+                    it.deinit(self.alloc);
                     self.common.interval_sessions.remove(iter.cur_id);
                 }
             }
@@ -1817,7 +1818,7 @@ pub fn BuildContext(comptime C: Config) type {
 
         /// Creates a closure in arena buffer, and returns an iface.
         pub fn closure(self: *Self, comptime Context: type, ctx: Context, comptime Param: type, user_fn: fn (Context, Param) void) Function(Param) {
-            const c = Closure(Context, Param).init(self.mod.arena_alloc, ctx, user_fn).iface();
+            const c = Closure(Context, Param).init(self.mod.common.arena_alloc, ctx, user_fn).iface();
             return Function(Param).initClosureIface(c);
         }
 
