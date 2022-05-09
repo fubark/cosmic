@@ -92,7 +92,7 @@ pub const ScrollList = struct {
 
     /// Index of ui.NullId represents no selection.
     pub fn getSelectedIdx(self: *Self) u32 {
-        return self.list.widget.selected_idx;
+        return self.list.getWidget().selected_idx;
     }
 };
 

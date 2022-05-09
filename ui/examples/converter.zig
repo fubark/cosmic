@@ -45,11 +45,11 @@ pub const App = struct {
         const S = struct {
             fn onChangeTc(self_: *Self, text: []const u8) void {
                 const tc = std.fmt.parseFloat(f32, text) catch return;
-                self_.tf_field.widget.setValueFmt("{d:.2}", .{ tc * 9/5 + 32 });
+                self_.tf_field.getWidget().setValueFmt("{d:.2}", .{ tc * 9/5 + 32 });
             }
             fn onChangeTf(self_: *Self, text: []const u8) void {
                 const tf = std.fmt.parseFloat(f32, text) catch return;
-                self_.tc_field.widget.setValueFmt("{d:.2}", .{ (tf - 32) * 5 / 9 });
+                self_.tc_field.getWidget().setValueFmt("{d:.2}", .{ (tf - 32) * 5 / 9 });
             }
         };
 

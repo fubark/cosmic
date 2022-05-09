@@ -63,7 +63,7 @@ pub const App = struct {
             e.ctx.removeInterval(self.step_interval.?);
             self.step_interval = null;
         }
-        self.progress_bar.widget.setValue(self.progress_ms/1000);
+        self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
     fn reset(self: *Self) void {
@@ -73,7 +73,7 @@ pub const App = struct {
             self.ctx.resetInterval(self.step_interval.?);
         }
         self.progress_ms = 0;
-        self.progress_bar.widget.setValue(self.progress_ms/1000);
+        self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
