@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const pkg = std.build.Pkg{
+pub const pkg = std.build.Pkg{
     .name = "miniaudio",
     .path = .{ .path = srcPath() ++ "/miniaudio.zig" },
 };

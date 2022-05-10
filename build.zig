@@ -12,6 +12,7 @@ const platform = @import("platform/lib.zig");
 const graphics = @import("graphics/lib.zig");
 const ui = @import("ui/lib.zig");
 const parser = @import("parser/lib.zig");
+const runtime = @import("runtime/lib.zig");
 
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
@@ -56,6 +57,7 @@ pub fn build(b: *Builder) !void {
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const link_graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const add_runtime = b.option(bool, "runtime", "Add the runtime package") orelse false;
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
@@ -103,6 +105,7 @@ pub fn build(b: *Builder) !void {
         .link_graphics = link_graphics,
         .link_audio = audio,
         .add_v8_pkg = v8,
+        .add_runtime_pkg = add_runtime,
         .link_v8 = v8,
         .link_net = net,
         .link_lyon = link_lyon,
@@ -307,6 +310,7 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
+        ctx_.add_runtime_pkg = true;
         ctx_.path = "runtime/main.zig";
         const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
@@ -367,6 +371,7 @@ const BuilderContext = struct {
 
     link_audio: bool,
     add_v8_pkg: bool = false,
+    add_runtime_pkg: bool = false,
     link_v8: bool,
     link_net: bool,
     link_mock: bool,
@@ -620,6 +625,12 @@ const BuilderContext = struct {
             step.step.dependOn(&zig_v8_repo.step);
             addZigV8(step);
         }
+        if (self.add_runtime_pkg) {
+            runtime.addPackage(step, .{
+                .link_lyon = self.link_lyon,
+                .link_tess2 = self.link_tess2,
+            });
+        }
         if (self.link_v8) {
             self.linkZigV8(step);
         }
@@ -729,7 +740,7 @@ const BuilderContext = struct {
     }
 };
 
-const zig_v8_pkg = Pkg{
+pub const zig_v8_pkg = Pkg{
     .name = "v8",
     .path = FileSource.relative("./lib/zig-v8/src/v8.zig"),
 };

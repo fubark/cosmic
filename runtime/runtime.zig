@@ -36,7 +36,7 @@ const adapter = @import("adapter.zig");
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 const FuncData = adapter.FuncData;
 const FuncDataUserPtr = adapter.FuncDataUserPtr;
-const Environment = @import("env.zig").Environment;
+pub const Environment = @import("env.zig").Environment;
 
 pub const PromiseId = u32;
 
@@ -47,7 +47,6 @@ const test_init = @embedFile("snapshots/test_init.js");
 
 // Keep a global rt for debugging and prototyping.
 pub var global: *RuntimeContext = undefined;
-
 
 // Manages runtime resources.
 // Used by V8 callback functions.
