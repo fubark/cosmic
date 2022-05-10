@@ -114,7 +114,7 @@ fn update(delta_ms: f32) void {
     };
     const ui_width = @intToFloat(f32, app.win.getWidth());
     const ui_height = @intToFloat(f32, app.win.getHeight());
-    ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height);
+    ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height) catch unreachable;
 }
 
 pub usingnamespace if (IsWasm) struct {

@@ -534,18 +534,21 @@ pub fn Module(comptime C: Config) type {
             }
         }
 
-        fn updateRoot(self: *Self, root_id: FrameId) void {
+        fn updateRoot(self: *Self, root_id: FrameId) !void {
             if (root_id != NullFrameId) {
                 const root = self.build_ctx.getFrame(root_id);
+                if (root.type_id == FragmentWidgetId) {
+                    return error.RootCantBeFragment;
+                }
                 if (self.root_node) |root_node| {
                     if (root_node.type_id == root.type_id) {
-                        self.updateExistingNode(null, root_id, root_node);
+                        try self.updateExistingNode(null, root_id, root_node);
                     } else {
                         self.removeNode(root_node);
-                        self.root_node = self.createAndUpdateNode(null, root_id, 0);
+                        self.root_node = try self.createAndUpdateNode(null, root_id, 0);
                     }
                 } else {
-                    self.root_node = self.createAndUpdateNode(null, root_id, 0);
+                    self.root_node = try self.createAndUpdateNode(null, root_id, 0);
                 }
             } else {
                 if (self.root_node) |root_node| {
@@ -560,7 +563,7 @@ pub fn Module(comptime C: Config) type {
         // 2. Build frames. Diff tree and create/update nodes from frames.
         // 3. Compute layout.
         // 4. Run next post layout cbs.
-        pub fn preUpdate(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *C.Build()) FrameId, layout_size: LayoutSize) void {
+        pub fn preUpdate(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *C.Build()) FrameId, layout_size: LayoutSize) UpdateError!void {
             self.common.updateIntervals(delta_ms, &self.event_ctx);
 
             // TODO: check if we have to update
@@ -576,7 +579,7 @@ pub fn Module(comptime C: Config) type {
 
             // Since the aim is to do layout in linear time, the tree should be built first.
             // Traverse to see which nodes need to be created/deleted.
-            self.updateRoot(root_id);
+            try self.updateRoot(root_id);
 
             // Before computing layout, perform batched measure text.
             // Widgets can still explicitly measure text so the purpose of this is to act as a placeholder for future work to speed up text measurements.
@@ -611,9 +614,9 @@ pub fn Module(comptime C: Config) type {
         /// Update a full app frame. Parts of the update are split up to facilitate testing.
         /// A bootstrap fn is needed to tell the module how to build the root frame.
         /// A width and height is needed to specify the root container size in which subsequent widgets will use for layout.
-        pub fn updateAndRender(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *C.Build()) FrameId, width: f32, height: f32) void {
+        pub fn updateAndRender(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *C.Build()) FrameId, width: f32, height: f32) !void {
             const layout_size = LayoutSize.init(width, height);
-            self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
+            try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
             self.render();
             self.postUpdate();
         }
@@ -626,7 +629,7 @@ pub fn Module(comptime C: Config) type {
         /// so the widget is updated with the frame's props.
         /// Recursively update children.
         /// This assumes the frame's key is equal to the node's key.
-        fn updateExistingNode(self: *Self, parent: ?*Node, frame_id: FrameId, node: *Node) void {
+        fn updateExistingNode(self: *Self, parent: ?*Node, frame_id: FrameId, node: *Node) UpdateError!void {
             _ = parent;
             // Update frame and props.
             const frame = self.build_ctx.getFrame(frame_id);
@@ -659,22 +662,25 @@ pub fn Module(comptime C: Config) type {
                 while (child_idx < child_frames.len) : (child_idx += 1) {
                     const child_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
                     const child_frame_ = self.build_ctx.getFrame(child_id);
+                    if (child_frame_.type_id == FragmentWidgetId) {
+                        return error.NestedFragment;
+                    }
                     if (node.children.items.len <= child_idx) {
                         // TODO: Create nodes for the rest of the frames instead.
-                        self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
+                        try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
                         return;
                     }
                     const child_node = node.children.items[child_idx];
                     if (child_node.type_id != child_frame_.type_id) {
-                        self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
+                        try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
                         return;
                     }
                     const frame_key = if (child_frame_.key != null) child_frame_.key.? else WidgetKey{.Idx = child_idx};
                     if (!std.meta.eql(child_node.key, frame_key)) {
-                        self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
+                        try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
                         return;
                     }
-                    self.updateExistingNode(node, child_id, child_node);
+                    try self.updateExistingNode(node, child_id, child_node);
                 }
                 // Remove left over children.
                 if (child_idx < node.children.items.len) {
@@ -686,14 +692,14 @@ pub fn Module(comptime C: Config) type {
             } else {
                 // One child frame.
                 if (node.children.items.len == 0) {
-                    const new_child = self.createAndUpdateNode(node, child_frame_id, 0);
+                    const new_child = try self.createAndUpdateNode(node, child_frame_id, 0);
                     node.children.append(new_child) catch unreachable;
                     return;
                 }
                 const child_node = node.children.items[0];
                 if (child_node.type_id != child_frame.type_id) {
                     self.removeNode(child_node);
-                    const new_child = self.createAndUpdateNode(node, child_frame_id, 0);
+                    const new_child = try self.createAndUpdateNode(node, child_frame_id, 0);
                     node.children.items[0] = new_child;
                     if (node.children.items.len > 1) {
                         for (node.children.items[1..]) |it| {
@@ -705,7 +711,7 @@ pub fn Module(comptime C: Config) type {
                 const frame_key = if (child_frame.key != null) child_frame.key.? else WidgetKey{.Idx = 0};
                 if (!std.meta.eql(child_node.key, frame_key)) {
                     self.removeNode(child_node);
-                    const new_child = self.createAndUpdateNode(node, child_frame_id, 0);
+                    const new_child = try self.createAndUpdateNode(node, child_frame_id, 0);
                     node.children.items[0] = new_child;
                     if (node.children.items.len > 1) {
                         for (node.children.items[1..]) |it| {
@@ -715,23 +721,26 @@ pub fn Module(comptime C: Config) type {
                     return;
                 }
                 // Same child.
-                self.updateExistingNode(node, child_frame_id, child_node);
+                try self.updateExistingNode(node, child_frame_id, child_node);
             }
         }
     
         /// Slightly slower method to update with frame children that utilizes a key map.
-        fn updateChildFramesWithKeyMap(self: *Self, parent: *Node, start_idx: u32, child_frames: FrameListPtr) void {
+        fn updateChildFramesWithKeyMap(self: *Self, parent: *Node, start_idx: u32, child_frames: FrameListPtr) UpdateError!void {
             var child_idx: u32 = start_idx;
             while (child_idx < child_frames.len): (child_idx += 1) {
                 const frame_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
                 const frame = self.build_ctx.getFrame(frame_id);
 
+                if (frame.type_id == FragmentWidgetId) {
+                    return error.NestedFragment;
+                }
                 const frame_key = if (frame.key != null) frame.key.? else WidgetKey{.Idx = child_idx};
 
                 // Look for an existing child by key.
                 const existing_node_q = parent.key_to_child.get(frame_key); 
                 if (existing_node_q != null and existing_node_q.?.type_id == frame.type_id) {
-                    self.updateExistingNode(parent, frame_id, existing_node_q.?);
+                    try self.updateExistingNode(parent, frame_id, existing_node_q.?);
 
                     // Update the children list as we iterate.
                     if (parent.children.items[child_idx] != existing_node_q.?) {
@@ -742,12 +751,12 @@ pub fn Module(comptime C: Config) type {
                 } else {
                     if (parent.children.items.len == child_idx) {
                         // Exceeded the size of the existing children list. Insert the rest from child frames.
-                        const new_child = self.createAndUpdateNode(parent, frame_id, child_idx);
+                        const new_child = try self.createAndUpdateNode(parent, frame_id, child_idx);
                         parent.children.append(new_child) catch unreachable;
                         child_idx += 1;
                         while (child_idx < child_frames.len) : (child_idx += 1) {
                             const frame_id_ = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
-                            const new_child_ = self.createAndUpdateNode(parent, frame_id_, child_idx);
+                            const new_child_ = try self.createAndUpdateNode(parent, frame_id_, child_idx);
                             parent.children.append(new_child_) catch unreachable;
                         }
                         break;
@@ -758,7 +767,7 @@ pub fn Module(comptime C: Config) type {
                     }
 
                     // Create a new child instance to correspond with child frame.
-                    const new_child = self.createAndUpdateNode(parent, frame_id, child_idx);
+                    const new_child = try self.createAndUpdateNode(parent, frame_id, child_idx);
 
                     parent.children.items[child_idx] = new_child;
                 }
@@ -859,11 +868,17 @@ pub fn Module(comptime C: Config) type {
             return widget_vtable.build(node.widget, &self.build_ctx);
         }
 
-        fn createAndUpdateNode(self: *Self, parent: ?*Node, frame_id: FrameId, idx: u32) *Node {
+        fn createAndUpdateNode(self: *Self, parent: ?*Node, frame_id: FrameId, idx: u32) UpdateError!*Node {
             const frame = self.build_ctx.getFrame(frame_id);
             const widget_vtable = getWidgetVTable(frame.type_id);
 
             const new_node = self.alloc.create(Node) catch unreachable;
+            errdefer {
+                for (new_node.children.items) |child| {
+                    self.destroyNode(child);
+                }
+                self.destroyNode(new_node);
+            }
             const props_ptr = if (frame.props.len > 0) self.build_ctx.frame_props.getBytesPtr(frame.props) else null;
 
             // Init instance.
@@ -894,12 +909,16 @@ pub fn Module(comptime C: Config) type {
                     var child_idx: u32 = 0;
                     while (child_idx < child_frames.len) : (child_idx += 1) {
                         const child_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
-                        const child_node = self.createAndUpdateNode(new_node, child_id, child_idx);
+                        const child_frame_ = self.build_ctx.getFrame(child_id);
+                        if (child_frame_.type_id == FragmentWidgetId) {
+                            return error.NestedFragment;
+                        }
+                        const child_node = try self.createAndUpdateNode(new_node, child_id, child_idx);
                         new_node.children.append(child_node) catch unreachable;
                     }
                 } else {
                     // Single child frame.
-                    const child_node = self.createAndUpdateNode(new_node, child_frame_id, 0);
+                    const child_node = try self.createAndUpdateNode(new_node, child_frame_id, 0);
                     new_node.children.append(child_node) catch unreachable;
                 }
             }
@@ -908,6 +927,21 @@ pub fn Module(comptime C: Config) type {
             self.init_ctx.prepareForNode(new_node);
             widget_vtable.postInit(new_widget, &self.init_ctx);
             return new_node;
+        }
+
+        pub fn dumpTree(self: Self) void {
+            if (self.root_node) |root| {
+                dumpTreeR(self, 0, root);
+            }
+        }
+
+        fn dumpTreeR(self: Self, depth: u32, node: *Node) void {
+            var foo: [100]u8 = undefined;
+            std.mem.set(u8, foo[0..depth*2], ' ');
+            log.debug("{s}{s}", .{ foo[0..depth*2], getWidgetName(node.type_id) });
+            for (node.children.items) |child| {
+                self.dumpTreeR(depth + 1, child);
+            }
         }
     };
 }
@@ -1877,13 +1911,18 @@ pub fn BuildContext(comptime C: Config) type {
         pub fn range(self: *Self, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *C.Build(), u32) FrameId) FrameListPtr {
             const start_idx = self.frame_lists.items.len;
             var i: u32 = 0;
+            var buf_i: u32 = 0;
+            // Preallocate the list so that the frame ids can be layed out contiguously. Otherwise, the frame_lists array runs the risk of being modified by the user build fn.
+            // TODO: This is inefficient if the range is mostly a filter, leaving empty frame slots. One way to solve this is to use a separate stack buffer.
+            self.frame_lists.resize(self.frame_lists.items.len + count) catch unreachable;
             while (i < count) : (i += 1) {
                 const frame_id = build_fn(ctx, self, @intCast(u32, i));
                 if (frame_id != NullFrameId) {
-                    self.frame_lists.append(frame_id) catch unreachable;
+                    self.frame_lists.items[start_idx + buf_i] = frame_id;
+                    buf_i += 1;
                 }
             }
-            return FrameListPtr.init(@intCast(u32, start_idx), @intCast(u32, self.frame_lists.items.len-start_idx));
+            return FrameListPtr.init(@intCast(u32, start_idx), buf_i);
         }
 
         fn resetBuffer(self: *Self) void {
@@ -2038,6 +2077,131 @@ pub fn BuildContext(comptime C: Config) type {
     };
 }
 
+fn TestModule(comptime C: ui.Config) type {
+    return struct {
+        const Self = @This();
+
+        g: graphics.Graphics,
+        mod: ui.Module(C),
+        size: ui.LayoutSize,
+
+        pub fn init(self: *Self) void {
+            self.g.init(t.alloc);
+            self.mod.init(t.alloc, &self.g);
+            self.size = LayoutSize.init(800, 600);
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.mod.deinit();
+            self.g.deinit();
+        }
+
+        pub fn preUpdate(self: *Self, ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(ctx), *C.Build()) FrameId) !void {
+            try self.mod.preUpdate(0, ctx, bootstrap_fn, self.size);
+        }
+    };
+}
+
+test "Root should not allow fragment frame." {
+    const A = struct {
+    };
+    const TestConfig = comptime Config{
+        .Imports = &.{
+            Import.init(A),
+        },
+    };
+    const S = struct {
+        fn bootstrap(_: void, c: *BuildContext(TestConfig)) FrameId {
+            const list = c.list(.{
+                c.decl(A, .{}),
+                c.decl(A, .{}),
+            });
+            return c.fragment(list);
+        }
+    };
+    var mod: TestModule(TestConfig) = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    try t.expectError(mod.preUpdate({}, S.bootstrap), error.RootCantBeFragment);
+}
+
+test "Don't allow nested fragment frames." {
+    const A = struct {
+        props: struct { child: FrameId },
+        fn build(self: *@This(), comptime C: Config, _: *C.Build()) FrameId {
+            return self.props.child;
+        }
+    };
+    const B = struct {};
+    const TestConfig = comptime Config{
+        .Imports = &.{
+            Import.init(A),
+            Import.init(B),
+        },
+    };
+    const S = struct {
+        fn bootstrap(_: void, c: *TestConfig.Build()) FrameId {
+            const nested_list = c.list(.{
+                c.decl(B, .{}),
+            });
+            const list = c.list(.{
+                c.decl(B, .{}),
+                c.fragment(nested_list),
+            });
+            return c.decl(A, .{
+                .child = c.fragment(list),
+            });
+        }
+    };
+    var mod: TestModule(TestConfig) = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    try t.expectError(mod.preUpdate({}, S.bootstrap), error.NestedFragment);
+}
+
+test "BuildContext.range" {
+    const A = struct {
+        props: struct {
+            children: ui.FrameListPtr,
+        },
+        fn build(self: *@This(), comptime C: Config, c: *C.Build()) FrameId {
+            return c.fragment(self.props.children);
+        }
+    };
+    const B = struct {};
+    const TestConfig = comptime Config{
+        .Imports = &.{
+            Import.init(A),
+            Import.init(B),
+        },
+    };
+
+    // Test case where a child widget uses BuildContext.list. Check if this causes problems with BuildContext.range.
+    const S = struct {
+        fn bootstrap(_: void, c: *TestConfig.Build()) FrameId {
+            return c.decl(A, .{
+                .children = c.range(1, {}, buildChild),
+            });
+        }
+        fn buildChild(_: void, c: *TestConfig.Build(), _: u32) FrameId {
+            const list = c.list(.{
+                c.decl(B, .{}),
+            });
+            return c.decl(A, .{ .children = list });
+        }
+    };
+    var mod: TestModule(TestConfig) = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    try mod.preUpdate({}, S.bootstrap);
+    try t.eq(mod.mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(A));
+    try t.eq(mod.mod.root_node.?.children.items[0].type_id, Module(TestConfig).WidgetIdByType(A));
+    try t.eq(mod.mod.root_node.?.children.items[0].children.items[0].type_id, Module(TestConfig).WidgetIdByType(B));
+}
+
 test "Widget instance lifecycle." {
     const A = struct {
         pub fn init(_: *@This(), comptime C: Config, c: *C.Init()) void {
@@ -2072,15 +2236,12 @@ test "Widget instance lifecycle." {
         }
     };
 
-    var g: graphics.Graphics = undefined;
-    g.init(t.alloc);
-    defer g.deinit();
-    var mod: Module(TestConfig) = undefined;
-    mod.init(t.alloc, &g);
-    defer mod.deinit();
+    var tmod: TestModule(TestConfig) = undefined;
+    tmod.init();
+    defer tmod.deinit();
+    const mod = &tmod.mod;
 
-    const size = LayoutSize.init(800, 600);
-    mod.preUpdate(0, true, S.bootstrap, size);
+    try tmod.preUpdate(true, S.bootstrap);
 
     // Widget instance should exist with event handlers.
     try t.eq(mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(A));
@@ -2118,7 +2279,7 @@ test "Widget instance lifecycle." {
     try t.eq(interval_sub.node, mod.root_node.?);
     try t.eq(interval_sub.closure.user_fn, A.onInterval);
 
-    mod.preUpdate(0, false, S.bootstrap, size);
+    try tmod.preUpdate(false, S.bootstrap);
 
     // Widget instance should be removed and handlers should have been cleaned up.
     try t.eq(mod.root_node, null);
@@ -2177,14 +2338,13 @@ test "Module.update creates or updates existing node" {
                 }
             }
         };
-        var mod: Module(TestConfig) = undefined;
-        mod.init(t.alloc, &g);
+        var mod: TestModule(TestConfig) = undefined;
+        mod.init();
         defer mod.deinit();
-        const layout_size = LayoutSize.init(800, 600);
-        mod.preUpdate(0, true, S2.bootstrap, layout_size);
-        try t.eq(mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(Foo));
-        mod.preUpdate(0, false, S2.bootstrap, layout_size);
-        try t.eq(mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(Bar));
+        try mod.preUpdate(true, S2.bootstrap);
+        try t.eq(mod.mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(Foo));
+        try mod.preUpdate(false, S2.bootstrap);
+        try t.eq(mod.mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(Bar));
     }
 
     {
@@ -2201,16 +2361,16 @@ test "Module.update creates or updates existing node" {
                 return c.decl(Root, .{});
             }
         };
-        var mod: Module(TestConfig) = undefined;
-        mod.init(t.alloc, &g);
-        defer mod.deinit();
-        const layout_size = LayoutSize.init(800, 600);
-        mod.preUpdate(0, {}, S2.bootstrap, layout_size);
+        var tmod: TestModule(TestConfig) = undefined;
+        tmod.init();
+        defer tmod.deinit();
+        const mod = &tmod.mod;
+        try tmod.preUpdate({}, S2.bootstrap);
         try t.eq(mod.root_node.?.numChildren(), 1);
         try t.eq(mod.root_node.?.getChild(0).type_id, Module(TestConfig).WidgetIdByType(Foo));
         const root = mod.getWidget(Root, mod.root_node.?);
         root.flag = false;
-        mod.preUpdate(0, {}, S2.bootstrap, layout_size);
+        try tmod.preUpdate({}, S2.bootstrap);
         log.warn("{} {}", .{Module(TestConfig).WidgetIdByType(Foo), Module(TestConfig).WidgetIdByType(Bar)});
         try t.eq(mod.root_node.?.numChildren(), 1);
         try t.eq(mod.root_node.?.getChild(0).type_id, Module(TestConfig).WidgetIdByType(Bar));
@@ -2316,3 +2476,8 @@ fn WidgetProps(comptime Widget: type) type {
         @compileError(@typeName(Widget) ++ " doesn't have props field.");
     }
 }
+
+const UpdateError = error {
+    NestedFragment,
+    RootCantBeFragment,
+};
