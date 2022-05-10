@@ -142,6 +142,12 @@ const UpperRangeMap = b: {
     map[offset(sdl.SDLK_LEFT)] = .ArrowLeft;
     map[offset(sdl.SDLK_DOWN)] = .ArrowDown;
     map[offset(sdl.SDLK_UP)] = .ArrowUp;
+    map[offset(sdl.SDLK_LGUI)] = .Meta;
+    map[offset(sdl.SDLK_LCTRL)] = .ControlLeft;
+    map[offset(sdl.SDLK_RCTRL)] = .ControlRight;
+    map[offset(sdl.SDLK_APPLICATION)] = .ContextMenu;
+    map[offset(sdl.SDLK_LALT)] = .AltLeft;
+    map[offset(sdl.SDLK_RALT)] = .AltRight;
 
     break :b map;
 };
@@ -275,6 +281,11 @@ test "toCanonicalKeyCode" {
     try case(sdl.SDLK_LEFT, .ArrowLeft);
     try case(sdl.SDLK_DOWN, .ArrowDown);
     try case(sdl.SDLK_UP, .ArrowUp);
+    try case(sdl.SDLK_LGUI, .Meta);
+    try case(sdl.SDLK_LCTRL, .ControlLeft);
+    try case(sdl.SDLK_RCTRL, .ControlRight);
+    try case(sdl.SDLK_LALT, .AltLeft);
+    try case(sdl.SDLK_RALT, .AltRight);
 
     // pub const SDLK_NUMLOCKCLEAR: c_int = 1073741907;
     // pub const SDLK_KP_DIVIDE: c_int = 1073741908;
