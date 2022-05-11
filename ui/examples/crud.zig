@@ -15,7 +15,7 @@ const Column = ui.widgets.Column;
 const Text = ui.widgets.Text;
 const TextButton = ui.widgets.TextButton;
 const TextField = ui.widgets.TextField;
-const Grow = ui.widgets.Grow;
+const Flex = ui.widgets.Flex;
 const Padding = ui.widgets.Padding;
 const Center = ui.widgets.Center;
 const Sized = ui.widgets.Sized;
@@ -110,7 +110,7 @@ pub const App = struct {
 
         const left_side = d(Column, .{
             .children = c.list(.{
-                d(Grow, .{
+                d(Flex, .{
                     .child = d(Sized, .{
                         .width = 300,
                         .child = d(ScrollList, .{
@@ -130,7 +130,7 @@ pub const App = struct {
                         d(Padding, .{
                             .child = d(Text, .{ .text = "First: ", .color = Color.White }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextField, .{
                                 .bind = &self.first_tf,
                             }),
@@ -142,7 +142,7 @@ pub const App = struct {
                         d(Padding, .{
                             .child = d(Text, .{ .text = "Last: ", .color = Color.White }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextField, .{
                                 .bind = &self.last_tf,
                             }),
@@ -152,21 +152,21 @@ pub const App = struct {
                 d(Row, .{
                     .spacing = 10,
                     .children = c.list(.{
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextButton, .{
                                 .text = "Create",
                                 .corner_radius = 10,
                                 .onClick = c.funcExt(self, S.onClickCreate),
                             }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextButton, .{
                                 .text = "Update",
                                 .corner_radius = 10,
                                 .onClick = c.funcExt(self, S.onClickUpdate),
                             }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextButton, .{
                                 .text = "Delete",
                                 .corner_radius = 10,
@@ -197,7 +197,7 @@ pub const App = struct {
                                             .color = Color.White,
                                         }),
                                     }),
-                                    d(Grow, .{
+                                    d(Flex, .{
                                         .child = d(TextField, .{
                                             .onChangeEnd = c.funcExt(self, S.onChangeSearch),
                                         }),

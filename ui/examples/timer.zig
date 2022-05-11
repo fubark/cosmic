@@ -21,7 +21,7 @@ const Slider = ui.widgets.Slider;
 const Sized = ui.widgets.Sized;
 const ProgressBar = ui.widgets.ProgressBar;
 const TextButton = ui.widgets.TextButton;
-const Grow = ui.widgets.Grow;
+const Flex = ui.widgets.Flex;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -102,7 +102,7 @@ pub const App = struct {
                                     .text = "Elapsed Time: ",
                                     .color = Color.White,
                                 }),
-                                c.decl(Grow, .{
+                                c.decl(Flex, .{
                                     .child = c.decl(ProgressBar, .{
                                         .bind = &self.progress_bar,
                                         .max_val = self.duration_secs,
@@ -124,7 +124,7 @@ pub const App = struct {
                                     .text = "Duration: ",
                                     .color = Color.White,
                                 }),
-                                c.decl(Grow, .{
+                                c.decl(Flex, .{
                                     .child = c.decl(Slider, .{
                                         .init_val = @floatToInt(i32, self.duration_secs),
                                         .min_val = 1,
@@ -136,7 +136,7 @@ pub const App = struct {
                         }),
                         c.decl(Row, .{
                             .children = c.list(.{
-                                c.decl(Grow, .{
+                                c.decl(Flex, .{
                                     .child = c.decl(TextButton, .{
                                         .text = "Reset",
                                         .corner_radius = 10,

@@ -1,5 +1,8 @@
+const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
+
+const log = stdx.log.scoped(.flex);
 
 const ui = @import("../ui.zig");
 
@@ -9,13 +12,15 @@ pub const Column = struct {
 
     props: struct {
         bg_color: ?Color = null,
-        flex: u32 = 1,
-
+        valign: ui.VAlign = .Top,
         spacing: f32 = 0,
 
         /// Whether the columns's height will shrink to the total height of it's children or expand to the parent container's height.
         /// Expands to the parent container's height by default.
+        /// flex and flex_fit are only used when expand is true.
         expand: bool = true,
+        flex: u32 = 1,
+        flex_fit: ui.FlexFit = .Exact,
 
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
@@ -33,7 +38,7 @@ pub const Column = struct {
         var max_child_width: f32 = 0;
 
         const ColumnId = comptime ui.Module(C).WidgetIdByType(Column);
-        const GrowId = comptime ui.Module(C).WidgetIdByType(Grow);
+        const FlexId = comptime ui.Module(C).WidgetIdByType(Flex);
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.height -= total_spacing;
@@ -45,12 +50,14 @@ pub const Column = struct {
             switch (it.type_id) {
                 ColumnId => {
                     const col = it.getWidget(Column);
-                    has_expanding_children = true;
-                    flex_sum += col.props.flex;
-                    continue;
+                    if (col.props.expand) {
+                        has_expanding_children = true;
+                        flex_sum += col.props.flex;
+                        continue;
+                    }
                 },
-                GrowId => {
-                    const grow = it.getWidget(Grow);
+                FlexId => {
+                    const grow = it.getWidget(Flex);
                     has_expanding_children = true;
                     flex_sum += grow.props.flex;
                     continue;
@@ -78,8 +85,8 @@ pub const Column = struct {
                     ColumnId => {
                         flex = it.getWidget(Column).props.flex;
                     },
-                    GrowId => {
-                        flex = it.getWidget(Grow).props.flex;
+                    FlexId => {
+                        flex = it.getWidget(Flex).props.flex;
                     },
                     else => {
                         // Update the layout pos of sized children since this pass will include expanded children.
@@ -96,6 +103,16 @@ pub const Column = struct {
                 cur_y += child_size.height + self.props.spacing;
                 if (child_size.width > max_child_width) {
                     max_child_width = child_size.width;
+                }
+            }
+        } else {
+            // No expanding children. Check to realign vertically.
+            if (self.props.expand and self.props.valign == .Bottom) {
+                const inner_height = cur_y - self.props.spacing;
+                var scratch_y = cstr.height - inner_height;
+                for (c.node.children.items) |it| {
+                    c.setLayoutPos(it, 0, scratch_y);
+                    scratch_y += it.layout.height + self.props.spacing;
                 }
             }
         }
@@ -156,7 +173,7 @@ pub const Row = struct {
         var max_child_height: f32 = 0;
 
         const RowId = comptime ui.Module(C).WidgetIdByType(Row);
-        const GrowId = comptime ui.Module(C).WidgetIdByType(Grow);
+        const FlexId = comptime ui.Module(C).WidgetIdByType(Flex);
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.width -= total_spacing;
@@ -172,8 +189,8 @@ pub const Row = struct {
                     flex_sum += row.props.flex;
                     continue;
                 },
-                GrowId => {
-                    const grow = it.getWidget(Grow);
+                FlexId => {
+                    const grow = it.getWidget(Flex);
                     has_expanding_children = true;
                     flex_sum += grow.props.flex;
                     continue;
@@ -201,8 +218,8 @@ pub const Row = struct {
                     RowId => {
                         flex = it.getWidget(Row).props.flex;
                     },
-                    GrowId => {
-                        flex = it.getWidget(Grow).props.flex;
+                    FlexId => {
+                        flex = it.getWidget(Flex).props.flex;
                     },
                     else => {
                         // Update the layout pos of sized children since this pass will include expanded children.
@@ -249,25 +266,14 @@ pub const Row = struct {
     }
 };
 
-/// Grows a child widget's width, or height, or both depending on parent's preference.
-/// Exposes a flex property for the parent which can be used or ignored.
-pub const Grow = struct {
+/// Interpreted by Column or Row as a flexible widget. The flex property is used determine how it fits in the parent container.
+pub const Flex = struct {
     const Self = @This();
 
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
         flex: u32 = 1,
-
-        /// By default, Grow will consider the parent prefs to determine which axis to grow.
-        /// These will override those prefs.
-        grow_width: ?bool = null,
-        grow_height: ?bool = null,
     },
-
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
-        _ = c;
-        _ = self;
-    }
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
         _ = c;
@@ -280,27 +286,24 @@ pub const Grow = struct {
         const cstr = c.getSizeConstraint();
         const node = c.getNode();
 
-        var prefer_exact_width = self.props.grow_width orelse c.prefer_exact_width;
-        var prefer_exact_height = self.props.grow_height orelse c.prefer_exact_height;
-
         if (node.children.items.len == 0) {
             var res = ui.LayoutSize.init(0, 0);
-            if (prefer_exact_width) {
+            if (c.prefer_exact_width) {
                 res.width = cstr.width;
             }
-            if (prefer_exact_height) {
+            if (c.prefer_exact_height) {
                 res.height = cstr.height;
             }
             return res;
         }
 
         const child = node.children.items[0];
-        const child_size = c.computeLayoutStretch(child, cstr, prefer_exact_width, prefer_exact_height);
+        const child_size = c.computeLayoutStretch(child, cstr, c.prefer_exact_width, c.prefer_exact_height);
         var res = child_size;
-        if (prefer_exact_width) {
+        if (c.prefer_exact_width) {
             res.width = cstr.width;
         }
-        if (prefer_exact_height) {
+        if (c.prefer_exact_height) {
             res.height = cstr.height;
         }
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));

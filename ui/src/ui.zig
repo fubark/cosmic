@@ -54,3 +54,13 @@ pub const HAlign = enum(u2) {
     Center = 1,
     Right = 2,
 };
+
+pub const FlexFit = enum(u2) {
+    /// Prefers to fit exactly the available space.
+    Exact = 0,
+    /// Prefers to wrap the child. If the available space is less than the child's dimension, prefers to fit the available space.
+    Shrink = 1,
+    /// Like Shrink but in the case that the child size is less than the available space; instead of skipping the missing space to the next flex widget,
+    /// that missing space is given to the next flex widget, which can make the next flex widget bigger than it's calculated flex size.
+    ShrinkAndGive = 2,
+};

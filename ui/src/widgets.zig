@@ -40,7 +40,7 @@ pub const ScrollView = @import("widgets/scroll_view.zig").ScrollView;
 const flex = @import("widgets/flex.zig");
 pub const Column = flex.Column;
 pub const Row = flex.Row;
-pub const Grow = flex.Grow;
+pub const Flex = flex.Flex;
 const containers = @import("widgets/containers.zig");
 pub const Sized = containers.Sized;
 pub const Padding = containers.Padding;
@@ -52,10 +52,10 @@ pub const TextButton = button.TextButton;
 pub const BaseWidgets = &[_]Import{
     Import.init(Row),
     Import.init(Column),
+    Import.init(Flex),
     Import.init(Text),
     Import.init(ScrollView),
     Import.init(Slider),
-    Import.init(Grow),
     Import.init(Padding),
     Import.init(Button),
     Import.init(TextButton),

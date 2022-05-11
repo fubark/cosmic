@@ -110,6 +110,8 @@ pub const Center = struct {
 
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
+        vcenter: bool = true,
+        hcenter: bool = true,
     },
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
@@ -129,7 +131,10 @@ pub const Center = struct {
         var child_size = c.computeLayout(child, cstr);
         child_size.cropTo(cstr);
 
-        c.setLayout(child, ui.Layout.init((cstr.width - child_size.width)/2, (cstr.height - child_size.height)/2, child_size.width, child_size.height));
+        const x = if (self.props.hcenter) (cstr.width - child_size.width)/2 else 0;
+        const y = if (self.props.vcenter) (cstr.height - child_size.height)/2 else 0;
+
+        c.setLayout(child, ui.Layout.init(x, y, child_size.width, child_size.height));
         return cstr;
     }
 };
@@ -139,6 +144,8 @@ pub const Stretch = struct {
 
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
+        h_stretch: bool = true,
+        v_stretch: bool = true,
     },
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
@@ -155,7 +162,7 @@ pub const Stretch = struct {
 
         const node = c.getNode();
         const child = node.children.items[0];
-        var child_size = c.computeLayoutStretch(child, cstr, true, true);
+        var child_size = c.computeLayoutStretch(child, cstr, self.props.h_stretch, self.props.v_stretch);
         child_size.cropTo(cstr);
 
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
