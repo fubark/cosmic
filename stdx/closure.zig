@@ -178,6 +178,19 @@ pub fn Function(comptime Fn: type) type {
             };
         }
 
+        pub fn init(comptime func: anytype) Self {
+            const gen = struct {
+                fn call(_: *const anyopaque, _: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
+                    return @call(.{}, func, args);
+                }
+            };
+            return .{
+                .ctx = undefined,
+                .call_fn = gen.call,
+                .user_fn = func,
+            };
+        }
+
         pub fn call(self: Self, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
             return self.call_fn(self.user_fn, self.ctx, args);
         }

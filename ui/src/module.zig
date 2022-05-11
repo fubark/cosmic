@@ -1890,7 +1890,7 @@ pub fn BuildContext(comptime C: Config) type {
         }
 
         /// Returns a wrapper over a free function.
-        pub fn func(self: *Self, user_fn: anytype) Function(@TypeOf(user_fn)) {
+        pub fn func(self: *Self, comptime user_fn: anytype) Function(@TypeOf(user_fn)) {
             _ = self;
             const Fn = @TypeOf(user_fn);
             stdx.meta.assertFunctionType(Fn);
