@@ -79,14 +79,20 @@ pub const Column = struct {
             const flex_unit_size = vacant_size.height / @intToFloat(f32, flex_sum);
 
             var max_child_size = ui.LayoutSize.init(vacant_size.width, 0);
+            var carry_over_height: f32 = 0;
             for (c.node.children.items) |it| {
                 var flex: u32 = undefined;
+                var flex_fit: ui.FlexFit = undefined;
                 switch (it.type_id) {
                     ColumnId => {
-                        flex = it.getWidget(Column).props.flex;
+                        const w = it.getWidget(Column);
+                        flex = w.props.flex;
+                        flex_fit = w.props.flex_fit;
                     },
                     FlexId => {
-                        flex = it.getWidget(Flex).props.flex;
+                        const w = it.getWidget(Flex);
+                        flex = w.props.flex;
+                        flex_fit = w.props.flex_fit;
                     },
                     else => {
                         // Update the layout pos of sized children since this pass will include expanded children.
@@ -96,11 +102,31 @@ pub const Column = struct {
                     },
                 }
 
-                max_child_size.height = flex_unit_size * @intToFloat(f32, flex);
-                var child_size = c.computeLayoutStretch(it, max_child_size, false, true);
-                child_size.cropTo(max_child_size);
-                c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
-                cur_y += child_size.height + self.props.spacing;
+                max_child_size.height = flex_unit_size * @intToFloat(f32, flex) + carry_over_height;
+                if (carry_over_height > 0) {
+                    carry_over_height = 0;
+                }
+                var child_size: ui.LayoutSize = undefined;
+                switch (flex_fit) {
+                    .ShrinkAndGive => {
+                        child_size = c.computeLayout(it, max_child_size);
+                        child_size.cropTo(max_child_size);
+                        c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
+                        cur_y += child_size.height + self.props.spacing;
+                        if (child_size.height < max_child_size.height) {
+                            carry_over_height = max_child_size.height - child_size.height;
+                        }
+                    },
+                    else => {
+                        child_size = c.computeLayoutStretch(it, max_child_size, false, true);
+                        child_size.cropTo(max_child_size);
+                        c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
+                        cur_y += child_size.height + self.props.spacing;
+                        if (child_size.width > max_child_width) {
+                            max_child_width = child_size.width;
+                        }
+                    }
+                }
                 if (child_size.width > max_child_width) {
                     max_child_width = child_size.width;
                 }
@@ -273,6 +299,7 @@ pub const Flex = struct {
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
         flex: u32 = 1,
+        flex_fit: ui.FlexFit = .Exact,
     },
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {

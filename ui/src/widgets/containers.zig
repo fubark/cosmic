@@ -166,7 +166,14 @@ pub const Stretch = struct {
         child_size.cropTo(cstr);
 
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
-        return cstr;
+        var res = child_size;
+        if (self.props.h_stretch) {
+            res.width = cstr.width;
+        }
+        if (self.props.v_stretch) {
+            res.height = cstr.height;
+        }
+        return res;
     }
 };
 
