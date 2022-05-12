@@ -85,7 +85,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             return new;
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.id_gen.deinit();
             self.data.deinit();
             self.data_exists.deinit();
@@ -204,7 +204,7 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.nodes.deinit();
         }
 
@@ -351,7 +351,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.nodes.deinit();
             self.lists.deinit();
         }
@@ -586,7 +586,7 @@ pub fn CompactIdGenerator(comptime T: type) type {
             self.next_ids.writeItem(id) catch unreachable;
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.next_ids.deinit();
         }
     };
@@ -620,7 +620,7 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.nodes.deinit();
         }
 
