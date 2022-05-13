@@ -567,6 +567,14 @@ pub fn CompactIdGenerator(comptime T: type) type {
             };
         }
 
+        pub fn peekNextId(self: Self) T {
+            if (self.next_ids.readableLength() == 0) {
+                return self.next_default_id;
+            } else {
+                return self.next_ids.peekItem(0);
+            }
+        }
+
         pub fn getNextId(self: *Self) T {
             if (self.next_ids.readableLength() == 0) {
                 defer self.next_default_id += 1;
