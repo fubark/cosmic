@@ -59,6 +59,10 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
 
 const default = if (UseStd) std.log.default else wasm.scoped(.default);
 
+pub fn debug(comptime format: []const u8, args: anytype) void {
+    default.info(format, args);
+}
+
 pub fn info(comptime format: []const u8, args: anytype) void {
     default.info(format, args);
 }
@@ -66,3 +70,8 @@ pub fn info(comptime format: []const u8, args: anytype) void {
 pub fn err(comptime format: []const u8, args: anytype) void {
     default.err(format, args);
 }
+
+/// Exported for C to call into zig.
+export fn zig_log_debug(msg: [*c]const u8) void {
+    debug("{s}", .{msg});
+} 
