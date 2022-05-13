@@ -11,6 +11,7 @@ pub const sockaddr_in = c.sockaddr_in;
 pub const uv_loop_t = c.uv_loop_t;
 pub const uv_tcp_t = c.uv_tcp_t;
 pub const uv_stream_t = c.uv_stream_t;
+pub const uv_pipe_t = c.uv_pipe_t;
 pub const uv_handle_t = c.uv_handle_t;
 pub const uv_close_cb = c.uv_close_cb;
 pub const uv_async_t = c.uv_async_t;
@@ -18,8 +19,15 @@ pub const uv_timer_t = c.uv_timer_t;
 pub const uv_poll_t = c.uv_poll_t;
 pub const uv_timer_cb = c.uv_timer_cb;
 pub const uv_fs_event_t = c.uv_fs_event_t;
+pub const uv_process_options_t = c.uv_process_options_t;
+pub const uv_process_t = c.uv_process_t;
+pub const uv_buf_t = c.uv_buf_t;
+pub const uv_stdio_container_t = c.uv_stdio_container_t;
 
+// Errors.
 pub const UV_EBUSY = c.UV_EBUSY;
+pub const UV_ENOENT = c.UV_ENOENT;
+pub const UV_EOF = c.UV_EOF;
 
 pub const UV_RUN_DEFAULT = c.UV_RUN_DEFAULT;
 pub const UV_RUN_ONCE = c.UV_RUN_ONCE;
@@ -27,6 +35,11 @@ pub const UV_RUN_NOWAIT = c.UV_RUN_NOWAIT;
 
 pub const UV_READABLE = c.UV_READABLE;
 pub const UV_WRITABLE = c.UV_WRITABLE;
+
+pub const UV_IGNORE = c.UV_IGNORE;
+pub const UV_CREATE_PIPE = c.UV_CREATE_PIPE;
+pub const UV_READABLE_PIPE = c.UV_READABLE_PIPE;
+pub const UV_WRITABLE_PIPE = c.UV_WRITABLE_PIPE;
 
 // Handle types
 pub const UV_TCP = c.UV_TCP;
@@ -82,6 +95,9 @@ pub extern fn uv_fs_event_init(loop: *uv_loop_t, handle: *uv_fs_event_t) c_int;
 pub extern fn uv_fs_event_start(handle: *uv_fs_event_t, cb: uv_fs_event_cb, path: [*c]const u8, flags: c_uint) c_int;
 pub extern fn uv_fs_event_stop(handle: *uv_fs_event_t) c_int;
 pub extern fn uv_tcp_getsockname(handle: *const uv_tcp_t, name: *c.struct_sockaddr, namelen: *c_int) c_int;
+pub extern fn uv_spawn(loop: *uv_loop_t, handle: *uv_process_t, options: *const uv_process_options_t) c_int;
+pub extern fn uv_pipe_init(loop: *uv_loop_t, handle: *uv_pipe_t, ipc: c_int) c_int;
+pub extern fn uv_read_start(stream: *uv_stream_t, alloc_cb: c.uv_alloc_cb, read_cb: c.uv_read_cb) c_int;
 
 pub fn assertNoError(code: c_int) void {
     if (code != 0) {
