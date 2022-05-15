@@ -47,7 +47,7 @@ pub const font = struct {
     pub usingnamespace switch (Backend) {
         .Test, .OpenGL => struct {
             pub const Font = _font.Font;
-            pub const BitmapFont = _font.BitmapFont;
+            pub const RenderFont = _font.RenderFont;
             pub const Glyph = glyph.Glyph;
             pub const FontCache = gl.FontCache;
             pub const FontGroup = _font_group.FontGroup;

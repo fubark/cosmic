@@ -7,37 +7,37 @@ const graphics = @import("../../graphics.zig");
 const gl = graphics.gl;
 const Graphics = gl.Graphics;
 const Font = graphics.font.Font;
-const BitmapFont = graphics.font.BitmapFont;
+const RenderFont = graphics.font.RenderFont;
 const Glyph = graphics.font.Glyph;
 const log = std.log.scoped(.font_renderer);
 
 // LINKS:
 // https://github.com/mooman219/fontdue (could be an alternative default to stbtt)
 
-pub fn getOrLoadMissingGlyph(g: *Graphics, font: *Font, bm_font: *BitmapFont) *Glyph {
-    if (bm_font.missing_glyph) |*glyph| {
+pub fn getOrLoadMissingGlyph(g: *Graphics, font: *Font, render_font: *RenderFont) *Glyph {
+    if (render_font.missing_glyph) |*glyph| {
         return glyph;
     } else {
-        const glyph = generateGlyph(g, font, bm_font, 0);
-        bm_font.missing_glyph = glyph;
-        return &bm_font.missing_glyph.?;
+        const glyph = generateGlyph(g, font, render_font, 0);
+        render_font.missing_glyph = glyph;
+        return &render_font.missing_glyph.?;
     }
 }
 
-pub fn getOrLoadGlyph(g: *Graphics, font: *Font, bm_font: *BitmapFont, cp: u21) ?*Glyph {
+pub fn getOrLoadGlyph(g: *Graphics, font: *Font, render_font: *RenderFont, cp: u21) ?*Glyph {
     // var buf: [4]u8 = undefined;
-    if (bm_font.glyphs.getEntry(cp)) |entry| {
+    if (render_font.glyphs.getEntry(cp)) |entry| {
         // _ = std.unicode.utf8Encode(cp, &buf) catch unreachable;
-        // log.debug("{} cache hit: {s}", .{bm_font.bm_font_size, buf});
+        // log.debug("{} cache hit: {s}", .{render_font.render_font_size, buf});
         return entry.value_ptr;
     } else {
         // _ = std.unicode.utf8Encode(cp, &buf) catch unreachable;
-        // log.debug("{} cache miss: {s}", .{bm_font.bm_font_size, buf});
+        // log.debug("{} cache miss: {s}", .{render_font.render_font_size, buf});
 
         // Attempt to generate glyph.
         if (font.ttf_font.getGlyphId(cp) catch unreachable) |glyph_id| {
-            const glyph = generateGlyph(g, font, bm_font, glyph_id);
-            const entry = bm_font.glyphs.getOrPutValue(cp, glyph) catch unreachable;
+            const glyph = generateGlyph(g, font, render_font, glyph_id);
+            const entry = render_font.glyphs.getOrPutValue(cp, glyph) catch unreachable;
             return entry.value_ptr;
         } else return null;
     }
@@ -46,15 +46,15 @@ pub fn getOrLoadGlyph(g: *Graphics, font: *Font, bm_font: *BitmapFont, cp: u21) 
 // Loads data from ttf file into relevant FontAtlas.
 // Then we set flag to indicate the FontAtlas was updated.
 // New glyph metadata is stored into Font's glyph cache and returned.
-fn generateGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapFont, glyph_id: u16) Glyph {
+fn generateGlyph(g: *Graphics, font: *const Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
     if (font.ttf_font.hasColorBitmap()) {
-        return generateColorBitmapGlyph(g, font, bm_font, glyph_id);
+        return generateColorBitmapGlyph(g, font, render_font, glyph_id);
     }
     if (!font.ttf_font.hasGlyphOutlines()) {
         // Font should have outline data or color bitmap.
         unreachable;
     }
-    return generateOutlineGlyph(g, font, bm_font, glyph_id);
+    return generateOutlineGlyph(g, font, render_font, glyph_id);
 }
 
 // 1 pixel padding in glyphs so edge filtering doesn't mix with it's own glyph or neighboring glyphs.
@@ -62,8 +62,8 @@ fn generateGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapFont, gl
 const h_padding = Glyph.Padding * 2;
 const v_padding = Glyph.Padding * 2;
 
-fn generateOutlineGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapFont, glyph_id: u16) Glyph {
-    const scale = bm_font.scale_from_ttf;
+fn generateOutlineGlyph(g: *Graphics, font: *const Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
+    const scale = render_font.scale_from_ttf;
     const fc = &g.font_cache;
 
     // negative y indicates upwards dist from baseline.
@@ -100,12 +100,12 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapF
     // glyph.x_offset = scale * @intToFloat(f32, h_metrics.left_side_bearing) - Glyph.Padding;
     glyph.x_offset = @intToFloat(f32, x0) - Glyph.Padding;
     // log.warn("lsb: {} x: {}", .{scale * @intToFloat(f32, h_metrics.left_side_bearing), x0});
-    glyph.y_offset = @round(bm_font.ascent) - @intToFloat(f32, -y0) - Glyph.Padding;
+    glyph.y_offset = @round(render_font.ascent) - @intToFloat(f32, -y0) - Glyph.Padding;
     glyph.x = glyph_x;
     glyph.y = glyph_y;
     glyph.width = glyph_width;
     glyph.height = glyph_height;
-    glyph.bm_font_size = @intToFloat(f32, bm_font.bm_font_size);
+    glyph.render_font_size = @intToFloat(f32, render_font.render_font_size);
     glyph.dst_width = @intToFloat(f32, glyph_width);
     glyph.dst_height = @intToFloat(f32, glyph_height);
     glyph.advance_width = scale * @intToFloat(f32, h_metrics.advance_width);
@@ -117,10 +117,10 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapF
     return glyph;
 }
 
-fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, bm_font: *const BitmapFont, glyph_id: u16) Glyph {
+fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
     // Copy over png glyph data instead of going through the normal stbtt rasterizer.
     if (font.ttf_font.getGlyphColorBitmap(glyph_id) catch unreachable) |data| {
-        // const scale = bm_font.scale_from_ttf;
+        // const scale = render_font.scale_from_ttf;
         const fc = &g.font_cache;
 
         // Decode png.
@@ -154,19 +154,19 @@ fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, bm_font: *const Bit
         var glyph = Glyph.init(glyph_id, fc.color_atlas.image);
         glyph.is_color_bitmap = true;
 
-        const scale_from_xpx = @intToFloat(f32, bm_font.bm_font_size) / @intToFloat(f32, data.x_px_per_em);
-        const scale_from_ypx = @intToFloat(f32, bm_font.bm_font_size) / @intToFloat(f32, data.y_px_per_em);
+        const scale_from_xpx = @intToFloat(f32, render_font.render_font_size) / @intToFloat(f32, data.x_px_per_em);
+        const scale_from_ypx = @intToFloat(f32, render_font.render_font_size) / @intToFloat(f32, data.y_px_per_em);
 
         // Include padding in offsets.
         glyph.x_offset = scale_from_xpx * @intToFloat(f32, data.left_side_bearing - Glyph.Padding);
-        glyph.y_offset = bm_font.ascent - scale_from_ypx * @intToFloat(f32, data.bearing_y - Glyph.Padding);
+        glyph.y_offset = render_font.ascent - scale_from_ypx * @intToFloat(f32, data.bearing_y - Glyph.Padding);
         // log.debug("{} {} {}", .{glyph.y_offset, data.bearing_y, data.height });
         // glyph.y_offset = 0;
         glyph.x = glyph_x;
         glyph.y = glyph_y;
         glyph.width = glyph_width;
         glyph.height = glyph_height;
-        glyph.bm_font_size = @intToFloat(f32, bm_font.bm_font_size);
+        glyph.render_font_size = @intToFloat(f32, render_font.render_font_size);
 
         // The quad dimensions for color glyphs is scaled to how much pixels should be drawn for the bm font size.
         // This should be smaller than the underlying bitmap glyph but that's ok since the uvs will make sure we extract the right pixels.
@@ -187,6 +187,6 @@ fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, bm_font: *const Bit
         g.font_cache.color_atlas.markDirtyBuffer();
         return glyph;
     } else {
-        std.debug.panic("expected color bitmap for glyph: {}", .{glyph_id});
+        stdx.panicFmt("expected color bitmap for glyph: {}", .{glyph_id});
     }
 }

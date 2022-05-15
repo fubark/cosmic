@@ -189,7 +189,7 @@ fn updateFontAtlasImage(image: *Image) void {
         // Update tex_id and uvs in existing glyphs.
         const tex_width = @intToFloat(f32, atlas.width);
         const tex_height = @intToFloat(f32, atlas.height);
-        for (g.font_cache.bm_fonts.items) |font| {
+        for (g.font_cache.render_fonts.items) |font| {
             var iter = font.glyphs.valueIterator();
             while (iter.next()) |glyph| {
                 if (glyph.image.tex_id == old_tex_id) {
