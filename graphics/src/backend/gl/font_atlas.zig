@@ -8,13 +8,15 @@ const Graphics = graphics.gl.Graphics;
 const Image = graphics.gl.Image;
 const ImageDesc = graphics.gl.ImageDesc;
 const Texture = graphics.gl.Texture;
+const RectBinPacker = graphics.RectBinPacker;
 const log = stdx.log.scoped(.font_atlas);
 
-/// Holds a buffer of font glyphs in memory that is then synced the gpu.
+/// Holds a buffer of font glyphs in memory that is then synced to the gpu.
 pub const FontAtlas = struct {
-    const Self = @This();
-
     g: *Graphics,
+
+    /// Uses a rect bin packer to allocate space.
+    packer: RectBinPacker,
 
     /// The gl buffer always contains 4 channels. This lets it use the same shader/batch for rendering outline text.
     /// Kept in memory since it will be updated for glyphs on demand.
@@ -24,14 +26,6 @@ pub const FontAtlas = struct {
     height: u32,
     channels: u8,
 
-    // Start pos for the next glyph.
-    next_x: u32,
-    next_y: u32,
-
-    // The max height of the current glyph row we're rendering to.
-    // Used to advance next_y once width is reached for the current row.
-    row_height: u32,
-
     image: ImageDesc,
 
     needs_texture_resize: bool,
@@ -39,80 +33,64 @@ pub const FontAtlas = struct {
     // The same allocator is used to do resizing.
     alloc: std.mem.Allocator,
 
+    const Self = @This();
+
     /// Linear filter disabled is good for bitmap fonts that scale upwards.
     /// Outline glyphs and color bitmaps would use linear filtering. Although in the future, outline glyphs might also need to have linear filter disabled.
     pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics, width: u32, height: u32, linear_filter: bool) void {
         self.* = .{
             .g = g,
             .alloc = alloc,
+            .packer = RectBinPacker.init(alloc, width, height),
             .width = width,
             .height = height,
             // Always 4 to match the gpu texture data.
             .channels = 4,
             .image = undefined,
             .gl_buf = undefined,
-            .next_x = 0,
-            .next_y = 0,
-            .row_height = 0,
             .needs_texture_resize = false,
         };
         self.image = g.createImageFromBitmap(width, height, null, linear_filter, .{ .ctx = self, .update = updateFontAtlasImage });
 
         self.gl_buf = alloc.alloc(u8, width * height * self.channels) catch @panic("error");
         std.mem.set(u8, self.gl_buf, 0);
+
+        const S = struct {
+            fn onResize(ptr: ?*anyopaque, width_: u32, height_: u32) void {
+                const self_ = stdx.mem.ptrCastAlign(*Self, ptr);
+                self_.resizeLocalBuffer(width_, height_);
+            }
+        };
+        self.packer.addResizeCallback(self, S.onResize);
     }
 
     pub fn deinit(self: Self) void {
+        self.packer.deinit();
         self.alloc.free(self.gl_buf);
         self.g.removeImage(self.image.image_id);
     }
 
     fn resizeLocalBuffer(self: *Self, width: u32, height: u32) void {
-        if (width != self.width) {
-            stdx.debug.panic("TODO: Implement rearranging glyphs after growing buffer width, for now start with large width");
-        }
-        self.width = width;
-        self.height = height;
-        self.gl_buf = self.alloc.realloc(self.gl_buf, width * height * self.channels) catch @panic("error");
+        const old_buf = self.gl_buf;
+        defer self.alloc.free(old_buf);
 
         // We need to flush since the current batch could have old uv geometry.
         self.g.flushDraw();
 
-        // The next batch is when we want to do a new texture upload.
+        self.gl_buf = self.alloc.alloc(u8, width * height * self.channels) catch @panic("error");
+        std.mem.set(u8, self.gl_buf, 0);
+
+        var old_width = self.width;
+        var old_height = self.height;
+        self.width = width;
+        self.height = height;
+
+        // Copy over existing data.
+        self.copySubImageFrom(0, 0, old_width, old_height, old_buf);
+
+        // The next batch will perform the new texture upload.
         self.needs_texture_resize = true;
         // log.debug("resize atlas to: {}x{}", .{width, height});
-    }
-
-    pub fn nextPosForSize(self: *Self, glyph_width: u32, glyph_height: u32) Point2(u32) {
-        if (self.next_x + glyph_width > self.width) {
-            // Wrap to the next row.
-            if (self.row_height == 0) {
-                // Current buffer width can't fit one glyph.
-                // We haven't implemented rearranging glyphs after increasing the buffer width so fail for now.
-                stdx.debug.panic("TODO: Implement rearranging glyphs after growing buffer width, for now start with large width");
-                unreachable;
-            }
-            self.next_y += self.row_height;
-            self.next_x = 0;
-            self.row_height = 0;
-            return self.nextPosForSize(glyph_width, glyph_height);
-        }
-        if (self.next_y + glyph_height > self.height) {
-            // self.dumpBufferToDisk("font_cache.bmp");
-
-            // Increase buffer height.
-            self.resizeLocalBuffer(self.width, self.height * 2);
-            return self.nextPosForSize(glyph_width, glyph_height);
-        }
-        defer self.advancePos(glyph_width, glyph_height);
-        return .{ .x = self.next_x, .y = self.next_y };
-    }
-
-    fn advancePos(self: *Self, glyph_width: u32, glyph_height: u32) void {
-        self.next_x += glyph_width;
-        if (glyph_height > self.row_height) {
-            self.row_height = glyph_height;
-        }
     }
 
     /// Copy from 1 channel row major sub image data. markDirtyBuffer needs to be called afterwards to queue a sync op to the gpu.
