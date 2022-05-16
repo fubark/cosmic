@@ -694,6 +694,10 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             return self.nodes.getNoCheck(idx).data;
         }
 
+        pub fn getPtrNoCheck(self: Self, idx: Id) *T {
+            return &self.nodes.getPtrNoCheck(idx).data;
+        }
+
         pub fn getNextNoCheck(self: Self, id: Id) OptId {
             return self.nodes.getNoCheck(id).next;
         }
