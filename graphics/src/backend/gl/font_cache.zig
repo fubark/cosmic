@@ -55,28 +55,21 @@ pub const FontCache = struct {
     font_groups: ds.CompactUnorderedList(FontGroupId, FontGroup),
     fonts_by_lname: ds.OwnedKeyStringHashMap(FontId),
 
-    // 1-channel atlas. most glyphs will use this.
+    /// For outline glyphs and color bitmaps. Linear filtering enabled.
     main_atlas: FontAtlas,
 
-    // 4-channel atlas. For emojis. (eg. NotoColorEmoji.ttf)
-    color_atlas: FontAtlas,
+    /// For bitmap font glyphs. Linear filtering disabled.
+    bitmap_atlas: FontAtlas,
 
     // System fallback fonts. Used when user fallback fonts was not enough.
     system_fonts: std.ArrayList(FontId),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics) void {
-        // For testing resizing:
-        // const bm_width = 128;
-        // const bm_height = 128;
-
-        // Start with a larger width since we currently just grow the height.
-        const bm_width = 1024;
-        const bm_height = 1024;
 
         self.* = .{
             .alloc = alloc,
             .main_atlas = undefined,
-            .color_atlas = undefined,
+            .bitmap_atlas = undefined,
             .fonts = std.ArrayList(Font).init(alloc),
             .render_fonts = std.ArrayList(RenderFont).init(alloc),
             .render_font_mru = std.ArrayList(RenderFontDesc).init(alloc),
@@ -85,16 +78,23 @@ pub const FontCache = struct {
             .fonts_by_lname = ds.OwnedKeyStringHashMap(FontId).init(alloc),
             .system_fonts = std.ArrayList(FontId).init(alloc),
         };
-        self.main_atlas.init(alloc, g, bm_width, bm_height, 1);
-        self.color_atlas.init(alloc, g, bm_width, bm_height, 4);
+        // For testing resizing:
+        // const main_atlas_width = 128;
+        // const main_atlas_height = 128;
+
+        // Start with a larger width since we currently just grow the height.
+        const main_atlas_width = 1024;
+        const main_atlas_height = 1024;
+        self.main_atlas.init(alloc, g, main_atlas_width, main_atlas_height, true);
+        self.bitmap_atlas.init(alloc, g, 512, 512, false);
     }
 
     pub fn deinit(self: *Self) void {
         // self.color_atlas.dumpBufferToDisk("color_font_atlas.bmp");
         // self.main_atlas.dumpBufferToDisk("main_font_atlas.bmp");
 
-        self.color_atlas.deinit();
         self.main_atlas.deinit();
+        self.bitmap_atlas.deinit();
 
         var iter = self.font_groups.iterator();
         while (iter.next()) |*it| {

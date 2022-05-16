@@ -10,18 +10,14 @@ const ImageDesc = graphics.gl.ImageDesc;
 const Texture = graphics.gl.Texture;
 const log = stdx.log.scoped(.font_atlas);
 
-// Synced cpu and gpu bitmap for font glyphs.
+/// Holds a buffer of font glyphs in memory that is then synced the gpu.
 pub const FontAtlas = struct {
     const Self = @This();
 
     g: *Graphics,
 
-    alloc: std.mem.Allocator,
-    buf: []u8,
-
-    // For single channel buffer, we still want to upload a 4 channel image since
-    // we want to use the common shader as much as possible for batching.
-    // Keeping it in memory is better than allocing for each upload since we generate glyphs on demand.
+    /// The gl buffer always contains 4 channels. This lets it use the same shader/batch for rendering outline text.
+    /// Kept in memory since it will be updated for glyphs on demand.
     gl_buf: []u8,
 
     width: u32,
@@ -40,35 +36,34 @@ pub const FontAtlas = struct {
 
     needs_texture_resize: bool,
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics, width: u32, height: u32, channels: u8) void {
+    // The same allocator is used to do resizing.
+    alloc: std.mem.Allocator,
+
+    /// Linear filter disabled is good for bitmap fonts that scale upwards.
+    /// Outline glyphs and color bitmaps would use linear filtering. Although in the future, outline glyphs might also need to have linear filter disabled.
+    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics, width: u32, height: u32, linear_filter: bool) void {
         self.* = .{
             .g = g,
             .alloc = alloc,
             .width = width,
             .height = height,
-            .channels = channels,
+            // Always 4 to match the gpu texture data.
+            .channels = 4,
             .image = undefined,
-            .buf = alloc.alloc(u8, width * height * channels) catch unreachable,
             .gl_buf = undefined,
             .next_x = 0,
             .next_y = 0,
             .row_height = 0,
             .needs_texture_resize = false,
         };
-        self.image = g.createImageFromBitmap(width, height, null, true, .{ .ctx = self, .update = updateFontAtlasImage });
-        std.mem.set(u8, self.buf, 0);
+        self.image = g.createImageFromBitmap(width, height, null, linear_filter, .{ .ctx = self, .update = updateFontAtlasImage });
 
-        if (channels == 1) {
-            self.gl_buf = alloc.alloc(u8, width * height * 4) catch unreachable;
-            std.mem.set(u8, self.gl_buf, 0);
-        }
+        self.gl_buf = alloc.alloc(u8, width * height * self.channels) catch @panic("error");
+        std.mem.set(u8, self.gl_buf, 0);
     }
 
-    pub fn deinit(self: *Self) void {
-        self.alloc.free(self.buf);
-        if (self.channels == 1) {
-            self.alloc.free(self.gl_buf);
-        }
+    pub fn deinit(self: Self) void {
+        self.alloc.free(self.gl_buf);
         self.g.removeImage(self.image.image_id);
     }
 
@@ -78,10 +73,7 @@ pub const FontAtlas = struct {
         }
         self.width = width;
         self.height = height;
-        self.buf = self.alloc.realloc(self.buf, width * height * self.channels) catch unreachable;
-        if (self.channels == 1) {
-            self.gl_buf = self.alloc.realloc(self.gl_buf, width * height * 4) catch unreachable;
-        }
+        self.gl_buf = self.alloc.realloc(self.gl_buf, width * height * self.channels) catch @panic("error");
 
         // We need to flush since the current batch could have old uv geometry.
         self.g.flushDraw();
@@ -123,21 +115,34 @@ pub const FontAtlas = struct {
         }
     }
 
-    // For single channel buffer to copy over to 4 channel buffer.
-    pub fn copyToCanonicalBuffer(self: *Self, x: u32, y: u32, width: u32, height: u32) void {
-        var row: usize = y;
-        while (row < y + height) : (row += 1) {
-            const offset = x + row * self.width;
-            for (self.buf[offset .. offset + width]) |it, i| {
-                const start_idx = (offset + i) * 4;
-                self.gl_buf[start_idx + 0] = 255;
-                self.gl_buf[start_idx + 1] = 255;
-                self.gl_buf[start_idx + 2] = 255;
-                self.gl_buf[start_idx + 3] = it;
+    /// Copy from 1 channel row major sub image data. markDirtyBuffer needs to be called afterwards to queue a sync op to the gpu.
+    pub fn copySubImageFrom1Channel(self: *Self, x: usize, y: usize, width: usize, height: usize, src: []const u8) void {
+        // Ensure src has the correct data length.
+        std.debug.assert(width * height == src.len);
+        // Ensure bounds in atlas bitmap.
+        std.debug.assert(x + width <= self.width);
+        std.debug.assert(y + height <= self.height);
+
+        const dst_row_size = self.width * self.channels;
+        const src_row_size = width;
+
+        var row: usize = 0;
+        var buf_offset: usize = (x + y * self.width) * self.channels;
+        var src_offset: usize = 0;
+        while (row < height) : (row += 1) {
+            for (src[src_offset .. src_offset + src_row_size]) |it, i| {
+                const dst_idx = buf_offset + (i * self.channels);
+                self.gl_buf[dst_idx + 0] = 255;
+                self.gl_buf[dst_idx + 1] = 255;
+                self.gl_buf[dst_idx + 2] = 255;
+                self.gl_buf[dst_idx + 3] = it;
             }
+            buf_offset += dst_row_size;
+            src_offset += src_row_size;
         }
     }
 
+    /// Copy from 4 channel row major sub image data. markDirtyBuffer needs to be called afterwards to queue a sync op to the gpu.
     pub fn copySubImageFrom(self: *Self, bm_x: usize, bm_y: usize, width: usize, height: usize, src: []const u8) void {
         // Ensure src has the correct data length.
         std.debug.assert(width * height * self.channels == src.len);
@@ -145,16 +150,16 @@ pub const FontAtlas = struct {
         std.debug.assert(bm_x + width <= self.width);
         std.debug.assert(bm_y + height <= self.height);
 
-        const buf_offset_inc = self.width * self.channels;
-        const src_offset_inc = width * self.channels;
+        const dst_row_size = self.width * self.channels;
+        const src_row_size = width * self.channels;
 
-        var y: usize = 0;
+        var row: usize = 0;
         var buf_offset: usize = (bm_x + bm_y * self.width) * self.channels;
         var src_offset: usize = 0;
-        while (y < height) : (y += 1) {
-            std.mem.copy(u8, self.buf[buf_offset .. buf_offset + src_offset_inc], src[src_offset .. src_offset + src_offset_inc]);
-            buf_offset += buf_offset_inc;
-            src_offset += src_offset_inc;
+        while (row < height) : (row += 1) {
+            std.mem.copy(u8, self.gl_buf[buf_offset .. buf_offset + src_row_size], src[src_offset .. src_offset + src_row_size]);
+            buf_offset += dst_row_size;
+            src_offset += src_row_size;
         }
     }
 
@@ -164,7 +169,7 @@ pub const FontAtlas = struct {
     }
 
     pub fn dumpBufferToDisk(self: Self, filename: [*:0]const u8) void {
-        _ = stbi.stbi_write_bmp(filename, @intCast(c_int, self.width), @intCast(c_int, self.height), self.channels, &self.buf[0]);
+        _ = stbi.stbi_write_bmp(filename, @intCast(c_int, self.width), @intCast(c_int, self.height), self.channels, &self.gl_buf[0]);
         // _ = stbi.stbi_write_png("font_cache.png", @intCast(c_int, self.bm_width), @intCast(c_int, self.bm_height), 1, &self.bm_buf[0], @intCast(c_int, self.bm_width));
     }
 };
@@ -205,9 +210,5 @@ fn updateFontAtlasImage(image: *Image) void {
 
     // Send bitmap data.
     // TODO: send only subimage that changed.
-    if (atlas.channels == 1) {
-        g.updateTextureData(image, atlas.gl_buf);
-    } else {
-        g.updateTextureData(image, atlas.buf);
-    }
+    g.updateTextureData(image, atlas.gl_buf);
 }
