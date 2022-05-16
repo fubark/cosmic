@@ -435,4 +435,89 @@ test "Resize." {
     _ = packer.allocRect(11, 11);
     try t.eq(ctx.width, 20);
     try t.eq(ctx.height, 20);
+
+    try t.eq(packer.spans.size(), 2);
+    var node = packer.spans.nodes.getNoCheck(packer.head);
+    try t.eq(node.data, .{ .x = 0, .y = 11, .width = 11 });
+    node = packer.spans.nodes.getNoCheck(node.next);
+    try t.eq(node.data, .{ .x = 11, .y = 0, .width = 9 });
+}
+
+/// Allocation is constant time but inefficient with space allocation.
+/// Tracks the next available pos and the max height of the current row.
+/// Upon resize, only the height is doubled since context info is lost from the other rows.
+pub const FastBinPacker = struct {
+    width: u32,
+    height: u32,
+
+    /// Start pos for the next glyph.
+    next_x: u32,
+    next_y: u32,
+
+    /// The max height of the current row.
+    /// Used to advance next_y once width is reached for the current row.
+    row_height: u32,
+
+    /// In-order callbacks.
+    resize_cbs: std.ArrayList(ResizeCallbackItem),
+
+    const Self = @This();
+
+    pub fn init(alloc: std.mem.Allocator, width: u32, height: u32) @This() {
+        return .{
+            .width = width,
+            .height = height,
+            .next_x = 0,
+            .next_y = 0,
+            .row_height = 0,
+            .resize_cbs = std.ArrayList(ResizeCallbackItem).init(alloc),
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        self.resize_cbs.deinit();
+    }
+
+    pub fn allocRect(self: *Self, width: u32, height: u32) Point2 {
+        if (self.next_x + width > self.width) {
+            // Wrap to the next row.
+            if (self.row_height == 0) {
+                // Current width can't fit.
+                @panic("Requested width too large.");
+            }
+            self.next_y += self.row_height;
+            self.next_x = 0;
+            self.row_height = 0;
+            return self.allocRect(width, height);
+        }
+        if (self.next_y + height > self.height) {
+            // Increase buffer height.
+            self.height *= 2;
+
+            // Invoke resize callbacks only after we allocated the rect.
+            for (self.resize_cbs.items) |it| {
+                it.cb(it.ctx, self.width, self.height);
+            }
+            return self.allocRect(width, height);
+        }
+        defer self.advancePos(width, height);
+        return Point2.init(self.next_x, self.next_y);
+    }
+
+    fn advancePos(self: *Self, width: u32, height: u32) void {
+        self.next_x += width;
+        if (width > self.row_height) {
+            self.row_height = height;
+        }
+    }
+};
+
+test "FastBinPacker" {
+    var packer = FastBinPacker.init(t.alloc, 10, 10);
+    defer packer.deinit();
+
+    var pos = packer.allocRect(5, 5);
+    try t.eq(pos, Point2.init(0, 0));
+    pos = packer.allocRect(5, 5);
+    try t.eq(pos, Point2.init(5, 0));
 }
