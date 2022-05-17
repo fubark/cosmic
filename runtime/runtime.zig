@@ -1557,6 +1557,7 @@ const ProcessHandle = struct {
 
     fn onRead(stream: [*c]uv.uv_stream_t, nread: isize, buf: [*c]const uv.uv_buf_t) callconv(.C) void {
         const self = @fieldParentPtr(Self, "out", @ptrCast(*uv.uv_pipe_t, stream));
+        defer self.alloc.free(buf[0].base[0..buf[0].len]);
         if (nread < 0) {
             if (nread == uv.UV_EOF) {
                 return;
@@ -1566,7 +1567,6 @@ const ProcessHandle = struct {
         }
         const str = buf[0].base[0..@intCast(usize, nread)];
         self.out_buf.appendSlice(str) catch @panic("error");
-        self.alloc.free(buf[0].base[0..buf[0].len]);
     }
 
     fn onExit(ptr: [*c]uv.uv_process_t, exit_status: i64, term_signal: c_int) callconv(.C) void {

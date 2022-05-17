@@ -176,6 +176,9 @@ export fn uv_strerror() void {}
 export fn uv_ip4_addr() void {}
 export fn uv_tcp_bind() void {}
 export fn uv_listen() void {}
+export fn uv_pipe_init() void {}
+export fn uv_read_start() void {}
+export fn uv_spawn() void {}
 export fn h2o_config_register_host() void {}
 export fn h2o_context_init() void {}
 export fn h2o_context_request_shutdown() void {}
