@@ -10,6 +10,7 @@ const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
 const FontGroupId = graphics.font.FontGroupId;
+const FontId = graphics.font.FontId;
 const platform = @import("platform");
 const EventDispatcher = platform.EventDispatcher;
 
@@ -1011,8 +1012,16 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
 pub fn MixinContextFontOps(comptime Context: type) type {
     return struct {
 
+        pub inline fn getFontVMetrics(self: Context, font_id: FontId, font_size: f32) graphics.font.VMetrics {
+            return self.common.getFontVMetrics(font_id, font_size);
+        }
+
         pub inline fn getPrimaryFontVMetrics(self: Context, font_gid: FontGroupId, font_size: f32) graphics.font.VMetrics {
             return self.common.getPrimaryFontVMetrics(font_gid, font_size);
+        }
+
+        pub inline fn getTextMeasure(self: Context, id: TextMeasureId) *TextMeasure {
+            return self.common.getTextMeasure(id);
         }
 
         pub inline fn measureText(self: *Context, font_gid: FontGroupId, font_size: f32, str: []const u8) graphics.TextMetrics {
@@ -1025,6 +1034,18 @@ pub fn MixinContextFontOps(comptime Context: type) type {
 
         pub inline fn getFontGroupBySingleFontName(self: Context, name: []const u8) FontGroupId {
             return self.common.getFontGroupBySingleFontName(name);
+        }
+
+        pub inline fn getFontGroupForSingleFont(self: Context, font_id: FontId) FontGroupId {
+            return self.common.getFontGroupForSingleFont(font_id);
+        }
+
+        pub inline fn getFontGroupForSingleFontOrDefault(self: Context, font_id: FontId) FontGroupId {
+            if (font_id == NullId) {
+                return self.getDefaultFontGroup();
+            } else {
+                return self.common.getFontGroupForSingleFont(font_id);
+            }
         }
 
         pub inline fn getDefaultFontGroup(self: Context) FontGroupId {
@@ -1273,6 +1294,10 @@ pub const CommonContext = struct {
     common: *ModuleCommon,
     alloc: std.mem.Allocator,
 
+    pub inline fn getFontVMetrics(self: Self, font_gid: FontGroupId, font_size: f32) graphics.font.VMetrics {
+        return self.common.g.getFontVMetrics(font_gid, font_size);
+    }
+
     pub inline fn getPrimaryFontVMetrics(self: Self, font_gid: FontGroupId, font_size: f32) graphics.font.VMetrics {
         return self.common.g.getPrimaryFontVMetrics(font_gid, font_size);
     }
@@ -1299,7 +1324,19 @@ pub const CommonContext = struct {
         return self.common.g.measureFontTextIter(font_gid, font_size, str);
     }
 
-    pub fn getFontGroupBySingleFontName(self: Self, name: []const u8) FontGroupId {
+    pub inline fn getFontGroupForSingleFont(self: Self, font_id: FontId) FontGroupId {
+        return self.common.g.getFontGroupForSingleFont(font_id);
+    }
+
+    pub inline fn getFontGroupForSingleFontOrDefault(self: Self, font_id: FontId) FontGroupId {
+        if (font_id == NullId) {
+            return self.getDefaultFontGroup();
+        } else {
+            return self.getFontGroupForSingleFont(font_id);
+        }
+    }
+
+    pub inline fn getFontGroupBySingleFontName(self: Self, name: []const u8) FontGroupId {
         return self.common.g.getFontGroupBySingleFontName(name);
     }
 

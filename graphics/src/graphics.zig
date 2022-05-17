@@ -21,14 +21,13 @@ pub const Color = _color.Color;
 const fps = @import("fps.zig");
 pub const FpsLimiter = fps.FpsLimiter;
 pub const DefaultFpsLimiter = fps.DefaultFpsLimiter;
-const _font_group = @import("font_group.zig");
-const FontGroup = _font_group.FontGroup;
 const text_renderer = @import("backend/gl/text_renderer.zig");
 const FontCache = gl.FontCache;
 const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
 
 pub const tessellator = @import("tessellator.zig");
+pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
@@ -38,10 +37,12 @@ const This = @This();
 pub const font = struct {
     pub const FontId = u32;
     pub const FontGroupId = u32;
+    pub const FontType = _font.FontType;
     pub const VMetrics = This.VMetrics;
-    pub const TTF_Font = _ttf.TTF_Font;
+    pub const OpenTypeFont = _ttf.OpenTypeFont;
 
     const _font = @import("backend/gl/font.zig");
+    const _font_group = @import("backend/gl/font_group.zig");
     const glyph = @import("backend/gl/glyph.zig");
 
     pub usingnamespace switch (Backend) {
@@ -636,6 +637,15 @@ pub const Graphics = struct {
         }
     }
 
+    /// Adds .otb bitmap font with data at different font sizes.
+    pub fn addOTB_Font(self: *Self, data: []const BitmapFontData) FontId {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.addOTB_Font(&self.g, data),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Adds outline or color bitmap font from ttf/otf.
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
         switch (Backend) {
             .OpenGL => return gl.Graphics.addTTF_Font(&self.g, data),
@@ -783,7 +793,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
+    pub inline fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
         switch (Backend) {
             .OpenGL => return FontCache.getPrimaryFontVMetrics(&self.g.font_cache, font_gid, font_size),
             .WasmCanvas => return canvas.Graphics.getPrimaryFontVMetrics(&self.g, font_gid, font_size),
@@ -799,7 +809,14 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getDefaultFontId(self: *Self) FontId {
+    pub inline fn getFontVMetrics(self: *Self, font_id: FontId, font_size: f32) VMetrics {
+        switch (Backend) {
+            .OpenGL => return FontCache.getFontVMetrics(&self.g.font_cache, font_id, font_size),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn getDefaultFontId(self: *Self) FontId {
         switch (Backend) {
             .OpenGL => return self.g.default_font_id,
             .Test => return self.g.default_font_id,
@@ -807,7 +824,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
+    pub inline fn getDefaultFontGroupId(self: *Self) FontGroupId {
         switch (Backend) {
             .OpenGL => return self.g.default_font_gid,
             .Test => return self.g.default_font_gid,
@@ -819,6 +836,13 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => return FontCache.getFontId(&self.g.font_cache, name),
             .WasmCanvas => return canvas.Graphics.getFontByName(&self.g, name),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn getFontGroupForSingleFont(self: *Self, font_id: FontId) FontGroupId {
+        switch (Backend) {
+            .OpenGL => return FontCache.getOrLoadFontGroup(&self.g.font_cache, &.{font_id}),
             else => stdx.panic("unsupported"),
         }
     }
@@ -990,4 +1014,9 @@ pub const TextBaseline = enum {
     Middle,
     Alphabetic,
     Bottom,
+};
+
+pub const BitmapFontData = struct {
+    data: []const u8,
+    size: u8,
 };

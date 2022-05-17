@@ -8,6 +8,7 @@ const gl = graphics.gl;
 const Graphics = gl.Graphics;
 const Font = graphics.font.Font;
 const RenderFont = graphics.font.RenderFont;
+const OpenTypeFont = graphics.font.OpenTypeFont;
 const Glyph = graphics.font.Glyph;
 const log = std.log.scoped(.font_renderer);
 
@@ -18,7 +19,8 @@ pub fn getOrLoadMissingGlyph(g: *Graphics, font: *Font, render_font: *RenderFont
     if (render_font.missing_glyph) |*glyph| {
         return glyph;
     } else {
-        const glyph = generateGlyph(g, font, render_font, 0);
+        const ot_font = font.getOtFontBySize(render_font.render_font_size);
+        const glyph = generateGlyph(g, font, ot_font, render_font, 0);
         render_font.missing_glyph = glyph;
         return &render_font.missing_glyph.?;
     }
@@ -34,23 +36,30 @@ pub fn getOrLoadGlyph(g: *Graphics, font: *Font, render_font: *RenderFont, cp: u
         // _ = std.unicode.utf8Encode(cp, &buf) catch unreachable;
         // log.debug("{} cache miss: {s}", .{render_font.render_font_size, buf});
 
+        const ot_font = font.getOtFontBySize(render_font.render_font_size);
+
         // Attempt to generate glyph.
-        if (font.ttf_font.getGlyphId(cp) catch unreachable) |glyph_id| {
-            const glyph = generateGlyph(g, font, render_font, glyph_id);
+        if (ot_font.getGlyphId(cp) catch unreachable) |glyph_id| {
+            const glyph = generateGlyph(g, font, ot_font, render_font, glyph_id);
             const entry = render_font.glyphs.getOrPutValue(cp, glyph) catch unreachable;
             return entry.value_ptr;
         } else return null;
     }
 }
 
-// Loads data from ttf file into relevant FontAtlas.
-// Then we set flag to indicate the FontAtlas was updated.
-// New glyph metadata is stored into Font's glyph cache and returned.
-fn generateGlyph(g: *Graphics, font: *const Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
-    if (font.ttf_font.hasColorBitmap()) {
-        return generateColorBitmapGlyph(g, font, render_font, glyph_id);
+/// Rasterizes glyph from ot font and into a FontAtlas.
+/// Then set flag to indicate the FontAtlas was updated.
+/// New glyph metadata is stored into Font's glyph cache and returned.
+/// Even though the ot_font can be retrieved from font, it's provided by the caller to avoid an extra lookup for bitmap fonts.
+fn generateGlyph(g: *Graphics, font: *const Font, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
+    if (ot_font.hasEmbeddedBitmap()) {
+        // Bitmap fonts.
+        return generateEmbeddedBitmapGlyph(g, ot_font, render_font, glyph_id);
     }
-    if (!font.ttf_font.hasGlyphOutlines()) {
+    if (ot_font.hasColorBitmap()) {
+        return generateColorBitmapGlyph(g, ot_font, render_font, glyph_id);
+    }
+    if (!ot_font.hasGlyphOutlines()) {
         // Font should have outline data or color bitmap.
         unreachable;
     }
@@ -79,19 +88,22 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, render_font: *const Ren
     // log.warn("box {} {} {} {}", .{x0, y0, x1, y1});
 
     // Draw glyph into bitmap buffer.
-    const glyph_width = @intCast(u32, x1 - x0) + h_padding;
-    const glyph_height = @intCast(u32, y1 - y0) + v_padding;
+    const src_width = @intCast(u32, x1 - x0);
+    const src_height = @intCast(u32, y1 - y0);
+    const glyph_width = src_width + h_padding;
+    const glyph_height = src_height + v_padding;
 
-    const pos = fc.main_atlas.nextPosForSize(glyph_width, glyph_height);
+    const pos = fc.main_atlas.packer.allocRect(glyph_width, glyph_height);
     const glyph_x = pos.x;
     const glyph_y = pos.y;
 
-    // Don't include our extra padding when blitting to bitmap with stbtt.
-    const buf_offset = (glyph_x + Glyph.Padding) + (glyph_y + Glyph.Padding) * fc.main_atlas.width;
-    stbtt.stbtt_MakeGlyphBitmap(&font.stbtt_font, &fc.main_atlas.buf[buf_offset], @intCast(c_int, glyph_width - Glyph.Padding), @intCast(c_int, glyph_height - Glyph.Padding), @intCast(c_int, fc.main_atlas.width), scale, scale, glyph_id);
-    fc.main_atlas.copyToCanonicalBuffer(glyph_x, glyph_y, glyph_width, glyph_height);
+    g.raster_glyph_buffer.resize(src_width * src_height) catch @panic("error");
+    // Don't include extra padding when blitting to bitmap with stbtt.
+    stbtt.stbtt_MakeGlyphBitmap(&font.stbtt_font, g.raster_glyph_buffer.items.ptr, @intCast(c_int, src_width), @intCast(c_int, src_height), @intCast(c_int, src_width), scale, scale, glyph_id);
+    fc.main_atlas.copySubImageFrom1Channel(glyph_x + Glyph.Padding, glyph_y + Glyph.Padding, src_width, src_height, g.raster_glyph_buffer.items);
+    fc.main_atlas.markDirtyBuffer();
 
-    const h_metrics = font.ttf_font.getGlyphHMetrics(glyph_id);
+    const h_metrics = font.ot_font.getGlyphHMetrics(glyph_id);
     // log.info("adv: {}, lsb: {}", .{h_metrics.advance_width, h_metrics.left_side_bearing});
 
     var glyph = Glyph.init(glyph_id, fc.main_atlas.image);
@@ -113,13 +125,12 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, render_font: *const Ren
     glyph.v0 = @intToFloat(f32, glyph_y) / @intToFloat(f32, fc.main_atlas.height);
     glyph.u1 = @intToFloat(f32, glyph_x + glyph_width) / @intToFloat(f32, fc.main_atlas.width);
     glyph.v1 = @intToFloat(f32, glyph_y + glyph_height) / @intToFloat(f32, fc.main_atlas.height);
-    g.font_cache.main_atlas.markDirtyBuffer();
     return glyph;
 }
 
-fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateColorBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
     // Copy over png glyph data instead of going through the normal stbtt rasterizer.
-    if (font.ttf_font.getGlyphColorBitmap(glyph_id) catch unreachable) |data| {
+    if (ot_font.getGlyphColorBitmap(glyph_id) catch unreachable) |data| {
         // const scale = render_font.scale_from_ttf;
         const fc = &g.font_cache;
 
@@ -134,24 +145,25 @@ fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, render_font: *const
         const glyph_width = @intCast(u32, src_width) + h_padding;
         const glyph_height = @intCast(u32, src_height) + v_padding;
 
-        const pos = fc.color_atlas.nextPosForSize(glyph_width, glyph_height);
+        const pos = fc.main_atlas.packer.allocRect(glyph_width, glyph_height);
         const glyph_x = pos.x;
         const glyph_y = pos.y;
 
         // Copy into atlas bitmap.
         const bitmap_len = @intCast(usize, src_width * src_height * channels);
-        fc.color_atlas.copySubImageFrom(
+        fc.main_atlas.copySubImageFrom(
             glyph_x + Glyph.Padding,
             glyph_y + Glyph.Padding,
             @intCast(usize, src_width),
             @intCast(usize, src_height),
             bitmap[0..bitmap_len],
         );
+        fc.main_atlas.markDirtyBuffer();
 
         // const h_metrics = font.ttf_font.getGlyphHMetrics(glyph_id);
         // log.info("adv: {}, lsb: {}", .{h_metrics.advance_width, h_metrics.left_side_bearing});
 
-        var glyph = Glyph.init(glyph_id, fc.color_atlas.image);
+        var glyph = Glyph.init(glyph_id, fc.main_atlas.image);
         glyph.is_color_bitmap = true;
 
         const scale_from_xpx = @intToFloat(f32, render_font.render_font_size) / @intToFloat(f32, data.x_px_per_em);
@@ -179,14 +191,48 @@ fn generateColorBitmapGlyph(g: *Graphics, font: *const Font, render_font: *const
         // glyph.advance_width = scale_from_xpx * @intToFloat(f32, h_metrics.advance_width);
         // log.debug("{} {} {}", .{scale * @intToFloat(f32, h_metrics.advance_width), data.advance_width, data.width});
         glyph.advance_width = scale_from_xpx * @intToFloat(f32, data.advance_width);
-        glyph.u0 = @intToFloat(f32, glyph_x) / @intToFloat(f32, fc.color_atlas.width);
-        glyph.v0 = @intToFloat(f32, glyph_y) / @intToFloat(f32, fc.color_atlas.height);
-        glyph.u1 = @intToFloat(f32, glyph_x + glyph_width) / @intToFloat(f32, fc.color_atlas.width);
-        glyph.v1 = @intToFloat(f32, glyph_y + glyph_height) / @intToFloat(f32, fc.color_atlas.height);
-
-        g.font_cache.color_atlas.markDirtyBuffer();
+        glyph.u0 = @intToFloat(f32, glyph_x) / @intToFloat(f32, fc.main_atlas.width);
+        glyph.v0 = @intToFloat(f32, glyph_y) / @intToFloat(f32, fc.main_atlas.height);
+        glyph.u1 = @intToFloat(f32, glyph_x + glyph_width) / @intToFloat(f32, fc.main_atlas.width);
+        glyph.v1 = @intToFloat(f32, glyph_y + glyph_height) / @intToFloat(f32, fc.main_atlas.height);
         return glyph;
     } else {
         stdx.panicFmt("expected color bitmap for glyph: {}", .{glyph_id});
+    }
+}
+
+fn generateEmbeddedBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
+    const fc = &g.font_cache;
+
+    if (ot_font.getGlyphBitmap(g.alloc, glyph_id) catch @panic("error")) |ot_glyph| {
+        defer ot_glyph.deinit(g.alloc);
+        const dst_width: u32 = ot_glyph.width + h_padding;
+        const dst_height: u32 = ot_glyph.height + v_padding;
+
+        const dst_pos = fc.bitmap_atlas.packer.allocRect(dst_width, dst_height);
+
+        fc.bitmap_atlas.copySubImageFrom1Channel(dst_pos.x + Glyph.Padding, dst_pos.y + Glyph.Padding, ot_glyph.width, ot_glyph.height, ot_glyph.data);
+        fc.bitmap_atlas.markDirtyBuffer();
+
+        var glyph = Glyph.init(glyph_id, fc.bitmap_atlas.image);
+        glyph.is_color_bitmap = false;
+
+        glyph.x_offset = @intToFloat(f32, ot_glyph.bearing_x) - Glyph.Padding;
+        glyph.y_offset = render_font.ascent + @intToFloat(f32, -ot_glyph.bearing_y) - Glyph.Padding;
+        glyph.x = dst_pos.x;
+        glyph.y = dst_pos.y;
+        glyph.width = dst_width;
+        glyph.height = dst_height;
+        glyph.render_font_size = @intToFloat(f32, render_font.render_font_size);
+        glyph.dst_width = @intToFloat(f32, dst_width);
+        glyph.dst_height = @intToFloat(f32, dst_height);
+        glyph.advance_width = @intToFloat(f32, ot_glyph.advance);
+        glyph.u0 = @intToFloat(f32, dst_pos.x) / @intToFloat(f32, fc.bitmap_atlas.width);
+        glyph.v0 = @intToFloat(f32, dst_pos.y) / @intToFloat(f32, fc.bitmap_atlas.height);
+        glyph.u1 = @intToFloat(f32, dst_pos.x + dst_width) / @intToFloat(f32, fc.bitmap_atlas.width);
+        glyph.v1 = @intToFloat(f32, dst_pos.y + dst_height) / @intToFloat(f32, fc.bitmap_atlas.height);
+        return glyph;
+    } else {
+        stdx.panicFmt("expected embedded bitmap for glyph: {}", .{glyph_id});
     }
 }

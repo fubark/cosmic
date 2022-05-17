@@ -18,7 +18,7 @@ pub const TextMeasure = struct {
                 .font_gid = font_gid,
                 .font_size = font_size,
             },
-            .needs_measure = false,
+            .needs_measure = true,
         };
     }
 

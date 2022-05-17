@@ -9,10 +9,13 @@ const FontGroupId = graphics.font.FontGroupId;
 const FontGroup = graphics.font.FontGroup;
 const Font = graphics.font.Font;
 const RenderFont = graphics.font.RenderFont;
+const OpenTypeFont = graphics.font.OpenTypeFont;
 const graphics_gl = graphics.gl;
 const ImageDesc = graphics_gl.ImageDesc;
 const Graphics = graphics_gl.Graphics;
 const font_cache = @import("font_cache.zig");
+const BitmapFontInternalData = @import("font.zig").BitmapFontInternalData;
+const log = stdx.log.scoped(.text_renderer);
 
 /// Measures each char from start incrementally and sets result. Useful for computing layout.
 pub fn measureTextIter(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *MeasureTextIterator) void {
@@ -40,11 +43,11 @@ pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, d
 
 /// For lower font sizes, snap_to_grid is desired since baked fonts don't have subpixel rendering. TODO: What if we precomputed 2 subpixel renders of the same character?
 pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics, comptime snap_to_grid: bool) void {
-    const font_grp = g.font_cache.getFontGroup(group_id);
+    const fgroup = g.font_cache.getFontGroup(group_id);
     var req_font_size = font_size;
-    const render_font_size = font_cache.computeRenderFontSize(&req_font_size) * @intCast(u16, dpr);
+    const render_font_size = font_cache.computeRenderFontSize(fgroup.primary_font_desc, &req_font_size) * @intCast(u16, dpr);
 
-    const primary = g.font_cache.getOrCreateRenderFont(font_grp.fonts[0], render_font_size);
+    const primary = g.font_cache.getOrCreateRenderFont(fgroup.primary_font, render_font_size);
     var scale = primary.getScaleToUserFontSize(req_font_size);
     res.height = primary.font_height * scale;
 
@@ -54,21 +57,29 @@ pub fn measureText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32
     var iter = std.unicode.Utf8View.initUnchecked(str).iterator();
 
     if (iter.nextCodepoint()) |first_cp| {
-        const glyph_info = g.font_cache.getOrLoadFontGroupGlyph(g, font_grp, render_font_size, first_cp);
+        const glyph_info = g.font_cache.getOrLoadFontGroupGlyph(g, fgroup, render_font_size, first_cp);
         const glyph = glyph_info.glyph;
         res.width += glyph.advance_width * scale;
         prev_glyph_id = glyph.glyph_id;
         prev_font = glyph_info.font;
     } else return;
     while (iter.nextCodepoint()) |it| {
-        const glyph_res = g.font_cache.getOrLoadFontGroupGlyph(g, font_grp, render_font_size, it);
+        const glyph_res = g.font_cache.getOrLoadFontGroupGlyph(g, fgroup, render_font_size, it);
         const glyph = glyph_res.glyph;
 
         if (prev_font != glyph_res.font) {
             scale = glyph_res.render_font.getScaleToUserFontSize(req_font_size);
         }
 
-        res.width += computeKern(prev_glyph_id, prev_font, glyph.glyph_id, glyph_res.font, glyph_res.render_font, scale, it);
+        switch (glyph_res.font.font_type) {
+            .Outline => {
+                res.width += computeKern(prev_glyph_id, prev_font, glyph.glyph_id, glyph_res.font, glyph_res.render_font, scale, it);
+            },
+            .Bitmap => {
+                const bm_font = glyph_res.font.getBitmapFontBySize(@floatToInt(u16, req_font_size));
+                res.width += computeBitmapKern(prev_glyph_id, prev_font, glyph.glyph_id, glyph_res.font, bm_font, glyph_res.render_font, scale, it);
+            },
+        }
 
         if (snap_to_grid) {
             res.width = @round(res.width);
@@ -85,7 +96,7 @@ pub fn startRenderText(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr:
     const group = g.font_cache.getFontGroup(group_id);
 
     var req_font_size = font_size;
-    const render_font_size = font_cache.computeRenderFontSize(&req_font_size) * @intCast(u16, dpr);
+    const render_font_size = font_cache.computeRenderFontSize(group.primary_font_desc, &req_font_size) * @intCast(u16, dpr);
 
     return .{
         .str = str,
@@ -113,12 +124,14 @@ pub fn renderNextCodepoint(ctx: *RenderTextContext, res_quad: *TextureQuad, comp
 
     // Advance kerning from previous codepoint.
     if (ctx.prev_glyph_id) |prev_glyph_id| {
-        const prev_font = ctx.prev_font.?;
-        if (prev_font == glyph_info.font) {
-            // prev codepoint used the same font.
-            ctx.x += computeKern(prev_glyph_id, ctx.prev_font.?, glyph.glyph_id, glyph_info.font, glyph_info.render_font, user_scale, code_pt);
-        } else {
-            // TODO: What to do for kerning between two different fonts?
+        switch (glyph_info.font.font_type) {
+            .Outline => {
+                ctx.x += computeKern(prev_glyph_id, ctx.prev_font.?, glyph.glyph_id, glyph_info.font, glyph_info.render_font, user_scale, code_pt);
+            },
+            .Bitmap => {
+                const bm_font = glyph_info.font.getBitmapFontBySize(@floatToInt(u16, ctx.req_font_size));
+                ctx.x += computeBitmapKern(prev_glyph_id, ctx.prev_font.?, glyph.glyph_id, glyph_info.font, bm_font, glyph_info.render_font, user_scale, code_pt);
+            },
         }
     }
 
@@ -169,7 +182,7 @@ pub const MeasureTextIterator = struct {
 
     fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, dpr: u32, str: []const u8) void {
         var req_font_size = font_size;
-        const render_font_size = font_cache.computeRenderFontSize(&req_font_size) * @intCast(u16, dpr);
+        const render_font_size = font_cache.computeRenderFontSize(fgroup.primary_font_desc, &req_font_size) * @intCast(u16, dpr);
 
         const primary = g.font_cache.getOrCreateRenderFont(fgroup.fonts[0], render_font_size);
         const user_scale = primary.getScaleToUserFontSize(req_font_size);
@@ -245,11 +258,24 @@ pub const MeasureTextIterator = struct {
     }
 };
 
-// Add kerning from previous codepoint.
+// TODO: Cache results since each time it scans the in memory ot font data.
+/// Return kerning from previous glyph id.
 inline fn computeKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, render_font: *RenderFont, user_scale: f32, cp: u21) f32 {
-    _ = glyph_id;
+    _ = cp;
     if (prev_font == fnt) {
-        const kern = stbtt.stbtt_GetGlyphKernAdvance(&fnt.stbtt_font, prev_glyph_id, cp);
+        const kern = stbtt.stbtt_GetGlyphKernAdvance(&fnt.stbtt_font, prev_glyph_id, glyph_id);
+        return @intToFloat(f32, kern) * render_font.scale_from_ttf * user_scale;
+    } else {
+        // TODO: What to do for kerning between two different fonts?
+        //       Maybe it's best to just always return the current font's kerning.
+    }
+    return 0;
+}
+
+inline fn computeBitmapKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, bm_font: BitmapFontInternalData, render_font: *RenderFont, user_scale: f32, cp: u21) f32 {
+    _ = cp;
+    if (prev_font == fnt) {
+        const kern = stbtt.stbtt_GetGlyphKernAdvance(&bm_font.stbtt_font, prev_glyph_id, glyph_id);
         return @intToFloat(f32, kern) * render_font.scale_from_ttf * user_scale;
     } else {
         // TODO, maybe it's best to just always return the current font kerning.

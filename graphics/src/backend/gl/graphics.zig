@@ -110,6 +110,9 @@ pub const Graphics = struct {
     qbez_helper_buf: std.ArrayList(SubQuadBez),
     tessellator: Tessellator,
 
+    /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
+    raster_glyph_buffer: std.ArrayList(u8),
+
     // We can initialize without gl calls for use in tests.
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
@@ -143,6 +146,7 @@ pub const Graphics = struct {
             .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
             .tessellator = undefined,
+            .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
         };
         self.tessellator.init(alloc);
 
@@ -235,10 +239,15 @@ pub const Graphics = struct {
         self.vec2_slice_helper_buf.deinit();
         self.qbez_helper_buf.deinit();
         self.tessellator.deinit();
+        self.raster_glyph_buffer.deinit();
+    }
+
+    pub fn addOTB_Font(self: *Self, data: []const graphics.BitmapFontData) FontId {
+        return self.font_cache.addOTB_Font(data);
     }
 
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
-        return self.font_cache.addFont(data);
+        return self.font_cache.addTTF_Font(data);
     }
 
     pub fn addFallbackFont(self: *Self, font_id: FontId) void {
