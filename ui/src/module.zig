@@ -2017,9 +2017,12 @@ pub fn BuildContext(comptime C: Config) type {
                 }
             }
             const start_idx = @intCast(u32, self.frame_lists.items.len);
+            self.frame_lists.ensureUnusedCapacity(frame_ids.len) catch @panic("error");
             if (IsSlice or IsArray) {
-                for (frame_ids) |it| {
-                    self.frame_lists.append(it) catch unreachable;
+                for (frame_ids) |id| {
+                    if (id != NullFrameId) {
+                        self.frame_lists.appendAssumeCapacity(id);
+                    }
                 }
             } else {
                 stdx.debug.panic("unexpected");
@@ -2136,6 +2139,10 @@ fn TestModule(comptime C: ui.Config) type {
         pub fn preUpdate(self: *Self, ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(ctx), *C.Build()) FrameId) !void {
             try self.mod.preUpdate(0, ctx, bootstrap_fn, self.size);
         }
+
+        pub fn getRoot(self: Self) ?*Node {
+            return self.mod.root_node;
+        }
     };
 }
 
@@ -2161,6 +2168,39 @@ test "Root should not allow fragment frame." {
     defer mod.deinit();
 
     try t.expectError(mod.preUpdate({}, S.bootstrap), error.RootCantBeFragment);
+}
+
+test "BuildContext.list() will skip over a NullFrameId item." {
+    const B = struct {};
+    const A = struct {
+        fn build(_: *@This(), comptime C: Config, c: *C.Build()) FrameId {
+            return c.fragment(c.list(.{
+                NullFrameId,
+                c.decl(B, .{}),
+            }));
+        }
+    };
+    const TestConfig = comptime Config{
+        .Imports = &.{
+            Import.init(A),
+            Import.init(B),
+        },
+    };
+    const S = struct {
+        fn bootstrap(_: void, c: *BuildContext(TestConfig)) FrameId {
+            return c.decl(A, .{});
+        }
+    };
+
+    var mod: TestModule(TestConfig) = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    try mod.preUpdate({}, S.bootstrap);
+    const root = mod.getRoot();
+    try t.eq(root.?.type_id, Module(TestConfig).WidgetIdByType(A));
+    try t.eq(root.?.children.items.len, 1);
+    try t.eq(root.?.children.items[0].type_id, Module(TestConfig).WidgetIdByType(B));
 }
 
 test "Don't allow nested fragment frames." {
