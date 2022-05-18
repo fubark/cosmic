@@ -89,6 +89,10 @@ fn update(delta_ms: f32) void {
     g.fillRect(250, 200, 300, 200);
     g.resetTransform();
 
+    // Gradients.
+    g.setFillGradient(400, 500, Color.Red, 700, 700, Color.Blue);
+    g.fillRect(400, 500, 300, 200);
+
     // Text.
     g.setFont(font_id, 26);
     g.setFillColor(Color.Orange);

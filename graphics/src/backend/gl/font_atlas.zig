@@ -28,10 +28,10 @@ pub const FontAtlas = struct {
 
     image: ImageDesc,
 
-    needs_texture_resize: bool,
-
     // The same allocator is used to do resizing.
     alloc: std.mem.Allocator,
+
+    linear_filter: bool,
 
     const Self = @This();
 
@@ -48,9 +48,9 @@ pub const FontAtlas = struct {
             .channels = 4,
             .image = undefined,
             .gl_buf = undefined,
-            .needs_texture_resize = false,
+            .linear_filter = linear_filter,
         };
-        self.image = g.createImageFromBitmap(width, height, null, linear_filter, .{ .ctx = self, .update = updateFontAtlasImage });
+        self.image = g.createImageFromBitmap(width, height, null, linear_filter);
 
         self.gl_buf = alloc.alloc(u8, width * height * self.channels) catch @panic("error");
         std.mem.set(u8, self.gl_buf, 0);
@@ -74,9 +74,6 @@ pub const FontAtlas = struct {
         const old_buf = self.gl_buf;
         defer self.alloc.free(old_buf);
 
-        // We need to flush since the current batch could have old uv geometry.
-        self.g.flushDraw();
-
         self.gl_buf = self.alloc.alloc(u8, width * height * self.channels) catch @panic("error");
         std.mem.set(u8, self.gl_buf, 0);
 
@@ -88,9 +85,28 @@ pub const FontAtlas = struct {
         // Copy over existing data.
         self.copySubImageFrom(0, 0, old_width, old_height, old_buf);
 
-        // The next batch will perform the new texture upload.
-        self.needs_texture_resize = true;
-        // log.debug("resize atlas to: {}x{}", .{width, height});
+        // Reinit the underlying image texture. The image id remains the same.
+        // deinitImage will force flush if current batcher is using the texture. This would prevent a later flush with invalid uv data.
+        const image = self.g.images.getPtrNoCheck(self.image.image_id);
+        const old_tex_id = image.tex_id;
+        self.g.deinitImage(image.*);
+        self.g.initImage(image, self.width, self.height, null, self.linear_filter);
+
+        // Update tex_id and uvs in existing glyphs.
+        const tex_width = @intToFloat(f32, self.width);
+        const tex_height = @intToFloat(f32, self.height);
+        for (self.g.font_cache.render_fonts.items) |font| {
+            var iter = font.glyphs.valueIterator();
+            while (iter.next()) |glyph| {
+                if (glyph.image.tex_id == old_tex_id) {
+                    glyph.image.tex_id = image.tex_id;
+                    glyph.u0 = @intToFloat(f32, glyph.x) / tex_width;
+                    glyph.v0 = @intToFloat(f32, glyph.y) / tex_height;
+                    glyph.u1 = @intToFloat(f32, glyph.x + glyph.width) / tex_width;
+                    glyph.v1 = @intToFloat(f32, glyph.y + glyph.height) / tex_height;
+                }
+            }
+        }
     }
 
     /// Copy from 1 channel row major sub image data. markDirtyBuffer needs to be called afterwards to queue a sync op to the gpu.
@@ -142,8 +158,7 @@ pub const FontAtlas = struct {
     }
 
     pub fn markDirtyBuffer(self: *Self) void {
-        const image = self.g.images.getPtrNoCheck(self.image.image_id);
-        image.needs_update = true;
+        self.g.batcher.addNextPreFlushTask(self, syncFontAtlasToGpu);
     }
 
     pub fn dumpBufferToDisk(self: Self, filename: [*:0]const u8) void {
@@ -152,41 +167,12 @@ pub const FontAtlas = struct {
     }
 };
 
-// Updates gpu texture before current draw call batch is sent to gpu.
-fn updateFontAtlasImage(image: *Image) void {
-    const atlas = stdx.mem.ptrCastAlign(*FontAtlas, image.ctx);
-    const g = atlas.g;
-
-    // Check to resize.
-    if (atlas.needs_texture_resize) {
-        atlas.needs_texture_resize = false;
-
-        // Make sure we don't recurse from deleteTexture's implicit flushDraw.
-        image.needs_update = false;
-
-        const old_tex_id = image.tex_id;
-
-        g.deinitImage(image.*);
-        g.initImage(image, atlas.width, atlas.height, null, false, .{ .ctx = atlas, .update = updateFontAtlasImage });
-
-        // Update tex_id and uvs in existing glyphs.
-        const tex_width = @intToFloat(f32, atlas.width);
-        const tex_height = @intToFloat(f32, atlas.height);
-        for (g.font_cache.render_fonts.items) |font| {
-            var iter = font.glyphs.valueIterator();
-            while (iter.next()) |glyph| {
-                if (glyph.image.tex_id == old_tex_id) {
-                    glyph.image.tex_id = image.tex_id;
-                    glyph.u0 = @intToFloat(f32, glyph.x) / tex_width;
-                    glyph.v0 = @intToFloat(f32, glyph.y) / tex_height;
-                    glyph.u1 = @intToFloat(f32, glyph.x + glyph.width) / tex_width;
-                    glyph.v1 = @intToFloat(f32, glyph.y + glyph.height) / tex_height;
-                }
-            }
-        }
-    }
+/// Updates gpu texture before current draw call batch is sent to gpu.
+fn syncFontAtlasToGpu(ptr: ?*anyopaque) void {
+    const self = stdx.mem.ptrCastAlign(*FontAtlas, ptr);
 
     // Send bitmap data.
     // TODO: send only subimage that changed.
-    g.updateTextureData(image, atlas.gl_buf);
+    const image = self.g.images.getNoCheck(self.image.image_id);
+    self.g.updateTextureData(image, self.gl_buf);
 }

@@ -677,6 +677,14 @@ pub inline fn uniformMatrix4fv(location: c.GLint, count: c.GLsizei, transpose: c
     }
 }
 
+pub inline fn uniform2fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
+    c.glUniform2fv(location, count, value);
+}
+
+pub inline fn uniform4fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
+    c.glUniform4fv(location, count, value);
+}
+
 pub inline fn uniform1i(location: c.GLint, v0: c.GLint) void {
     if (IsWasm) {
         jsGlUniform1i(location, v0);

@@ -160,6 +160,15 @@ pub const Color = struct {
     pub fn toU32(self: Self) u32 {
         return @as(u32, self.channels.r) << 24 | @as(u24, self.channels.g) << 16 | @as(u16, self.channels.b) << 8 | self.channels.a;
     }
+
+    pub fn toFloatArray(self: Self) [4]f32 {
+        return .{
+            @intToFloat(f32, self.channels.r) / 255,
+            @intToFloat(f32, self.channels.g) / 255,
+            @intToFloat(f32, self.channels.b) / 255,
+            @intToFloat(f32, self.channels.a) / 255,
+        };
+    }
 };
 
 test "Color struct size" {

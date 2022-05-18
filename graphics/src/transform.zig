@@ -10,9 +10,9 @@ const Vec4 = [4]f32;
 // TODO: Add transform just for 2D coords.
 
 pub const Transform = struct {
-    const Self = @This();
-
     mat: Mat4,
+
+    const Self = @This();
 
     pub fn initIdentity() Self {
         return .{
@@ -23,6 +23,12 @@ pub const Transform = struct {
     pub fn initRowMajor(mat: Mat4) Self {
         return .{
             .mat = mat,
+        };
+    }
+
+    pub fn getAppliedTransform(self: Transform, transform: Transform) Self {
+        return .{
+            .mat = math.Mul4x4_4x4(transform.mat, self.mat),
         };
     }
 

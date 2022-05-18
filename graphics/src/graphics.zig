@@ -200,6 +200,14 @@ pub const Graphics = struct {
         }
     }
 
+    /// Set a linear gradient fill style.
+    pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.setFillGradient(&self.g, start_x, start_y, start_color, end_x, end_y, end_color),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn getStrokeColor(self: Self) Color {
         return switch (Backend) {
             .OpenGL => gl.Graphics.getStrokeColor(self.g),
@@ -593,7 +601,7 @@ pub const Graphics = struct {
     pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         switch (Backend) {
             .OpenGL => {
-                const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter, .{});
+                const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter);
                 return image.image_id;
             },
             else => stdx.panic("unsupported"),

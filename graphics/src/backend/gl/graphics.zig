@@ -41,6 +41,7 @@ const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
 const TexShaderVertex = mesh.TexShaderVertex;
 const Shader = @import("shader.zig").Shader;
+const shaders = @import("shaders.zig");
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
 pub const MeasureTextIterator = text_renderer.MeasureTextIterator;
@@ -49,12 +50,6 @@ const svg = graphics.svg;
 const stroke = @import("stroke.zig");
 const tessellator = @import("../../tessellator.zig");
 const Tessellator = tessellator.Tessellator;
-
-const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
-const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
-
-const tex_vert_webgl2 = @embedFile("../../shaders/tex_vert_webgl2.glsl");
-const tex_frag_webgl2 = @embedFile("../../shaders/tex_frag_webgl2.glsl");
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
@@ -67,7 +62,8 @@ pub const Graphics = struct {
     alloc: std.mem.Allocator,
 
     white_tex: ImageDesc,
-    tex_shader: Shader,
+    tex_shader: shaders.TexShader,
+    gradient_shader: shaders.GradientShader,
     batcher: Batcher,
     font_cache: FontCache,
 
@@ -119,6 +115,7 @@ pub const Graphics = struct {
             .alloc = alloc,
             .white_tex = undefined,
             .tex_shader = undefined,
+            .gradient_shader = undefined,
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
@@ -154,35 +151,23 @@ pub const Graphics = struct {
         const max_fragment_textures = gl.getMaxFragmentTextures();
         log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
 
+        // Builtin shaders use the same vert buffer.
+        var vert_buf_id: gl.GLuint = undefined;
+        gl.genBuffers(1, &vert_buf_id);
+
         // Initialize shaders.
-        if (IsWasm) {
-            self.tex_shader = Shader.init(tex_vert_webgl2, tex_frag_webgl2) catch unreachable;
-        } else {
-            self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
-        }
+        self.tex_shader = shaders.TexShader.init(vert_buf_id);
+        self.gradient_shader = shaders.GradientShader.init(vert_buf_id);
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
-        self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false, .{});
+        self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
 
-        self.batcher = Batcher.init(alloc, self.tex_shader);
-        // Set the initial texture without triggering any flushing.
-        self.batcher.setCurrentTexture(self.white_tex);
-
-        // Setup tex shader vao.
-        gl.bindVertexArray(self.tex_shader.vao_id);
-        gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.batcher.vert_buf_id);
-        // a_pos
-        gl.enableVertexAttribArray(0);
-        vertexAttribPointer(0, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(0));
-        // a_uv
-        gl.enableVertexAttribArray(1);
-        vertexAttribPointer(1, 2, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(4 * 4));
-        // a_color
-        gl.enableVertexAttribArray(2);
-        vertexAttribPointer(2, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(6 * 4));
-        gl.bindVertexArray(0);
+        self.batcher = Batcher.init(alloc, vert_buf_id, .{
+            .tex = self.tex_shader,
+            .gradient = self.gradient_shader,
+        });
 
         self.font_cache.init(alloc, self);
 
@@ -220,6 +205,7 @@ pub const Graphics = struct {
 
     pub fn deinit(self: *Self) void {
         self.tex_shader.deinit();
+        self.gradient_shader.deinit();
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
@@ -276,11 +262,8 @@ pub const Graphics = struct {
 
     pub fn resetTransform(self: *Self) void {
         self.view_transform.reset();
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        // Need to flush before changing view transform.
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     pub fn pushState(self: *Self) void {
@@ -312,8 +295,8 @@ pub const Graphics = struct {
         }
         if (!std.meta.eql(self.view_transform.mat, state.view_transform.mat)) {
             self.view_transform = state.view_transform;
-            const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-            self.batcher.setMvp(mvp);
+            const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+            self.batcher.mvp = mvp;
         }
     }
 
@@ -361,7 +344,15 @@ pub const Graphics = struct {
     }
 
     pub fn setFillColor(self: *Self, color: Color) void {
+        self.batcher.beginTex(self.white_tex);
         self.cur_fill_color = color;
+    }
+
+    pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
+        // Convert to screen coords on cpu.
+        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y));
+        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y));
+        self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
     }
 
     pub fn getStrokeColor(self: Self) Color {
@@ -390,20 +381,13 @@ pub const Graphics = struct {
         self.cur_text_baseline = baseline;
     }
 
-    pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool, props: anytype) void {
+    pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) void {
         _ = self;
         image.* = .{
             .tex_id = undefined,
             .width = width,
             .height = height,
-            .needs_update = false,
-            .ctx = undefined,
-            .update_fn = undefined,
         };
-        if (@hasField(@TypeOf(props), "update")) {
-            image.ctx = @field(props, "ctx");
-            image.update_fn = @field(props, "update");
-        }
 
         gl.genTextures(1, &image.tex_id);
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
@@ -443,7 +427,7 @@ pub const Graphics = struct {
         // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
 
         const bitmap_len = @intCast(usize, src_width * src_height * channels);
-        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true, .{});
+        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true);
         return graphics.Image{
             .id = desc.image_id,
             .width = @intCast(usize, src_width),
@@ -456,9 +440,9 @@ pub const Graphics = struct {
         return self.images.add(image);
     }
 
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool, props: anytype) ImageDesc {
+    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageDesc {
         var image: Image = undefined;
-        self.initImage(&image, width, height, data, linear_filter, props);
+        self.initImage(&image, width, height, data, linear_filter);
         const image_id = self.images.add(image) catch unreachable;
         return ImageDesc{
             .image_id = image_id,
@@ -479,7 +463,7 @@ pub const Graphics = struct {
         // If we deleted the current tex, flush and reset to default texture.
         if (self.batcher.cur_tex_image.tex_id == image.tex_id) {
             self.flushDraw();
-            self.batcher.setCurrentTexture(self.white_tex);
+            self.batcher.cur_tex_image = self.white_tex;
         }
         image.deinit();
     }
@@ -563,11 +547,8 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setCurrentTexture(self: *Self, desc: ImageDesc) void {
-        if (self.batcher.shouldFlushBeforeSetCurrentTexture(desc.tex_id)) {
-            self.flushDraw();
-        }
-        self.batcher.setCurrentTexture(desc);
+    pub inline fn setCurrentTexture(self: *Self, desc: ImageDesc) void {
+        self.batcher.beginTexture(desc);
     }
 
     fn ensureUnusedBatchCapacity(self: *Self, vert_inc: usize, index_inc: usize) void {
@@ -930,7 +911,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawQuadraticBezierCurve(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         const q_bez = QuadBez{
             .x0 = x0,
             .y0 = y0,
@@ -1813,8 +1794,8 @@ pub const Graphics = struct {
         gl.viewport(0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height));
         self.cur_proj_transform = window.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
         self.view_transform = Transform.initIdentity();
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     fn createTextureFramebuffer(self: Self, tex_id: gl.GLuint) gl.GLuint {
@@ -1849,7 +1830,7 @@ pub const Graphics = struct {
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
-        self.batcher.setMvp(initial_mvp);
+        self.batcher.resetState(Transform.initRowMajor(initial_mvp), self.white_tex);
 
         // Scissor affects glClear so reset it first.
         self.cur_clip_rect = .{
@@ -1890,27 +1871,20 @@ pub const Graphics = struct {
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
         self.view_transform.translate(x, y);
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        // Need to flush before changing view transform.
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     pub fn scale(self: *Self, x: f32, y: f32) void {
         self.view_transform.scale(x, y);
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     pub fn rotate(self: *Self, rad: f32) void {
         self.view_transform.rotateZ(rad);
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     // GL Only.
@@ -1956,17 +1930,10 @@ pub const Graphics = struct {
     }
 
     pub fn flushDraw(self: *Self) void {
-        // Custom logic to run before flushing batcher.
-        // log.debug("tex {}", .{self.batcher.cur_tex_id});
-        const image = self.images.getPtrNoCheck(self.batcher.cur_tex_image.image_id);
-        if (image.needs_update) {
-            image.update();
-            image.needs_update = false;
-        }
         self.batcher.flushDraw();
     }
 
-    pub fn updateTextureData(self: *const Self, image: *const Image, buf: []const u8) void {
+    pub fn updateTextureData(self: *const Self, image: Image, buf: []const u8) void {
         _ = self;
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
         gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
@@ -1975,20 +1942,6 @@ pub const Graphics = struct {
     }
 };
 
-// Define how to get attribute data out of vertex buffer. Eg. an attribute a_pos could be a vec4 meaning 4 components.
-// size - num of components for the attribute.
-// type - component data type.
-// normalized - normally false, only relevant for non GL_FLOAT types anyway.
-// stride - number of bytes for each vertex. 0 indicates that the stride is size * sizeof(type)
-// offset - offset in bytes of the first component of first vertex.
-fn vertexAttribPointer(attr_idx: gl.GLuint, size: gl.GLint, data_type: gl.GLenum, stride: gl.GLsizei, offset: ?*const gl.GLvoid) void {
-    gl.vertexAttribPointer(attr_idx, size, data_type, gl.GL_FALSE, stride, offset);
-}
-
-fn u32ToVoidPtr(val: u32) ?*const gl.GLvoid {
-    return @intToPtr(?*const gl.GLvoid, val);
-}
-
 // It's often useful to have both the image id and gl texture id.
 pub const ImageDesc = struct {
     image_id: ImageId,
@@ -1996,8 +1949,6 @@ pub const ImageDesc = struct {
 };
 
 pub const Image = struct {
-    const Self = @This();
-
     tex_id: GLTextureId,
     width: usize,
     height: usize,
@@ -2005,18 +1956,10 @@ pub const Image = struct {
     /// Framebuffer used to draw to the texture.
     fbo_id: ?gl.GLuint = null,
 
-    // Whether this texture needs to be updated in the gpu the next time we draw with it.
-    needs_update: bool,
-
-    ctx: *anyopaque,
-    update_fn: fn (*Self) void,
+    const Self = @This();
 
     pub fn deinit(self: Self) void {
         gl.deleteTextures(1, &self.tex_id);
-    }
-
-    fn update(self: *Self) void {
-        self.update_fn(self);
     }
 };
 
