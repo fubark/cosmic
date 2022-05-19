@@ -22,27 +22,34 @@ pub const TextField = struct {
     props: struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
+        focused_border_color: Color = Color.Blue,
+        font_id: graphics.font.FontId = NullId,
         font_size: f32 = 20,
         onChangeEnd: ?Function(fn ([]const u8) void) = null,
         onKeyDown: ?Function(fn (ui.WidgetRef(Self), KeyDownEvent) void) = null,
         padding: f32 = 10,
+        placeholder: ?[]const u8 = null,
         width: ?f32 = null,
+        focused_show_border: bool = true,
     },
 
     buf: std.ArrayList(u8),
-    font_gid: graphics.font.FontGroupId,
 
     inner: ui.WidgetRef(TextFieldInner),
 
     /// Used to determine if the text changed since it received focus.
     last_buf_hash: [16]u8,
 
+    ctx: *ui.CommonContext,
+    node: *Node,
+
     pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
         self.buf = std.ArrayList(u8).init(c.alloc);
-        self.font_gid = c.getDefaultFontGroup();
         self.last_buf_hash = undefined;
         c.addKeyDownHandler(self, Self.onKeyDown);
         c.addMouseDownHandler(self, Self.onMouseDown);
+        self.ctx = c.common;
+        self.node = c.node;
     }
 
     pub fn deinit(node: *Node, _: std.mem.Allocator) void {
@@ -57,8 +64,9 @@ pub const TextField = struct {
                 .bind = &self.inner,
                 .text = self.buf.items,
                 .font_size = self.props.font_size,
-                .font_gid = self.font_gid,
+                .font_id = self.props.font_id,
                 .text_color = self.props.text_color,
+                .placeholder = self.props.placeholder,
             }),
         });
     }
@@ -66,6 +74,27 @@ pub const TextField = struct {
     pub fn setValueFmt(self: *Self, comptime format: []const u8, args: anytype) void {
         self.buf.resize(@intCast(usize, std.fmt.count(format, args))) catch unreachable;
         _ = std.fmt.bufPrint(self.buf.items, format, args) catch unreachable;
+        self.ensureCaretPos();
+    }
+
+    pub fn clear(self: *Self) void {
+        self.buf.clearRetainingCapacity();
+        self.ensureCaretPos();
+    }
+
+    fn ensureCaretPos(self: *Self) void {
+        const inner = self.inner.getWidget();
+        if (inner.caret_idx > self.buf.items.len) {
+            inner.caret_idx = @intCast(u32, self.buf.items.len);
+        }
+    }
+
+    /// Request focus on the TextField.
+    pub fn requestFocus(self: *Self) void {
+        self.ctx.requestFocus(self.node, onBlur);
+        const inner = self.inner.getWidget();
+        inner.setFocused();
+        std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
     }
 
     pub fn getValue(self: Self) []const u8 {
@@ -74,12 +103,10 @@ pub const TextField = struct {
 
     fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
         const me = e.val;
-        e.ctx.requestFocus(onBlur);
-        const inner = self.inner.getWidget();
-        inner.setFocused();
-        std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
+        self.requestFocus();
 
         // Map mouse pos to caret pos.
+        const inner = self.inner.getWidget();
         const xf = @intToFloat(f32, me.x);
         inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
     }
@@ -102,7 +129,8 @@ pub const TextField = struct {
     }
 
     fn getCaretIdx(self: *Self, ctx: *ui.CommonContext, x: f32) u32 {
-        var iter = ctx.measureTextIter(self.font_gid, self.props.font_size, self.buf.items);
+        const font_gid = ctx.getFontGroupForSingleFontOrDefault(self.props.font_id);
+        var iter = ctx.measureTextIter(font_gid, self.props.font_size, self.buf.items);
         if (iter.nextCodepoint()) {
             if (x < iter.state.advance_width/2) {
                 return 0;
@@ -207,8 +235,8 @@ pub const TextField = struct {
         g.setFillColor(self.props.bg_color);
         g.fillRect(alo.x, alo.y, alo.width, alo.height);
 
-        if (c.isFocused()) {
-            g.setStrokeColor(Color.Blue);
+        if (c.isFocused() and self.props.focused_show_border) {
+            g.setStrokeColor(self.props.focused_border_color);
             g.setLineWidth(2);
             g.drawRect(alo.x, alo.y, alo.width, alo.height);
         }
@@ -221,7 +249,8 @@ pub const TextFieldInner = struct {
     props: struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
-        font_gid: graphics.font.FontGroupId,
+        font_id: graphics.font.FontId = NullId,
+        placeholder: ?[]const u8 = null,
         text: []const u8 = "",
     },
 
@@ -312,10 +341,11 @@ pub const TextFieldInner = struct {
     pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
-        const vmetrics = c.getPrimaryFontVMetrics(self.props.font_gid, self.props.font_size);
-        const metrics = c.measureText(self.props.font_gid, self.props.font_size, self.props.text);
+        const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
+        const vmetrics = c.getPrimaryFontVMetrics(font_gid, self.props.font_size);
+        const metrics = c.measureText(font_gid, self.props.font_size, self.props.text);
         self.text_width = metrics.width;
-        self.caret_pos_x = c.measureText(self.props.font_gid, self.props.font_size, self.props.text[0..self.caret_idx]).width;
+        self.caret_pos_x = c.measureText(font_gid, self.props.font_size, self.props.text[0..self.caret_idx]).width;
 
         var res = ui.LayoutSize.init(metrics.width, vmetrics.height);
         if (c.prefer_exact_width) {
@@ -336,8 +366,20 @@ pub const TextFieldInner = struct {
             g.clipRect(alo.x, alo.y, alo.width, alo.height);
         }
         g.setFillColor(self.props.text_color);
-        g.setFontGroup(self.props.font_gid, self.props.font_size);
+
+        if (self.props.font_id == NullId) {
+            g.setFont(g.getDefaultFontId(), self.props.font_size);
+        } else {
+            g.setFont(self.props.font_id, self.props.font_size);
+        }
         g.fillText(alo.x - self.scroll_x, alo.y, self.props.text);
+
+        if (self.props.text.len == 0) {
+            if (self.props.placeholder) |placeholder| {
+                g.setFillColor(Color.init(100, 100, 100, 255));
+                g.fillText(alo.x, alo.y, placeholder);
+            }
+        }
 
         // Draw caret.
         if (self.focused) {
