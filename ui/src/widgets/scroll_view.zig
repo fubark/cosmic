@@ -157,18 +157,6 @@ pub const ScrollView = struct {
         return res;
     }
 
-    pub fn render(self: *Self, ctx: *ui.RenderContext) void {
-        _ = self;
-        const alo = ctx.getAbsLayout();
-        const g = ctx.getGraphics();
-
-        g.setFillColor(self.props.bg_color);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
-
-        ctx.g.pushState();
-        ctx.g.clipRect(alo.x, alo.y, alo.width, alo.height);
-    }
-
     /// Computes the effective scroll width/height.
     fn computeEffScrollDims(self: *Self, width: f32, height: f32) void {
         // The view will show more than the scroll height if the scroll y is close to the bottom.
@@ -179,16 +167,22 @@ pub const ScrollView = struct {
         self.has_hbar = width < self.eff_scroll_width;
     }
 
-    /// Computes the layout of the scrollbars here since it depends on layout phase completed to obtain the final ScrollView size.
-    pub fn postRender(self: *Self, ctx: *ui.RenderContext) void {
-        _ = self;
-        ctx.g.popState();
+    pub fn renderCustom(self: *Self, ctx: *ui.RenderContext) void {
+        const alo = ctx.getAbsLayout();
+        const g = ctx.getGraphics();
+
+        g.setFillColor(self.props.bg_color);
+        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+
+        g.pushState();
+        g.clipRect(alo.x, alo.y, alo.width, alo.height);
+
+        ctx.renderChildren();
+
+        // Computes the layout of the scrollbars here since it depends on layout phase completed to obtain the final ScrollView size.
+        g.popState();
 
         // Draw borders and scrollbars over the content.
-
-        const alo = ctx.getAbsLayout();
-
-        const g = ctx.getGraphics();
         if (self.props.show_border) {
             g.setStrokeColor(self.props.border_color);
             g.setLineWidth(2);

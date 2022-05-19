@@ -178,25 +178,21 @@ pub const List = struct {
         return res;
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
-        _ = self;
+    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
         const g = c.g;
         const alo = c.getAbsLayout();
+        const node = c.node;
 
         g.setFillColor(Color.White);
         g.fillRect(alo.x, alo.y, alo.width, alo.height);
-    }
-    
-    pub fn postRender(self: *Self, c: *ui.RenderContext) void {
-        _ = self;
-        const g = c.g;
-        const alo = c.getAbsLayout();
+
+        c.renderChildren();
 
         if (self.selected_idx != NullId) {
             // Highlight selected item.
             g.setStrokeColor(Color.Blue);
             g.setLineWidth(2);
-            const child = c.node.children.items[self.selected_idx];
+            const child = node.children.items[self.selected_idx];
             g.drawRect(child.abs_pos.x, child.abs_pos.y, alo.width, child.layout.height);
         }
     }

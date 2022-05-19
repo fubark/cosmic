@@ -18,10 +18,10 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 
 | Status | Platform | Size (counter.zig)* |
 | --- | --- | --- |
-| ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/zig-ui) | counter.wasm - 412 KB |
+| ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/zig-ui) | counter.wasm - 381 KB |
 | ✅ | Linux x64 with OpenGL | counter - 2.2 M |
 | ✅ | Windows x64 with OpenGL | counter.exe - 2.7 M |
-| ✅ | macOS x64 with OpenGL | counter - 3.0 M |
+| ✅ | macOS x64 with OpenGL | counter - 2.5 M |
 | ✅ | macOS arm64 with OpenGL | counter - 2.8 M |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
@@ -111,7 +111,7 @@ pub fn main() !void {
 You'll notice that we imported all widgets from the stock widget library as well as our custom root widget named Counter. It's also being wrapped around an App helper which sets up a window, a graphics context, a default allocator, feeds mouse/keyboard events into the ui module, and starts the app in an update loop.
 
 ### Widget structure.
-Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postUpdate, layout, render, postRender`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
+Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postUpdate, layout, render, renderCustom`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
 ```zig
 pub const Counter = struct {
     props: struct {
@@ -152,11 +152,12 @@ pub const Counter = struct {
     }
 
     pub fn render(self: *Self, c: *ui.RenderContext) void {
-        // Invoked at render time before it's children are rendered.
+        // Invoked to render this widget. Afterwards, the children render steps will be invoked.
     }
 
-    pub fn postRender(self: *Self, c: *ui.RenderContext) void {
-        // Invoked after it's children are rendered.
+    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+        // This supersedes the `render` hook and gives you full control over how the children are rendered.
+        // This would be useful if you need post rendering steps or have a different order to render the children.
     }
 }
 ```

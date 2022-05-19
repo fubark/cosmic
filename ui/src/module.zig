@@ -125,27 +125,39 @@ pub fn GenWidgetVTable(comptime Widget: type) *const WidgetVTable {
             }
         }
 
-        fn render(widget_ptr: *anyopaque, ctx: *RenderContext) void {
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
-            if (@hasDecl(Widget, "render")) {
+        fn render(node: *Node, ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void {
+            // Attach node to ctx.
+            ctx.node = node;
+            // Update node's absolute position based on it's relative position and the parent.
+            node.abs_pos = .{
+                .x = parent_abs_x + node.layout.x,
+                .y = parent_abs_y + node.layout.y,
+            };
+            if (@hasDecl(Widget, "renderCustom")) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.renderCustom))) {
+                    @compileError("Invalid renderCustom function: " ++ @typeName(@TypeOf(Widget.renderCustom)) ++ " Widget: " ++ @typeName(Widget));
+                }
+                if (@sizeOf(Widget) == 0) {
+                    const empty: *Widget = undefined;
+                    empty.renderCustom(ctx);
+                } else {
+                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                    widget.renderCustom(ctx);
+                }
+            } else if (@hasDecl(Widget, "render")) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.render))) {
+                    @compileError("Invalid render function: " ++ @typeName(@TypeOf(Widget.render)) ++ " Widget: " ++ @typeName(Widget));
+                }
                 if (@sizeOf(Widget) == 0) {
                     const empty: *Widget = undefined;
                     empty.render(ctx);
                 } else {
+                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
                     widget.render(ctx);
                 }
-            }
-        }
-
-        fn postRender(widget_ptr: *anyopaque, ctx: *RenderContext) void {
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
-            if (@hasDecl(Widget, "postRender")) {
-                if (@sizeOf(Widget) == 0) {
-                    const empty: *Widget = undefined;
-                    empty.postRender(ctx);
-                } else {
-                    widget.postRender(ctx);
-                }
+                ui_render.defaultRenderChildren(node, ctx);
+            } else {
+                ui_render.defaultRenderChildren(node, ctx);
             }
         }
 
@@ -229,10 +241,8 @@ pub fn GenWidgetVTable(comptime Widget: type) *const WidgetVTable {
             .updateProps = updateProps,
             .build = build,
             .render = render,
-            .postRender = postRender,
             .layout = layout,
             .destroy = destroy,
-            .has_post_render = @hasDecl(Widget, "postRender"),
             .has_flex_prop = Widget == ui.widgets.Row or Widget == ui.widgets.Column or Widget == ui.widgets.Flex,
             .getFlex = getFlex,
             .name = @typeName(Widget),
@@ -915,13 +925,13 @@ pub const Module = struct {
 };
 
 pub const RenderContext = struct {
-    const Self = @This();
-
     common: *CommonContext,
     g: *Graphics,
 
     // Current node.
     node: *Node,
+
+    const Self = @This();
 
     fn init(common: *CommonContext, g: *Graphics) Self {
         return .{
@@ -929,6 +939,21 @@ pub const RenderContext = struct {
             .common = common,
             .node = undefined,
         };
+    }
+
+    /// Note that this will update the current RenderContext.
+    /// If you need RenderContext.node afterwards, that should be stored in a local variable first.
+    /// To help prevent the user from forgetting this, an explicit parent_node is required.
+    pub inline fn renderChildNode(self: *Self, parent: *Node, node: *Node) void {
+        node.vtable.render(node, self, parent.abs_pos.x, parent.abs_pos.y);
+    }
+
+    /// Renders the children in order.
+    pub inline fn renderChildren(self: *Self) void {
+        const parent = self.node;
+        for (self.node.children.items) |child| {
+            child.vtable.render(child, self, parent.abs_pos.x, parent.abs_pos.y);
+        }
     }
 
     pub fn getAbsLayout(self: *Self) Layout {

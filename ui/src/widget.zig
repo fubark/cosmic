@@ -152,10 +152,7 @@ pub const WidgetVTable = struct {
     build: fn (widget_ptr: *anyopaque, build_ctx: *anyopaque) FrameId,
 
     /// Renders an existing Widget.
-    render: fn (widget_ptr: *anyopaque, render_ctx: *RenderContext) void,
-
-    /// Render step in post order when traversing the render tree.
-    postRender: fn (widget_ptr: *anyopaque, render_ctx: *RenderContext) void,
+    render: fn (node: *Node, render_ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
 
     /// Computes the layout size for an existing Widget and sets the relative positioning for it's child nodes.
     layout: fn (widget_ptr: *anyopaque, layout_ctx: *anyopaque) LayoutSize,
@@ -165,9 +162,6 @@ pub const WidgetVTable = struct {
 
     /// Returns the flex value for the widget. This is only invoked if has_flex_prop = true.
     getFlex: fn (node: *Node) ?ui.FlexInfo,
-
-    /// Whether this widget has a postRender function.
-    has_post_render: bool,
 
     name: []const u8,
 
