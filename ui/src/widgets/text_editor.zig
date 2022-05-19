@@ -10,6 +10,7 @@ const Color = graphics.Color;
 const ui = @import("../ui.zig");
 const Node = ui.Node;
 const ScrollView = ui.widgets.ScrollView;
+const log = stdx.log.scoped(.text_editor);
 
 /// Note: This widget is very incomplete. It could borrow some techniques used in TextField.
 /// Also this will be renamed to TextArea and expose a maxLines property as well as things that might be useful for an advanced TextEditor.
@@ -38,6 +39,7 @@ pub const TextEditor = struct {
     font_line_offset_y: f32, // y offset to first text line is drawn
 
     ctx: *ui.CommonContext,
+    node: *Node,
 
     pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
         const props = self.props;
@@ -53,6 +55,7 @@ pub const TextEditor = struct {
         self.inner = null;
         self.scroll_view = undefined;
         self.ctx = c.common;
+        self.node = c.node;
         self.font_gid = font_gid;
         self.setFontSize(24);
 
@@ -63,6 +66,7 @@ pub const TextEditor = struct {
             var line = Line.init(c.alloc, measure);
             line.text.appendSlice(it) catch unreachable;
             self.lines.append(line) catch unreachable;
+            c.getTextMeasure(measure).setText(line.text.items);
         }
 
         // Ensure at least one line.
@@ -73,6 +77,7 @@ pub const TextEditor = struct {
         }
 
         c.addKeyDownHandler(self, Self.handleKeyDownEvent);
+        c.addMouseDownHandler(self, Self.onMouseDown);
     }
 
     pub fn deinit(node: *Node, _: std.mem.Allocator) void {
@@ -81,6 +86,37 @@ pub const TextEditor = struct {
             line.text.deinit();
         }
         self.lines.deinit();
+    }
+
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+        // const me = e.val;
+        _ = e;
+        self.requestFocus();
+
+        // Map mouse pos to caret pos.
+        // const inner = self.inner.getWidget();
+        // const xf = @intToFloat(f32, me.x);
+        // inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
+    }
+
+    /// Request focus on the TextEditor.
+    pub fn requestFocus(self: *Self) void {
+        self.ctx.requestFocus(self.node, onBlur);
+        // const inner = self.inner.getWidget();
+        // inner.setFocused();
+        // std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
+    }
+
+    fn onBlur(node: *Node, ctx: *ui.CommonContext) void {
+        _ = node;
+        _ = ctx;
+        // const self = node.getWidget(Self);
+        // self.inner.getWidget().focused = false;
+        // var hash: [16]u8 = undefined;
+        // std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
+        // if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
+        //     self.fireOnChangeEnd();
+        // }
     }
 
     pub fn setFontSize(self: *Self, font_size: f32) void {

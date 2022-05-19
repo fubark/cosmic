@@ -17,6 +17,7 @@ pub const KeyUpEvent = module.KeyUpEvent;
 pub const MouseDownEvent = module.MouseDownEvent;
 pub const MouseUpEvent = module.MouseUpEvent;
 pub const MouseMoveEvent = module.MouseMoveEvent;
+pub const MouseScrollEvent = module.MouseScrollEvent;
 
 const config = @import("config.zig");
 pub const Config = config.Config;

@@ -22,16 +22,28 @@ pub fn WidgetRef(comptime Widget: type) type {
         const Self = @This();
 
         /// Use widget's *anyopaque pointer in node to avoid "depends on itself" when WidgetRef(Widget) is declared in Widget.
-        node: *Node,
+        node: *Node = undefined,
+
+        binded: bool = false,
 
         pub fn init(node: *Node) Self {
             return .{
                 .node = node,
+                .binded = true,
             };
         }
 
         pub inline fn getWidget(self: Self) *Widget {
             return stdx.mem.ptrCastAlign(*Widget, self.node.widget);
+        }
+
+        pub inline fn getAbsLayout(self: *Self) Layout {
+            return .{
+                .x = self.node.abs_pos.x,
+                .y = self.node.abs_pos.y,
+                .width = self.node.layout.width,
+                .height = self.node.layout.height,
+            };
         }
 
         pub inline fn getHeight(self: Self) f32 {

@@ -82,7 +82,7 @@ pub const ScrollList = struct {
 
     pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
         return c.decl(ScrollView, .{
-            .pass_stretch_width = true,
+            .enable_hscroll = false,
             .child = c.decl(List, .{
                 .bind = &self.list,
                 .children = self.props.children,
@@ -274,6 +274,7 @@ pub const Text = struct {
     props: struct {
         text: ?[]const u8,
         font_size: f32 = 20,
+        font_id: graphics.font.FontId = NullId,
         color: Color = Color.Black,
     },
 
@@ -285,7 +286,7 @@ pub const Text = struct {
 
     pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
         if (self.props.text != null) {
-            const font_gid = c.common.getDefaultFontGroup();
+            const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
             const m = c.common.measureText(font_gid, self.props.font_size, self.props.text.?);
             return ui.LayoutSize.init(m.width, m.height);
         } else {
@@ -298,9 +299,12 @@ pub const Text = struct {
         const alo = c.getAbsLayout();
 
         if (self.props.text != null) {
+            if (self.props.font_id == NullId) {
+                g.setFont(g.getDefaultFontId(), self.props.font_size);
+            } else {
+                g.setFont(self.props.font_id, self.props.font_size);
+            }
             g.setFillColor(self.props.color);
-            const font_gid = c.common.getDefaultFontGroup();
-            g.setFontGroup(font_gid, self.props.font_size);
             g.fillText(alo.x, alo.y, self.props.text.?);
         }
     }

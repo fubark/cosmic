@@ -7,16 +7,12 @@ const platform = @import("platform");
 const MouseUpEvent = platform.MouseUpEvent;
 const MouseDownEvent = platform.MouseDownEvent;
 const MouseMoveEvent = platform.MouseMoveEvent;
+const log = stdx.log.scoped(.slider);
 
 const ui = @import("../ui.zig");
 const Node = ui.Node;
 
 pub const Slider = struct {
-    const Self = @This();
-
-    const ThumbWidth = 25;
-    const Height = 25;
-
     props: struct {
         init_val: i32 = 0,
         min_val: i32 = 0,
@@ -26,9 +22,14 @@ pub const Slider = struct {
         thumb_color: Color = Color.Blue,
     },
 
+    drag_start_value: i32,
     last_value: i32,
     value: i32,
     pressed: bool,
+
+    const Self = @This();
+    const ThumbWidth = 25;
+    const Height = 25;
 
     pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
         std.debug.assert(self.props.min_val <= self.props.max_val);
@@ -50,7 +51,7 @@ pub const Slider = struct {
             e.ctx.removeMouseUpHandler(*Node, handleMouseUpEvent);
             e.ctx.removeMouseMoveHandler(*Node, handleMouseMoveEvent);
             self.updateValueFromMouseX(node, e.val.x);
-            if (self.last_value != self.value) {
+            if (self.drag_start_value != self.value) {
                 if (self.props.onChange) |cb| {
                     cb.call(.{ self.value });
                 }
@@ -66,6 +67,7 @@ pub const Slider = struct {
         if (e.val.button == .Left) {
             self.pressed = true;
             self.last_value = self.value;
+            self.drag_start_value = self.value;
             e.ctx.removeMouseUpHandler(*Node, handleMouseUpEvent);
             e.ctx.addGlobalMouseUpHandler(node, handleMouseUpEvent);
             e.ctx.addMouseMoveHandler(node, handleMouseMoveEvent);

@@ -13,6 +13,8 @@ const Node = ui.Node;
 const Padding = ui.widgets.Padding;
 const log = stdx.log.scoped(.text_field);
 
+const NullId = std.math.maxInt(u32);
+
 /// Handles a single line of text input.
 pub const TextField = struct {
     const Self = @This();

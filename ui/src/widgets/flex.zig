@@ -199,6 +199,7 @@ pub const Row = struct {
         var max_child_height: f32 = 0;
 
         const RowId = comptime ui.Module(C).WidgetIdByType(Row);
+        const ColumnId = comptime ui.Module(C).WidgetIdByType(Column);
         const FlexId = comptime ui.Module(C).WidgetIdByType(Flex);
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
@@ -213,6 +214,12 @@ pub const Row = struct {
                     const row = it.getWidget(Row);
                     has_expanding_children = true;
                     flex_sum += row.props.flex;
+                    continue;
+                },
+                ColumnId => {
+                    const col = it.getWidget(Column);
+                    has_expanding_children = true;
+                    flex_sum += col.props.flex;
                     continue;
                 },
                 FlexId => {
@@ -243,6 +250,9 @@ pub const Row = struct {
                 switch (it.type_id) {
                     RowId => {
                         flex = it.getWidget(Row).props.flex;
+                    },
+                    ColumnId => {
+                        flex = it.getWidget(Column).props.flex;
                     },
                     FlexId => {
                         flex = it.getWidget(Flex).props.flex;

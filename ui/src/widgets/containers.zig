@@ -1,4 +1,6 @@
+const stdx = @import("stdx");
 const ui = @import("../ui.zig");
+const log = stdx.log.scoped(.containers);
 
 /// Provides padding around a child widget.
 pub const Padding = struct {
