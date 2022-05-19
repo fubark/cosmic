@@ -4,6 +4,7 @@ const widget = @import("widget.zig");
 const WidgetUserId = widget.WidgetUserId;
 const WidgetTypeId = widget.WidgetTypeId;
 const WidgetKey = widget.WidgetKey;
+const WidgetVTable = widget.WidgetVTable;
 
 pub const FrameId = u32;
 pub const NullFrameId = stdx.ds.CompactNull(FrameId);
@@ -14,7 +15,7 @@ pub const NullFrameId = stdx.ds.CompactNull(FrameId);
 pub const Frame = struct {
     const Self = @This();
 
-    type_id: WidgetTypeId,
+    vtable: *const WidgetVTable,
 
     /// Used to map a unique id to the created node.
     id: ?WidgetUserId,
@@ -36,9 +37,9 @@ pub const Frame = struct {
     /// This is only used by the special Fragment frame which represents multiple frames.
     fragment_children: FrameListPtr,
 
-    pub fn init(type_id: WidgetTypeId, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, fragment_children: FrameListPtr) Self {
+    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, fragment_children: FrameListPtr) Self {
         return .{
-            .type_id = type_id,
+            .vtable = vtable,
             .id = id,
             .bind = bind,
             .props = props,

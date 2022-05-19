@@ -20,28 +20,13 @@ const TextField = ui.widgets.TextField;
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
-pub const MyConfig = b: {
-    var config = Config{
-        .Imports = ui.widgets.BaseWidgets,
-    };
-    config.Imports = config.Imports ++ &[_]ui.Import{
-        importWidget(App),
-    };
-    break :b config;
-};
-
 pub const App = struct {
     const Self = @This();
 
     tc_field: WidgetRef(TextField),
     tf_field: WidgetRef(TextField),
 
-    pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
-        _ = self;
-        _ = c;
-    }
-
-    pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onChangeTc(self_: *Self, text: []const u8) void {
                 const tc = std.fmt.parseFloat(f32, text) catch return;
@@ -86,7 +71,7 @@ pub const App = struct {
 };
 
 var app: helper.App = undefined;
-var ui_mod: ui.Module(MyConfig) = undefined;
+var ui_mod: ui.Module = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
@@ -108,7 +93,7 @@ fn deinit() void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *MyConfig.Build()) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
             return c.decl(App, .{});
         }
     };

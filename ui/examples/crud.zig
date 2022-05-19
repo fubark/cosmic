@@ -24,16 +24,6 @@ const ScrollList = ui.widgets.ScrollList;
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
-pub const MyConfig = b: {
-    var config = ui.Config{
-        .Imports = ui.widgets.BaseWidgets,
-    };
-    config.Imports = config.Imports ++ &[_]ui.Import{
-        importWidget(App),
-    };
-    break :b config;
-};
-
 pub const App = struct {
     const Self = @This();
 
@@ -45,7 +35,7 @@ pub const App = struct {
     first_tf: WidgetRef(TextField),
     last_tf: WidgetRef(TextField),
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.buf = std.ArrayList([]const u8).init(c.alloc);
         self.alloc = c.alloc;
         self.filter = "";
@@ -60,7 +50,7 @@ pub const App = struct {
         self.buf.deinit();
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onClickCreate(self_: *Self, _: MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
@@ -97,7 +87,7 @@ pub const App = struct {
                 self_.filter = self_.alloc.dupe(u8, val) catch unreachable;
             }
 
-            fn buildItem(self_: *Self, c_: *C.Build(), i: u32) ui.FrameId {
+            fn buildItem(self_: *Self, c_: *ui.BuildContext, i: u32) ui.FrameId {
                 if (std.mem.startsWith(u8, self_.buf.items[i], self_.filter)) {
                     return c_.decl(Text, .{ .text = self_.buf.items[i] });
                 } else {
@@ -220,7 +210,7 @@ pub const App = struct {
 };
 
 var app: helper.App = undefined;
-var ui_mod: ui.Module(MyConfig) = undefined;
+var ui_mod: ui.Module = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
@@ -242,7 +232,7 @@ fn deinit() void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *MyConfig.Build()) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
             return c.decl(App, .{});
         }
     };

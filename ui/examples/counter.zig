@@ -19,33 +19,27 @@ const Center = ui.widgets.Center;
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
-pub const MyConfig = b: {
-    var config = ui.Config{
-        .Imports = ui.widgets.BaseWidgets,
-    };
-    config.Imports = config.Imports ++ &[_]ui.Import{
-        importWidget(App),
-    };
-    break :b config;
-};
-
 pub const App = struct {
-    const Self = @This();
-
     counter: u32,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         _ = c;
         self.counter = 0;
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onClick(self_: *Self, _: MouseUpEvent) void {
                 self_.counter += 1;
             }
         };
 
+        _ = S;
+        _ = c;
+
+        _ = self;
         return c.decl(Center, .{
             .child = c.decl(Row, .{
                 .expand = false,
@@ -71,7 +65,7 @@ pub const App = struct {
 };
 
 var app: helper.App = undefined;
-var ui_mod: ui.Module(MyConfig) = undefined;
+var ui_mod: ui.Module = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
@@ -93,7 +87,7 @@ fn deinit() void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *MyConfig.Build()) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
             return c.decl(App, .{});
         }
     };

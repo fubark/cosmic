@@ -15,8 +15,6 @@ const log = stdx.log.scoped(.text_editor);
 /// Note: This widget is very incomplete. It could borrow some techniques used in TextField.
 /// Also this will be renamed to TextArea and expose a maxLines property as well as things that might be useful for an advanced TextEditor.
 pub const TextEditor = struct {
-    const Self = @This();
-
     props: struct {
         content: []const u8,
         font_family: ?[]const u8 = null,
@@ -41,7 +39,9 @@ pub const TextEditor = struct {
     ctx: *ui.CommonContext,
     node: *Node,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         const props = self.props;
 
         var font_gid = c.getDefaultFontGroup();
@@ -148,7 +148,7 @@ pub const TextEditor = struct {
     //     line.deinit();
     // }
 
-    pub fn postInit(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    pub fn postInit(self: *Self, c: *ui.InitContext) void {
         self.inner = c.findChildWidgetByType(TextEditorInner).?;
         self.scroll_view = c.findChildWidgetByType(ScrollView).?;
     }
@@ -257,7 +257,7 @@ pub const TextEditor = struct {
         }
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         return c.decl(ScrollView, .{
             .child = c.decl(TextEditorInner, .{
@@ -289,8 +289,6 @@ const Line = struct {
 };
 
 pub const TextEditorInner = struct {
-    const Self = @This();
-
     props: struct {
         editor: *TextEditor,
     },
@@ -301,7 +299,9 @@ pub const TextEditorInner = struct {
     editor: *TextEditor,
     ctx: *ui.CommonContext,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         const props = self.props;
         self.to_caret_measure = c.createTextMeasure(props.editor.font_gid, props.editor.font_size);
         self.caret_anim_id = c.addInterval(Duration.initSecsF(0.6), self, Self.handleCaretInterval);
@@ -325,13 +325,13 @@ pub const TextEditorInner = struct {
         self.caret_anim_show_toggle = !self.caret_anim_show_toggle;
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         _ = c;
         return ui.NullFrameId;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         var height: f32 = 0;
         var max_width: f32 = 0;
         for (self.editor.lines.items) |it| {

@@ -31,7 +31,7 @@ pub const Slider = struct {
     const ThumbWidth = 25;
     const Height = 25;
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         std.debug.assert(self.props.min_val <= self.props.max_val);
         self.value = self.props.init_val;
         self.pressed = false;
@@ -97,13 +97,13 @@ pub const Slider = struct {
         self.last_value = self.value;
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         _ = c;
         return ui.NullFrameId;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const min_width: f32 = 200;
         const min_height = Height;

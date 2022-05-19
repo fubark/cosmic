@@ -4,8 +4,6 @@ const log = stdx.log.scoped(.containers);
 
 /// Provides padding around a child widget.
 pub const Padding = struct {
-    const Self = @This();
-
     props: struct {
         pad_top: ?f32 = null,
         pad_right: ?f32 = null,
@@ -15,18 +13,15 @@ pub const Padding = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
-        _ = c;
-        _ = self;
-    }
+    const Self = @This();
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
 
         var pad_top = self.props.pad_top orelse self.props.padding;
@@ -59,8 +54,6 @@ pub const Padding = struct {
 };
 
 pub const Sized = struct {
-    const Self = @This();
-
     props: struct {
         /// If width is not provided, this container will shrink to the child's width.
         width: ?f32 = null,
@@ -71,12 +64,14 @@ pub const Sized = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         if (self.props.child != ui.NullFrameId) {
             var child_cstr = c.getSizeConstraint();
             var prefer_exact_width = c.prefer_exact_width;
@@ -108,20 +103,20 @@ pub const Sized = struct {
 };
 
 pub const Center = struct {
-    const Self = @This();
-
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
         vcenter: bool = true,
         hcenter: bool = true,
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         if (self.props.child == ui.NullFrameId) {
@@ -142,20 +137,20 @@ pub const Center = struct {
 };
 
 pub const Stretch = struct {
-    const Self = @This();
-
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
         h_stretch: bool = true,
         v_stretch: bool = true,
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         if (self.props.child == ui.NullFrameId) {

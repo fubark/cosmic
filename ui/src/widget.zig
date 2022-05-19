@@ -8,7 +8,7 @@ const RenderContext = ui.RenderContext;
 const FrameId = ui.FrameId;
 
 pub const WidgetUserId = usize;
-pub const WidgetTypeId = u32;
+pub const WidgetTypeId = usize;
 
 pub const WidgetKey = union(enum) {
     Idx: usize,
@@ -62,7 +62,8 @@ const NullId = stdx.ds.CompactNull(u32);
 pub const Node = struct {
     const Self = @This();
 
-    type_id: WidgetTypeId,
+    /// The vtable is also used to id the widget instance.
+    vtable: *const WidgetVTable,
 
     key: WidgetKey,
 
@@ -98,9 +99,9 @@ pub const Node = struct {
     // TODO: Should use a shared hashmap from Module.
     key_to_child: std.AutoHashMap(WidgetKey, *Node),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, type_id: WidgetTypeId, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, vtable: *const WidgetVTable, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
         self.* = .{
-            .type_id = type_id,
+            .vtable = vtable,
             .key = key,
             .parent = parent,
             .widget = widget,
@@ -161,6 +162,16 @@ pub const WidgetVTable = struct {
 
     /// Destroys an existing Widget.
     destroy: fn (node: *Node, alloc: std.mem.Allocator) void,
+
+    /// Returns the flex value for the widget. This is only invoked if has_flex_prop = true.
+    getFlex: fn (node: *Node) ?ui.FlexInfo,
+
+    /// Whether this widget has a postRender function.
+    has_post_render: bool,
+
+    name: []const u8,
+
+    has_flex_prop: bool,
 };
 
 pub const LayoutSize = struct {

@@ -65,3 +65,8 @@ pub const FlexFit = enum(u2) {
     /// that missing space is given to the next flex widget, which can make the next flex widget bigger than it's calculated flex size.
     ShrinkAndGive = 2,
 };
+
+pub const FlexInfo = struct {
+    val: u32,
+    fit: FlexFit,
+};

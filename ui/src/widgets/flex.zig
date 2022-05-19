@@ -1,3 +1,4 @@
+const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
@@ -5,11 +6,10 @@ const Color = graphics.Color;
 const log = stdx.log.scoped(.flex);
 
 const ui = @import("../ui.zig");
+const module = @import("../module.zig");
 
 /// Lays out children vertically.
 pub const Column = struct {
-    const Self = @This();
-
     props: struct {
         bg_color: ?Color = null,
         valign: ui.VAlign = .Top,
@@ -25,20 +25,19 @@ pub const Column = struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         return c.fragment(self.props.children);
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const cstr = c.getSizeConstraint();
         var vacant_size = cstr;
         var cur_y: f32 = 0;
         var max_child_width: f32 = 0;
-
-        const ColumnId = comptime ui.Module(C).WidgetIdByType(Column);
-        const FlexId = comptime ui.Module(C).WidgetIdByType(Flex);
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.height -= total_spacing;
@@ -47,22 +46,12 @@ pub const Column = struct {
         var has_expanding_children = false;
         var flex_sum: u32 = 0;
         for (c.node.children.items) |it| {
-            switch (it.type_id) {
-                ColumnId => {
-                    const col = it.getWidget(Column);
-                    if (col.props.expand) {
-                        has_expanding_children = true;
-                        flex_sum += col.props.flex;
-                        continue;
-                    }
-                },
-                FlexId => {
-                    const grow = it.getWidget(Flex);
+            if (it.vtable.has_flex_prop) {
+                if (it.vtable.getFlex(it)) |info| {
                     has_expanding_children = true;
-                    flex_sum += grow.props.flex;
+                    flex_sum += info.val;
                     continue;
-                },
-                else => {},
+                }
             }
             var child_size = c.computeLayout(it, vacant_size);
             child_size.cropTo(vacant_size);
@@ -81,25 +70,19 @@ pub const Column = struct {
             var max_child_size = ui.LayoutSize.init(vacant_size.width, 0);
             var carry_over_height: f32 = 0;
             for (c.node.children.items) |it| {
-                var flex: u32 = undefined;
+                var flex: u32 = std.math.maxInt(u32);
                 var flex_fit: ui.FlexFit = undefined;
-                switch (it.type_id) {
-                    ColumnId => {
-                        const w = it.getWidget(Column);
-                        flex = w.props.flex;
-                        flex_fit = w.props.flex_fit;
-                    },
-                    FlexId => {
-                        const w = it.getWidget(Flex);
-                        flex = w.props.flex;
-                        flex_fit = w.props.flex_fit;
-                    },
-                    else => {
-                        // Update the layout pos of sized children since this pass will include expanded children.
-                        c.setLayoutPos(it, 0, cur_y);
-                        cur_y += c.getLayout(it).height;
-                        continue;
-                    },
+                if (it.vtable.has_flex_prop) {
+                    if (it.vtable.getFlex(it)) |info| {
+                        flex = info.val;
+                        flex_fit = info.fit;
+                    }
+                }
+                if (flex == std.math.maxInt(u32)) {
+                    // Update the layout pos of sized children since this pass will include expanded children.
+                    c.setLayoutPos(it, 0, cur_y);
+                    cur_y += c.getLayout(it).height;
+                    continue;
                 }
 
                 max_child_size.height = flex_unit_size * @intToFloat(f32, flex) + carry_over_height;
@@ -171,8 +154,6 @@ pub const Column = struct {
 };
 
 pub const Row = struct {
-    const Self = @This();
-
     props: struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
@@ -186,21 +167,19 @@ pub const Row = struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         return c.fragment(self.props.children);
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const cstr = c.getSizeConstraint();
         var vacant_size = cstr;
         var cur_x: f32 = 0;
         var max_child_height: f32 = 0;
-
-        const RowId = comptime ui.Module(C).WidgetIdByType(Row);
-        const ColumnId = comptime ui.Module(C).WidgetIdByType(Column);
-        const FlexId = comptime ui.Module(C).WidgetIdByType(Flex);
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.width -= total_spacing;
@@ -209,26 +188,12 @@ pub const Row = struct {
         var has_expanding_children = false;
         var flex_sum: u32 = 0;
         for (c.node.children.items) |it| {
-            switch (it.type_id) {
-                RowId => {
-                    const row = it.getWidget(Row);
+            if (it.vtable.has_flex_prop) {
+                if (it.vtable.getFlex(it)) |flex| {
                     has_expanding_children = true;
-                    flex_sum += row.props.flex;
+                    flex_sum += flex.val;
                     continue;
-                },
-                ColumnId => {
-                    const col = it.getWidget(Column);
-                    has_expanding_children = true;
-                    flex_sum += col.props.flex;
-                    continue;
-                },
-                FlexId => {
-                    const grow = it.getWidget(Flex);
-                    has_expanding_children = true;
-                    flex_sum += grow.props.flex;
-                    continue;
-                },
-                else => {},
+                }
             }
             var child_size = c.computeLayout(it, vacant_size);
             child_size.cropTo(vacant_size);
@@ -246,23 +211,17 @@ pub const Row = struct {
 
             var max_child_size = ui.LayoutSize.init(0, vacant_size.height);
             for (c.node.children.items) |it| {
-                var flex: u32 = undefined;
-                switch (it.type_id) {
-                    RowId => {
-                        flex = it.getWidget(Row).props.flex;
-                    },
-                    ColumnId => {
-                        flex = it.getWidget(Column).props.flex;
-                    },
-                    FlexId => {
-                        flex = it.getWidget(Flex).props.flex;
-                    },
-                    else => {
-                        // Update the layout pos of sized children since this pass will include expanded children.
-                        c.setLayoutPos(it, cur_x, 0);
-                        cur_x += c.getLayout(it).width;
-                        continue;
-                    },
+                var flex: u32 = std.math.maxInt(u32);
+                if (it.vtable.has_flex_prop) {
+                    if (it.vtable.getFlex(it)) |info| {
+                        flex = info.val;
+                    }
+                }
+                if (flex == std.math.maxInt(u32)) {
+                    // Update the layout pos of sized children since this pass will include expanded children.
+                    c.setLayoutPos(it, cur_x, 0);
+                    cur_x += c.getLayout(it).width;
+                    continue;
                 }
 
                 max_child_size.width = flex_unit_size * @intToFloat(f32, flex);
@@ -304,21 +263,21 @@ pub const Row = struct {
 
 /// Interpreted by Column or Row as a flexible widget. The flex property is used determine how it fits in the parent container.
 pub const Flex = struct {
-    const Self = @This();
-
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
         flex: u32 = 1,
         flex_fit: ui.FlexFit = .Exact,
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
     /// Computes the child layout preferring to stretch it and returns the current constraint.
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const cstr = c.getSizeConstraint();
         const node = c.getNode();

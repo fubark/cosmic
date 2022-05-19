@@ -93,24 +93,14 @@ Then run `zig build` in your own project directory and it will build and run you
 ## How it works.
 
 ### Setup.
-When setting up your ui app, you need to create a comptime ui.Config which contains all Widget types you will be using. This way the Widgets can map to ids and their vtables at comptime. Then you create ui.Module with the config and a graphics context. The graphics context is how you can inject a rendering backend of your choosing. This is what it might look like:
+When setting up your ui app, you need to create a ui.Module with a graphics context. The graphics context is how you can inject a rendering backend of your choosing. This is what it might look like:
 ```zig
-pub const MyConfig = b: {
-    var config = ui.Config{
-        .Imports = ui.widgets.BaseWidgets,
-    };
-    config.Imports = config.Imports ++ &[_]ui.Import{
-        ui.Import.init(Counter),
-    };
-    break :b config;
-};
-
 pub fn main() !void {
     var app: helper.App = undefined;
     app.init("Counter");
     defer app.deinit();
 
-    var ui_mod: ui.Module(MyConfig) = undefined;
+    var ui_mod: ui.Module = undefined;
     ui_mod.init(app.alloc, app.g);
     defer ui_mod.deinit();
     ui_mod.addInputHandlers(&app.dispatcher);
@@ -124,8 +114,6 @@ You'll notice that we imported all widgets from the stock widget library as well
 Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postUpdate, layout, render, postRender`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
 ```zig
 pub const Counter = struct {
-    const Self = @This();
-
     props: struct {
         // A prop with a default value.
         text_color: Color = Color.Blue,
@@ -137,11 +125,13 @@ pub const Counter = struct {
     // This is a state variable.
     counter: u32,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         // Invoked when the widget instance was created but before all it's child widgets.
     }
 
-    pub fn postInit(self: *Self, comptime C: Config, c: *C.Init()) void {
+    pub fn postInit(self: *Self, c: *ui.InitContext) void {
         // Invoked after the widget instance and it's child widgets were created.
     }
 
@@ -149,7 +139,7 @@ pub const Counter = struct {
         // Invoked when the widget instance is destroyed.
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         // Invoked when the engine wants to know the structure of this Widget.
     }
 
@@ -157,7 +147,7 @@ pub const Counter = struct {
         // Invoked when a widget is updated with props from the parent.
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         // Invoked when the engine performs layout.
     }
 
@@ -175,7 +165,7 @@ Before any widget instances are created, the engine needs to know the structure 
 ```zig
     // ... in Counter struct.
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onClick(self_: *Self, _: MouseUpEvent) void {
                 self_.counter += 1;

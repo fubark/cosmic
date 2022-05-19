@@ -17,8 +17,6 @@ const NullId = std.math.maxInt(u32);
 
 /// Handles a single line of text input.
 pub const TextField = struct {
-    const Self = @This();
-
     props: struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
@@ -43,7 +41,9 @@ pub const TextField = struct {
     ctx: *ui.CommonContext,
     node: *Node,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.buf = std.ArrayList(u8).init(c.alloc);
         self.last_buf_hash = undefined;
         c.addKeyDownHandler(self, Self.onKeyDown);
@@ -57,7 +57,7 @@ pub const TextField = struct {
         self.buf.deinit();
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         return c.decl(Padding, .{
             .padding = self.props.padding,
             .child = c.decl(TextFieldInner, .{
@@ -212,7 +212,7 @@ pub const TextField = struct {
         }
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
         const child = c.getNode().children.items[0];
         if (self.props.width) |width| {
@@ -244,8 +244,6 @@ pub const TextField = struct {
 };
 
 pub const TextFieldInner = struct {
-    const Self = @This();
-
     props: struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
@@ -270,7 +268,9 @@ pub const TextFieldInner = struct {
     /// [0,1]
     fixed_in_view: f32,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.scroll_x = 0;
         self.caret_idx = 0;
         self.caret_pos_x = 0;
@@ -338,7 +338,7 @@ pub const TextFieldInner = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);

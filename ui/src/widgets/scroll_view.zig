@@ -37,7 +37,7 @@ pub const ScrollView = struct {
     const Self = @This();
     const BarSize = 15;
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.scroll_x = 0;
         self.scroll_y = 0;
         self.scroll_width = 0;
@@ -79,7 +79,7 @@ pub const ScrollView = struct {
         }
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
@@ -99,7 +99,7 @@ pub const ScrollView = struct {
 
     /// Take up the same amount of space as it's child or constrained by the parent.
     /// Updates scroll width and height.
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const node = c.getNode();
         const size_cstr = ui.LayoutSize.init(std.math.inf(f32), std.math.inf(f32));
 
@@ -151,7 +151,7 @@ pub const ScrollView = struct {
         self.computeEffScrollDims(res.width, res.height);
         if (!prev_has_vbar and self.has_vbar and c.prefer_exact_width) {
             // Recompute layout when turning on the vbar when prefer_exact_width is on.
-            return self.layout(C, c);
+            return self.layout(c);
         }
 
         return res;

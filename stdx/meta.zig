@@ -15,6 +15,13 @@ pub fn assertFunctionType(comptime T: type) void {
     }
 }
 
+pub fn hasFunctionSignature(comptime ExpFunc: type, comptime Func: type) bool {
+    if (FnNumParams(ExpFunc) != FnNumParams(Func)) {
+        return false;
+    }
+    return std.mem.eql(std.builtin.TypeInfo.FnArg, FnParams(ExpFunc), FnParams(Func));
+}
+
 pub fn isFunc(comptime Fn: type) bool {
     return @typeInfo(Fn) == .Fn;
 }

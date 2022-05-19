@@ -49,38 +49,17 @@ pub const Stretch = containers.Stretch;
 const button = @import("widgets/button.zig");
 pub const Button = button.Button;
 pub const TextButton = button.TextButton;
-pub const BaseWidgets = &[_]Import{
-    Import.init(Row),
-    Import.init(Column),
-    Import.init(Flex),
-    Import.init(Text),
-    Import.init(ScrollView),
-    Import.init(Slider),
-    Import.init(Padding),
-    Import.init(Button),
-    Import.init(TextButton),
-    Import.init(TextEditor),
-    Import.init(TextEditorInner),
-    Import.init(TextField),
-    Import.init(TextFieldInner),
-    Import.init(Center),
-    Import.init(ProgressBar),
-    Import.init(Sized),
-    Import.init(ScrollList),
-    Import.init(List),
-    Import.init(Stretch),
-};
 
 pub const ScrollList = struct {
-    const Self = @This();
-
     props: struct {
         children: FrameListPtr = FrameListPtr.init(0, 0),
     },
 
     list: ui.WidgetRef(List),
 
-    pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         return c.decl(ScrollView, .{
             .enable_hscroll = false,
             .child = c.decl(List, .{
@@ -99,21 +78,21 @@ pub const ScrollList = struct {
 const NullId = std.math.maxInt(u32);
 
 pub const List = struct {
-    const Self = @This();
-
     props: struct {
         children: FrameListPtr = FrameListPtr.init(0, 0),
     },
 
     selected_idx: u32,
 
-    pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.selected_idx = NullId;
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
         c.addKeyDownHandler(self, onKeyDown);
     }
 
-    pub fn build(self: *Self, comptime C: Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         return c.fragment(self.props.children);
     }
 
@@ -175,7 +154,7 @@ pub const List = struct {
         }
     }
 
-    pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) LayoutSize {
         _ = self;
         const node = c.getNode();
 
@@ -224,8 +203,6 @@ pub const List = struct {
 };
 
 pub const ProgressBar = struct {
-    const Self = @This();
-
     props: struct {
         max_val: f32 = 100,
         init_val: f32 = 0,
@@ -234,7 +211,9 @@ pub const ProgressBar = struct {
 
     value: f32,
 
-    pub fn init(self: *Self, comptime C: Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         _ = c;
         self.value = self.props.init_val;
     }
@@ -243,7 +222,7 @@ pub const ProgressBar = struct {
         self.value = value;
     }
 
-    pub fn layout(self: *Self, comptime C: Config, c: *C.Layout()) LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) LayoutSize {
         _ = self;
         const min_width = 200;
         const min_height = 25;
@@ -269,8 +248,6 @@ pub const ProgressBar = struct {
 };
 
 pub const Text = struct {
-    const Self = @This();
-
     props: struct {
         text: ?[]const u8,
         font_size: f32 = 20,
@@ -278,13 +255,15 @@ pub const Text = struct {
         color: Color = Color.Black,
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         _ = c;
         return NullFrameId;
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         if (self.props.text != null) {
             const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
             const m = c.common.measureText(font_gid, self.props.font_size, self.props.text.?);

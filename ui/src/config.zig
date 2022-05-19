@@ -2,6 +2,8 @@ const std = @import("std");
 
 const ui = @import("ui.zig");
 
+// Deprecated. No longer used due to move away from comptime Config.
+
 /// Comptime config passed into ui.Module.
 /// Contains type information about all the widgets that will be used in the module.
 pub const Config = struct {

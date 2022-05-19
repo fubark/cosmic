@@ -26,19 +26,7 @@ const Flex = ui.widgets.Flex;
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
-pub const MyConfig = b: {
-    var config = ui.Config{
-        .Imports = ui.widgets.BaseWidgets,
-    };
-    config.Imports = config.Imports ++ &[_]ui.Import{
-        importWidget(App),
-    };
-    break :b config;
-};
-
 pub const App = struct {
-    const Self = @This();
-
     progress_bar: WidgetRef(ProgressBar),
 
     duration_secs: f32,
@@ -48,7 +36,9 @@ pub const App = struct {
     ctx: *ui.CommonContext,
     node: *ui.Node,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.step_interval = c.addInterval(Duration.initSecsF(0.01), self, onStep);
         self.progress_ms = 0;
         self.duration_secs = 15;
@@ -76,7 +66,7 @@ pub const App = struct {
         self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onChangeDuration(self_: *Self, val: i32) void {
                 const duration_secs = @intToFloat(f32, val);
@@ -153,7 +143,7 @@ pub const App = struct {
 };
 
 var app: helper.App = undefined;
-var ui_mod: ui.Module(MyConfig) = undefined;
+var ui_mod: ui.Module = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
@@ -175,7 +165,7 @@ fn deinit() void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *MyConfig.Build()) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
             return c.decl(App, .{});
         }
     };
