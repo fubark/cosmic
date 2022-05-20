@@ -71,3 +71,13 @@ pub const FlexInfo = struct {
     val: u32,
     fit: FlexFit,
 };
+
+/// Create a declaration function for a Widget.
+pub fn createDeclFn(comptime Widget: type) fn (*BuildContext, anytype) callconv(.Inline) FrameId {
+    const S = struct {
+        inline fn decl(c: *BuildContext, props: anytype) FrameId {
+            return c.decl(Widget, props);
+        }
+    };
+    return S.decl;
+}

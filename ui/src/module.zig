@@ -312,7 +312,7 @@ pub const Module = struct {
             .common = undefined,
             .text_measure_batch_buf = std.ArrayList(*graphics.TextMeasure).init(alloc),
         };
-        self.common.init(alloc, g);
+        self.common.init(alloc, self, g);
         self.render_ctx = RenderContext.init(&self.common.ctx, g);
     }
 
@@ -652,6 +652,7 @@ pub const Module = struct {
                     self.removeNode(it);
                 }
             }
+            node.children.items.len = 0;
             return;
         }
         const child_frame = self.build_ctx.getFrame(child_frame_id);
@@ -791,6 +792,11 @@ pub const Module = struct {
     /// Removes the node and performs deinit but does not unlink from the parent.children array since it's expensive.
     /// Assumes the caller has delt with it.
     fn removeNode(self: *Self, node: *Node) void {
+        // Remove children first.
+        for (node.children.items) |child| {
+            self.removeNode(child);
+        }
+
         if (node.parent != null) {
             _ = node.parent.?.key_to_child.remove(node.key);
         }
@@ -1621,11 +1627,12 @@ pub const CommonContext = struct {
     }
 };
 
-/// Contains data and logic that does not depend on ModuleConfig.
+// TODO: Refactor similar ops to their own struct. 
 pub const ModuleCommon = struct {
     const Self = @This();
 
     alloc: std.mem.Allocator,
+    mod: *Module,
 
     /// Arena allocator that gets freed after each update cycle.
     arena_allocator: std.heap.ArenaAllocator,
@@ -1671,7 +1678,7 @@ pub const ModuleCommon = struct {
 
     context_provider: fn (key: u32) ?*anyopaque,
 
-    fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics) void {
+    fn init(self: *Self, alloc: std.mem.Allocator, mod: *Module, g: *Graphics) void {
         const S = struct {
             fn defaultContextProvider(key: u32) ?*anyopaque {
                 _ = key;
@@ -1680,6 +1687,7 @@ pub const ModuleCommon = struct {
         };
         self.* = .{
             .alloc = alloc,
+            .mod = mod,
             .arena_allocator = std.heap.ArenaAllocator.init(alloc),
             .arena_alloc = undefined,
 
@@ -2188,16 +2196,47 @@ const TestModule = struct {
     }
 };
 
-test "Root should not allow fragment frame." {
+test "Node removal also removes the children." {
+    const A = struct {
+        props: struct {
+            child: FrameId,
+        },
+        fn build(self: *@This(), _: *BuildContext) FrameId {
+            return self.props.child;
+        }
+    };
+    const B = struct {};
+    const S = struct {
+        fn bootstrap(delete: bool, c: *BuildContext) FrameId {
+            var child: FrameId = NullFrameId;
+            if (!delete) {
+                child = c.decl(A, .{ 
+                    .child = c.decl(B, .{}),
+                });
+            }
+            return c.decl(A, .{
+                .id = .root,
+                .child = child,
+            });
+        }
+    };
+
+    var mod: TestModule = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    try mod.preUpdate(false, S.bootstrap);
+    const root = mod.getNodeByTag(.root).?;
+    try t.eq(root.numChildrenR(), 2);
+    try mod.preUpdate(true, S.bootstrap);
+    try t.eq(root.numChildrenR(), 0);
+}
+
+test "User root should not allow fragment frame." {
     const A = struct {
     };
-    const TestConfig = comptime Config{
-        .Imports = &.{
-            Import.init(A),
-        },
-    };
     const S = struct {
-        fn bootstrap(_: void, c: *BuildContext(TestConfig)) FrameId {
+        fn bootstrap(_: void, c: *BuildContext) FrameId {
             const list = c.list(.{
                 c.decl(A, .{}),
                 c.decl(A, .{}),
@@ -2205,62 +2244,52 @@ test "Root should not allow fragment frame." {
             return c.fragment(list);
         }
     };
-    var mod: TestModule(TestConfig) = undefined;
+    var mod: TestModule = undefined;
     mod.init();
     defer mod.deinit();
 
-    try t.expectError(mod.preUpdate({}, S.bootstrap), error.RootCantBeFragment);
+    try t.expectError(mod.preUpdate({}, S.bootstrap), error.UserRootCantBeFragment);
 }
 
 test "BuildContext.list() will skip over a NullFrameId item." {
     const B = struct {};
     const A = struct {
-        fn build(_: *@This(), comptime C: Config, c: *C.Build()) FrameId {
+        fn build(_: *@This(), c: *BuildContext) FrameId {
             return c.fragment(c.list(.{
                 NullFrameId,
                 c.decl(B, .{}),
             }));
         }
     };
-    const TestConfig = comptime Config{
-        .Imports = &.{
-            Import.init(A),
-            Import.init(B),
-        },
-    };
     const S = struct {
-        fn bootstrap(_: void, c: *BuildContext(TestConfig)) FrameId {
-            return c.decl(A, .{});
+        fn bootstrap(_: void, c: *BuildContext) FrameId {
+            return c.decl(A, .{
+                .id = .root,
+            });
         }
     };
 
-    var mod: TestModule(TestConfig) = undefined;
+    var mod: TestModule = undefined;
     mod.init();
     defer mod.deinit();
 
     try mod.preUpdate({}, S.bootstrap);
-    const root = mod.getRoot();
-    try t.eq(root.?.type_id, Module(TestConfig).WidgetIdByType(A));
+    const root = mod.getNodeByTag(.root);
+    try t.eq(root.?.vtable, GenWidgetVTable(A));
     try t.eq(root.?.children.items.len, 1);
-    try t.eq(root.?.children.items[0].type_id, Module(TestConfig).WidgetIdByType(B));
+    try t.eq(root.?.children.items[0].vtable, GenWidgetVTable(B));
 }
 
 test "Don't allow nested fragment frames." {
     const A = struct {
         props: struct { child: FrameId },
-        fn build(self: *@This(), comptime C: Config, _: *C.Build()) FrameId {
+        fn build(self: *@This(), _: *BuildContext) FrameId {
             return self.props.child;
         }
     };
     const B = struct {};
-    const TestConfig = comptime Config{
-        .Imports = &.{
-            Import.init(A),
-            Import.init(B),
-        },
-    };
     const S = struct {
-        fn bootstrap(_: void, c: *TestConfig.Build()) FrameId {
+        fn bootstrap(_: void, c: *ui.BuildContext) FrameId {
             const nested_list = c.list(.{
                 c.decl(B, .{}),
             });
@@ -2273,7 +2302,7 @@ test "Don't allow nested fragment frames." {
             });
         }
     };
-    var mod: TestModule(TestConfig) = undefined;
+    var mod: TestModule = undefined;
     mod.init();
     defer mod.deinit();
 
@@ -2285,45 +2314,40 @@ test "BuildContext.range" {
         props: struct {
             children: ui.FrameListPtr,
         },
-        fn build(self: *@This(), comptime C: Config, c: *C.Build()) FrameId {
+        fn build(self: *@This(), c: *BuildContext) FrameId {
             return c.fragment(self.props.children);
         }
     };
     const B = struct {};
-    const TestConfig = comptime Config{
-        .Imports = &.{
-            Import.init(A),
-            Import.init(B),
-        },
-    };
-
     // Test case where a child widget uses BuildContext.list. Check if this causes problems with BuildContext.range.
     const S = struct {
-        fn bootstrap(_: void, c: *TestConfig.Build()) FrameId {
+        fn bootstrap(_: void, c: *BuildContext) FrameId {
             return c.decl(A, .{
+                .id = .root,
                 .children = c.range(1, {}, buildChild),
             });
         }
-        fn buildChild(_: void, c: *TestConfig.Build(), _: u32) FrameId {
+        fn buildChild(_: void, c: *BuildContext, _: u32) FrameId {
             const list = c.list(.{
                 c.decl(B, .{}),
             });
             return c.decl(A, .{ .children = list });
         }
     };
-    var mod: TestModule(TestConfig) = undefined;
+    var mod: TestModule = undefined;
     mod.init();
     defer mod.deinit();
 
     try mod.preUpdate({}, S.bootstrap);
-    try t.eq(mod.mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(A));
-    try t.eq(mod.mod.root_node.?.children.items[0].type_id, Module(TestConfig).WidgetIdByType(A));
-    try t.eq(mod.mod.root_node.?.children.items[0].children.items[0].type_id, Module(TestConfig).WidgetIdByType(B));
+    const root = mod.getNodeByTag(.root);
+    try t.eq(root.?.vtable, GenWidgetVTable(A));
+    try t.eq(root.?.children.items[0].vtable, GenWidgetVTable(A));
+    try t.eq(root.?.children.items[0].children.items[0].vtable, GenWidgetVTable(B));
 }
 
 test "Widget instance lifecycle." {
     const A = struct {
-        pub fn init(_: *@This(), comptime C: Config, c: *C.Init()) void {
+        pub fn init(_: *@This(), c: *InitContext) void {
             c.addKeyUpHandler({}, onKeyUp);
             c.addKeyDownHandler({}, onKeyDown);
             c.addMouseDownHandler({}, onMouseDown);
@@ -2340,22 +2364,19 @@ test "Widget instance lifecycle." {
         fn onMouseUp(_: void, _: MouseUpEvent) void {}
         fn onMouseMove(_: void, _: MouseMoveEvent) void {}
     };
-    const TestConfig = comptime Config{
-        .Imports = &.{
-            Import.init(A),
-        },
-    };
     const S = struct {
-        fn bootstrap(decl: bool, c: *BuildContext(TestConfig)) FrameId {
+        fn bootstrap(decl: bool, c: *BuildContext) FrameId {
             if (decl) {
-                return c.decl(A, .{});
+                return c.decl(A, .{
+                    .id = .root,
+                });
             } else {
                 return NullFrameId;
             }
         }
     };
 
-    var tmod: TestModule(TestConfig) = undefined;
+    var tmod: TestModule = undefined;
     tmod.init();
     defer tmod.deinit();
     const mod = &tmod.mod;
@@ -2363,45 +2384,47 @@ test "Widget instance lifecycle." {
     try tmod.preUpdate(true, S.bootstrap);
 
     // Widget instance should exist with event handlers.
-    try t.eq(mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(A));
-    try t.eq(mod.common.focused_widget.?, mod.root_node.?);
+    var root = tmod.getNodeByTag(.root);
+    try t.eq(root.?.vtable, GenWidgetVTable(A));
+    try t.eq(mod.common.focused_widget.?, root.?);
 
     try t.eq(mod.common.key_up_event_subs.size(), 1);
     const keyup_sub = mod.common.key_up_event_subs.iterFirstValueNoCheck();
-    try t.eq(keyup_sub.node, mod.root_node.?);
+    try t.eq(keyup_sub.node, root.?);
     try t.eq(keyup_sub.closure.user_fn, A.onKeyUp);
 
     try t.eq(mod.common.key_down_event_subs.size(), 1);
     const keydown_sub = mod.common.key_down_event_subs.iterFirstValueNoCheck();
-    try t.eq(keydown_sub.node, mod.root_node.?);
+    try t.eq(keydown_sub.node, root.?);
     try t.eq(keydown_sub.closure.user_fn, A.onKeyDown);
 
     try t.eq(mod.common.mouse_down_event_subs.size(), 1);
     const mousedown_sub = mod.common.mouse_down_event_subs.iterFirstValueNoCheck();
-    try t.eq(mousedown_sub.node, mod.root_node.?);
+    try t.eq(mousedown_sub.node, root.?);
     try t.eq(mousedown_sub.closure.user_fn, A.onMouseDown);
 
     try t.eq(mod.common.mouse_up_event_subs.size(), 1);
     const mouseup_sub = mod.common.mouse_up_event_subs.iterFirstValueNoCheck();
     try t.eq(mouseup_sub.is_global, false);
-    try t.eq(mouseup_sub.sub.node, mod.root_node.?);
+    try t.eq(mouseup_sub.sub.node, root.?);
     try t.eq(mouseup_sub.sub.closure.user_fn, A.onMouseUp);
 
     try t.eq(mod.common.mouse_move_event_subs.items.len, 1);
     const mousemove_sub = mod.common.mouse_move_event_subs.items[0];
-    try t.eq(mousemove_sub.node, mod.root_node.?);
+    try t.eq(mousemove_sub.node, root.?);
     try t.eq(mousemove_sub.closure.user_fn, A.onMouseMove);
 
     try t.eq(mod.common.interval_sessions.size(), 1);
     var iter = mod.common.interval_sessions.iterator();
     const interval_sub = iter.next().?;
-    try t.eq(interval_sub.node, mod.root_node.?);
+    try t.eq(interval_sub.node, root.?);
     try t.eq(interval_sub.closure.user_fn, A.onInterval);
 
     try tmod.preUpdate(false, S.bootstrap);
 
     // Widget instance should be removed and handlers should have been cleaned up.
-    try t.eq(mod.root_node, null);
+    root = tmod.getNodeByTag(.root);
+    try t.eq(root, null);
     try t.eq(mod.common.focused_widget, null);
     try t.eq(mod.common.key_up_event_subs.size(), 0);
     try t.eq(mod.common.key_down_event_subs.size(), 0);
@@ -2425,13 +2448,13 @@ test "Module.update creates or updates existing node" {
     const Root = struct {
         flag: bool,
 
-        pub fn init(self: *@This(), comptime C: Config, _: *C.Init()) void {
+        pub fn init(self: *@This(), _: *InitContext) void {
             self.* = .{
                 .flag = true,
             };
         }
 
-        fn build(self: *@This(), comptime C: Config, c: *C.Build()) FrameId {
+        fn build(self: *@This(), c: *BuildContext) FrameId {
             if (self.flag) {
                 return c.decl(Foo, .{});
             } else {
@@ -2442,57 +2465,51 @@ test "Module.update creates or updates existing node" {
 
     {
         // Different root frame type creates new node.
-        const TestConfig = comptime Config{
-            .Imports = &.{
-                Import.init(Foo),
-                Import.init(Bar),
-            },
-        };
         const S2 = struct {
-            fn bootstrap(flag: bool, c: *BuildContext(TestConfig)) FrameId {
+            fn bootstrap(flag: bool, c: *BuildContext) FrameId {
                 if (flag) {
-                    return c.decl(Foo, .{});
+                    return c.decl(Foo, .{
+                        .id = .root,
+                    });
                 } else {
-                    return c.decl(Bar, .{});
+                    return c.decl(Bar, .{
+                        .id = .root,
+                    });
                 }
             }
         };
-        var mod: TestModule(TestConfig) = undefined;
+        var mod: TestModule = undefined;
         mod.init();
         defer mod.deinit();
         try mod.preUpdate(true, S2.bootstrap);
-        try t.eq(mod.mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(Foo));
+        var root = mod.getNodeByTag(.root);
+        try t.eq(root.?.vtable, GenWidgetVTable(Foo));
         try mod.preUpdate(false, S2.bootstrap);
-        try t.eq(mod.mod.root_node.?.type_id, Module(TestConfig).WidgetIdByType(Bar));
+        root = mod.getNodeByTag(.root);
+        try t.eq(root.?.vtable, GenWidgetVTable(Bar));
     }
 
     {
         // Different child frame type creates new node.
-        const TestConfig = comptime Config{
-            .Imports = &.{
-                Import.init(Foo),
-                Import.init(Bar),
-                Import.init(Root),
-            },
-        };
         const S2 = struct {
-            fn bootstrap(_: void, c: *BuildContext(TestConfig)) FrameId {
-                return c.decl(Root, .{});
+            fn bootstrap(_: void, c: *BuildContext) FrameId {
+                return c.decl(Root, .{
+                    .id = .root,
+                });
             }
         };
-        var tmod: TestModule(TestConfig) = undefined;
+        var tmod: TestModule = undefined;
         tmod.init();
         defer tmod.deinit();
-        const mod = &tmod.mod;
         try tmod.preUpdate({}, S2.bootstrap);
-        try t.eq(mod.root_node.?.numChildren(), 1);
-        try t.eq(mod.root_node.?.getChild(0).type_id, Module(TestConfig).WidgetIdByType(Foo));
-        const root = mod.getWidget(Root, mod.root_node.?);
-        root.flag = false;
+        var root = tmod.getNodeByTag(.root);
+        try t.eq(root.?.numChildren(), 1);
+        try t.eq(root.?.getChild(0).vtable, GenWidgetVTable(Foo));
+        root.?.getWidget(Root).flag = false;
         try tmod.preUpdate({}, S2.bootstrap);
-        log.warn("{} {}", .{Module(TestConfig).WidgetIdByType(Foo), Module(TestConfig).WidgetIdByType(Bar)});
-        try t.eq(mod.root_node.?.numChildren(), 1);
-        try t.eq(mod.root_node.?.getChild(0).type_id, Module(TestConfig).WidgetIdByType(Bar));
+        root = tmod.getNodeByTag(.root);
+        try t.eq(root.?.numChildren(), 1);
+        try t.eq(root.?.getChild(0).vtable, GenWidgetVTable(Bar));
     }
 }
 
@@ -2502,12 +2519,8 @@ test "Module.update creates or updates existing node" {
 //             bar: usize,
 //         };
 //     };
-//     const TestConfig = ModuleConfig{
-//         .Components = WidgetImport.initMany(.{Foo}),
-//     };
-
-//     var mod: Module(TestConfig) = undefined;
-//     Module(TestConfig).init(&mod, t.alloc, &g, LayoutSize.init(800, 600), undefined);
+//     var mod: Module = undefined;
+//     Module.init(&mod, t.alloc, &g, LayoutSize.init(800, 600), undefined);
 //     defer mod.deinit();
 //     _ = mod.build_ctx.new(.Foo, .{ .text = "foo" });
 // }
@@ -2598,5 +2611,5 @@ fn WidgetProps(comptime Widget: type) type {
 
 const UpdateError = error {
     NestedFragment,
-    RootCantBeFragment,
+    UserRootCantBeFragment,
 };

@@ -149,12 +149,32 @@ pub const Node = struct {
         self.key_to_child.deinit();
     }
 
+    /// Returns the number of immediate children.
     pub fn numChildren(self: *Self) usize {
         return self.children.items.len;
     }
 
+    /// Returns the total number of children recursively.
+    pub fn numChildrenR(self: *Self) usize {
+        var total = self.children.items.len;
+        for (self.children.items) |child| {
+            total += child.numChildrenR();
+        }
+        return total;
+    }
+
     pub fn getChild(self: *Self, idx: usize) *Node {
         return self.children.items[idx];
+    }
+
+    /// Compute the absolute position of the node by adding up it's ancestor positions.
+    /// This is only accurate if the layout has been computed for this node and upwards.
+    pub fn computeCurrentAbsPos(self: Self) Vec2 {
+        if (self.parent) |parent| {
+            return parent.computeCurrentAbsPos().add(Vec2.init(self.layout.x, self.layout.y));
+        } else {
+            return Vec2.init(self.layout.x, self.layout.y);
+        }
     }
 };
 

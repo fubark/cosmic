@@ -111,7 +111,7 @@ pub fn main() !void {
 You'll notice that we imported all widgets from the stock widget library as well as our custom root widget named Counter. It's also being wrapped around an App helper which sets up a window, a graphics context, a default allocator, feeds mouse/keyboard events into the ui module, and starts the app in an update loop.
 
 ### Widget structure.
-Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postUpdate, layout, render, renderCustom`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
+Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postPropsUpdate, postUpdate, layout, render, renderCustom`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
 ```zig
 pub const Counter = struct {
     props: struct {
@@ -143,8 +143,12 @@ pub const Counter = struct {
         // Invoked when the engine wants to know the structure of this Widget.
     }
 
+    pub fn postPropsUpdate(self: *Self) void {
+        // Invoked when a widget has updated their props from the parent.
+    }
+
     pub fn postUpdate(self: *Self) void {
-        // Invoked when a widget is updated with props from the parent.
+        // Invoked when a widget and it's children have finished updating. (They have resolved their instance trees from the diff operation.)
     }
 
     pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
@@ -161,6 +165,7 @@ pub const Counter = struct {
     }
 }
 ```
+
 ### Declaring Widgets.
 Before any widget instances are created, the engine needs to know the structure of your ui. This is when it invokes the `build` hooks:
 ```zig
@@ -196,16 +201,74 @@ Before any widget instances are created, the engine needs to know the structure 
         });
     }
 ```
-`build` creates frames which contain just the right amount of information to represent the structure. This includes the Widget type and props. The engine then proceeds to diff this structure against any existing instance tree. If a widget is missing it is created, if one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `ctx.fragment()` wraps a list of frame ids as a fragment frame.
+`build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.decl` is used to declare a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list` is used to group together a frames.
+
+The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created, if one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `ctx.fragment()` wraps a list of frame ids as a fragment frame.
+
+### Widget Binding
+Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
+```zig
+const App = struct {
+    slider: WidgetRef(Slider),
+
+    const Self = @This()
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+        const S = struct {
+            fn onClick(self_: *Self, _: MouseUpEvent) void {
+                std.debug.print("slider value {}", .{self_.slider.getWidget().getValue()});
+            }
+        };
+        return c.decl(Slider, .{
+            .bind = &self.slider,
+            .init_val = 30,
+        })
+    }
+};
+```
+
+### Events
+Widgets can add event handlers and request focus for keyboard events:
+```zig
+const TextField = struct {
+    // ...
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
+        c.addMouseDownHandler(self, onMouseDown);
+        c.addKeyDownHandler(self, onKeyDown);
+    }
+
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+        e.ctx.requestFocus(onBlur);
+    }
+
+    // ...
+};
+```
+Similarily you can remove handlers. If you forget, they will be cleaned up anyway when the widget is disposed.
 
 ### Layout
-When the engine needs to perform layout, the `layout` hook is invoked. Each widget's `layout` is responsible for:
+When the engine needs to perform layout, the `layout` hook is invoked. If the widget does not provide a hook, a default implementation is used. Each widget's `layout` is responsible for:
 - Calling layout on it's children via `ctx.computeLayout, ctx.computeLayoutStretch`.
 - Resizing the child LayoutSize returned to respect the current or parent constraints.
 - Positioning the child relative to the current widget via `ctx.setLayout`.
 - Returning the current widget's LayoutSize.
 
 Following this pattern lets the engine perform layout in linear time while also providing the flexibility to define many different layout constraints.
+
+### Render Widgets
+When building your own custom widgets, you have the freedom to paint it any way you like using the graphics context. At render time the hook will already have the absolute positioning computed so you can paint with ease.
+```zig
+const RedSquare = struct {
+    pub fn render(self: *Self, c: *ui.RenderContext) void {
+        const alo = ctx.getAbsLayout();
+        const g = c.g;
+        g.setFillColor(Color.Red);
+        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+    }
+};
+```
+The `render` hook let's you draw the current widget. If there are child widgets, those would be drawn afterwards by default. To supersede the default behavior, use the `renderCustom` hook.
 
 ### Widget Library
 For now you can checkout widgets.zig to see what each widget can do.
