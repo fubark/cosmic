@@ -7,7 +7,9 @@ const Layout = ui.Layout;
 const RenderContext = ui.RenderContext;
 const FrameId = ui.FrameId;
 
+/// Id can be an enum literal that is given a unique id at comptime.
 pub const WidgetUserId = usize;
+
 pub const WidgetTypeId = usize;
 
 pub const WidgetKey = union(enum) {
@@ -73,6 +75,9 @@ pub const Node = struct {
     /// Pointer to the widget instance.
     widget: *anyopaque,
 
+    /// Is only defined if has_widget_id = true.
+    id: WidgetUserId,
+
     // TODO: This was added to Node for convenience. Since binding is a one time operation, it shouldn't have to carry over from a Frame.
     /// Binds the widget to a WidgetRef upon initialization.
     bind: ?*anyopaque,
@@ -104,6 +109,8 @@ pub const Node = struct {
 
     has_child_event_ordering: bool,
 
+    has_widget_id: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, vtable: *const WidgetVTable, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
         self.* = .{
             .vtable = vtable,
@@ -122,6 +129,8 @@ pub const Node = struct {
             .key_up_list = NullId,
             .key_down_list = NullId,
             .has_child_event_ordering = false,
+            .id = undefined,
+            .has_widget_id = false,
         };
     }
 

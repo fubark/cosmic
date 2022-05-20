@@ -34,6 +34,7 @@ pub const FramePropsPtr = frame.FramePropsPtr;
 const widget = @import("widget.zig");
 pub const Node = widget.Node;
 pub const WidgetTypeId = widget.WidgetTypeId;
+pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
 pub const WidgetRef = widget.WidgetRef;
 pub const WidgetVTable = widget.WidgetVTable;

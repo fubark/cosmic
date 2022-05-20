@@ -17,6 +17,7 @@ pub const Frame = struct {
 
     vtable: *const WidgetVTable,
 
+    // TODO: Allow this to be a u32 as well.
     /// Used to map a unique id to the created node.
     id: ?WidgetUserId,
 

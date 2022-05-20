@@ -798,6 +798,15 @@ pub const Module = struct {
     }
 
     fn destroyNode(self: *Self, node: *Node) void {
+        if (node.has_widget_id) {
+            if (self.common.id_map.get(node.id)) |val| {
+                // Must check that this node currently maps to that id since node removal can happen after newly created node.
+                if (val == node) {
+                    _ = self.common.id_map.remove(node.id);
+                }
+            }
+        }
+
         const widget_vtable = node.vtable;
         widget_vtable.destroy(node, self.alloc);
 
@@ -888,6 +897,13 @@ pub const Module = struct {
         // log.warn("create node {}", .{frame.type_id});
         const key = if (frame.key != null) frame.key.? else WidgetKey{.Idx = idx};
         new_node.init(self.alloc, frame.vtable, parent, key, undefined);
+        if (frame.id) |id| {
+            // Due to how diffing works, nodes are batched removed at the end so a new node could be created to replace an existing one and still run into an id collision.
+            // For now, just overwrite the existing mapping and make sure node removal only removes the id mapping if the entry matches the node.
+            self.common.id_map.put(id, new_node) catch @panic("error");
+            new_node.id = id;
+            new_node.has_widget_id = true;
+        }
         new_node.bind = frame.bind;
 
         if (parent != null) {
@@ -1648,6 +1664,9 @@ pub const ModuleCommon = struct {
     // TODO: design themes.
     default_font_gid: FontGroupId,
 
+    /// Keys are assumed to be static memory so they don't need to be freed.
+    id_map: std.AutoHashMap(ui.WidgetUserId, *Node),
+
     ctx: CommonContext,
 
     context_provider: fn (key: u32) ?*anyopaque,
@@ -1692,11 +1711,13 @@ pub const ModuleCommon = struct {
                 .alloc = alloc, 
             },
             .context_provider = S.defaultContextProvider,
+            .id_map = std.AutoHashMap(ui.WidgetUserId, *Node).init(alloc),
         };
         self.arena_alloc = self.arena_allocator.allocator();
     }
 
     fn deinit(self: *Self) void {
+        self.id_map.deinit();
         self.text_measures.deinit();
 
         self.next_post_layout_cbs.deinit();
@@ -1785,6 +1806,12 @@ pub const ModuleCommon = struct {
     fn nextPostLayout(self: *Self, ctx: anytype, cb: fn (@TypeOf(ctx)) void) void {
         const closure = Closure(@TypeOf(ctx), fn () void).init(self.alloc, ctx, cb).iface();
         self.next_post_layout_cbs.append(closure) catch unreachable;
+    }
+
+    /// Given id as an enum literal tag, return the node.
+    pub fn getNodeByTag(self: Self, comptime lit: @Type(.EnumLiteral)) ?*Node {
+        const id = stdx.meta.enumLiteralId(lit);
+        return self.id_map.get(id);
     }
 };
 
@@ -2057,13 +2084,18 @@ pub const BuildContext = struct {
         // log.warn("createFrame {}", .{build_props});
         const BuildProps = @TypeOf(build_props);
 
-        const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
         if (@hasField(BuildProps, "bind")) {
             if (stdx.meta.FieldType(BuildProps, .bind) != *WidgetRef(Widget)) {
                 @compileError("Expected bind type to be: " ++ @typeName(*WidgetRef(Widget)));
             }
         }
+        if (@hasField(BuildProps, "id")) {
+            if (@typeInfo(stdx.meta.FieldType(BuildProps, .id)) != .EnumLiteral) {
+                @compileError("Expected id type to be an enum literal.");
+            }
+        }
         const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
+        const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
 
         const props_ptr = b: {
             const HasProps = comptime WidgetHasProps(Widget);
@@ -2149,6 +2181,10 @@ const TestModule = struct {
 
     pub fn getRoot(self: Self) ?*Node {
         return self.mod.root_node;
+    }
+
+    pub fn getNodeByTag(self: Self, comptime lit: @Type(.EnumLiteral)) ?*Node {
+        return self.mod.common.getNodeByTag(lit);
     }
 };
 
