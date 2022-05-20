@@ -88,6 +88,9 @@ pub const Node = struct {
     /// The child nodes.
     children: std.ArrayList(*Node),
 
+    /// Unmanaged slice of child event ordering. Only defined if has_child_event_ordering = true.
+    child_event_ordering: []const *Node,
+
     // TODO: It might be better to keep things simple and only allow one callback per event type per node. If the widget wants more they can multiplex in their implementation.
     /// Singly linked lists of events attached to this node. Can be NullId.
     mouse_down_list: u32,
@@ -99,6 +102,8 @@ pub const Node = struct {
     // TODO: Should use a shared hashmap from Module.
     key_to_child: std.AutoHashMap(WidgetKey, *Node),
 
+    has_child_event_ordering: bool,
+
     pub fn init(self: *Self, alloc: std.mem.Allocator, vtable: *const WidgetVTable, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
         self.* = .{
             .vtable = vtable,
@@ -107,6 +112,7 @@ pub const Node = struct {
             .widget = widget,
             .bind = null,
             .children = std.ArrayList(*Node).init(alloc),
+            .child_event_ordering = undefined,
             .layout = undefined,
             .abs_pos = undefined,
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
@@ -115,7 +121,14 @@ pub const Node = struct {
             .mouse_scroll_list = NullId,
             .key_up_list = NullId,
             .key_down_list = NullId,
+            .has_child_event_ordering = false,
         };
+    }
+
+    /// Caller still owns ordering afterwards.
+    pub fn setChildEventOrdering(self: *Self, ordering: []const *Node) void {
+        self.child_event_ordering = ordering;
+        self.has_child_event_ordering = true;
     }
 
     pub fn getWidget(self: Self, comptime Widget: type) *Widget {

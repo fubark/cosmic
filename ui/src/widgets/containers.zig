@@ -1,3 +1,4 @@
+const std = @import("std");
 const stdx = @import("stdx");
 const ui = @import("../ui.zig");
 const log = stdx.log.scoped(.containers);
@@ -192,6 +193,77 @@ pub const Stretch = struct {
             res.height = cstr.height;
         }
         return res;
+    }
+};
+
+// TODO: Children can override the order by providing a z-index property. All children default to 0 z-index which results in the natural order.
+//       A higher z-index would raise the child up.
+/// Stacks children over each other. The first child will be rendered last and receive input events last.
+pub const ZStack = struct {
+    props: struct {
+        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+    },
+
+    /// Ordered by z-index asc.
+    ordered_children: std.ArrayList(u32),
+
+    /// Ordered by z-index desc.
+    child_event_ordering: std.ArrayList(*ui.Node),
+
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
+        self.ordered_children = std.ArrayList(u32).init(c.alloc);
+        self.child_event_ordering = std.ArrayList(*ui.Node).init(c.alloc);
+    }
+
+    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
+        const self = node.getWidget(Self);
+        self.ordered_children.deinit();
+        self.child_event_ordering.deinit();
+    }
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+        // Ordering is determined at build step.
+        self.ordered_children.ensureTotalCapacity(self.props.children.len) catch @panic("error");
+        self.ordered_children.items.len = 0;
+
+        // For now, the order is the same.
+        var i: u32 = 0;
+        while (i < self.props.children.len) : (i += 1) {
+            self.ordered_children.appendAssumeCapacity(i);
+        }
+
+        return c.fragment(self.props.children);
+    }
+
+    pub fn postUpdate(node: *ui.Node) void {
+        const self = node.getWidget(Self);
+
+        // Child event ordering is z-index desc.
+        self.child_event_ordering.ensureTotalCapacity(self.props.children.len) catch @panic("error");
+        self.child_event_ordering.items.len = 0;
+        var i = @intCast(u32, self.props.children.len);
+        while (i > 0) {
+            i -= 1;
+            self.child_event_ordering.appendAssumeCapacity(node.children.items[i]);
+        }
+        node.setChildEventOrdering(self.child_event_ordering.items);
+    }
+
+    /// Return ordering sorted by z-index desc.
+    pub fn childEventOrdering(self: *Self) []const u32 {
+        return self.child_event_ordering.items;
+    }
+
+    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+        const node = c.node;
+
+        // Rendered by z-index asc.
+        for (self.ordered_children.items) |idx| {
+            const child = node.children.items[idx];
+            c.renderChildNode(node, child);
+        }
     }
 };
 
