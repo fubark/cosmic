@@ -148,6 +148,9 @@ pub const WidgetVTable = struct {
     /// Updates the props on an existing Widget.
     updateProps: fn (widget_ptr: *anyopaque, props_ptr: [*]const u8) void,
 
+    /// Runs post update.
+    postUpdate: fn (node: *Node) void,
+
     /// Generates the frame for an existing Widget.
     build: fn (widget_ptr: *anyopaque, build_ctx: *anyopaque) FrameId,
 
@@ -166,6 +169,7 @@ pub const WidgetVTable = struct {
     name: []const u8,
 
     has_flex_prop: bool,
+    has_post_update: bool,
 };
 
 pub const LayoutSize = struct {

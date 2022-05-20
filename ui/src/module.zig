@@ -100,8 +100,20 @@ pub fn GenWidgetVTable(comptime Widget: type) *const WidgetVTable {
                 const Props = WidgetProps(Widget);
                 widget.props = std.mem.bytesToValue(Props, props_ptr[0..@sizeOf(Props)]);
             }
+            if (@hasDecl(Widget, "postPropsUpdate")) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget) void, @TypeOf(Widget.postPropsUpdate))) {
+                    @compileError("Invalid postPropsUpdate function: " ++ @typeName(@TypeOf(Widget.postPropsUpdate)) ++ " Widget: " ++ @typeName(Widget));
+                }
+                widget.postPropsUpdate();
+            }
+        }
+
+        fn postUpdate(node: *Node) void {
             if (@hasDecl(Widget, "postUpdate")) {
-                widget.postUpdate();
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Node) void, @TypeOf(Widget.postUpdate))) {
+                    @compileError("Invalid postUpdate function: " ++ @typeName(@TypeOf(Widget.postUpdate)) ++ " Widget: " ++ @typeName(Widget));
+                }
+                Widget.postUpdate(node);
             }
         }
 
@@ -239,11 +251,13 @@ pub fn GenWidgetVTable(comptime Widget: type) *const WidgetVTable {
             .create = create,
             .postInit = postInit,
             .updateProps = updateProps,
+            .postUpdate = postUpdate,
             .build = build,
             .render = render,
             .layout = layout,
             .destroy = destroy,
             .has_flex_prop = Widget == ui.widgets.Row or Widget == ui.widgets.Column or Widget == ui.widgets.Flex,
+            .has_post_update = @hasDecl(Widget, "postUpdate"),
             .getFlex = getFlex,
             .name = @typeName(Widget),
         };
@@ -409,7 +423,8 @@ pub const Module = struct {
                     cur = self.common.mouse_up_event_subs.getNextNoCheck(cur);
                 }
             }
-            for (node.children.items) |child| {
+            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+            for (event_children) |child| {
                 if (self.processMouseUpEventRecurse(child, xf, yf, e)) {
                     break;
                 }
@@ -448,7 +463,8 @@ pub const Module = struct {
                 sub.handleEvent(&self.event_ctx, e);
                 cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
             }
-            for (node.children.items) |child| {
+            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+            for (event_children) |child| {
                 if (self.processMouseDownEventRecurse(child, xf, yf, e)) {
                     break;
                 }
@@ -474,7 +490,8 @@ pub const Module = struct {
                 sub.handleEvent(&self.event_ctx, e);
                 cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
             }
-            for (node.children.items) |child| {
+            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+            for (event_children) |child| {
                 if (self.processMouseScrollEventRecurse(child, xf, yf, e)) {
                     break;
                 }
@@ -621,6 +638,13 @@ pub const Module = struct {
             const props_ptr = self.build_ctx.frame_props.getBytesPtr(frame.props);
             widget_vtable.updateProps(node.widget, props_ptr);
         }
+
+        defer {
+            if (widget_vtable.has_post_update) {
+                widget_vtable.postUpdate(node);
+            }
+        }
+
         const child_frame_id = self.buildChildFrame(frame_id, node, widget_vtable);
         if (child_frame_id == NullId) {
             if (node.children.items.len > 0) {

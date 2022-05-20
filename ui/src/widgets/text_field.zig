@@ -281,7 +281,7 @@ pub const TextFieldInner = struct {
         self.node = c.node;
     }
 
-    pub fn postUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *Self) void {
         // Make sure caret_idx is in bounds.
         if (self.caret_idx > self.props.text.len) {
             self.caret_idx = @intCast(u32, self.props.text.len);
