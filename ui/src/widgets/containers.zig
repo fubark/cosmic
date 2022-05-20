@@ -136,11 +136,24 @@ pub const Center = struct {
     }
 };
 
+const StretchMethod = enum(u3) {
+    None = 0,
+    Both = 1,
+    Width = 2,
+    Height = 3,
+    WidthAndKeepRatio = 4,
+    HeightAndKeepRatio = 5,
+};
+
+/// When method = WidthAndKeepRatio, the width is stretched and the height is adjusted to keep the aspect ratio.
+/// When method = HeightAndKeepRatio, the height is stretched and the width is adjusted to keep the aspect ratio.
 pub const Stretch = struct {
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
-        h_stretch: bool = true,
-        v_stretch: bool = true,
+        method: StretchMethod = .Both,
+
+        /// Width to height ratio.
+        aspect_ratio: f32 = 1,
     },
 
     const Self = @This();
@@ -151,23 +164,31 @@ pub const Stretch = struct {
     }
 
     pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        var cstr = c.getSizeConstraint();
+        switch (self.props.method) {
+            .WidthAndKeepRatio => cstr.height = cstr.width / self.props.aspect_ratio,
+            .HeightAndKeepRatio => cstr.width = cstr.height * self.props.aspect_ratio,
+            else => {},
+        }
 
         if (self.props.child == ui.NullFrameId) {
             return cstr;
         }
 
+        const h_stretch = self.props.method == .Both or self.props.method == .Width or self.props.method == .WidthAndKeepRatio or self.props.method == .HeightAndKeepRatio;
+        const v_stretch = self.props.method == .Both or self.props.method == .Height or self.props.method == .WidthAndKeepRatio or self.props.method == .HeightAndKeepRatio;
+
         const node = c.getNode();
         const child = node.children.items[0];
-        var child_size = c.computeLayoutStretch(child, cstr, self.props.h_stretch, self.props.v_stretch);
+        var child_size = c.computeLayoutStretch(child, cstr, h_stretch, v_stretch);
         child_size.cropTo(cstr);
 
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
         var res = child_size;
-        if (self.props.h_stretch) {
+        if (h_stretch) {
             res.width = cstr.width;
         }
-        if (self.props.v_stretch) {
+        if (v_stretch) {
             res.height = cstr.height;
         }
         return res;
