@@ -45,6 +45,10 @@ pub const widgets = @import("widgets.zig");
 const text = @import("text.zig");
 pub const TextMeasure = text.TextMeasure;
 
+const tween = @import("tween.zig");
+pub const Tween = tween.Tween;
+pub const SimpleTween = tween.SimpleTween;
+
 pub const VAlign = enum(u2) {
     Top = 0,
     Center = 1,
