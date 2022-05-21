@@ -388,6 +388,7 @@ pub const Graphics = struct {
         }
     }
 
+    /// Assumes pts are in ccw order.
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.fillTriangle(&self.g, x1, y1, x2, y2, x3, y3),

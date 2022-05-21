@@ -572,6 +572,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+        self.batcher.beginTex(self.white_tex);
         // Top border.
         self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, width + self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
         // Right border.
@@ -584,6 +585,7 @@ pub const Graphics = struct {
 
     // Uses path rendering.
     pub fn strokeRectLyon(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+        self.batcher.beginTex(self.white_tex);
         // log.debug("strokeRect {d:.2} {d:.2} {d:.2} {d:.2}", .{pos.x, pos.y, width, height});
         const b = lyon.initBuilder();
         lyon.addRectangle(b, &.{ .x = x, .y = y, .width = width, .height = height });
@@ -611,6 +613,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.batcher.beginTex(self.white_tex);
         // Top left corner.
         self.drawCircleArcN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
@@ -668,6 +671,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+        self.batcher.beginTex(self.white_tex);
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -679,7 +683,7 @@ pub const Graphics = struct {
 
     // n is the number of sections in the arc we will draw.
     pub fn drawCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
 
         const inner_rad = radius - self.cur_line_width_half;
@@ -843,7 +847,7 @@ pub const Graphics = struct {
 
     // n is the number of sections in the arc we will draw.
     pub fn drawEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
 
         const inner_h_rad = h_radius - self.cur_line_width_half;
@@ -888,10 +892,12 @@ pub const Graphics = struct {
     }
 
     pub fn drawPoint(self: *Self, x: f32, y: f32) void {
+        self.batcher.beginTex(self.white_tex);
         self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
     }
 
     pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
+        self.batcher.beginTex(self.white_tex);
         if (x1 == x2) {
             self.fillRectColor(x1 - self.cur_line_width_half, y1, self.cur_line_width, y2 - y1, self.cur_stroke_color);
         } else {
@@ -925,6 +931,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawQuadraticBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+        self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.quadraticBezierTo(b, &pt(cx, cy), &pt(x1, y1));
@@ -935,7 +942,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawCubicBezierCurve(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         const c_bez = CubicBez{
             .x0 = x0,
             .y0 = y0,
@@ -952,6 +959,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawCubicBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+        self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.cubicBezierTo(b, &pt(cx0, cy0), &pt(cx1, cy1), &pt(x1, y1));
@@ -1567,7 +1575,7 @@ pub const Graphics = struct {
         }
     }
 
-    // Assumes pts are in ccw order.
+    /// Assumes pts are in ccw order.
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(3, 3);
@@ -1586,7 +1594,7 @@ pub const Graphics = struct {
         self.batcher.mesh.addTriangle(start_idx, start_idx + 1, start_idx + 2);
     }
 
-    // Assumes pts are in ccw order.
+    /// Assumes pts are in ccw order.
     pub fn fillConvexPolygon(self: *Self, pts: []const Vec2) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(pts.len, (pts.len - 2) * 3);
@@ -1665,21 +1673,22 @@ pub const Graphics = struct {
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
         _ = self;
         _ = pts;
+        self.batcher.beginTex(self.white_tex);
         // TODO: Implement this.
     }
 
     pub fn drawPolygonLyon(self: *Self, pts: []const Vec2) void {
+        self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
         var data = lyon.buildStroke(b, self.cur_line_width);
 
-        self.setCurrentTexture(self.white_tex);
         self.pushLyonVertexData(&data, self.cur_stroke_color);
     }
 
     pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const image = self.images.get(image_id);
-        self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1718,7 +1727,7 @@ pub const Graphics = struct {
 
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const image = self.images.getNoCheck(image_id);
-        self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1752,7 +1761,7 @@ pub const Graphics = struct {
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
         const image = self.images.getNoCheck(image_id);
-        self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
