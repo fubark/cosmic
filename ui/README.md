@@ -201,9 +201,9 @@ Before any widget instances are created, the engine needs to know the structure 
         });
     }
 ```
-`build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.decl` is used to declare a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list` is used to group together a frames.
+`build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.decl()` is used to declare a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list()` is used to group together frames.
 
-The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created, if one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `ctx.fragment()` wraps a list of frame ids as a fragment frame.
+The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
 
 ### Widget Binding
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
@@ -249,9 +249,9 @@ Similarily you can remove handlers. If you forget, they will be cleaned up anywa
 
 ### Layout
 When the engine needs to perform layout, the `layout` hook is invoked. If the widget does not provide a hook, a default implementation is used. Each widget's `layout` is responsible for:
-- Calling layout on it's children via `ctx.computeLayout, ctx.computeLayoutStretch`.
+- Calling layout on it's children via `LayoutContext.computeLayout(), LayoutContext.computeLayoutStretch()`.
 - Resizing the child LayoutSize returned to respect the current or parent constraints.
-- Positioning the child relative to the current widget via `ctx.setLayout`.
+- Positioning the child relative to the current widget via `LayoutContext.setLayout()`.
 - Returning the current widget's LayoutSize.
 
 Following this pattern lets the engine perform layout in linear time while also providing the flexibility to define many different layout constraints.

@@ -862,15 +862,14 @@ pub const Module = struct {
             cur_id = self.common.mouse_up_event_subs.getNextNoCheck(cur_id);
         }
 
-        var i: u32 = 0;
+        var i = @intCast(u32, self.common.mouse_move_event_subs.items.len);
         // TODO: Make faster.
-        while (true) {
-            if (i < self.common.mouse_move_event_subs.items.len) {
-                if (self.common.mouse_move_event_subs.items[i].node == node) {
-                    _ = self.common.mouse_move_event_subs.orderedRemove(i);
-                }
-                continue;
-            } else break;
+        while (i > 0) {
+            i -= 1;
+            if (self.common.mouse_move_event_subs.items[i].node == node) {
+                self.common.mouse_move_event_subs.items[i].deinit(self.alloc);
+                _ = self.common.mouse_move_event_subs.orderedRemove(i);
+            }
         }
 
         // TODO: Make faster.
@@ -2374,7 +2373,7 @@ test "Widget instance lifecycle." {
             c.addKeyDownHandler({}, onKeyDown);
             c.addMouseDownHandler({}, onMouseDown);
             c.addMouseUpHandler({}, onMouseUp);
-            c.addMouseMoveHandler({}, onMouseMove);
+            c.addMouseMoveHandler(@as(u32, 1), onMouseMove);
             _ = c.addInterval(Duration.initSecsF(1), {}, onInterval);
             c.requestFocus(onBlur);
         }
@@ -2384,7 +2383,7 @@ test "Widget instance lifecycle." {
         fn onKeyDown(_: void, _: KeyDownEvent) void {}
         fn onMouseDown(_: void, _: MouseDownEvent) void {}
         fn onMouseUp(_: void, _: MouseUpEvent) void {}
-        fn onMouseMove(_: void, _: MouseMoveEvent) void {}
+        fn onMouseMove(_: u32, _: MouseMoveEvent) void {}
     };
     const S = struct {
         fn bootstrap(decl: bool, c: *BuildContext) FrameId {
