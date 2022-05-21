@@ -29,6 +29,8 @@ const NullFrameId = ui.NullFrameId;
 const Import = ui.Import;
 const log = stdx.log.scoped(.widgets);
 
+pub const Root = @import("widgets/root.zig").Root;
+pub const PopoverOverlay = @import("widgets/root.zig").PopoverOverlay;
 pub const Slider = @import("widgets/slider.zig").Slider;
 const text_editor = @import("widgets/text_editor.zig");
 pub const TextEditor = text_editor.TextEditor;
@@ -46,6 +48,7 @@ pub const Sized = containers.Sized;
 pub const Padding = containers.Padding;
 pub const Center = containers.Center;
 pub const Stretch = containers.Stretch;
+pub const ZStack = containers.ZStack;
 const button = @import("widgets/button.zig");
 pub const Button = button.Button;
 pub const TextButton = button.TextButton;
@@ -282,5 +285,53 @@ pub const Text = struct {
             g.setFillColor(self.props.color);
             g.fillText(alo.x, alo.y, self.props.text.?);
         }
+    }
+};
+
+pub const MouseArea = struct {
+    props: struct {
+        onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pressed: bool,
+
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+        _ = c;
+        return self.props.child;
+    }
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
+        self.pressed = false;
+        c.addMouseDownHandler(c.node, handleMouseDownEvent);
+        c.addMouseUpHandler(c.node, handleMouseUpEvent);
+    }
+
+    fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
+        var self = node.getWidget(Self);
+        if (e.val.button == .Left) {
+            if (self.pressed) {
+                self.pressed = false;
+                if (self.props.onClick) |cb| {
+                    cb.call(.{ e.val });
+                }
+            }
+        }
+    }
+
+    fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) void {
+        var self = node.getWidget(Self);
+        if (e.val.button == .Left) {
+            e.ctx.requestFocus(onBlur);
+            self.pressed = true;
+        }
+    }
+
+    fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
+        _ = ctx;
+        var self = node.getWidget(Self);
+        self.pressed = false;
     }
 };

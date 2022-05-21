@@ -176,6 +176,15 @@ pub const Node = struct {
             return Vec2.init(self.layout.x, self.layout.y);
         }
     }
+
+    pub fn getAbsLayout(self: Self) Layout {
+        return .{
+            .x = self.abs_pos.x,
+            .y = self.abs_pos.y,
+            .width = self.layout.width,
+            .height = self.layout.height,
+        };
+    }
 };
 
 /// VTable for a Widget.

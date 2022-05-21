@@ -533,18 +533,22 @@ pub const Module = struct {
     fn updateRoot(self: *Self, root_id: FrameId) !void {
         if (root_id != NullFrameId) {
             const root = self.build_ctx.getFrame(root_id);
-            if (root.vtable == FragmentVTable) {
-                return error.RootCantBeFragment;
-            }
             if (self.root_node) |root_node| {
                 if (root_node.vtable == root.vtable) {
                     try self.updateExistingNode(null, root_id, root_node);
                 } else {
                     self.removeNode(root_node);
-                    self.root_node = try self.createAndUpdateNode(null, root_id, 0);
+                    // Create the node first so getRoot() works in `init` and `postInit` callbacks.
+                    var new_node = self.alloc.create(Node) catch unreachable;
+                    self.root_node = new_node;
+                    errdefer self.root_node = null;
+                    _ = try self.createAndUpdateNode2(null, root_id, 0, new_node);
                 }
             } else {
-                self.root_node = try self.createAndUpdateNode(null, root_id, 0);
+                var new_node = self.alloc.create(Node) catch unreachable;
+                self.root_node = new_node;
+                errdefer self.root_node = null;
+                _ = try self.createAndUpdateNode2(null, root_id, 0, new_node);
             }
         } else {
             if (self.root_node) |root_node| {
@@ -571,7 +575,16 @@ pub const Module = struct {
 
         // TODO: Provide a different context for the bootstrap function since it doesn't have a frame or node. Currently uses the BuildContext.
         self.build_ctx.prepareCall(undefined, undefined);
-        const root_id = bootstrap_fn(bootstrap_ctx, &self.build_ctx);
+        const user_root_id = bootstrap_fn(bootstrap_ctx, &self.build_ctx);
+        if (user_root_id != NullFrameId) {
+            const user_root = self.build_ctx.getFrame(user_root_id);
+            if (user_root.vtable == FragmentVTable) {
+                return error.UserRootCantBeFragment;
+            }
+        }
+
+        // The user root widget is wrapped by the Root widget to facilitate things like modals and popovers.
+        const root_id = self.build_ctx.decl(ui.widgets.Root, .{ .user_root = user_root_id });
 
         // Since the aim is to do layout in linear time, the tree should be built first.
         // Traverse to see which nodes need to be created/deleted.
@@ -886,11 +899,16 @@ pub const Module = struct {
         return widget_vtable.build(node.widget, &self.build_ctx);
     }
 
-    fn createAndUpdateNode(self: *Self, parent: ?*Node, frame_id: FrameId, idx: u32) UpdateError!*Node {
+    inline fn createAndUpdateNode(self: *Self, parent: ?*Node, frame_id: FrameId, idx: u32) UpdateError!*Node {
+        const new_node = self.alloc.create(Node) catch unreachable;
+        return self.createAndUpdateNode2(parent, frame_id, idx, new_node);
+    }
+
+    /// Allow passing in a new node so a ref can be obtained beforehand.
+    fn createAndUpdateNode2(self: *Self, parent: ?*Node, frame_id: FrameId, idx: u32, new_node: *Node) UpdateError!*Node {
         const frame = self.build_ctx.getFrame(frame_id);
         const widget_vtable = frame.vtable;
 
-        const new_node = self.alloc.create(Node) catch unreachable;
         errdefer {
             for (new_node.children.items) |child| {
                 self.destroyNode(child);
@@ -1042,6 +1060,10 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
     return struct {
         pub inline fn getContext(self: Context, key: u32) ?*anyopaque {
             return self.common.common.context_provider(key);
+        }
+
+        pub inline fn getRoot(self: Context) *ui.widgets.Root {
+            return self.common.common.mod.root_node.?.getWidget(ui.widgets.Root);
         }
     };
 }
@@ -2538,7 +2560,9 @@ pub const Layout = struct {
     width: f32,
     height: f32,
 
-    pub fn init(x: f32, y: f32, width: f32, height: f32) @This() {
+    const Self = @This();
+
+    pub fn init(x: f32, y: f32, width: f32, height: f32) Self {
         return .{
             .x = x,
             .y = y,
@@ -2547,13 +2571,17 @@ pub const Layout = struct {
         };
     }
 
-    pub fn initWithSize(x: f32, y: f32, size: LayoutSize) @This() {
+    pub fn initWithSize(x: f32, y: f32, size: LayoutSize) Self {
         return .{
             .x = x,
             .y = y,
             .width = size.width,
             .height = size.height,
         };
+    }
+
+    pub fn contains(self: Self, x: f32, y: f32) bool {
+        return x >= self.x and x <= self.x + self.width and y >= self.y and y <= self.y + self.height;
     }
 };
 
