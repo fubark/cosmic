@@ -13,6 +13,7 @@ pub const Column = struct {
     props: struct {
         bg_color: ?Color = null,
         valign: ui.VAlign = .Top,
+        stretch_width: bool = false,
         spacing: f32 = 0,
 
         /// Whether the columns's height will shrink to the total height of it's children or expand to the parent container's height.
@@ -53,7 +54,7 @@ pub const Column = struct {
                     continue;
                 }
             }
-            var child_size = c.computeLayout(it, vacant_size);
+            var child_size = c.computeLayoutStretch(it, vacant_size, self.props.stretch_width, false);
             child_size.cropTo(vacant_size);
             c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
             cur_y += child_size.height + self.props.spacing;
@@ -92,7 +93,7 @@ pub const Column = struct {
                 var child_size: ui.LayoutSize = undefined;
                 switch (flex_fit) {
                     .ShrinkAndGive => {
-                        child_size = c.computeLayout(it, max_child_size);
+                        child_size = c.computeLayoutStretch(it, max_child_size, self.props.stretch_width, false);
                         child_size.cropTo(max_child_size);
                         c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
                         cur_y += child_size.height + self.props.spacing;
@@ -101,7 +102,7 @@ pub const Column = struct {
                         }
                     },
                     else => {
-                        child_size = c.computeLayoutStretch(it, max_child_size, false, true);
+                        child_size = c.computeLayoutStretch(it, max_child_size, self.props.stretch_width, true);
                         child_size.cropTo(max_child_size);
                         c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
                         cur_y += child_size.height + self.props.spacing;
@@ -157,6 +158,7 @@ pub const Row = struct {
     props: struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
+        valign: ui.VAlign = .Top,
 
         spacing: f32 = 0,
 
@@ -232,6 +234,17 @@ pub const Row = struct {
                 if (child_size.height > max_child_height) {
                     max_child_height = child_size.height;
                 }
+            }
+        }
+
+        if (self.props.valign != .Top) {
+            switch (self.props.valign) {
+                .Center => {
+                    for (c.node.children.items) |child| {
+                        c.setLayoutPos(child, child.layout.x, (max_child_height - child.layout.height) * 0.5);
+                    }
+                },
+                else => {},
             }
         }
 
