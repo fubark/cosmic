@@ -13,6 +13,14 @@ pub const Color = struct {
         a: u8,
     },
 
+    // Standard colors.
+    pub const StdRed = init(255, 0, 0, 255);
+    pub const StdYellow = init(255, 255, 0, 255);
+    pub const StdGreen = init(0, 255, 0, 255);
+    pub const StdCyan = init(0, 255, 255, 255);
+    pub const StdBlue = init(0, 0, 255, 255);
+    pub const StdMagenta = init(255, 0, 255, 255);
+
     // Prettier default colors from raylib + extras.
     pub const LightGray = init(200, 200, 200, 255);
     pub const Gray = init(130, 130, 130, 255);
@@ -110,6 +118,37 @@ pub const Color = struct {
             },
             else => return error.UnknownFormat,
         }
+    }
+
+    pub fn toHsv(self: Self) [3]f32 {
+        const r = @intToFloat(f32, self.channels.r) / 255;
+        const g = @intToFloat(f32, self.channels.g) / 255;
+        const b = @intToFloat(f32, self.channels.b) / 255;
+ 
+        const cmax = std.math.max(r, std.math.max(g, b));
+        const cmin = std.math.min(r, std.math.min(g, b));
+        const diff = cmax - cmin;
+        var h = @as(f32, -1);
+        var s = @as(f32, -1);
+         
+        if (cmax == cmin) {
+            h = 0;
+        } else if (cmax == r) {
+            h = @mod(60 * ((g - b) / diff) + 360, 360);
+        } else if (cmax == g) {
+            h = @mod(60 * ((b - r) / diff) + 120, 360);
+        } else if (cmax == b) {
+            h = @mod(60 * ((r - g) / diff) + 240, 360);
+        }
+ 
+        if (cmax == 0) {
+            s = 0;
+        } else {
+            s = (diff / cmax);
+        }
+ 
+        const v = cmax;
+        return [_]f32{ h, s, v };
     }
 
     /// hue is in degrees [0,360]

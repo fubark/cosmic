@@ -26,6 +26,7 @@ pub const Slider = struct {
     last_value: i32,
     value: i32,
     pressed: bool,
+    node: *ui.Node,
 
     const Self = @This();
     const ThumbWidth = 25;
@@ -33,6 +34,7 @@ pub const Slider = struct {
 
     pub fn init(self: *Self, c: *ui.InitContext) void {
         std.debug.assert(self.props.min_val <= self.props.max_val);
+        self.node = c.node;
         self.value = self.props.init_val;
         self.pressed = false;
         if (self.value < self.props.min_val) {
@@ -116,15 +118,25 @@ pub const Slider = struct {
         return res;
     }
 
+    pub fn getBarLayout(self: Self) ui.Layout {
+        return ui.Layout.init(ThumbWidth/2, self.node.layout.height/2 - 5, self.node.layout.width - ThumbWidth, 10);
+    }
+
+    pub fn getThumbLayoutX(self: Self) f32 {
+        const val_range = self.props.max_val - self.props.min_val;
+        const ratio = @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
+        return (self.node.layout.width - ThumbWidth) * ratio + ThumbWidth/2;
+    }
+
     pub fn render(self: *Self, ctx: *ui.RenderContext) void {
         const g = ctx.g;
         const alo = ctx.getAbsLayout();
         g.setFillColor(Color.LightGray);
-        g.fillRect(alo.x, alo.y+alo.height/2 - 5, alo.width, 10);
+        g.fillRect(alo.x + ThumbWidth/2, alo.y+alo.height/2 - 5, alo.width - ThumbWidth, 10);
 
         const val_range = self.props.max_val - self.props.min_val;
         const ratio = @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
-        var thumb_x = alo.x + (alo.width - ThumbWidth) * ratio;
+        const thumb_x = alo.x + (alo.width - ThumbWidth) * ratio;
         g.setFillColor(self.props.thumb_color);
         g.fillRect(thumb_x, alo.y, ThumbWidth, Height);
     }

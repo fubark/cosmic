@@ -27,6 +27,7 @@ const FrameId = ui.FrameId;
 const FrameListPtr = ui.FrameListPtr;
 const NullFrameId = ui.NullFrameId;
 const Import = ui.Import;
+pub const ColorPicker = @import("widgets/color_picker.zig").ColorPicker;
 const log = stdx.log.scoped(.widgets);
 
 pub const Root = @import("widgets/root.zig").Root;
