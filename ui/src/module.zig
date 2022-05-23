@@ -626,11 +626,12 @@ pub const Module = struct {
     pub fn updateAndRender(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) FrameId, width: f32, height: f32) !void {
         const layout_size = LayoutSize.init(width, height);
         try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
-        self.render();
+        self.render(delta_ms);
         self.postUpdate();
     }
 
-    pub fn render(self: *Self) void {
+    pub fn render(self: *Self, delta_ms: f32) void {
+        self.render_ctx.delta_ms = delta_ms;
         ui_render.render(self);
     }
 
@@ -991,6 +992,9 @@ pub const RenderContext = struct {
     common: *CommonContext,
     g: *Graphics,
 
+    /// Elapsed time since the last render.
+    delta_ms: f32,
+
     // Current node.
     node: *Node,
 
@@ -1001,6 +1005,7 @@ pub const RenderContext = struct {
             .g = g,
             .common = common,
             .node = undefined,
+            .delta_ms = 0,
         };
     }
 
@@ -1019,13 +1024,8 @@ pub const RenderContext = struct {
         }
     }
 
-    pub fn getAbsLayout(self: *Self) Layout {
-        return .{
-            .x = self.node.abs_pos.x,
-            .y = self.node.abs_pos.y,
-            .width = self.node.layout.width,
-            .height = self.node.layout.height,
-        };
+    pub inline fn getAbsLayout(self: *Self) Layout {
+        return self.node.getAbsLayout();
     }
 
     pub inline fn getGraphics(self: *Self) *Graphics {

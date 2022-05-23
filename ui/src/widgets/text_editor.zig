@@ -21,6 +21,7 @@ pub const TextEditor = struct {
         width: f32 = 400,
         height: f32 = 300,
         text_color: Color = Color.Black,
+        bg_color: Color = Color.White,
     },
 
     lines: std.ArrayList(Line),
@@ -260,6 +261,7 @@ pub const TextEditor = struct {
     pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         return c.decl(ScrollView, .{
+            .bg_color = self.props.bg_color,
             .child = c.decl(TextEditorInner, .{
                 .editor = self,
             }),

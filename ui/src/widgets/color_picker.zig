@@ -19,6 +19,7 @@ const Stretch = widgets.Stretch;
 
 const log = stdx.log.scoped(.color_picker);
 
+// TODO: Split this into ColorPicker and ColorPickerOption.
 pub const ColorPicker = struct {
     props: struct {
         label: []const u8 = "Color",
