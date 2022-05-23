@@ -3,13 +3,9 @@ const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const platform = @import("platform");
-const MouseUpEvent = platform.MouseUpEvent;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const importWidget = ui.Import.init;
-const WidgetRef = ui.WidgetRef;
-
 const Row = ui.widgets.Row;
 const Text = ui.widgets.Text;
 const TextButton = ui.widgets.TextButton;
@@ -24,22 +20,17 @@ pub const App = struct {
 
     const Self = @This();
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
-        _ = c;
+    pub fn init(self: *Self, _: *ui.InitContext) void {
         self.counter = 0;
     }
 
     pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: MouseUpEvent) void {
+            fn onClick(self_: *Self, _: platform.MouseUpEvent) void {
                 self_.counter += 1;
             }
         };
 
-        _ = S;
-        _ = c;
-
-        _ = self;
         return c.decl(Center, .{
             .child = c.decl(Row, .{
                 .expand = false,
@@ -65,24 +56,12 @@ pub const App = struct {
 };
 
 var app: helper.App = undefined;
-var ui_mod: ui.Module = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
-    init();
-    defer deinit();
-    app.runEventLoop(update);
-}
-
-fn init() void {
     app.init("Counter");
-    ui_mod.init(app.alloc, app.g);
-    ui_mod.addInputHandlers(&app.dispatcher);
-}
-
-fn deinit() void {
-    ui_mod.deinit();
-    app.deinit();
+    defer app.deinit();
+    app.runEventLoop(update);
 }
 
 fn update(delta_ms: f32) void {
@@ -93,12 +72,12 @@ fn update(delta_ms: f32) void {
     };
     const ui_width = @intToFloat(f32, app.win.getWidth());
     const ui_height = @intToFloat(f32, app.win.getHeight());
-    ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height) catch unreachable;
+    app.ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height) catch unreachable;
 }
 
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
-        return helper.wasmInit(init);
+        return helper.wasmInit(&app, "Counter");
     }
 
     export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
@@ -107,6 +86,7 @@ pub usingnamespace if (IsWasm) struct {
 
     /// Not that useful since it's a long lived process in the browser.
     export fn wasmDeinit() void {
-        helper.wasmDeinit(deinit);
+        app.deinit();
+        stdx.wasm.deinit();
     }
 } else struct {};
