@@ -1087,8 +1087,8 @@ pub fn MixinContextFontOps(comptime Context: type) type {
             return self.common.measureText(font_gid, font_size, str);
         }
 
-        pub inline fn measureTextIter(self: *Context, font_gid: FontGroupId, font_size: f32, str: []const u8) graphics.MeasureTextIterator {
-            return self.common.measureTextIter(font_gid, font_size, str);
+        pub inline fn textGlyphIter(self: *Context, font_gid: FontGroupId, font_size: f32, str: []const u8) graphics.TextGlyphIterator {
+            return self.common.textGlyphIter(font_gid, font_size, str);
         }
 
         pub inline fn getFontGroupBySingleFontName(self: Context, name: []const u8) FontGroupId {
@@ -1377,8 +1377,8 @@ pub const CommonContext = struct {
         return res;
     }
 
-    pub inline fn measureTextIter(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8) graphics.MeasureTextIterator {
-        return self.common.g.measureFontTextIter(font_gid, font_size, str);
+    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8) graphics.TextGlyphIterator {
+        return self.common.g.textGlyphIter(font_gid, font_size, str);
     }
 
     pub inline fn getFontGroupForSingleFont(self: Self, font_id: FontId) FontGroupId {

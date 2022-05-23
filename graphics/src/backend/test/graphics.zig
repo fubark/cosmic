@@ -53,13 +53,13 @@ pub const Graphics = struct {
     }
 };
 
-pub const MeasureTextIterator = struct {
-    const Self = @This();
-
+pub const TextGlyphIterator = struct {
     cp_iter: std.unicode.Utf8Iterator,
 
     g: *Graphics,
     font_size: f32,
+
+    const Self = @This();
 
     pub fn init(str: []const u8, font_size: f32, g: *Graphics) Self {
         return .{
@@ -69,19 +69,17 @@ pub const MeasureTextIterator = struct {
         };
     }
 
-    pub fn nextCodepoint(self: *Self) bool {
-        const parent = @fieldParentPtr(graphics.MeasureTextIterator, "inner", self);
+    pub fn nextCodepoint(self: *Self, state: *graphics.TextGlyphIterator.State) bool {
+        state.start_idx = self.cp_iter.i;
+        state.cp = self.cp_iter.nextCodepoint() orelse return false;
+        state.end_idx = self.cp_iter.i;
 
-        parent.state.start_idx = self.cp_iter.i;
-        parent.state.cp = self.cp_iter.nextCodepoint() orelse return false;
-        parent.state.end_idx = self.cp_iter.i;
-
-        parent.state.kern = 0;
+        state.kern = 0;
         const factor = self.font_size / self.g.default_font_size;
-        parent.state.advance_width = factor * self.g.default_font_glyph_advance_width;
-        parent.state.ascent = factor * self.g.default_font_metrics.ascender;
-        parent.state.descent = 0;
-        parent.state.height = factor * self.g.default_font_metrics.height;
+        state.advance_width = factor * self.g.default_font_glyph_advance_width;
+        state.ascent = factor * self.g.default_font_metrics.ascender;
+        state.descent = 0;
+        state.height = factor * self.g.default_font_metrics.height;
         return true;
     }
 

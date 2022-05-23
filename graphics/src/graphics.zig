@@ -33,6 +33,7 @@ pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
 pub const TextMetrics = _text.TextMetrics;
+pub const TextGlyphIterator = _text.TextGlyphIterator;
 
 const FontRendererBackendType = enum(u1) {
     /// Default renderer for desktop.
@@ -807,17 +808,15 @@ pub const Graphics = struct {
         }
     }
 
-    /// Return an iterator to measure each character.
-    pub fn measureFontTextIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) MeasureTextIterator {
+    /// Return a text glyph iterator over UTF-8 string.
+    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) TextGlyphIterator {
         switch (Backend) {
             .OpenGL => {
-                var iter: MeasureTextIterator = undefined;
-                gl.Graphics.measureFontTextIter(&self.g, font_gid, size, str, &iter.inner);
-                return iter;
+                return gl.Graphics.textGlyphIter(&self.g, font_gid, size, str);
             },
             .Test => {
-                var iter: MeasureTextIterator = undefined;
-                iter.inner = testg.MeasureTextIterator.init(str, size, &self.g);
+                var iter: TextGlyphIterator = undefined;
+                iter.inner = testg.TextGlyphIterator.init(str, size, &self.g);
                 return iter;
             },
             else => stdx.panic("unsupported"),
@@ -966,52 +965,6 @@ pub const BlendMode = enum {
 
     // For internal use.
     _undefined,
-};
-
-pub const MeasureTextIterator = struct {
-    const Self = @This();
-
-    // Units are scaled to user font size.
-    pub const State = struct {
-        cp: u21,
-
-        start_idx: usize,
-
-        // Not inclusive.
-        end_idx: usize,
-
-        kern: f32,
-        advance_width: f32,
-
-        // Height would be ascent + descent.
-        ascent: f32,
-        descent: f32,
-        height: f32,
-    };
-
-    inner: switch (Backend) {
-        .OpenGL => gl.MeasureTextIterator,
-        .Test => testg.MeasureTextIterator,
-        else => stdx.panic("unsupported"),
-    },
-
-    state: State,
-
-    pub fn nextCodepoint(self: *Self) bool {
-        switch (Backend) {
-            .Test => return testg.MeasureTextIterator.nextCodepoint(&self.inner),
-            .OpenGL => return gl.MeasureTextIterator.nextCodepoint(&self.inner),
-            else => stdx.panic("unsupported"),
-        }
-    }
-
-    pub fn setIndex(self: *Self, i: usize) void {
-        switch (Backend) {
-            .Test => return testg.MeasureTextIterator.setIndex(&self.inner, i),
-            .OpenGL => return gl.font_cache.MeasureTextIterator.setIndex(&self.inner, i),
-            else => stdx.panic("unsupported"),
-        }
-    }
 };
 
 // Vertical metrics that have been scaled to client font size scale.

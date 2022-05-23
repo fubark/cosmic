@@ -130,7 +130,7 @@ pub const TextField = struct {
 
     fn getCaretIdx(self: *Self, ctx: *ui.CommonContext, x: f32) u32 {
         const font_gid = ctx.getFontGroupForSingleFontOrDefault(self.props.font_id);
-        var iter = ctx.measureTextIter(font_gid, self.props.font_size, self.buf.items);
+        var iter = ctx.textGlyphIter(font_gid, self.props.font_size, self.buf.items);
         if (iter.nextCodepoint()) {
             if (x < iter.state.advance_width/2) {
                 return 0;

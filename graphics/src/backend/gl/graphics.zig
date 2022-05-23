@@ -44,8 +44,8 @@ const Shader = @import("shader.zig").Shader;
 const shaders = @import("shaders.zig");
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
-pub const MeasureTextIterator = text_renderer.MeasureTextIterator;
-const RenderTextContext = text_renderer.RenderTextContext;
+pub const TextGlyphIterator = text_renderer.TextGlyphIterator;
+const RenderTextIterator = text_renderer.RenderTextIterator;
 const svg = graphics.svg;
 const stroke = @import("stroke.zig");
 const tessellator = @import("../../tessellator.zig");
@@ -476,16 +476,14 @@ pub const Graphics = struct {
         text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res, true);
     }
 
-    // Since MeasureTextIterator init needs to do a fieldParentPtr, we pass the res pointer in.
-    pub fn measureFontTextIter(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *MeasureTextIterator) void {
-        text_renderer.measureTextIter(self, group_id, size, self.cur_dpr, str, res);
+    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
+        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr, str);
     }
 
     pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
 
-        var quad: text_renderer.TextureQuad = undefined;
         var vdata: VertexData(4, 6) = undefined;
 
         var start_x = x;
@@ -509,35 +507,35 @@ pub const Graphics = struct {
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
+        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
 
-        while (text_renderer.renderNextCodepoint(&ctx, &quad, true)) {
-            self.setCurrentTexture(quad.image);
+        while (iter.nextCodepointQuad(true)) {
+            self.setCurrentTexture(iter.quad.image);
 
-            if (quad.is_color_bitmap) {
+            if (iter.quad.is_color_bitmap) {
                 vert.setColor(Color.White);
             } else {
                 vert.setColor(self.cur_fill_color);
             }
 
             // top left
-            vert.setXY(quad.x0, quad.y0);
-            vert.setUV(quad.u0, quad.v0);
+            vert.setXY(iter.quad.x0, iter.quad.y0);
+            vert.setUV(iter.quad.u0, iter.quad.v0);
             vdata.verts[0] = vert;
 
             // top right
-            vert.setXY(quad.x1, quad.y0);
-            vert.setUV(quad.u1, quad.v0);
+            vert.setXY(iter.quad.x1, iter.quad.y0);
+            vert.setUV(iter.quad.u1, iter.quad.v0);
             vdata.verts[1] = vert;
 
             // bottom right
-            vert.setXY(quad.x1, quad.y1);
-            vert.setUV(quad.u1, quad.v1);
+            vert.setXY(iter.quad.x1, iter.quad.y1);
+            vert.setUV(iter.quad.u1, iter.quad.v1);
             vdata.verts[2] = vert;
 
             // bottom left
-            vert.setXY(quad.x0, quad.y1);
-            vert.setUV(quad.u0, quad.v1);
+            vert.setXY(iter.quad.x0, iter.quad.y1);
+            vert.setUV(iter.quad.u0, iter.quad.v1);
             vdata.verts[3] = vert;
 
             // indexes
