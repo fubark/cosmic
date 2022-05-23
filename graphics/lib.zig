@@ -4,6 +4,7 @@ const Pkg = std.build.Pkg;
 const platform = @import("../platform/lib.zig");
 const stdx = @import("../stdx/lib.zig");
 const stb = @import("../lib/stb/lib.zig");
+const freetype = @import("../lib/freetype2/lib.zig");
 const gl = @import("../lib/gl/lib.zig");
 const sdl = @import("../lib/sdl/lib.zig");
 const lyon = @import("../lib/clyon/lib.zig");
@@ -17,6 +18,8 @@ pub const pkg = Pkg{
 pub const Options = struct {
     link_lyon: bool = false,
     link_tess2: bool = false,
+    link_stbtt: bool = false,
+    link_freetype2: bool = true,
     enable_tracy: bool = false,
     add_dep_pkgs: bool = true,
 
@@ -57,7 +60,7 @@ pub fn addPackage(step: *std.build.LibExeObjStep, opts: Options) void {
     const build_options_pkg = build_options.getPackage("build_options");
 
     var new_pkg = pkg;
-    new_pkg.dependencies = &.{ stb.stbi_pkg, stb.stbtt_pkg, gl_pkg, sdl_pkg, stdx.pkg, lyon_pkg, tess2_pkg, platform.pkg, build_options_pkg };
+    new_pkg.dependencies = &.{ stb.stbi_pkg, stb.stbtt_pkg, freetype.pkg, gl_pkg, sdl_pkg, stdx.pkg, lyon_pkg, tess2_pkg, platform.pkg, build_options_pkg };
     step.addPackage(new_pkg);
 
     if (opts.add_dep_pkgs) {
@@ -81,8 +84,13 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
             .lib_path = opts.sdl_lib_path,
         });
     }
-    stb.buildAndLinkStbtt(step);
+    if (opts.link_stbtt) {
+        stb.buildAndLinkStbtt(step);
+    }
     stb.buildAndLinkStbi(step);
+    if (opts.link_freetype2) {
+        freetype.buildAndLink(step);
+    }
     if (opts.link_lyon) {
         lyon.link(step);
     }

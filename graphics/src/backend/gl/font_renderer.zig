@@ -2,6 +2,7 @@ const stdx = @import("stdx");
 const std = @import("std");
 const stbtt = @import("stbtt");
 const stbi = @import("stbi");
+const ft = @import("freetype");
 
 const graphics = @import("../../graphics.zig");
 const gl = graphics.gl;
@@ -11,9 +12,6 @@ const RenderFont = graphics.font.RenderFont;
 const OpenTypeFont = graphics.font.OpenTypeFont;
 const Glyph = graphics.font.Glyph;
 const log = std.log.scoped(.font_renderer);
-
-// LINKS:
-// https://github.com/mooman219/fontdue (could be an alternative default to stbtt)
 
 pub fn getOrLoadMissingGlyph(g: *Graphics, font: *Font, render_font: *RenderFont) *Glyph {
     if (render_font.missing_glyph) |*glyph| {
@@ -51,7 +49,7 @@ pub fn getOrLoadGlyph(g: *Graphics, font: *Font, render_font: *RenderFont, cp: u
 /// Then set flag to indicate the FontAtlas was updated.
 /// New glyph metadata is stored into Font's glyph cache and returned.
 /// Even though the ot_font can be retrieved from font, it's provided by the caller to avoid an extra lookup for bitmap fonts.
-fn generateGlyph(g: *Graphics, font: *const Font, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateGlyph(g: *Graphics, font: *Font, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
     if (ot_font.hasEmbeddedBitmap()) {
         // Bitmap fonts.
         return generateEmbeddedBitmapGlyph(g, ot_font, render_font, glyph_id);
@@ -71,7 +69,7 @@ fn generateGlyph(g: *Graphics, font: *const Font, ot_font: OpenTypeFont, render_
 const h_padding = Glyph.Padding * 2;
 const v_padding = Glyph.Padding * 2;
 
-fn generateOutlineGlyph(g: *Graphics, font: *const Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
     const scale = render_font.scale_from_ttf;
     const fc = &g.font_cache;
 
@@ -83,25 +81,73 @@ fn generateOutlineGlyph(g: *Graphics, font: *const Font, render_font: *const Ren
     var y0: c_int = 0;
     var x1: c_int = 0;
     var y1: c_int = 0;
-    stbtt.stbtt_GetGlyphBitmapBox(&font.stbtt_font, glyph_id, scale, scale, &x0, &y0, &x1, &y1);
 
-    // log.warn("box {} {} {} {}", .{x0, y0, x1, y1});
+    var glyph_x: u32 = 0;
+    var glyph_y: u32 = 0;
+    var glyph_width: u32 = 0;
+    var glyph_height: u32 = 0;
 
-    // Draw glyph into bitmap buffer.
-    const src_width = @intCast(u32, x1 - x0);
-    const src_height = @intCast(u32, y1 - y0);
-    const glyph_width = src_width + h_padding;
-    const glyph_height = src_height + v_padding;
+    switch (graphics.FontRendererBackend) {
+        .Freetype => {
+            var err = ft.FT_Set_Pixel_Sizes(font.impl, 0, render_font.render_font_size);
+            if (err != 0) {
+                stdx.panicFmt("freetype error {}", .{err});
+            }
+            err = ft.FT_Load_Glyph(font.impl, glyph_id, ft.FT_LOAD_DEFAULT);
+            if (err != 0) {
+                stdx.panicFmt("freetype error {}", .{err});
+            }
+            err = ft.FT_Render_Glyph(font.impl.glyph, ft.FT_RENDER_MODE_NORMAL);
+            if (err != 0) {
+                stdx.panicFmt("freetype error {}", .{err});
+            }
+            const src_width = font.impl.glyph[0].bitmap.width;
+            const src_height = font.impl.glyph[0].bitmap.rows;
 
-    const pos = fc.main_atlas.packer.allocRect(glyph_width, glyph_height);
-    const glyph_x = pos.x;
-    const glyph_y = pos.y;
+            x0 = font.impl.glyph[0].bitmap_left;
+            y0 = -font.impl.glyph[0].bitmap_top;
 
-    g.raster_glyph_buffer.resize(src_width * src_height) catch @panic("error");
-    // Don't include extra padding when blitting to bitmap with stbtt.
-    stbtt.stbtt_MakeGlyphBitmap(&font.stbtt_font, g.raster_glyph_buffer.items.ptr, @intCast(c_int, src_width), @intCast(c_int, src_height), @intCast(c_int, src_width), scale, scale, glyph_id);
-    fc.main_atlas.copySubImageFrom1Channel(glyph_x + Glyph.Padding, glyph_y + Glyph.Padding, src_width, src_height, g.raster_glyph_buffer.items);
-    fc.main_atlas.markDirtyBuffer();
+            // log.debug("glyph {any} {} {}", .{font.impl.glyph[0].bitmap, x0, y0});
+
+            if (src_width > 0) {
+                glyph_width = src_width + h_padding;
+                glyph_height = src_height + v_padding;
+
+                const pos = fc.main_atlas.packer.allocRect(glyph_width, glyph_height);
+                glyph_x = pos.x;
+                glyph_y = pos.y;
+
+                fc.main_atlas.copySubImageFrom1Channel(glyph_x + Glyph.Padding, glyph_y + Glyph.Padding, src_width, src_height, font.impl.glyph[0].bitmap.buffer[0..src_width*src_height]);
+                fc.main_atlas.markDirtyBuffer();
+            } else {
+                // Some characters will be blank like the space char.
+                glyph_width = 0;
+                glyph_height = 0;
+                glyph_x = 0;
+                glyph_y = 0;
+            }
+        },
+        .Stbtt => {
+            stbtt.stbtt_GetGlyphBitmapBox(&font.impl, glyph_id, scale, scale, &x0, &y0, &x1, &y1);
+            // Draw glyph into bitmap buffer.
+            const src_width = @intCast(u32, x1 - x0);
+            const src_height = @intCast(u32, y1 - y0);
+            glyph_width = src_width + h_padding;
+            glyph_height = src_height + v_padding;
+
+            const pos = fc.main_atlas.packer.allocRect(glyph_width, glyph_height);
+            glyph_x = pos.x;
+            glyph_y = pos.y;
+
+            g.raster_glyph_buffer.resize(src_width * src_height) catch @panic("error");
+            // Don't include extra padding when blitting to bitmap with stbtt.
+            stbtt.stbtt_MakeGlyphBitmap(&font.impl, g.raster_glyph_buffer.items.ptr, @intCast(c_int, src_width), @intCast(c_int, src_height), @intCast(c_int, src_width), scale, scale, glyph_id);
+            fc.main_atlas.copySubImageFrom1Channel(glyph_x + Glyph.Padding, glyph_y + Glyph.Padding, src_width, src_height, g.raster_glyph_buffer.items);
+            fc.main_atlas.markDirtyBuffer();
+        },
+    }
+
+    // log.debug("box {} {} {} {}", .{x0, y0, x1, y1});
 
     const h_metrics = font.ot_font.getGlyphHMetrics(glyph_id);
     // log.info("adv: {}, lsb: {}", .{h_metrics.advance_width, h_metrics.left_side_bearing});

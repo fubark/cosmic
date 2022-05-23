@@ -22,6 +22,7 @@ const curl = @import("lib/curl/lib.zig");
 const uv = @import("lib/uv/lib.zig");
 const h2o = @import("lib/h2o/lib.zig");
 const stb = @import("lib/stb/lib.zig");
+const freetype = @import("lib/freetype2/lib.zig");
 const gl = @import("lib/gl/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
@@ -582,6 +583,7 @@ const BuilderContext = struct {
         sdl.addPackage(step);
         stb.addStbttPackage(step);
         stb.addStbiPackage(step);
+        freetype.addPackage(step);
         gl.addPackage(step);
         maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);

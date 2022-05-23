@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const stbtt = @import("stbtt");
+const ft = @import("freetype");
 
 const graphics = @import("../../graphics.zig");
 const OpenTypeFont = graphics.font.OpenTypeFont;
@@ -124,7 +125,7 @@ pub const RenderFont = struct {
     }
 };
 
-// Contains rendering metadata about one font. Glyphs metadata are also stored here.
+// Contains rendering metadata about one font face. Glyphs metadata are also stored here.
 // Contains the backing bitmap font size to scale to user requested font size.
 pub const Font = struct {
     const Self = @This();
@@ -133,66 +134,99 @@ pub const Font = struct {
     font_type: FontType,
     name: []const u8,
 
-    /// Only define for Outline font.
-    stbtt_font: stbtt.fontinfo,
+    impl: switch (graphics.FontRendererBackend) {
+        .Freetype => *ft.Face,
+        // Only define for Outline font.
+        .Stbtt => stbtt.fontinfo,
+    },
+
     ot_font: OpenTypeFont,
     data: []const u8,
 
     /// Only defined for Bitmap font.
     bmfont_scaler: BitmapFontScaler,
-    bmfonts: []const BitmapFontInternalData,
+    bmfont_strikes: []const BitmapFontStrike,
 
     pub fn initTTF(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const u8) void {
-        // Dupe font data since we will be continually querying data from it.
-        const own_data = alloc.dupe(u8, data) catch @panic("error");
+        switch (graphics.FontRendererBackend) {
+            .Freetype => {
+                // Dupe font data since we will be continually querying data from it.
+                const own_data = alloc.dupe(u8, data) catch @panic("error");
+                const ot_font = OpenTypeFont.init(alloc, own_data, 0) catch @panic("error");
+                const family_name = ot_font.allocFontFamilyName(alloc) orelse @panic("error");
+                self.* = .{
+                    .id = id,
+                    .font_type = .Outline,
+                    .ot_font = ot_font,
+                    .impl = undefined,
+                    .name = family_name,
+                    .data = own_data,
+                    .bmfont_scaler = undefined,
+                    .bmfont_strikes = undefined,
+                };
+                FreetypeBackend.initFont(graphics.ft_library, &self.impl, own_data, 0);
+            },
+            .Stbtt => {
+                // Dupe font data since we will be continually querying data from it.
+                const own_data = alloc.dupe(u8, data) catch @panic("error");
 
-        const ot_font = OpenTypeFont.init(alloc, own_data, 0) catch @panic("error");
+                const ot_font = OpenTypeFont.init(alloc, own_data, 0) catch @panic("error");
 
-        var stbtt_font: stbtt.fontinfo = undefined;
-        if (ot_font.hasGlyphOutlines()) {
-            stbtt.InitFont(&stbtt_font, own_data, 0) catch @panic("failed to load font");
+                var stbtt_font: stbtt.fontinfo = undefined;
+                if (ot_font.hasGlyphOutlines()) {
+                    stbtt.InitFont(&stbtt_font, own_data, 0) catch @panic("failed to load font");
+                }
+
+                const family_name = ot_font.allocFontFamilyName(alloc) orelse @panic("error");
+
+                self.* = .{
+                    .id = id,
+                    .font_type = .Outline,
+                    .ot_font = ot_font,
+                    .impl = stbtt_font,
+                    .name = family_name,
+                    .data = own_data,
+                    .bmfont_scaler = undefined,
+                    .bmfont_strikes = undefined,
+                };
+            },
         }
-
-        const family_name = ot_font.allocFontFamilyName(alloc) orelse @panic("error");
-
-        self.* = .{
-            .id = id,
-            .font_type = .Outline,
-            .ot_font = ot_font,
-            .stbtt_font = stbtt_font,
-            .name = family_name,
-            .data = own_data,
-            .bmfont_scaler = undefined,
-            .bmfonts = undefined,
-        };
     }
 
     pub fn initOTB(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const graphics.BitmapFontData) void {
-        const bmfonts = alloc.alloc(BitmapFontInternalData, data.len) catch @panic("error");
+        const strikes = alloc.alloc(BitmapFontStrike, data.len) catch @panic("error");
         var last_size: u8 = 0;
         for (data) |it, i| {
             if (it.size <= last_size) {
                 @panic("Expected ascending font size.");
             }
             const own_data = alloc.dupe(u8, it.data) catch @panic("error");
-            bmfonts[i] = .{
-                .stbtt_font = undefined,
+            strikes[i] = .{
+                .impl = undefined,
                 .ot_font = OpenTypeFont.init(alloc, own_data, 0) catch @panic("failed to load font"),
                 .data = own_data,
             };
-            stbtt.InitFont(&bmfonts[i].stbtt_font, own_data, 0) catch @panic("failed to load font");
+
+            switch (graphics.FontRendererBackend) {
+                .Freetype => {
+                    FreetypeBackend.initFont(graphics.ft_library, &strikes[i].impl, own_data, 0);
+                },
+                .Stbtt => {
+                    stbtt.InitFont(&strikes[i].impl, own_data, 0) catch @panic("failed to load font");
+                },
+            }
         }
-        const family_name = bmfonts[0].ot_font.allocFontFamilyName(alloc) orelse unreachable;
+        const family_name = strikes[0].ot_font.allocFontFamilyName(alloc) orelse unreachable;
 
         self.* = .{
             .id = id,
             .font_type = .Bitmap,
             .ot_font = undefined,
-            .stbtt_font = undefined,
+            .impl = undefined,
             .name = family_name,
             .data = undefined,
             .bmfont_scaler = undefined,
-            .bmfonts = bmfonts,
+            .bmfont_strikes = strikes,
         };
 
         // Build BitmapFontScaler.
@@ -219,6 +253,22 @@ pub const Font = struct {
         }
     }
 
+    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+        switch (self.font_type) {
+            .Outline => {
+                self.ot_font.deinit();
+                alloc.free(self.data);
+            },
+            .Bitmap => {
+                for (self.bmfont_strikes) |font| {
+                    font.deinit(alloc);
+                }
+                alloc.free(self.bmfont_strikes);
+            },
+        }
+        alloc.free(self.name);
+    }
+
     pub fn getOtFontBySize(self: Self, font_size: u16) OpenTypeFont {
         switch (self.font_type) {
             .Outline => {
@@ -227,50 +277,88 @@ pub const Font = struct {
             .Bitmap => {
                 if (font_size > self.bmfont_scaler.mapping.len) {
                     const mapping = self.bmfont_scaler.mapping[self.bmfont_scaler.mapping.len-1];
-                    return self.bmfonts[mapping.bmfont_idx].ot_font;
+                    return self.bmfont_strikes[mapping.bmfont_idx].ot_font;
                 } else {
                     const mapping = self.bmfont_scaler.mapping[font_size];
-                    return self.bmfonts[mapping.bmfont_idx].ot_font;
+                    return self.bmfont_strikes[mapping.bmfont_idx].ot_font;
                 }
             },
         }
     }
 
-    pub fn getBitmapFontBySize(self: Self, font_size: u16) BitmapFontInternalData {
+    pub fn getBitmapFontBySize(self: Self, font_size: u16) BitmapFontStrike {
         if (font_size > self.bmfont_scaler.mapping.len) {
             const mapping = self.bmfont_scaler.mapping[self.bmfont_scaler.mapping.len-1];
-            return self.bmfonts[mapping.bmfont_idx];
+            return self.bmfont_strikes[mapping.bmfont_idx];
         } else {
             const mapping = self.bmfont_scaler.mapping[font_size];
-            return self.bmfonts[mapping.bmfont_idx];
+            return self.bmfont_strikes[mapping.bmfont_idx];
         }
     }
 
-    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
-        switch (self.font_type) {
-            .Outline => {
-                self.ot_font.deinit();
-                alloc.free(self.data);
-            },
-            .Bitmap => {
-                for (self.bmfonts) |font| {
-                    font.deinit(alloc);
+    pub fn getKernAdvance(self: Self, prev_glyph_id: u16, glyph_id: u16) i32 {
+        switch (graphics.FontRendererBackend) {
+            .Stbtt => {
+                const res = stbtt.stbtt_GetGlyphKernAdvance(&self.impl, prev_glyph_id, glyph_id);
+                if (res != 0) {
+                    log.debug("kerning: {}", .{res});
                 }
-                alloc.free(self.bmfonts);
+                return res;
             },
+            .Freetype => {
+                var res: ft.FT_Vector = undefined;
+                // Return unscaled so it's not dependent on the current font size setting.
+                const err = ft.FT_Get_Kerning(self.impl, prev_glyph_id, glyph_id, ft.FT_KERNING_UNSCALED, &res);
+                if (err != 0) {
+                    log.debug("freetype error {}: {s}", .{err, ft.FT_Error_String(err)});
+                    return 0;
+                }
+                return @intCast(i32, res.x);
+            }
         }
-        alloc.free(self.name);
     }
 };
 
-pub const BitmapFontInternalData = struct {
+pub const BitmapFontStrike = struct {
     /// This is only used to get kern values. Once that is implemented in ttf.zig, this won't be needed anymore.
-    stbtt_font: stbtt.fontinfo,
+    impl: switch (graphics.FontRendererBackend) {
+        .Stbtt => stbtt.fontinfo,
+        .Freetype => *ft.Face,
+    },
     ot_font: OpenTypeFont,
     data: []const u8,
 
-    fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+    const Self = @This();
+
+    fn deinit(self: Self, alloc: std.mem.Allocator) void {
         self.ot_font.deinit();
         alloc.free(self.data);
+    }
+
+    pub fn getKernAdvance(self: Self, prev_glyph_id: u16, glyph_id: u16) i32 {
+        switch (graphics.FontRendererBackend) {
+            .Stbtt => return stbtt.stbtt_GetGlyphKernAdvance(&self.impl, prev_glyph_id, glyph_id),
+            .Freetype => {
+                var res: ft.FT_Vector = undefined;
+                // Return unscaled so it's not dependent on the current font size setting.
+                const err = ft.FT_Get_Kerning(self.impl, prev_glyph_id, glyph_id, ft.FT_KERNING_UNSCALED, &res);
+                if (err != 0) {
+                    log.debug("freetype error {}: {s}", .{err, ft.FT_Error_String(err)});
+                    return 0;
+                }
+                return @intCast(i32, res.x);
+            },
+        }
+    }
+};
+
+const FreetypeBackend = struct {
+
+    pub fn initFont(lib: ft.FT_Library, face: **ft.Face, data: []const u8, face_idx: u32) void {
+        const err = ft.FT_New_Memory_Face(lib, data.ptr, @intCast(c_long, data.len), face_idx, @ptrCast([*c][*c]ft.Face, face));
+        if (err != 0) {
+            stdx.panicFmt("freetype error {}: {s}", .{err, ft.FT_Error_String(err)});
+        }
+        face.*.glyph[0].format = ft.FT_GLYPH_FORMAT_BITMAP;
     }
 };

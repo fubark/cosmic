@@ -5,6 +5,7 @@ const Vec2 = math.Vec2;
 const builtin = @import("builtin");
 const t = stdx.testing;
 const sdl = @import("sdl");
+const ft = @import("freetype");
 
 const window = @import("window.zig");
 pub const Window = window.Window;
@@ -32,6 +33,16 @@ pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
 pub const TextMetrics = _text.TextMetrics;
+
+const FontRendererBackendType = enum(u1) {
+    /// Default renderer for desktop.
+    Freetype = 0,
+    Stbtt = 1,
+};
+
+pub const FontRendererBackend: FontRendererBackendType = b: {
+    break :b .Freetype;
+};
 
 const This = @This();
 pub const font = struct {
@@ -69,13 +80,13 @@ pub const testg = @import("backend/test/graphics.zig");
 // https://github.com/intel/fastuidraw
 // https://github.com/microsoft/Win2D, https://github.com/microsoft/microsoft-ui-xaml
 
-const BackendType = enum {
+const BackendType = enum(u2) {
     /// Stub for testing.
-    Test,
+    Test = 0,
     /// Deprecated. Uses html canvas context for graphics. Kept for historical reference.
-    WasmCanvas,
+    WasmCanvas = 1,
     /// For Desktop and WebGL.
-    OpenGL,
+    OpenGL = 2,
 };
 
 pub const Backend: BackendType = b: {
@@ -88,6 +99,9 @@ pub const Backend: BackendType = b: {
         break :b .OpenGL;
     }
 };
+
+/// Global freetype library handle.
+pub var ft_library: ft.FT_Library = undefined;
 
 pub const Graphics = struct {
     const Self = @This();
@@ -111,6 +125,14 @@ pub const Graphics = struct {
             .text_buf = std.ArrayList(u8).init(alloc),
             .g = undefined,
         };
+
+        if (FontRendererBackend == .Freetype) {
+            const err = ft.FT_Init_FreeType(&ft_library);
+            if (err != 0) {
+                stdx.panicFmt("freetype error: {}", .{err});
+            }
+        }
+
         switch (Backend) {
             .OpenGL => gl.Graphics.init(&self.g, alloc),
             .WasmCanvas => canvas.Graphics.init(&self.g, alloc),

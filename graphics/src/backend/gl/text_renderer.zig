@@ -14,7 +14,7 @@ const graphics_gl = graphics.gl;
 const ImageDesc = graphics_gl.ImageDesc;
 const Graphics = graphics_gl.Graphics;
 const font_cache = @import("font_cache.zig");
-const BitmapFontInternalData = @import("font.zig").BitmapFontInternalData;
+const BitmapFontStrike = @import("font.zig").BitmapFontStrike;
 const log = stdx.log.scoped(.text_renderer);
 
 /// Measures each char from start incrementally and sets result. Useful for computing layout.
@@ -263,7 +263,7 @@ pub const MeasureTextIterator = struct {
 inline fn computeKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, render_font: *RenderFont, user_scale: f32, cp: u21) f32 {
     _ = cp;
     if (prev_font == fnt) {
-        const kern = stbtt.stbtt_GetGlyphKernAdvance(&fnt.stbtt_font, prev_glyph_id, glyph_id);
+        const kern = fnt.getKernAdvance(prev_glyph_id, glyph_id);
         return @intToFloat(f32, kern) * render_font.scale_from_ttf * user_scale;
     } else {
         // TODO: What to do for kerning between two different fonts?
@@ -272,10 +272,10 @@ inline fn computeKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: 
     return 0;
 }
 
-inline fn computeBitmapKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, bm_font: BitmapFontInternalData, render_font: *RenderFont, user_scale: f32, cp: u21) f32 {
+inline fn computeBitmapKern(prev_glyph_id: u16, prev_font: *Font, glyph_id: u16, fnt: *Font, bm_font: BitmapFontStrike, render_font: *RenderFont, user_scale: f32, cp: u21) f32 {
     _ = cp;
     if (prev_font == fnt) {
-        const kern = stbtt.stbtt_GetGlyphKernAdvance(&bm_font.stbtt_font, prev_glyph_id, glyph_id);
+        const kern = bm_font.getKernAdvance(prev_glyph_id, glyph_id);
         return @intToFloat(f32, kern) * render_font.scale_from_ttf * user_scale;
     } else {
         // TODO, maybe it's best to just always return the current font kerning.
