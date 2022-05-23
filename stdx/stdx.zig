@@ -23,10 +23,11 @@ pub const textbuf = struct {
 const closure = @import("closure.zig");
 pub const Closure = closure.Closure;
 pub const ClosureIface = closure.ClosureIface;
-pub const Function = closure.Function;
 pub const ClosureSimple = closure.ClosureSimple;
 pub const ClosureSimpleIface = closure.ClosureSimpleIface;
-pub const FunctionSimple = closure.FunctionSimple;
+const function = @import("function.zig");
+pub const Function = function.Function;
+pub const FunctionSimple = function.FunctionSimple;
 const callback = @import("callback.zig");
 pub const Callback = callback.Callback;
 
