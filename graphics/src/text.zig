@@ -1,3 +1,4 @@
+const std = @import("std");
 const stdx = @import("stdx");
 
 const graphics = @import("graphics.zig");
@@ -23,6 +24,34 @@ pub const TextMeasure = struct {
     font_size: f32,
     font_gid: FontGroupId,
     res: TextMetrics = TextMetrics.init(0, 0),
+};
+
+pub const TextLayout = struct {
+    lines: std.ArrayList(TextLine),
+
+    /// Max width in logical pixels of all the lines.
+    width: f32,
+
+    /// Height in logical pixels of all the lines.
+    height: f32,
+
+    pub fn init(alloc: std.mem.Allocator) @This() {
+        return .{
+            .lines = std.ArrayList(TextLine).init(alloc),
+            .width = 0,
+            .height = 0,
+        };
+    }
+
+    pub fn deinit(self: @This()) void {
+        self.lines.deinit();
+    }
+};
+
+pub const TextLine = struct {
+    start_idx: u32,
+    end_idx: u32,
+    height: f32,
 };
 
 /// Used to traverse text one UTF-8 codepoint at a time.

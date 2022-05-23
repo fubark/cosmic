@@ -9,6 +9,7 @@ const MouseDownEvent = platform.MouseDownEvent;
 const ui = @import("../ui.zig");
 const Padding = ui.widgets.Padding;
 const Text = ui.widgets.Text;
+const log = stdx.log.scoped(.button);
 
 pub const TextButton = struct {
     props: struct {

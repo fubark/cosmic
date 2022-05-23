@@ -1091,6 +1091,10 @@ pub fn MixinContextFontOps(comptime Context: type) type {
             return self.common.textGlyphIter(font_gid, font_size, str);
         }
 
+        pub inline fn textLayout(self: *Context, font_gid: FontGroupId, font_size: f32, str: []const u8, max_width: f32, buf: *graphics.TextLayout) void {
+            return self.common.textLayout(font_gid, font_size, str, max_width, buf);
+        }
+
         pub inline fn getFontGroupBySingleFontName(self: Context, name: []const u8) FontGroupId {
             return self.common.getFontGroupBySingleFontName(name);
         }
@@ -1379,6 +1383,10 @@ pub const CommonContext = struct {
 
     pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8) graphics.TextGlyphIterator {
         return self.common.g.textGlyphIter(font_gid, font_size, str);
+    }
+
+    pub inline fn textLayout(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8, max_width: f32, buf: *graphics.TextLayout) void {
+        self.common.g.textLayout(font_gid, font_size, str, max_width, buf);
     }
 
     pub inline fn getFontGroupForSingleFont(self: Self, font_id: FontId) FontGroupId {
