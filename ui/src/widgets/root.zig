@@ -51,6 +51,13 @@ pub const Root = struct {
                 }
                 h.root.closePopover(h.overlay_id);
             }
+            fn modalRequestClose(h: RootOverlayHandle) void {
+                const item = h.root.getOverlay(h.overlay_id).?;
+                if (item.close_cb) |cb| {
+                    cb(item.close_ctx);
+                }
+                h.root.closeModal(h.overlay_id);
+            }
         };
 
         // Build the overlay items.
@@ -64,7 +71,15 @@ pub const Root = struct {
                         .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.popoverRequestClose),
                     });
                     self.build_buf.appendAssumeCapacity(wrapper);
-                }
+                },
+                .Modal => {
+                    const frame_id = overlay.build_fn(overlay.build_ctx, c);
+                    const wrapper = c.decl(ModalOverlay, .{
+                        .child = frame_id,
+                        .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.modalRequestClose),
+                    });
+                    self.build_buf.appendAssumeCapacity(wrapper);
+                },
             }
         }
 
@@ -88,6 +103,19 @@ pub const Root = struct {
         return self.next_id;
     }
 
+    pub fn showModal(self: *Self, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: ModalOptions) OverlayId {
+        defer self.next_id += 1;
+        _ = self.overlays.append(.{
+            .id = self.next_id,
+            .tag = .Modal,
+            .build_ctx = build_ctx,
+            .build_fn = build_fn,
+            .close_ctx = opts.close_ctx,
+            .close_cb = opts.close_cb,
+        }) catch @panic("error");
+        return self.next_id;
+    }
+
     fn getOverlay(self: Self, id: OverlayId) ?OverlayItem {
         for (self.overlays.items) |it| {
             if (it.id == id) {
@@ -99,12 +127,26 @@ pub const Root = struct {
 
     pub fn closePopover(self: *Self, id: OverlayId) void {
         for (self.overlays.items) |it, i| {
-            if (it.id == id) {
+            if (it.tag == .Popover and it.id == id) {
                 _ = self.overlays.orderedRemove(i);
                 break;
             }
         }
     }
+
+    pub fn closeModal(self: *Self, id: OverlayId) void {
+        for (self.overlays.items) |it, i| {
+            if (it.tag == .Modal and it.id == id) {
+                _ = self.overlays.orderedRemove(i);
+                break;
+            }
+        }
+    }
+};
+
+const ModalOptions = struct {
+    close_ctx: ?*anyopaque = null,
+    close_cb: ?fn (?*anyopaque) void = null,
 };
 
 const PopoverOptions = struct {
@@ -129,9 +171,86 @@ const OverlayItem = struct {
 
 const OverlayTag = enum(u1) {
     Popover = 0,
+    Modal = 1,
 };
 
-/// Losing focus will close the popover.
+/// An overlay that positions the child modal in a specific alignment over the overlay bounds.
+/// Clicking outside of the child modal will close the modal.
+pub const ModalOverlay = struct {
+    props: struct {
+        child: ui.FrameId,
+        valign: ui.VAlign = .Center,
+        halign: ui.HAlign = .Center,
+        border_color: Color = Color.DarkGray,
+        bg_color: Color = Color.DarkGray.darker(),
+        onRequestClose: ?stdx.Function(fn () void) = null,
+    },
+
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
+        _ = self;
+        c.addMouseDownHandler(self, onMouseDown);
+    }
+
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+        if (self.props.child != ui.NullFrameId) {
+            const child = e.ctx.node.children.items[0];
+            const xf = @intToFloat(f32, e.val.x);
+            const yf = @intToFloat(f32, e.val.y);
+
+            // If hit outside of the bounds, request to close.
+            if (xf < child.abs_pos.x or xf > child.abs_pos.x + child.layout.width or yf < child.abs_pos.y or yf > child.abs_pos.y + child.layout.height) {
+                self.requestClose();
+            }
+        }
+    }
+
+    pub fn requestClose(self: *Self) void {
+        if (self.props.onRequestClose) |cb| {
+            cb.call(.{});
+        }
+    }
+
+    pub fn build(self: *Self, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraint();
+
+        if (self.props.child != ui.NullFrameId) {
+            const child = c.node.children.items[0];
+            const child_size = c.computeLayout(child, cstr);
+
+            // Currently always centers.
+            c.setLayout(child, ui.Layout.init((cstr.width + child_size.width) * 0.5, (cstr.height + child_size.height) * 0.5, child_size.width, child_size.height));
+        }
+        return cstr;
+    }
+
+    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+        if (self.props.child != ui.NullFrameId) {
+            const alo = c.getAbsLayout();
+            const child_lo = c.node.children.items[0].layout;
+            const child_x = alo.x + child_lo.x;
+            const child_y = alo.y + child_lo.y;
+
+            const g = c.g;
+            g.setFillColor(self.props.bg_color);
+            g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
+
+            c.renderChildren();
+
+            g.setStrokeColor(self.props.border_color);
+            g.setLineWidth(2);
+            g.drawRect(child_x, child_y, child_lo.width, child_lo.height);
+        }
+    }
+};
+
+/// An overlay that positions the child popover adjacent to a source widget.
+/// Clicking outside of the child popover will close the popover.
 pub const PopoverOverlay = struct {
     props: struct {
         child: ui.FrameId,
