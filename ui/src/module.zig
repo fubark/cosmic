@@ -1135,6 +1135,10 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.requestFocus(self.node, on_blur);
         }
 
+        pub inline fn requestCaptureMouse(self: *Context, capture: bool) void {
+            self.common.requestCaptureMouse(capture);
+        }
+
         pub inline fn addInterval(self: *Context, dur: Duration, ctx: anytype, cb: IntervalHandler(@TypeOf(ctx))) IntervalId {
             return self.common.addInterval(self.node, dur, ctx, cb);
         }
@@ -1422,6 +1426,11 @@ pub const CommonContext = struct {
     pub fn removeInterval(self: *Self, id: IntervalId) void {
         self.common.interval_sessions.getNoCheck(id).deinit(self.alloc);
         self.common.interval_sessions.remove(id);
+    }
+
+    /// Receive mouse move events outside of the window. Useful for dragging operations.
+    pub fn requestCaptureMouse(_: *Self, capture: bool) void {
+        platform.captureMouse(capture);
     }
 
     pub fn requestFocus(self: *Self, node: *Node, on_blur: BlurHandler) void {

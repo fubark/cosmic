@@ -41,6 +41,13 @@ pub fn delay(us: u64) void {
     }
 }
 
+pub fn captureMouse(capture: bool) void {
+    if (!builtin.target.isWasm()) {
+        _ = sdl.SDL_CaptureMouse(@boolToInt(capture));
+    } else {
+    }
+}
+
 pub const WindowResizeEvent = struct {
     const Self = @This();
 
