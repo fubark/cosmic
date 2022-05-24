@@ -117,6 +117,12 @@ fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFon
                 glyph_x = pos.x;
                 glyph_y = pos.y;
 
+                // Debug: Dump specific glyph.
+                // if (glyph_id == 76) {
+                //     _ = stbi.stbi_write_bmp("test.bmp", @intCast(c_int, src_width), @intCast(c_int, src_height), 1, font.impl.glyph[0].bitmap.buffer);
+                //     log.debug("{} {} {}", .{src_width, src_height, x0});
+                // }
+
                 fc.main_atlas.copySubImageFrom1Channel(glyph_x + Glyph.Padding, glyph_y + Glyph.Padding, src_width, src_height, font.impl.glyph[0].bitmap.buffer[0..src_width*src_height]);
                 fc.main_atlas.markDirtyBuffer();
             } else {

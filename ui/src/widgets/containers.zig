@@ -41,8 +41,7 @@ pub const Padding = struct {
 
         const child = node.children.items[0];
         if (!c.prefer_exact_width_or_height) {
-            const child_cstr = cstr.toIncSize(-h_pad, -v_pad);
-            var child_size = c.computeLayout(child, child_cstr);
+            var child_size = c.computeLayout(child, cstr);
             c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
             return child_size.toIncSize(h_pad, v_pad);
         } else {

@@ -113,7 +113,7 @@ pub fn ClosureIface(comptime Fn: type) type {
         }
 
         pub fn call(self: Self, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-            self.call_fn(self.user_fn, self.capture_ptr, args);
+            return self.call_fn(self.user_fn, self.capture_ptr, args);
         }
 
         pub fn deinit(self: Self, alloc: std.mem.Allocator) void {

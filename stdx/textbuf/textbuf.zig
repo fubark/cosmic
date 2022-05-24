@@ -43,7 +43,7 @@ pub const TextBuffer = struct {
         const buf_idx = self.getBufferIdx(idx);
         const old_len = self.buf.items.len;
         self.buf.resize(old_len + len) catch @panic("error");
-        std.mem.copy(u8, self.buf.items[buf_idx+len..], self.buf.items[buf_idx..old_len]);
+        std.mem.copyBackwards(u8, self.buf.items[buf_idx+len..], self.buf.items[buf_idx..old_len]);
         _ = std.unicode.utf8Encode(cp, self.buf.items[buf_idx..buf_idx+len]) catch @panic("error");
         self.num_chars += 1;
     }
@@ -167,6 +167,11 @@ test "TextBuffer.insertCodepoint" {
     try buf.insertCodepoint(1, 129744);
     try t.eq(buf.num_chars, 3);
     try t.eqStr(buf.buf.items, "a🫐b");
+
+    // This would test for a backwards memory copy since dst and src would overlap.
+    try buf.insertCodepoint(1, 97);
+    try t.eq(buf.num_chars, 4);
+    try t.eqStr(buf.buf.items, "aa🫐b");
 }
 
 test "TextBuffer.appendCodepoint" {

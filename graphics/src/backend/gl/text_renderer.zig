@@ -50,6 +50,7 @@ pub fn measureText(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32
     res.height = iter.primary_height;
     res.width = 0;
     while (iter.nextCodepoint()) {
+        res.width += iter.state.kern;
         if (snap_to_grid) {
             res.width = @round(res.width);
         }

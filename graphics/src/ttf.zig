@@ -872,3 +872,13 @@ test "Parse tamzen." {
     try t.eq(glyph.advance, 5);
     try t.eqSlice(u8, glyph.data, &.{0, 255, 255, 255, 255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 255, 255});
 }
+
+const vera_ttf = @embedFile("../../assets/vera.ttf");
+
+test "Parse vera.ttf" {
+    const font = try OpenTypeFont.init(t.alloc, vera_ttf, 0);
+    defer font.deinit();
+
+    const glyph_id = (try font.getGlyphId('i')).?;
+    try t.eq(glyph_id, 76);
+}

@@ -70,6 +70,7 @@ export fn glBlendEquation() void {}
 
 export fn SDL_GL_DeleteContext() void {}
 export fn SDL_DestroyWindow() void {}
+export fn SDL_CaptureMouse() void {}
 
 export fn v8__Persistent__Reset() void {}
 export fn v8__Boolean__New() void {}
@@ -458,3 +459,6 @@ export fn SDL_free() void {}
 export fn SDL_SetClipboardText() void {}
 export fn SDL_GetClipboardText() void {}
 export fn GetProcessTimes() void {}
+export fn FT_Init_FreeType() c_int {
+    return 0;
+}
