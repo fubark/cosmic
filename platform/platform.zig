@@ -11,6 +11,7 @@ pub const initSdlKeyUpEvent = input_sdl.initKeyUpEvent;
 pub const initSdlMouseDownEvent = input_sdl.initMouseDownEvent;
 pub const initSdlMouseUpEvent = input_sdl.initMouseUpEvent;
 pub const initSdlMouseMoveEvent = input_sdl.initMouseMoveEvent;
+pub const initSdlMouseScrollEvent = input_sdl.initMouseScrollEvent;
 
 const input_web = @import("input_web.zig");
 pub const webToCanonicalKeyCode = input_web.toCanonicalKeyCode;

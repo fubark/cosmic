@@ -55,6 +55,14 @@ pub fn initMouseMoveEvent(event: sdl.SDL_MouseMotionEvent) MouseMoveEvent {
     return MouseMoveEvent.init(@intCast(i16, event.x), @intCast(i16, event.y));
 }
 
+pub fn initMouseScrollEvent(cur_x: i16, cur_y: i16, event: sdl.SDL_MouseWheelEvent) platform.MouseScrollEvent {
+    return platform.MouseScrollEvent.init(
+        cur_x,
+        cur_y,
+        -event.preciseY * 20,
+    );
+}
+
 pub fn initKeyDownEvent(e: sdl.SDL_KeyboardEvent) KeyDownEvent {
     const code = toCanonicalKeyCode(e.keysym.sym);
 

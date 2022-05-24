@@ -50,6 +50,7 @@ pub const MouseMoveEvent = struct {
     }
 };
 
+/// TODO: Rename to MouseWheelEvent
 pub const MouseScrollEvent = struct {
     x: i16,
     y: i16,
