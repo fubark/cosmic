@@ -101,7 +101,7 @@ pub const TextField = struct {
         return self.buf.items;
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
         const me = e.val;
         self.requestFocus();
 
@@ -109,6 +109,7 @@ pub const TextField = struct {
         const inner = self.inner.getWidget();
         const xf = @intToFloat(f32, me.x);
         inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
+        return .Continue;
     }
 
     fn onBlur(node: *Node, ctx: *ui.CommonContext) void {

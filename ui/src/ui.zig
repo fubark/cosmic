@@ -85,3 +85,10 @@ pub fn createDeclFn(comptime Widget: type) fn (*BuildContext, anytype) callconv(
     };
     return S.decl;
 }
+
+pub const EventResult = enum(u1) {
+    /// Event will continue to propagate down to children. 
+    Continue = 0,
+    /// Stop the event from propagating to children.
+    Stop = 1,
+};

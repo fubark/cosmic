@@ -458,10 +458,17 @@ pub const Module = struct {
                 self.common.hit_last_focused = true;
             }
             var cur = node.mouse_down_list;
+            var propagate = true;
             while (cur != NullId) {
                 const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
-                sub.handleEvent(&self.event_ctx, e);
+                if (sub.handleEvent(&self.event_ctx, e) == .Stop) {
+                    propagate = false;
+                    break;
+                }
                 cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
+            }
+            if (!propagate) {
+                return true;
             }
             const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
             for (event_children) |child| {
@@ -1341,7 +1348,7 @@ fn MouseMoveHandler(comptime Context: type) type {
 }
 
 fn MouseDownHandler(comptime Context: type) type {
-    return fn (Context, MouseDownEvent) void;
+    return fn (Context, MouseDownEvent) ui.EventResult;
 }
 
 fn MouseUpHandler(comptime Context: type) type {
@@ -1528,8 +1535,8 @@ pub const CommonContext = struct {
     }
 
     pub fn addMouseDownHandler(self: Self, node: *Node, ctx: anytype, cb: MouseDownHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), fn (MouseDownEvent) void).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(platform.MouseDownEvent){
+        const closure = Closure(@TypeOf(ctx), fn (MouseDownEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
+        const sub = SubscriberRet(platform.MouseDownEvent, ui.EventResult){
             .closure = closure,
             .node = node,
         };
@@ -1688,7 +1695,7 @@ pub const ModuleCommon = struct {
     /// Mouse handlers.
     mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)),
     global_mouse_up_list: std.ArrayList(u32),
-    mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseDownEvent)),
+    mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     mouse_scroll_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     /// Mouse move events fire far more frequently so it's better to just iterate a list and skip hit test.
     /// TODO: Implement a compact tree of nodes for mouse events.
@@ -1739,7 +1746,7 @@ pub const ModuleCommon = struct {
             .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
             .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)).init(alloc),
             .global_mouse_up_list = std.ArrayList(u32).init(alloc),
-            .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseDownEvent)).init(alloc),
+            .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)).init(alloc),
             .mouse_move_event_subs = std.ArrayList(Subscriber(platform.MouseMoveEvent)).init(alloc),
             .mouse_scroll_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
@@ -1928,6 +1935,28 @@ fn GlobalSubscriber(comptime T: type) type {
     return struct {
         sub: Subscriber(T),
         is_global: bool,
+    };
+}
+
+fn SubscriberRet(comptime T: type, comptime Return: type) type {
+    return struct {
+        const Self = @This();
+        closure: ClosureIface(fn (Event(T)) Return),
+        node: *Node,
+
+        fn handleEvent(self: Self, ctx: *EventContext, e: T) Return {
+            ctx.node = self.node;
+            return self.closure.call(.{
+                Event(T){
+                    .ctx = ctx,
+                    .val = e,
+                },
+            });
+        }
+
+        fn deinit(self: Self, alloc: std.mem.Allocator) void {
+            self.closure.deinit(alloc);
+        }
     };
 }
 
@@ -2398,7 +2427,9 @@ test "Widget instance lifecycle." {
         fn onBlur(_: *ui.Node, _: *ui.CommonContext) void {}
         fn onKeyUp(_: void, _: KeyUpEvent) void {}
         fn onKeyDown(_: void, _: KeyDownEvent) void {}
-        fn onMouseDown(_: void, _: MouseDownEvent) void {}
+        fn onMouseDown(_: void, _: MouseDownEvent) ui.EventResult {
+            return .Continue;
+        }
         fn onMouseUp(_: void, _: MouseUpEvent) void {}
         fn onMouseMove(_: u32, _: MouseMoveEvent) void {}
     };

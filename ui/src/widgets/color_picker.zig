@@ -142,7 +142,7 @@ const ColorPickerPopover = struct {
         self.is_pressed = false;
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
         const xf = @intToFloat(f32, e.val.x);
         const yf = @intToFloat(f32, e.val.y);
 
@@ -155,6 +155,7 @@ const ColorPickerPopover = struct {
             e.ctx.removeMouseMoveHandler(*Self, onMouseMove);
             e.ctx.addMouseMoveHandler(self, onMouseMove);
         }
+        return .Continue;
     }
 
     fn setMouseValue(self: *Self, x: i32, y: i32) void {

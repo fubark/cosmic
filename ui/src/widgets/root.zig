@@ -193,7 +193,7 @@ pub const ModalOverlay = struct {
         c.addMouseDownHandler(self, onMouseDown);
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
         if (self.props.child != ui.NullFrameId) {
             const child = e.ctx.node.children.items[0];
             const xf = @intToFloat(f32, e.val.x);
@@ -204,6 +204,7 @@ pub const ModalOverlay = struct {
                 self.requestClose();
             }
         }
+        return .Stop;
     }
 
     pub fn requestClose(self: *Self) void {
@@ -277,7 +278,7 @@ pub const PopoverOverlay = struct {
         c.addMouseDownHandler(self, onMouseDown);
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
         if (self.props.child != ui.NullFrameId) {
             const child = e.ctx.node.children.items[0];
             const xf = @intToFloat(f32, e.val.x);
@@ -288,6 +289,7 @@ pub const PopoverOverlay = struct {
                 self.requestClose();
             }
         }
+        return .Continue;
     }
 
     pub fn requestClose(self: *Self) void {

@@ -64,7 +64,7 @@ pub const Slider = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) void {
+    fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             self.pressed = true;
@@ -74,6 +74,7 @@ pub const Slider = struct {
             e.ctx.addGlobalMouseUpHandler(node, handleMouseUpEvent);
             e.ctx.addMouseMoveHandler(node, handleMouseMoveEvent);
         }
+        return .Continue;
     }
 
     fn updateValueFromMouseX(self: *Self, node: *Node, mouse_x: i16) void {

@@ -36,12 +36,13 @@ pub const MouseArea = struct {
         }
     }
 
-    fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) void {
+    fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
         }
+        return .Continue;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
