@@ -31,7 +31,7 @@ pub const TextField = struct {
         focused_show_border: bool = true,
     },
 
-    buf: std.ArrayList(u8),
+    buf: stdx.textbuf.TextBuffer,
 
     inner: ui.WidgetRef(TextFieldInner),
 
@@ -44,7 +44,7 @@ pub const TextField = struct {
     const Self = @This();
 
     pub fn init(self: *Self, c: *ui.InitContext) void {
-        self.buf = std.ArrayList(u8).init(c.alloc);
+        self.buf = stdx.textbuf.TextBuffer.init(c.alloc, "") catch @panic("error");
         self.last_buf_hash = undefined;
         c.addKeyDownHandler(self, Self.onKeyDown);
         c.addMouseDownHandler(self, Self.onMouseDown);
@@ -62,7 +62,7 @@ pub const TextField = struct {
             .padding = self.props.padding,
             .child = c.decl(TextFieldInner, .{
                 .bind = &self.inner,
-                .text = self.buf.items,
+                .text = self.buf.buf.items,
                 .font_size = self.props.font_size,
                 .font_id = self.props.font_id,
                 .text_color = self.props.text_color,
@@ -72,20 +72,20 @@ pub const TextField = struct {
     }
 
     pub fn setValueFmt(self: *Self, comptime format: []const u8, args: anytype) void {
-        self.buf.resize(@intCast(usize, std.fmt.count(format, args))) catch unreachable;
-        _ = std.fmt.bufPrint(self.buf.items, format, args) catch unreachable;
+        self.buf.clear();
+        self.buf.appendFmt(format, args);
         self.ensureCaretPos();
     }
 
     pub fn clear(self: *Self) void {
-        self.buf.clearRetainingCapacity();
+        self.buf.clear();
         self.ensureCaretPos();
     }
 
     fn ensureCaretPos(self: *Self) void {
         const inner = self.inner.getWidget();
-        if (inner.caret_idx > self.buf.items.len) {
-            inner.caret_idx = @intCast(u32, self.buf.items.len);
+        if (inner.caret_idx > self.buf.num_chars) {
+            inner.caret_idx = self.buf.num_chars;
         }
     }
 
@@ -94,7 +94,7 @@ pub const TextField = struct {
         self.ctx.requestFocus(self.node, onBlur);
         const inner = self.inner.getWidget();
         inner.setFocused();
-        std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
+        std.crypto.hash.Md5.hash(self.buf.buf.items, &self.last_buf_hash, .{});
     }
 
     pub fn getValue(self: Self) []const u8 {
@@ -117,7 +117,7 @@ pub const TextField = struct {
         const self = node.getWidget(Self);
         self.inner.getWidget().focused = false;
         var hash: [16]u8 = undefined;
-        std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
+        std.crypto.hash.Md5.hash(self.buf.buf.items, &hash, .{});
         if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
             self.fireOnChangeEnd();
         }
@@ -125,13 +125,13 @@ pub const TextField = struct {
 
     fn fireOnChangeEnd(self: *Self) void {
         if (self.props.onChangeEnd) |cb| {
-            cb.call(.{ self.buf.items });
+            cb.call(.{ self.buf.buf.items });
         }
     }
 
     fn getCaretIdx(self: *Self, ctx: *ui.CommonContext, x: f32) u32 {
         const font_gid = ctx.getFontGroupForSingleFontOrDefault(self.props.font_id);
-        var iter = ctx.textGlyphIter(font_gid, self.props.font_size, self.buf.items);
+        var iter = ctx.textGlyphIter(font_gid, self.props.font_size, self.buf.buf.items);
         if (iter.nextCodepoint()) {
             if (x < iter.state.advance_width/2) {
                 return 0;
@@ -139,17 +139,17 @@ pub const TextField = struct {
         } else {
             return 0;
         }
-        var idx: u32 = 1;
+        var char_idx: u32 = 1;
         var cur_x: f32 = iter.state.advance_width;
         while (iter.nextCodepoint()) {
             if (x < cur_x + iter.state.advance_width/2) {
-                return idx;
+                return char_idx;
             }
             cur_x = @round(cur_x + iter.state.kern);
             cur_x += iter.state.advance_width;
-            idx += 1;
+            char_idx += 1;
         }
-        return idx;
+        return char_idx;
     }
 
     fn onKeyDown(self: *Self, e: ui.KeyDownEvent) void {
@@ -162,10 +162,10 @@ pub const TextField = struct {
         const inner = self.inner.getWidget();
         if (ke.code == .Backspace) {
             if (inner.caret_idx > 0) {
-                if (self.buf.items.len == inner.caret_idx) {
-                    self.buf.resize(self.buf.items.len-1) catch unreachable;
+                if (self.buf.num_chars == inner.caret_idx) {
+                    self.buf.removeChar(self.buf.num_chars-1);
                 } else {
-                    _ = self.buf.orderedRemove(inner.caret_idx-1);
+                    self.buf.removeChar(inner.caret_idx-1);
                 }
                 // self.postLineUpdate(self.caret_line);
                 inner.caret_idx -= 1;
@@ -173,14 +173,14 @@ pub const TextField = struct {
                 inner.resetCaretAnim();
             }
         } else if (ke.code == .Delete) {
-            if (inner.caret_idx < self.buf.items.len) {
-                _ = self.buf.orderedRemove(inner.caret_idx);
+            if (inner.caret_idx < self.buf.num_chars) {
+                self.buf.removeChar(inner.caret_idx);
                 inner.keepCaretFixedInView();
                 inner.resetCaretAnim();
             }
         } else if (ke.code == .Enter) {
             var hash: [16]u8 = undefined;
-            std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
+            std.crypto.hash.Md5.hash(self.buf.buf.items, &hash, .{});
             if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
                 self.fireOnChangeEnd();
                 self.last_buf_hash = hash;
@@ -193,17 +193,17 @@ pub const TextField = struct {
                 inner.resetCaretAnim();
             }
         } else if (ke.code == .ArrowRight) {
-            if (inner.caret_idx < self.buf.items.len) {
+            if (inner.caret_idx < self.buf.num_chars) {
                 inner.caret_idx += 1;
                 inner.keepCaretInView();
                 inner.resetCaretAnim();
             }
         } else {
             if (ke.getPrintChar()) |ch| {
-                if (inner.caret_idx == self.buf.items.len) {
-                    self.buf.append(ch) catch unreachable;
+                if (inner.caret_idx == self.buf.num_chars) {
+                    self.buf.appendCodepoint(ch) catch @panic("error");
                 } else {
-                    self.buf.insert(inner.caret_idx, ch) catch unreachable;
+                    self.buf.insertCodepoint(inner.caret_idx, ch) catch @panic("error");
                 }
                 // self.postLineUpdate(self.caret_line);
                 inner.caret_idx += 1;

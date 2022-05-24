@@ -16,9 +16,7 @@ pub const http = @import("http.zig");
 pub const events = @import("events.zig");
 pub const net = @import("net.zig");
 pub const cstr = @import("cstr.zig");
-pub const textbuf = struct {
-    pub const document = @import("textbuf/document.zig");
-};
+pub const textbuf = @import("textbuf/textbuf.zig");
 
 const closure = @import("closure.zig");
 pub const Closure = closure.Closure;
