@@ -219,34 +219,6 @@ pub fn GenWidgetVTable(comptime Widget: type) *const WidgetVTable {
             }
         }
 
-        fn getFlex(node: *Node) ?ui.FlexInfo {
-            if (Widget == ui.widgets.Row) {
-                const row = node.getWidget(ui.widgets.Row);
-                if (row.props.expand) {
-                    return ui.FlexInfo{
-                        .val = row.props.flex,
-                        .fit = .Exact,
-                    };
-                } else return null;
-            } else if (Widget == ui.widgets.Column) {
-                const col = node.getWidget(ui.widgets.Column);
-                if (col.props.expand) {
-                    return ui.FlexInfo{
-                        .val = col.props.flex,
-                        .fit = col.props.flex_fit,
-                    };
-                } else return null;
-            } else if (Widget == ui.widgets.Flex) {
-                const flex = node.getWidget(ui.widgets.Flex);
-                return ui.FlexInfo{
-                    .val = flex.props.flex,
-                    .fit = flex.props.flex_fit,
-                };
-            } else {
-                @panic("Does not have flex.");
-            }
-        }
-
         const vtable = WidgetVTable{
             .create = create,
             .postInit = postInit,
@@ -256,9 +228,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const WidgetVTable {
             .render = render,
             .layout = layout,
             .destroy = destroy,
-            .has_flex_prop = Widget == ui.widgets.Row or Widget == ui.widgets.Column or Widget == ui.widgets.Flex,
             .has_post_update = @hasDecl(Widget, "postUpdate"),
-            .getFlex = getFlex,
             .name = @typeName(Widget),
         };
     };

@@ -47,10 +47,17 @@ pub const Column = struct {
         var has_expanding_children = false;
         var flex_sum: u32 = 0;
         for (c.node.children.items) |it| {
-            if (it.vtable.has_flex_prop) {
-                if (it.vtable.getFlex(it)) |info| {
+            // Only Flex and Column make sense to do flex for a parent Column.
+            if (it.vtable == module.GenWidgetVTable(Flex)) {
+                const flex = it.getWidget(Flex);
+                has_expanding_children = true;
+                flex_sum += flex.props.flex;
+                continue;
+            } else if (it.vtable == module.GenWidgetVTable(Column)) {
+                const col = it.getWidget(Column);
+                if (col.props.expand) {
                     has_expanding_children = true;
-                    flex_sum += info.val;
+                    flex_sum += col.props.flex;
                     continue;
                 }
             }
@@ -73,10 +80,15 @@ pub const Column = struct {
             for (c.node.children.items) |it| {
                 var flex: u32 = std.math.maxInt(u32);
                 var flex_fit: ui.FlexFit = undefined;
-                if (it.vtable.has_flex_prop) {
-                    if (it.vtable.getFlex(it)) |info| {
-                        flex = info.val;
-                        flex_fit = info.fit;
+                if (it.vtable == module.GenWidgetVTable(Flex)) {
+                    const w = it.getWidget(Flex);
+                    flex = w.props.flex;
+                    flex_fit = w.props.flex_fit;
+                } else if (it.vtable == module.GenWidgetVTable(Column)) {
+                    const col = it.getWidget(Column);
+                    if (col.props.expand) {
+                        flex = col.props.flex;
+                        flex_fit = col.props.flex_fit;
                     }
                 }
                 if (flex == std.math.maxInt(u32)) {
@@ -159,6 +171,7 @@ pub const Row = struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
         valign: ui.VAlign = .Top,
+        halign: ui.HAlign = .Left,
 
         spacing: f32 = 0,
 
@@ -190,10 +203,17 @@ pub const Row = struct {
         var has_expanding_children = false;
         var flex_sum: u32 = 0;
         for (c.node.children.items) |it| {
-            if (it.vtable.has_flex_prop) {
-                if (it.vtable.getFlex(it)) |flex| {
+            // Only Flex and Row make sense to do flex for a parent Row.
+            if (it.vtable == module.GenWidgetVTable(Flex)) {
+                const flex = it.getWidget(Flex);
+                has_expanding_children = true;
+                flex_sum += flex.props.flex;
+                continue;
+            } else if (it.vtable == module.GenWidgetVTable(Row)) {
+                const row = it.getWidget(Row);
+                if (row.props.expand) {
                     has_expanding_children = true;
-                    flex_sum += flex.val;
+                    flex_sum += row.props.flex;
                     continue;
                 }
             }
@@ -214,10 +234,12 @@ pub const Row = struct {
             var max_child_size = ui.LayoutSize.init(0, vacant_size.height);
             for (c.node.children.items) |it| {
                 var flex: u32 = std.math.maxInt(u32);
-                if (it.vtable.has_flex_prop) {
-                    if (it.vtable.getFlex(it)) |info| {
-                        flex = info.val;
-                    }
+                if (it.vtable == module.GenWidgetVTable(Flex)) {
+                    const w = it.getWidget(Flex);
+                    flex = w.props.flex;
+                } else if (it.vtable == module.GenWidgetVTable(Row)) {
+                    const row = it.getWidget(Row);
+                    flex = row.props.flex;
                 }
                 if (flex == std.math.maxInt(u32)) {
                     // Update the layout pos of sized children since this pass will include expanded children.
@@ -233,6 +255,16 @@ pub const Row = struct {
                 cur_x += child_size.width + self.props.spacing;
                 if (child_size.height > max_child_height) {
                     max_child_height = child_size.height;
+                }
+            }
+        } else {
+            // No expanding children. Check to realign in x dim.
+            if (self.props.expand and self.props.halign == .Right) {
+                const inner_width = cur_x - self.props.spacing;
+                var scratch_x = cstr.width - inner_width;
+                for (c.node.children.items) |it| {
+                    c.setLayoutPos(it, scratch_x, 0);
+                    scratch_x += it.layout.width + self.props.spacing;
                 }
             }
         }
@@ -280,6 +312,9 @@ pub const Flex = struct {
         child: ui.FrameId = ui.NullFrameId,
         flex: u32 = 1,
         flex_fit: ui.FlexFit = .Exact,
+
+        /// When false, stretching is inherited by the parent.
+        stretch_width: bool = false,
     },
 
     const Self = @This();
@@ -307,7 +342,8 @@ pub const Flex = struct {
         }
 
         const child = node.children.items[0];
-        const child_size = c.computeLayoutStretch(child, cstr, c.prefer_exact_width, c.prefer_exact_height);
+        const stretch_width = if (self.props.stretch_width) true else c.prefer_exact_width;
+        const child_size = c.computeLayoutStretch(child, cstr, stretch_width, c.prefer_exact_height);
         var res = child_size;
         if (c.prefer_exact_width) {
             res.width = cstr.width;

@@ -214,12 +214,8 @@ pub const WidgetVTable = struct {
     /// Destroys an existing Widget.
     destroy: fn (node: *Node, alloc: std.mem.Allocator) void,
 
-    /// Returns the flex value for the widget. This is only invoked if has_flex_prop = true.
-    getFlex: fn (node: *Node) ?ui.FlexInfo,
-
     name: []const u8,
 
-    has_flex_prop: bool,
     has_post_update: bool,
 };
 
