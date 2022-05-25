@@ -83,11 +83,16 @@ pub fn OwnedKeyStringHashMap(comptime T: type) type {
             return res;
         }
 
-        // Use with care, doesn't free existing key.
         pub fn put(self: *Self, key: []const u8, val: T) !void {
-            const key_dupe = try stdx.string.dupe(self.alloc, key);
-            errdefer self.alloc.free(key_dupe);
-            try self.map.put(key_dupe, val);
+            const res = try self.map.getOrPut(key);
+            if (res.found_existing) {
+                res.value_ptr.* = val;
+            } else {
+                const key_dupe = try self.alloc.dupe(u8, key);
+                errdefer self.alloc.free(key_dupe);
+                res.key_ptr.* = key_dupe;
+                res.value_ptr.* = val;
+            }
         }
 
         pub fn iterator(self: *const Self) std.StringHashMap(T).Iterator {
@@ -102,6 +107,14 @@ pub fn OwnedKeyStringHashMap(comptime T: type) type {
             self.map.deinit();
         }
     };
+}
+
+test "OwnedKeyStringHashMap.put doesn't dupe an existing key" {
+    var map = OwnedKeyStringHashMap(u32).init(t.alloc);
+    defer map.deinit();
+    try map.put("foo", 123);
+    try map.put("foo", 234);
+    // Test should end without memory leak.
 }
 
 // TODO: Might want a better interface for a hash set. https://github.com/ziglang/zig/issues/6919

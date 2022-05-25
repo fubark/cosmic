@@ -55,13 +55,19 @@ fn generateGlyph(g: *Graphics, font: *Font, ot_font: OpenTypeFont, render_font: 
         return generateEmbeddedBitmapGlyph(g, ot_font, render_font, glyph_id);
     }
     if (ot_font.hasColorBitmap()) {
-        return generateColorBitmapGlyph(g, ot_font, render_font, glyph_id);
+        if (generateColorBitmapGlyph(g, ot_font, render_font, glyph_id)) |glyph| {
+            return glyph;
+        } else {
+            // generateGlyph should only be called when the font has indicated that a glyph_id exists for a codepoint.
+            // If the color tables doesn't have it, then check the outline tables.
+            return generateOutlineGlyph(g, font, render_font, glyph_id, false);
+        }
     }
     if (!ot_font.hasGlyphOutlines()) {
         // Font should have outline data or color bitmap.
         unreachable;
     }
-    return generateOutlineGlyph(g, font, render_font, glyph_id);
+    return generateOutlineGlyph(g, font, render_font, glyph_id, true);
 }
 
 // 1 pixel padding in glyphs so edge filtering doesn't mix with it's own glyph or neighboring glyphs.
@@ -69,7 +75,7 @@ fn generateGlyph(g: *Graphics, font: *Font, ot_font: OpenTypeFont, render_font: 
 const h_padding = Glyph.Padding * 2;
 const v_padding = Glyph.Padding * 2;
 
-fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFont, glyph_id: u16, set_size: bool) Glyph {
     const scale = render_font.scale_from_ttf;
     const fc = &g.font_cache;
 
@@ -89,11 +95,14 @@ fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFon
 
     switch (graphics.FontRendererBackend) {
         .Freetype => {
-            var err = ft.FT_Set_Pixel_Sizes(font.impl, 0, render_font.render_font_size);
-            if (err != 0) {
-                stdx.panicFmt("freetype error {}", .{err});
+            if (set_size) {
+                // Freetype does not allow setting to arbitrary pixel size for color bitmaps: https://github.com/python-pillow/Pillow/issues/6166
+                const err = ft.FT_Set_Pixel_Sizes(font.impl, 0, render_font.render_font_size);
+                if (err != 0) {
+                    stdx.panicFmt("freetype error {}: {s}", .{err, ft.FT_Error_String(err)});
+                }
             }
-            err = ft.FT_Load_Glyph(font.impl, glyph_id, ft.FT_LOAD_DEFAULT);
+            var err = ft.FT_Load_Glyph(font.impl, glyph_id, ft.FT_LOAD_DEFAULT);
             if (err != 0) {
                 stdx.panicFmt("freetype error {}", .{err});
             }
@@ -180,7 +189,7 @@ fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFon
     return glyph;
 }
 
-fn generateColorBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateColorBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) ?Glyph {
     // Copy over png glyph data instead of going through the normal stbtt rasterizer.
     if (ot_font.getGlyphColorBitmap(glyph_id) catch unreachable) |data| {
         // const scale = render_font.scale_from_ttf;
@@ -248,9 +257,7 @@ fn generateColorBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *c
         glyph.u1 = @intToFloat(f32, glyph_x + glyph_width) / @intToFloat(f32, fc.main_atlas.width);
         glyph.v1 = @intToFloat(f32, glyph_y + glyph_height) / @intToFloat(f32, fc.main_atlas.height);
         return glyph;
-    } else {
-        stdx.panicFmt("expected color bitmap for glyph: {}", .{glyph_id});
-    }
+    } else return null;
 }
 
 fn generateEmbeddedBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
