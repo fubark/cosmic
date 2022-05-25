@@ -182,7 +182,7 @@ pub const App = struct {
                                 .onResult = c.funcExt(self, S.onBgResult),
                             }),
                             c.decl(SwitchOption, .{
-                                .label = "Text Wrap",
+                                .label = "Text Wrap (TODO)",
                                 .init_val = false,
                                 .onChange = c.funcExt(self, S.onTextWrapChange),
                             }),
