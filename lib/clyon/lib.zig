@@ -48,7 +48,7 @@ pub const BuildStep = struct {
             _ = try self.builder.exec(&.{ "cp", out_file, to_path });
             _ = try self.builder.exec(&.{ "strip", "--strip-debug", to_path });
         } else if (self.target.getOsTag() == .windows and self.target.getCpuArch() == .x86_64 and self.target.getAbi() == .gnu) {
-            var env_map = try self.builder.allocator.create(std.BufMap);
+            var env_map = try self.builder.allocator.create(std.process.EnvMap);
             env_map.* = try std.process.getEnvMap(self.builder.allocator);
             // Attempted to use zig cc like: https://github.com/ziglang/zig/issues/10336
             // But ran into issues linking with -lgcc_eh
