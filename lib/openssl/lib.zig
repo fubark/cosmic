@@ -1026,7 +1026,7 @@ pub fn createCrypto(
             // Force use native headers since it wants to find CommonCrypto headers.
             lib.linkFramework("CoreServices");
         } else {
-            // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             lib.addSystemIncludeDir("/usr/include");
         }
     }

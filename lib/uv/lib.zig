@@ -143,7 +143,7 @@ pub fn create(
             // which doesn't exist in later mac libs.
             lib.linkFramework("CoreServices");
         } else {
-            // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
         }
     }
 

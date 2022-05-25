@@ -678,11 +678,19 @@ pub inline fn uniformMatrix4fv(location: c.GLint, count: c.GLsizei, transpose: c
 }
 
 pub inline fn uniform2fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
-    c.glUniform2fv(location, count, value);
+    if (IsWindows) {
+        winUniform2fv(location, count, value);
+    } else {
+        c.glUniform2fv(location, count, value);
+    }
 }
 
 pub inline fn uniform4fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
-    c.glUniform4fv(location, count, value);
+    if (IsWindows) {
+        winUniform4fv(location, count, value);
+    } else {
+        c.glUniform4fv(location, count, value);
+    }
 }
 
 pub inline fn uniform1i(location: c.GLint, v0: c.GLint) void {
@@ -712,6 +720,8 @@ var winGetShaderiv: fn (shader: c.GLuint, pname: c.GLenum, params: [*c]c.GLint) 
 var winBindBuffer: fn (target: c.GLenum, buffer: c.GLuint) void = undefined;
 var winBufferData: fn (target: c.GLenum, size: c.GLsizeiptr, data: ?*const anyopaque, usage: c.GLenum) void = undefined;
 var winUniformMatrix4fv: fn (location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void = undefined;
+var winUniform2fv: fn (location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void = undefined;
+var winUniform4fv: fn (location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void = undefined;
 var winGetUniformLocation: fn (program: c.GLuint, name: [*c]const c.GLchar) c.GLint = undefined;
 var winUniform1i: fn (location: c.GLint, v0: c.GLint) void = undefined;
 var winGenBuffers: fn (n: c.GLsizei, buffers: [*c]c.GLuint) void = undefined;
@@ -769,6 +779,8 @@ pub fn initWinGL_Functions() void {
     loadGlFunc(&winBlitFramebuffer, "glBlitFramebuffer");
     loadGlFunc(&winBlendEquation, "glBlendEquation");
     loadGlFunc(&winUniformMatrix4fv, "glUniformMatrix4fv");
+    loadGlFunc(&winUniform2fv, "glUniform2fv");
+    loadGlFunc(&winUniform4fv, "glUniform4fv");
     loadGlFunc(&winGetUniformLocation, "glGetUniformLocation");
     loadGlFunc(&winUniform1i, "glUniform1i");
     loadGlFunc(&winBufferData, "glBufferData");
