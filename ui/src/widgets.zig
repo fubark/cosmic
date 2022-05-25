@@ -1,6 +1,7 @@
 pub const ColorPicker = @import("widgets/color_picker.zig").ColorPicker;
 pub const Root = @import("widgets/root.zig").Root;
 pub const PopoverOverlay = @import("widgets/root.zig").PopoverOverlay;
+pub const ModalOverlay = @import("widgets/root.zig").ModalOverlay;
 pub const Slider = @import("widgets/slider.zig").Slider;
 const switch_ = @import("widgets/switch.zig");
 pub const Switch = switch_.Switch;
@@ -32,3 +33,4 @@ pub const ProgressBar = progress.ProgressBar;
 const list = @import("widgets/list.zig");
 pub const List = list.List;
 pub const ScrollList = list.ScrollList;
+pub const FileDialog = @import("widgets/file_dialog.zig").FileDialog;
