@@ -72,6 +72,9 @@ pub const TextGlyphIterator = struct {
     req_font_size: f32,
     render_font_size: u16,
 
+    primary_font: graphics.font.FontId,
+    primary_ascent: f32,
+
     const Self = @This();
 
     fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, dpr: u32, str: []const u8, iter: *graphics.TextGlyphIterator) void {
@@ -95,6 +98,7 @@ pub const TextGlyphIterator = struct {
             .cp = undefined,
             .kern = undefined,
             .advance_width = undefined,
+            .primary_offset_y = 0,
         };
         self.* = .{
             .g = g,
@@ -105,6 +109,8 @@ pub const TextGlyphIterator = struct {
             .prev_glyph_font = null,
             .req_font_size = req_font_size,
             .render_font_size = render_font_size,
+            .primary_font = fgroup.primary_font,
+            .primary_ascent = iter.primary_ascent,
         };
     }
 
@@ -124,6 +130,11 @@ pub const TextGlyphIterator = struct {
         if (self.prev_glyph_font != glyph_info.font) {
             // Recompute the scale for the new font.
             self.user_scale = glyph_info.render_font.getScaleToUserFontSize(self.req_font_size);
+            if (glyph_info.font.id != self.primary_font) {
+                state.primary_offset_y = self.primary_ascent - glyph_info.render_font.ascent * self.user_scale;
+            } else {
+                state.primary_offset_y = 0;
+            }
         }
 
         if (self.prev_glyph_id_opt) |prev_glyph_id| {
@@ -237,7 +248,7 @@ pub const RenderTextIterator = struct {
                 // quad.x0 = ctx.x + glyph.x_offset * user_scale;
                 // Snap to pixel for consistent glyph rendering.
                 self_.quad.x0 = @round(self_.x + glyph.x_offset * scale);
-                self_.quad.y0 = self_.y + glyph.y_offset * scale;
+                self_.quad.y0 = self_.y + glyph.y_offset * scale + self_.iter.state.primary_offset_y;
                 self_.quad.x1 = self_.quad.x0 + glyph.dst_width * scale;
                 self_.quad.y1 = self_.quad.y0 + glyph.dst_height * scale;
                 self_.quad.u0 = glyph.u0;
@@ -257,7 +268,7 @@ pub const RenderTextIterator = struct {
                 self_.quad.cp = self_.iter.state.cp;
                 self_.quad.is_color_bitmap = glyph.is_color_bitmap;
                 self_.quad.x0 = self_.x + glyph.x_offset * scale;
-                self_.quad.y0 = self_.y + glyph.y_offset * scale;
+                self_.quad.y0 = self_.y + glyph.y_offset * scale + self_.iter.state.primary_offset_y;
                 self_.quad.x1 = self_.quad.x0 + glyph.dst_width * scale;
                 self_.quad.y1 = self_.quad.y0 + glyph.dst_height * scale;
                 self_.quad.u0 = glyph.u0;

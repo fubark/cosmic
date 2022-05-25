@@ -96,6 +96,10 @@ pub const TextGlyphIterator = struct {
 
         /// Height would be ascent + descent.
         height: f32,
+
+        /// y-offset needed in final glyph position in order to be aligned with the primary font.
+        /// If the glyph is from the primary font, this should be zero.
+        primary_offset_y: f32,
     };
 
     pub inline fn nextCodepoint(self: *Self) bool {
