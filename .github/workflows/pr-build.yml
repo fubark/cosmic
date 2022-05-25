@@ -71,7 +71,7 @@ jobs:
       - name: Get version.
         if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
         run: |
-          zig build version > version 2>&1
+          zig build version 2>&1 | tee version
           echo "BUILD_VERSION=$(cat version)" >> $GITHUB_ENV
 
       - name: Get version. (windows)
