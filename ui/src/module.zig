@@ -1038,6 +1038,10 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
             return self.common.common.context_provider(key);
         }
 
+        pub inline fn getGraphics(self: Context) *graphics.Graphics {
+            return self.common.getGraphics();
+        }
+
         pub inline fn getRoot(self: Context) *ui.widgets.Root {
             return self.common.common.mod.root_node.?.getWidget(ui.widgets.Root);
         }
@@ -1074,6 +1078,10 @@ pub fn MixinContextFontOps(comptime Context: type) type {
 
         pub inline fn getFontGroupBySingleFontName(self: Context, name: []const u8) FontGroupId {
             return self.common.getFontGroupBySingleFontName(name);
+        }
+
+        pub inline fn getFontGroupByFamily(self: Context, family: graphics.FontFamily) FontGroupId {
+            return self.common.getFontGroupByFamily(family);
         }
 
         pub inline fn getFontGroupForSingleFont(self: Context, font_id: FontId) FontGroupId {
@@ -1384,6 +1392,14 @@ pub const CommonContext = struct {
 
     pub inline fn getFontGroupBySingleFontName(self: Self, name: []const u8) FontGroupId {
         return self.common.g.getFontGroupBySingleFontName(name);
+    }
+
+    pub inline fn getFontGroupByFamily(self: Self, family: graphics.FontFamily) FontGroupId {
+        return self.common.g.getFontGroupByFamily(family);
+    }
+
+    pub inline fn getGraphics(self: Self) *graphics.Graphics {
+        return self.common.g;
     }
 
     pub fn getDefaultFontGroup(self: Self) FontGroupId {

@@ -69,6 +69,7 @@ pub const TextGlyphIterator = struct {
     state: State,
 
     const Self = @This();
+
     /// Units are scaled to the effective user font size.
     pub const State = struct {
         /// The current codepoint.

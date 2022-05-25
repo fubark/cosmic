@@ -367,6 +367,17 @@ pub const Graphics = struct {
         return self.cur_font_size;
     }
 
+    pub fn getOrLoadFontGroupByFamily(self: *Self, family: graphics.FontFamily) FontGroupId {
+        switch (family) {
+            .Name => {
+                return self.font_cache.getOrLoadFontGroupByNameSeq(&.{family.Name}).?;
+            },
+            .FontGroup => return family.FontGroup,
+            .Font => return self.font_cache.getOrLoadFontGroup(&.{ family.Font }),
+            .Default => return self.default_font_gid,
+        }
+    }
+
     pub fn setFontSize(self: *Self, size: f32) void {
         if (self.cur_font_size != size) {
             self.cur_font_size = size;

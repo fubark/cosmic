@@ -953,6 +953,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getFontGroupByFamily(self: *Self, family: FontFamily) FontGroupId {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.getOrLoadFontGroupByFamily(&self.g, family),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
     pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
         switch (Backend) {
             .OpenGL => return FontCache.getOrLoadFontGroupByNameSeq(&self.g.font_cache, &.{name}).?,
@@ -1079,4 +1086,11 @@ pub const TextBaseline = enum {
 pub const BitmapFontData = struct {
     data: []const u8,
     size: u8,
+};
+
+pub const FontFamily = union(enum) {
+    Name: []const u8,
+    FontGroup: FontGroupId,
+    Font: FontId,
+    Default: void,
 };
