@@ -462,3 +462,12 @@ export fn GetProcessTimes() void {}
 export fn FT_Init_FreeType() c_int {
     return 0;
 }
+export fn FT_Error_String() void {}
+export fn FT_Get_Kerning() void {}
+export fn glUniform4fv() void {}
+export fn glUniform2fv() void {}
+export fn FT_Load_Glyph() void {}
+export fn FT_New_Memory_Face() void {}
+export fn FT_Render_Glyph() void {}
+export fn FT_Set_Pixel_Sizes() void {}
+export fn stbi_write_bmp() void {}
