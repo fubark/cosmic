@@ -15,14 +15,15 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
   - [x] Dynamic text sizes.
   - [x] Color emojis.
   - [x] Fallback font support. (for missing UTF-8 codepoints)
-  - [ ] Bitmap fonts.
-  - [ ] Smoother render on macOS with CoreText.
-  - [ ] Smoother render on Windows with Direct2D.
+  - [x] Bitmap fonts.
+  - [x] Freetype2 (default) and stb_truetype backends. 
+  - [ ] MacOS CoreText backend.
+  - [ ] Windows DirectWrite backend.
 - [x] Load/draw images. (JPG, PNG, BMP)
 - [x] Draw to offscreen images with the same Canvas API.
 - [x] Transforms.
 - [x] Blending.
-- [ ] Gradients.
+- [x] Gradients.
 - [ ] Custom Shaders.
 - [x] Cross platform.
 - [ ] Cross compilation. (Might work already, needs verification.)
@@ -36,6 +37,7 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 | ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 3.1 M |
 | ✅ | macOS arm64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 2.8 M |
 | Undecided | Android/iOS |
+| Soon   | Vulkan backend for Desktop |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
 \* Static binary size not including the demo assets. Compiled with -Drelease-safe.
@@ -51,7 +53,8 @@ Clone the cosmic repo which includes:
 - cosmic/platform: Used to facilitate events from the window.
 - cosmic/stdx: Used for additional utilities.
 - cosmic/lib/sdl: SDL2 source. Used to create a window and OpenGL 3.3 context. Built automatically.
-- cosmic/lib/stb: stb_truetype and stb_image source. Used to rasterize fonts and decode images. Built automatically.
+- cosmic/lib/freetype2: Freetype2 font renderer backend used by default for desktop. Built automatically.
+- cosmic/lib/stb: Contains stb_truetype, an optional font renderer backend. Also contains stb_image for decoding images. Built automatically.
 - cosmic/lib/wasm-js: Wasm/js bootstrap and glue code.
 ```sh
 git clone https://github.com/fubark/cosmic.git

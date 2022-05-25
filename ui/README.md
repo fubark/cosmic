@@ -2,10 +2,10 @@
 
 Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter or SwiftUI. Uses the [graphics module](https://github.com/fubark/cosmic/tree/master/graphics) to draw the widgets. Uses SDL for window/graphics context creation. See the [Web Demo](https://fubark.github.io/cosmic-site/zig-ui).
 
-- [x] Retained mode. Persists widget state and performs fast diffs to reuse existing widget instances.
+- [x] Declarative retained mode. Persists widget state and performs fast diffs to reuse existing widget instances.
 - [x] Fast linear time layout algorithm.
 - [x] Widgets defined as plain structs. Easy to navigate with your editor and ZLS.
-- [x] Widget library. Collection is still growing.
+- [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextEditor, Color Picker, Popovers, Modals, and more. Collection is still growing.
 - [x] Custom widgets. Easily create your own widgets with your own build/layout/render steps.
 - [x] Draw with Canvas API / Vector graphics directly from a custom widget.
 - [x] Register input handlers (mouse, keyboard, etc).
@@ -24,6 +24,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 | ✅ | macOS x64 with OpenGL | counter - 2.5 M |
 | ✅ | macOS arm64 with OpenGL | counter - 2.8 M |
 | Undecided | Android/iOS |
+| Soon   | Vulkan backend for Desktop |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
 \* Static binary size. Compiled with -Drelease-safe.
@@ -37,6 +38,7 @@ Clone the cosmic repo which includes:
 - cosmic/platform: Used to facilitate events from the window.
 - cosmic/stdx: Used for additional utilities.
 - cosmic/lib/sdl: SDL2 source. Used to create a window and OpenGL 3.3 context. Built automatically.
+- cosmic/lib/freetype2: Freetype2 font renderer backend used by default for desktop. Built automatically.
 - cosmic/lib/stb: stb_truetype and stb_image source. Used to rasterize fonts and decode images. Built automatically.
 - cosmic/lib/wasm-js: Wasm/js bootstrap and glue code.
 ```sh
@@ -93,22 +95,28 @@ Then run `zig build` in your own project directory and it will build and run you
 ## How it works.
 
 ### Setup.
-When setting up your ui app, you need to create a ui.Module with a graphics context. The graphics context is how you can inject a rendering backend of your choosing. This is what it might look like:
+When setting up your ui app, you need to create a ui.Module with a graphics context. The graphics context is how you can inject a rendering backend of your choosing. Use helper.App from examples/helper.zig  to set this up as well as window, a default allocator, and binding input to the ui. This is what it might look like:
 ```zig
+var app: helper.App = undefined;
+
 pub fn main() !void {
-    var app: helper.App = undefined;
     app.init("Counter");
     defer app.deinit();
-
-    var ui_mod: ui.Module = undefined;
-    ui_mod.init(app.alloc, app.g);
-    defer ui_mod.deinit();
-    ui_mod.addInputHandlers(&app.dispatcher);
-
     app.runEventLoop(update);
 }
+
+fn update(delta_ms: f32) void {
+    const S = struct {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+            return c.decl(Counter, .{});
+        }
+    };
+    const ui_width = @intToFloat(f32, app.win.getWidth());
+    const ui_height = @intToFloat(f32, app.win.getHeight());
+    app.ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height) catch unreachable;
+}
 ```
-You'll notice that we imported all widgets from the stock widget library as well as our custom root widget named Counter. It's also being wrapped around an App helper which sets up a window, a graphics context, a default allocator, feeds mouse/keyboard events into the ui module, and starts the app in an update loop.
+Once it kicks off the event loop, it will start updating and rendering the ui given the window's size and a bootstrap function which tells it how to create the user's root widget. In this case it's a widget declared as `Counter`.
 
 ### Widget structure.
 Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postPropsUpdate, postUpdate, layout, render, renderCustom`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
