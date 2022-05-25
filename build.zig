@@ -149,10 +149,10 @@ pub fn build(b: *Builder) !void {
 
     {
         const step = b.addLog("", .{});
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
         const test_exe = ctx.createTestExeStep();
         step.step.dependOn(&test_exe.step);
         const test_install = ctx.addInstallArtifact(test_exe);
@@ -162,10 +162,10 @@ pub fn build(b: *Builder) !void {
 
     {
         const step = b.addLog("", .{});
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
         var ctx_ = ctx;
         ctx_.add_v8_pkg = true;
         const test_exe = ctx_.createTestExeStep();
@@ -182,10 +182,10 @@ pub fn build(b: *Builder) !void {
         ctx_.link_v8 = true;
         ctx_.path = "runtime/main.zig";
         const step = b.addLog("", .{});
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
         step.step.dependOn(&extras_repo.step);
         const test_exe = ctx_.createTestFileStep("test/behavior_test.zig");
         // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
@@ -291,10 +291,10 @@ pub fn build(b: *Builder) !void {
         ctx_.link_v8 = true;
         ctx_.path = "runtime/main.zig";
         const step = b.addLog("", .{});
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
         step.step.dependOn(&extras_repo.step);
         const run = ctx_.createBuildExeStep().run();
         run.addArgs(&.{ "test", "test/js/test.js" });
@@ -314,10 +314,10 @@ pub fn build(b: *Builder) !void {
         ctx_.add_runtime_pkg = true;
         ctx_.path = "runtime/main.zig";
         const step = build_cosmic;
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
         step.step.dependOn(&extras_repo.step);
         const exe = ctx_.createBuildExeStep();
         const exe_install = ctx_.addInstallArtifact(exe);
@@ -333,10 +333,10 @@ pub fn build(b: *Builder) !void {
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
         ctx_.path = "runtime/main.zig";
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
         step.step.dependOn(&extras_repo.step);
 
         const exe = ctx_.createBuildExeStep();
