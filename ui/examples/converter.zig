@@ -45,11 +45,11 @@ pub const App = struct {
         const S = struct {
             fn onChangeTc(self_: *Self, text: []const u8) void {
                 const tc = std.fmt.parseFloat(f32, text) catch return;
-                self_.tf_field.widget.setValueFmt("{d:.2}", .{ tc * 9/5 + 32 });
+                self_.tf_field.getWidget().setValueFmt("{d:.2}", .{ tc * 9/5 + 32 });
             }
             fn onChangeTf(self_: *Self, text: []const u8) void {
                 const tf = std.fmt.parseFloat(f32, text) catch return;
-                self_.tc_field.widget.setValueFmt("{d:.2}", .{ (tf - 32) * 5 / 9 });
+                self_.tc_field.getWidget().setValueFmt("{d:.2}", .{ (tf - 32) * 5 / 9 });
             }
         };
 
@@ -60,7 +60,7 @@ pub const App = struct {
                     c.decl(TextField, .{
                         .bind = &self.tc_field,
                         .width = 200,
-                        .onChangeEnd = c.funcExt(self, []const u8, S.onChangeTc),
+                        .onChangeEnd = c.funcExt(self, S.onChangeTc),
                     }),
                     c.decl(Padding, .{
                         .child = c.decl(Text, .{
@@ -71,7 +71,7 @@ pub const App = struct {
                     c.decl(TextField, .{
                         .bind = &self.tf_field,
                         .width = 200,
-                        .onChangeEnd = c.funcExt(self, []const u8, S.onChangeTf),
+                        .onChangeEnd = c.funcExt(self, S.onChangeTf),
                     }),
                     c.decl(Padding, .{
                         .child = c.decl(Text, .{

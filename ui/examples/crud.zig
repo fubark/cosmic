@@ -63,14 +63,16 @@ pub const App = struct {
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
         const S = struct {
             fn onClickCreate(self_: *Self, _: MouseUpEvent) void {
-                const first = if (self_.first_tf.widget.getValue().len == 0) "Foo" else self_.first_tf.widget.getValue();
-                const last = if (self_.last_tf.widget.getValue().len == 0) "Bar" else self_.last_tf.widget.getValue();
+                const first_w = self_.first_tf.getWidget();
+                const last_w = self_.last_tf.getWidget();
+                const first = if (first_w.getValue().len == 0) "Foo" else first_w.getValue();
+                const last = if (last_w.getValue().len == 0) "Bar" else last_w.getValue();
                 const new_name = std.fmt.allocPrint(self_.alloc, "{s}, {s}", .{ first, last }) catch unreachable;
                 self_.buf.append(new_name) catch unreachable;
             }
 
             fn onClickDelete(self_: *Self, _: MouseUpEvent) void {
-                const selected_idx = self_.list.widget.getSelectedIdx();
+                const selected_idx = self_.list.getWidget().getSelectedIdx();
                 if (selected_idx != ui.NullId) {
                     self_.alloc.free(self_.buf.items[selected_idx]);
                     _ = self_.buf.orderedRemove(selected_idx);
@@ -78,10 +80,12 @@ pub const App = struct {
             }
 
             fn onClickUpdate(self_: *Self, _: MouseUpEvent) void {
-                const selected_idx = self_.list.widget.getSelectedIdx();
+                const first_w = self_.first_tf.getWidget();
+                const last_w = self_.last_tf.getWidget();
+                const selected_idx = self_.list.getWidget().getSelectedIdx();
                 if (selected_idx != ui.NullId) {
-                    const first = if (self_.first_tf.widget.getValue().len == 0) "Foo" else self_.first_tf.widget.getValue();
-                    const last = if (self_.last_tf.widget.getValue().len == 0) "Bar" else self_.last_tf.widget.getValue();
+                    const first = if (first_w.getValue().len == 0) "Foo" else first_w.getValue();
+                    const last = if (last_w.getValue().len == 0) "Bar" else last_w.getValue();
                     const new_name = std.fmt.allocPrint(self_.alloc, "{s}, {s}", .{ first, last }) catch unreachable;
                     self_.alloc.free(self_.buf.items[selected_idx]);
                     self_.buf.items[selected_idx] = new_name;
@@ -152,21 +156,21 @@ pub const App = struct {
                             .child = d(TextButton, .{
                                 .text = "Create",
                                 .corner_radius = 10,
-                                .onClick = c.funcExt(self, MouseUpEvent, S.onClickCreate),
+                                .onClick = c.funcExt(self, S.onClickCreate),
                             }),
                         }),
                         d(Grow, .{
                             .child = d(TextButton, .{
                                 .text = "Update",
                                 .corner_radius = 10,
-                                .onClick = c.funcExt(self, MouseUpEvent, S.onClickUpdate),
+                                .onClick = c.funcExt(self, S.onClickUpdate),
                             }),
                         }),
                         d(Grow, .{
                             .child = d(TextButton, .{
                                 .text = "Delete",
                                 .corner_radius = 10,
-                                .onClick = c.funcExt(self, MouseUpEvent, S.onClickDelete),
+                                .onClick = c.funcExt(self, S.onClickDelete),
                             }),
                         }),
                     }),
@@ -195,7 +199,7 @@ pub const App = struct {
                                     }),
                                     d(Grow, .{
                                         .child = d(TextField, .{
-                                            .onChangeEnd = c.funcExt(self, []const u8, S.onChangeSearch),
+                                            .onChangeEnd = c.funcExt(self, S.onChangeSearch),
                                         }),
                                     })
                                 }),

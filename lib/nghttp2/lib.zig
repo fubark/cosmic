@@ -52,6 +52,11 @@ pub fn create(
     return lib;
 }
 
+pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
+    const lib = create(step.builder, step.target, step.build_mode) catch unreachable;
+    linkLib(step, lib);
+}
+
 pub fn linkLib(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {
     step.linkLibrary(lib);
 }

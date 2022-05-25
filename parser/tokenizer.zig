@@ -4,7 +4,7 @@ const ds = stdx.ds;
 const log = stdx.log.scoped(.tokenizer);
 
 const trace = stdx.debug.tracy.trace;
-const document = @import("common").document;
+const document = stdx.textbuf.document;
 const Document = document.Document;
 const LineChunk = document.LineChunk;
 const LineChunkId = document.LineChunkId;

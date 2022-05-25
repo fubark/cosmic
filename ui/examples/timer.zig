@@ -46,12 +46,14 @@ pub const App = struct {
     step_interval: ?u32,
 
     ctx: *ui.CommonContext,
+    node: *ui.Node,
 
     pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
         self.step_interval = c.addInterval(Duration.initSecsF(0.01), self, onStep);
         self.progress_ms = 0;
         self.duration_secs = 15;
         self.ctx = c.common;
+        self.node = c.node;
     }
 
     fn onStep(self: *Self, e: ui.IntervalEvent) void {
@@ -61,17 +63,17 @@ pub const App = struct {
             e.ctx.removeInterval(self.step_interval.?);
             self.step_interval = null;
         }
-        self.progress_bar.widget.setValue(self.progress_ms/1000);
+        self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
     fn reset(self: *Self) void {
         if (self.step_interval == null) {
-            self.step_interval = self.ctx.addInterval(Duration.initSecsF(0.01), self, onStep);
+            self.step_interval = self.ctx.addInterval(self.node, Duration.initSecsF(0.01), self, onStep);
         } else {
             self.ctx.resetInterval(self.step_interval.?);
         }
         self.progress_ms = 0;
-        self.progress_bar.widget.setValue(self.progress_ms/1000);
+        self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
     pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
@@ -127,7 +129,7 @@ pub const App = struct {
                                         .init_val = @floatToInt(i32, self.duration_secs),
                                         .min_val = 1,
                                         .max_val = 30,
-                                        .onChange = c.funcExt(self, i32, S.onChangeDuration),
+                                        .onChange = c.funcExt(self, S.onChangeDuration),
                                     }),
                                 }),
                             }),
@@ -138,7 +140,7 @@ pub const App = struct {
                                     .child = c.decl(TextButton, .{
                                         .text = "Reset",
                                         .corner_radius = 10,
-                                        .onClick = c.funcExt(self, MouseUpEvent, S.onClickReset),
+                                        .onClick = c.funcExt(self, S.onClickReset),
                                     }),
                                 }),
                             }),
