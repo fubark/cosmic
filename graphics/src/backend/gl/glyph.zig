@@ -40,7 +40,7 @@ pub const Glyph = struct {
     // font size or px/em of the underlying bitmap data. Used to calculate scaling when rendering.
     // A colored bitmap font could contain glyphs with different px/em, so this shouldn't be a shared value
     // at the font level but rather on the per glyph level.
-    bm_font_size: f32,
+    render_font_size: f32,
 
     // for shaping, px amount this codepoint should occupy for this font_size.
     advance_width: f32,
@@ -58,7 +58,7 @@ pub const Glyph = struct {
             .v1 = 0,
             .x_offset = 0,
             .y_offset = 0,
-            .bm_font_size = 0,
+            .render_font_size = 0,
             .x = 0,
             .y = 0,
             .width = 0,

@@ -17,6 +17,7 @@ pub const KeyUpEvent = module.KeyUpEvent;
 pub const MouseDownEvent = module.MouseDownEvent;
 pub const MouseUpEvent = module.MouseUpEvent;
 pub const MouseMoveEvent = module.MouseMoveEvent;
+pub const MouseScrollEvent = module.MouseScrollEvent;
 
 const config = @import("config.zig");
 pub const Config = config.Config;
@@ -33,6 +34,7 @@ pub const FramePropsPtr = frame.FramePropsPtr;
 const widget = @import("widget.zig");
 pub const Node = widget.Node;
 pub const WidgetTypeId = widget.WidgetTypeId;
+pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
 pub const WidgetRef = widget.WidgetRef;
 pub const WidgetVTable = widget.WidgetVTable;
@@ -42,6 +44,10 @@ pub const widgets = @import("widgets.zig");
 
 const text = @import("text.zig");
 pub const TextMeasure = text.TextMeasure;
+
+const tween = @import("tween.zig");
+pub const Tween = tween.Tween;
+pub const SimpleTween = tween.SimpleTween;
 
 pub const VAlign = enum(u2) {
     Top = 0,
@@ -53,4 +59,36 @@ pub const HAlign = enum(u2) {
     Left = 0,
     Center = 1,
     Right = 2,
+};
+
+pub const FlexFit = enum(u2) {
+    /// Prefers to fit exactly the available space.
+    Exact = 0,
+    /// Prefers to wrap the child. If the available space is less than the child's dimension, prefers to fit the available space.
+    Shrink = 1,
+    /// Like Shrink but in the case that the child size is less than the available space; instead of skipping the missing space to the next flex widget,
+    /// that missing space is given to the next flex widget, which can make the next flex widget bigger than it's calculated flex size.
+    ShrinkAndGive = 2,
+};
+
+pub const FlexInfo = struct {
+    val: u32,
+    fit: FlexFit,
+};
+
+/// Create a declaration function for a Widget.
+pub fn createDeclFn(comptime Widget: type) fn (*BuildContext, anytype) callconv(.Inline) FrameId {
+    const S = struct {
+        inline fn decl(c: *BuildContext, props: anytype) FrameId {
+            return c.decl(Widget, props);
+        }
+    };
+    return S.decl;
+}
+
+pub const EventResult = enum(u1) {
+    /// Event will continue to propagate down to children. 
+    Continue = 0,
+    /// Stop the event from propagating to children.
+    Stop = 1,
 };

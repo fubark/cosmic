@@ -70,6 +70,7 @@ export fn glBlendEquation() void {}
 
 export fn SDL_GL_DeleteContext() void {}
 export fn SDL_DestroyWindow() void {}
+export fn SDL_CaptureMouse() void {}
 
 export fn v8__Persistent__Reset() void {}
 export fn v8__Boolean__New() void {}
@@ -176,6 +177,9 @@ export fn uv_strerror() void {}
 export fn uv_ip4_addr() void {}
 export fn uv_tcp_bind() void {}
 export fn uv_listen() void {}
+export fn uv_pipe_init() void {}
+export fn uv_read_start() void {}
+export fn uv_spawn() void {}
 export fn h2o_config_register_host() void {}
 export fn h2o_context_init() void {}
 export fn h2o_context_request_shutdown() void {}
@@ -455,3 +459,15 @@ export fn SDL_free() void {}
 export fn SDL_SetClipboardText() void {}
 export fn SDL_GetClipboardText() void {}
 export fn GetProcessTimes() void {}
+export fn FT_Init_FreeType() c_int {
+    return 0;
+}
+export fn FT_Error_String() void {}
+export fn FT_Get_Kerning() void {}
+export fn glUniform4fv() void {}
+export fn glUniform2fv() void {}
+export fn FT_Load_Glyph() void {}
+export fn FT_New_Memory_Face() void {}
+export fn FT_Render_Glyph() void {}
+export fn FT_Set_Pixel_Sizes() void {}
+export fn stbi_write_bmp() void {}

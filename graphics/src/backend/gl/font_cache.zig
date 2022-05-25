@@ -8,33 +8,34 @@ const FontId = graphics.font.FontId;
 const Font = graphics.font.Font;
 const Glyph = graphics.font.Glyph;
 const VMetrics = graphics.font.VMetrics;
-const BitmapFont = graphics.font.BitmapFont;
+const RenderFont = graphics.font.RenderFont;
 const FontGroup = graphics.font.FontGroup;
 const Graphics = graphics.gl.Graphics;
 const TextMetrics = graphics.TextMetrics;
 const FontAtlas = @import("font_atlas.zig").FontAtlas;
 const Batcher = @import("batcher.zig").Batcher;
 const font_renderer = @import("font_renderer.zig");
+const FontDesc = @import("font.zig").FontDesc;
 const log = std.log.scoped(.font_cache);
 
-pub const BitmapFontId = u32;
+pub const RenderFontId = u32;
 
-const BitmapFontDesc = struct {
-    bm_font_id: BitmapFontId,
-    bm_font_size: u16,
+const RenderFontDesc = struct {
+    font_id: RenderFontId,
+    font_size: u16,
 };
 
-const BitmapFontKey = struct {
+const RenderFontKey = struct {
     font_id: FontId,
-    bm_font_size: u16,
+    font_size: u16,
 };
 
 // Once we support SDFs we can increase this to 2^16
-pub const MaxBitmapFontSize = 256; // 2^8
+pub const MaxRenderFontSize = 256; // 2^8
 
-pub const MinBitmapFontSize = 1;
+pub const MinRenderFontSize = 1;
 
-// Used to insert initial BitmapFontDesc mru that will always be a cache miss.
+// Used to insert initial RenderFontDesc mru that will always be a cache miss.
 const NullFontSize: u16 = 0;
 
 pub const FontCache = struct {
@@ -44,57 +45,57 @@ pub const FontCache = struct {
 
     fonts: std.ArrayList(Font),
 
-    // Most recently used bm font indexed by FontId. This is checked before reaching for bm_font_map.
-    // When font is first, the bm_font_size will be set to NullFontSize to force a cache miss.
-    bm_font_mru: std.ArrayList(BitmapFontDesc),
+    // Most recently used bm font indexed by FontId. This is checked before reaching for render_font_map.
+    // When font is first, the render_font_size will be set to NullFontSize to force a cache miss.
+    render_font_mru: std.ArrayList(RenderFontDesc),
 
     // Map to query from FontId + bitmap font size
-    bm_font_map: std.AutoHashMap(BitmapFontKey, BitmapFontId),
+    render_font_map: std.AutoHashMap(RenderFontKey, RenderFontId),
 
-    bm_fonts: std.ArrayList(BitmapFont),
+    render_fonts: std.ArrayList(RenderFont),
     font_groups: ds.CompactUnorderedList(FontGroupId, FontGroup),
     fonts_by_lname: ds.OwnedKeyStringHashMap(FontId),
 
-    // 1-channel atlas. most glyphs will use this.
+    /// For outline glyphs and color bitmaps. Linear filtering enabled.
     main_atlas: FontAtlas,
 
-    // 4-channel atlas. For emojis. (eg. NotoColorEmoji.ttf)
-    color_atlas: FontAtlas,
+    /// For bitmap font glyphs. Linear filtering disabled.
+    bitmap_atlas: FontAtlas,
 
     // System fallback fonts. Used when user fallback fonts was not enough.
     system_fonts: std.ArrayList(FontId),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics) void {
-        // For testing resizing:
-        // const bm_width = 128;
-        // const bm_height = 128;
-
-        // Start with a larger width since we currently just grow the height.
-        const bm_width = 1024;
-        const bm_height = 1024;
 
         self.* = .{
             .alloc = alloc,
             .main_atlas = undefined,
-            .color_atlas = undefined,
+            .bitmap_atlas = undefined,
             .fonts = std.ArrayList(Font).init(alloc),
-            .bm_fonts = std.ArrayList(BitmapFont).init(alloc),
-            .bm_font_mru = std.ArrayList(BitmapFontDesc).init(alloc),
-            .bm_font_map = std.AutoHashMap(BitmapFontKey, BitmapFontId).init(alloc),
+            .render_fonts = std.ArrayList(RenderFont).init(alloc),
+            .render_font_mru = std.ArrayList(RenderFontDesc).init(alloc),
+            .render_font_map = std.AutoHashMap(RenderFontKey, RenderFontId).init(alloc),
             .font_groups = ds.CompactUnorderedList(FontGroupId, FontGroup).init(alloc),
             .fonts_by_lname = ds.OwnedKeyStringHashMap(FontId).init(alloc),
             .system_fonts = std.ArrayList(FontId).init(alloc),
         };
-        self.main_atlas.init(alloc, g, bm_width, bm_height, 1);
-        self.color_atlas.init(alloc, g, bm_width, bm_height, 4);
+        // For testing resizing:
+        // const main_atlas_width = 128;
+        // const main_atlas_height = 128;
+
+        // Start with a larger width since we currently just grow the height.
+        const main_atlas_width = 1024;
+        const main_atlas_height = 1024;
+        self.main_atlas.init(alloc, g, main_atlas_width, main_atlas_height, true);
+        self.bitmap_atlas.init(alloc, g, 256, 256, false);
     }
 
     pub fn deinit(self: *Self) void {
         // self.color_atlas.dumpBufferToDisk("color_font_atlas.bmp");
         // self.main_atlas.dumpBufferToDisk("main_font_atlas.bmp");
 
-        self.color_atlas.deinit();
         self.main_atlas.deinit();
+        self.bitmap_atlas.deinit();
 
         var iter = self.font_groups.iterator();
         while (iter.next()) |*it| {
@@ -102,15 +103,15 @@ pub const FontCache = struct {
         }
 
         for (self.fonts.items) |*it| {
-            it.deinit();
+            it.deinit(self.alloc);
         }
         self.fonts.deinit();
-        for (self.bm_fonts.items) |*it| {
+        for (self.render_fonts.items) |*it| {
             it.deinit();
         }
-        self.bm_fonts.deinit();
-        self.bm_font_mru.deinit();
-        self.bm_font_map.deinit();
+        self.render_fonts.deinit();
+        self.render_font_mru.deinit();
+        self.render_font_map.deinit();
         self.fonts_by_lname.deinit();
         self.system_fonts.deinit();
         self.font_groups.deinit();
@@ -121,23 +122,35 @@ pub const FontCache = struct {
     }
 
     pub fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
-        const font_grp = self.getFontGroup(font_gid);
+        const fgroup = self.getFontGroup(font_gid);
         var req_font_size = font_size;
-        const bm_font_size = computeBitmapFontSize(&req_font_size);
-        const bm_font = self.getOrCreateBitmapFont(font_grp.primary_font, bm_font_size);
-        return bm_font.getVerticalMetrics(req_font_size);
+        const render_font_size = computeRenderFontSize(fgroup.primary_font_desc, &req_font_size);
+        const render_font = self.getOrCreateRenderFont(fgroup.primary_font, render_font_size);
+        return render_font.getVerticalMetrics(req_font_size);
+    }
+
+    pub fn getFontVMetrics(self: *Self, font_id: FontId, font_size: f32) VMetrics {
+        var req_font_size = font_size;
+        const font = self.getFont(font_id);
+        const desc = FontDesc{
+            .font_type = font.font_type,
+            .bmfont_scaler = font.bmfont_scaler,
+        };
+        const render_font_size = computeRenderFontSize(desc, &req_font_size);
+        const render_font = self.getOrCreateRenderFont(font, render_font_size);
+        return render_font.getVerticalMetrics(req_font_size);
     }
 
     // If a glyph is loaded, this will queue a gpu buffer upload.
-    pub fn getOrLoadFontGroupGlyph(self: *Self, g: *Graphics, font_grp: *FontGroup, bm_font_size: u16, cp: u21) GlyphResult {
+    pub fn getOrLoadFontGroupGlyph(self: *Self, g: *Graphics, font_grp: *FontGroup, render_font_size: u16, cp: u21) GlyphResult {
         // Find glyph by iterating fonts until the glyph is found.
         for (font_grp.fonts) |font_id| {
-            const bm_font = self.getOrCreateBitmapFont(font_id, bm_font_size);
+            const render_font = self.getOrCreateRenderFont(font_id, render_font_size);
             const fnt = self.getFont(font_id);
-            if (font_renderer.getOrLoadGlyph(g, fnt, bm_font, cp)) |glyph| {
+            if (font_renderer.getOrLoadGlyph(g, fnt, render_font, cp)) |glyph| {
                 return .{
                     .font = fnt,
-                    .bm_font = bm_font,
+                    .render_font = render_font,
                     .glyph = glyph,
                 };
             }
@@ -145,12 +158,12 @@ pub const FontCache = struct {
 
         // Find glyph in system fonts.
         for (self.system_fonts.items) |font_id| {
-            const bm_font = self.getOrCreateBitmapFont(font_id, bm_font_size);
+            const render_font = self.getOrCreateRenderFont(font_id, render_font_size);
             const fnt = self.getFont(font_id);
-            if (font_renderer.getOrLoadGlyph(g, fnt, bm_font, cp)) |glyph| {
+            if (font_renderer.getOrLoadGlyph(g, fnt, render_font, cp)) |glyph| {
                 return .{
                     .font = fnt,
-                    .bm_font = bm_font,
+                    .render_font = render_font,
                     .glyph = glyph,
                 };
             }
@@ -158,40 +171,46 @@ pub const FontCache = struct {
 
         // If we still can't find it. Return the special missing glyph for the first user font.
         const font_id = font_grp.fonts[0];
-        const bm_font = self.getOrCreateBitmapFont(font_id, bm_font_size);
+        const render_font = self.getOrCreateRenderFont(font_id, render_font_size);
         const fnt = self.getFont(font_id);
-        const glyph = font_renderer.getOrLoadMissingGlyph(g, fnt, bm_font);
+        const glyph = font_renderer.getOrLoadMissingGlyph(g, fnt, render_font);
         return .{
             .font = fnt,
-            .bm_font = bm_font,
+            .render_font = render_font,
             .glyph = glyph,
         };
     }
 
-    // Assumes bm_font_size is a valid size.
-    pub fn getOrCreateBitmapFont(self: *Self, font_id: FontId, bm_font_size: u16) *BitmapFont {
-        const mru = self.bm_font_mru.items[font_id];
-        if (mru.bm_font_size == bm_font_size) {
-            return &self.bm_fonts.items[mru.bm_font_id];
+    // Assumes render_font_size is a valid size.
+    pub fn getOrCreateRenderFont(self: *Self, font_id: FontId, render_font_size: u16) *RenderFont {
+        const mru = self.render_font_mru.items[font_id];
+        if (mru.font_size == render_font_size) {
+            return &self.render_fonts.items[mru.font_id];
         } else {
-            if (self.bm_font_map.get(.{ .font_id = font_id, .bm_font_size = bm_font_size })) |bm_font_id| {
-                self.bm_font_mru.items[font_id] = .{
-                    .bm_font_id = bm_font_id,
-                    .bm_font_size = bm_font_size,
+            if (self.render_font_map.get(.{ .font_id = font_id, .font_size = render_font_size })) |render_font_id| {
+                self.render_font_mru.items[font_id] = .{
+                    .font_id = render_font_id,
+                    .font_size = render_font_size,
                 };
-                return &self.bm_fonts.items[bm_font_id];
+                return &self.render_fonts.items[render_font_id];
             } else {
                 // Create.
-                const bm_font_id = @intCast(BitmapFontId, self.bm_fonts.items.len);
-                const bm_font = self.bm_fonts.addOne() catch unreachable;
+                const render_font_id = @intCast(RenderFontId, self.render_fonts.items.len);
+                const render_font = self.render_fonts.addOne() catch unreachable;
                 const font = self.getFont(font_id);
-                bm_font.init(self.alloc, font, bm_font_size);
-                self.bm_font_map.put(.{ .font_id = font_id, .bm_font_size = bm_font_size }, bm_font_id) catch unreachable;
-                self.bm_font_mru.items[font_id] = .{
-                    .bm_font_id = bm_font_id,
-                    .bm_font_size = bm_font_size,
+
+                const ot_font = font.getOtFontBySize(render_font_size);
+                switch (font.font_type) {
+                    .Outline => render_font.initOutline(self.alloc, font.id, ot_font, render_font_size),
+                    .Bitmap => render_font.initBitmap(self.alloc, font.id, ot_font, render_font_size),
+                }
+
+                self.render_font_map.put(.{ .font_id = font_id, .font_size = render_font_size }, render_font_id) catch unreachable;
+                self.render_font_mru.items[font_id] = .{
+                    .font_id = render_font_id,
+                    .font_size = render_font_size,
                 };
-                return bm_font;
+                return render_font;
             }
         }
     }
@@ -263,7 +282,7 @@ pub const FontCache = struct {
 
     fn _addFontGroup(self: *Self, font_seq: []const FontId) FontGroupId {
         var group: FontGroup = undefined;
-        group.init(self.alloc, font_seq);
+        group.init(self.alloc, font_seq, self.fonts.items);
         return self.font_groups.add(group) catch unreachable;
     }
 
@@ -291,19 +310,37 @@ pub const FontCache = struct {
         }
     }
 
-    pub fn addFont(self: *Self, data: []const u8) FontId {
+    pub fn addOTB_Font(self: *Self, data: []const graphics.BitmapFontData) FontId {
         const next_id = @intCast(u32, self.fonts.items.len);
 
         var font: Font = undefined;
-        font.init(self.alloc, next_id, data);
+        font.initOTB(self.alloc, next_id, data);
 
-        const lname = std.ascii.allocLowerString(self.alloc, font.name.slice) catch unreachable;
+        const lname = std.ascii.allocLowerString(self.alloc, font.name) catch unreachable;
         defer self.alloc.free(lname);
 
         self.fonts.append(font) catch unreachable;
-        const mru = self.bm_font_mru.addOne() catch unreachable;
+        const mru = self.render_font_mru.addOne() catch unreachable;
         // Set to value to force cache miss.
-        mru.bm_font_size = NullFontSize;
+        mru.font_size = NullFontSize;
+
+        self.fonts_by_lname.put(lname, next_id) catch unreachable;
+        return next_id;
+    }
+
+    pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
+        const next_id = @intCast(u32, self.fonts.items.len);
+
+        var font: Font = undefined;
+        font.initTTF(self.alloc, next_id, data);
+
+        const lname = std.ascii.allocLowerString(self.alloc, font.name) catch unreachable;
+        defer self.alloc.free(lname);
+
+        self.fonts.append(font) catch unreachable;
+        const mru = self.render_font_mru.addOne() catch unreachable;
+        // Set to value to force cache miss.
+        mru.font_size = NullFontSize;
 
         self.fonts_by_lname.put(lname, next_id) catch unreachable;
         return next_id;
@@ -313,28 +350,52 @@ pub const FontCache = struct {
 // Glyph with font that owns it.
 pub const GlyphResult = struct {
     font: *Font,
-    bm_font: *BitmapFont,
+    render_font: *RenderFont,
     glyph: *Glyph,
 };
 
 // Computes bitmap font size and also updates the requested font size if necessary.
-pub fn computeBitmapFontSize(font_size: *f32) u16 {
-    if (font_size.* <= 16) {
-        if (font_size.* < MinBitmapFontSize) {
-            font_size.* = MinBitmapFontSize;
-            return MinBitmapFontSize;
-        } else {
-            // Smaller font sizes are rounded up and get an exact bitmap font.
-            font_size.* = @ceil(font_size.*);
-            return @floatToInt(u16, font_size.*);
-        }
-    } else {
-        if (font_size.* > MaxBitmapFontSize) {
-            font_size.* = MaxBitmapFontSize;
-            return MaxBitmapFontSize;
-        } else {
-            var next_pow = @floatToInt(u4, @ceil(std.math.log2(font_size.*)));
-            return @as(u16, 1) << next_pow;
-        }
+pub fn computeRenderFontSize(desc: FontDesc, font_size: *f32) u16 {
+    switch (desc.font_type) {
+        .Outline => {
+            if (font_size.* <= 16) {
+                if (font_size.* < MinRenderFontSize) {
+                    font_size.* = MinRenderFontSize;
+                    return MinRenderFontSize;
+                } else {
+                    // Smaller font sizes are rounded up and get an exact bitmap font.
+                    font_size.* = @ceil(font_size.*);
+                    return @floatToInt(u16, font_size.*);
+                }
+            } else {
+                if (font_size.* > MaxRenderFontSize) {
+                    font_size.* = MaxRenderFontSize;
+                    return MaxRenderFontSize;
+                } else {
+                    var next_pow = @floatToInt(u4, @ceil(std.math.log2(font_size.*)));
+                    return @as(u16, 1) << next_pow;
+                }
+            }
+        },
+        .Bitmap => {
+            if (font_size.* < MinRenderFontSize) {
+                font_size.* = MinRenderFontSize;
+            } else if (font_size.* > MaxRenderFontSize) {
+                font_size.* = MaxRenderFontSize;
+            }
+            // First take floor.
+            const req_font_size = @floatToInt(u32, font_size.*);
+            if (req_font_size >= desc.bmfont_scaler.mapping.len) {
+                // Look at the last mapping and scale upwards.
+                const mapping = desc.bmfont_scaler.mapping[desc.bmfont_scaler.mapping.len-1];
+                const scale = req_font_size / mapping.render_font_size;
+                font_size.* = @intToFloat(f32, mapping.render_font_size * scale);
+                return mapping.render_font_size;
+            } else {
+                const mapping = desc.bmfont_scaler.mapping[req_font_size];
+                font_size.* = @intToFloat(f32, mapping.final_font_size);
+                return mapping.render_font_size;
+            }
+        },
     }
 }

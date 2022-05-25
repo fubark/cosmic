@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const t = stdx.testing;
 
 const string = stdx.string;
 const ds = stdx.ds;
@@ -58,6 +59,20 @@ const GlyphHMetrics = struct {
     left_side_bearing: i16,
 };
 
+const GlyphBitmap = struct {
+    width: u8,
+    height: u8,
+    bearing_x: i8,
+    bearing_y: i8,
+    advance: u8,
+    /// Order is row major. Size of data is width * height.
+    data: []const u8,
+
+    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.data);
+    }
+};
+
 const GlyphColorBitmap = struct {
     // In px units.
     width: u8,
@@ -99,9 +114,9 @@ const GlyphMapperIface = struct {
     }
 };
 
-// TTF/OTF
-// Struct holds useful data from TTF file.
-pub const TTF_Font = struct {
+/// Loads TTF/OTF/OTB.
+/// Contains useful data from initial parse of the file.
+pub const OpenTypeFont = struct {
     const Self = @This();
 
     start: usize,
@@ -118,6 +133,11 @@ pub const TTF_Font = struct {
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/cbdt
     cbdt_offset: ?usize,
+
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/ebdt
+    ebdt_offset: ?usize,
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/eblc
+    eblc_offset: ?usize,
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/cblc
     cblc_offset: ?usize,
@@ -151,6 +171,8 @@ pub const TTF_Font = struct {
             .hmtx_offset = undefined,
             .cbdt_offset = null,
             .cblc_offset = null,
+            .ebdt_offset = null,
+            .eblc_offset = null,
             .glyf_offset = null,
             .cff_offset = null,
             .glyph_mapper = undefined,
@@ -176,20 +198,48 @@ pub const TTF_Font = struct {
         self.glyph_mapper_box.deinit();
     }
 
-    pub fn hasGlyphOutlines(self: *const Self) bool {
+    pub fn hasGlyphOutlines(self: Self) bool {
         return self.glyf_offset != null or self.cff_offset != null;
     }
 
-    pub fn hasColorBitmap(self: *const Self) bool {
+    pub fn hasColorBitmap(self: Self) bool {
         return self.cbdt_offset != null;
     }
 
-    pub fn getVerticalMetrics(self: *const Self) VMetrics {
+    pub fn hasEmbeddedBitmap(self: Self) bool {
+        return self.ebdt_offset != null;
+    }
+
+    pub fn getVerticalMetrics(self: Self) VMetrics {
         return .{
             .ascender = self.ascender,
             .descender = self.descender,
             .line_gap = self.line_gap,
         };
+    }
+
+    pub fn getBitmapVerticalMetrics(self: Self) VMetrics {
+        if (self.ebdt_offset == null) {
+            @panic("No ebdt");
+        }
+
+        const num_bitmap_sizes = fromBigU32(&self.data[self.eblc_offset.? + 4]);
+
+        var i: usize = 0;
+        while (i < num_bitmap_sizes) : (i += 1) {
+            const BitmapSizeRecordSize = 48;
+
+            const horz_ascender = @bitCast(i8, self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 16]);
+            const horz_descender = @bitCast(i8, self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 17]);
+
+            // Bitmap fonts store their vmetrics in the BitmapSizeRecord.
+            return .{
+                .ascender = horz_ascender,
+                .descender = horz_descender,
+                .line_gap = 0,
+            };
+        }
+        @panic("No bitmap size record.");
     }
 
     pub fn getGlyphHMetrics(self: *const Self, glyph_id: u16) GlyphHMetrics {
@@ -215,6 +265,131 @@ pub const TTF_Font = struct {
     // the concept of font size does not equate to the maximum height of the font.
     pub fn getScaleToUserFontSize(self: *const Self, size: f32) f32 {
         return size / @intToFloat(f32, self.units_per_em);
+    }
+
+    /// Get's the bitmap (monochrome or grayscale) for a glyph id.
+    pub fn getGlyphBitmap(self: Self, alloc: std.mem.Allocator, glyph_id: u16) !?GlyphBitmap {
+        if (self.ebdt_offset == null) {
+            return null;
+        }
+
+        const num_bitmap_sizes = fromBigU32(&self.data[self.eblc_offset.? + 4]);
+
+        var i: usize = 0;
+        while (i < num_bitmap_sizes) : (i += 1) {
+            const BitmapSizeRecordSize = 48;
+            const index_subtable_array_offset = fromBigU32(&self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize]);
+
+            const num_subtables = fromBigU32(&self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 8]);
+            const start_glyph_id = fromBigU16(&self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 36]);
+            const end_glyph_id = fromBigU16(&self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 38]);
+            const ppemx = self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 40];
+            const ppemy = self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 41];
+            const flags = self.data[self.eblc_offset.? + 8 + i * BitmapSizeRecordSize + 43];
+            // These aren't always filled in.
+            _ = start_glyph_id;
+            _ = end_glyph_id;
+            _ = ppemx;
+            _ = ppemy;
+            _ = flags;
+
+            const SubtableArrayItemSize = 8;
+            var j: usize = 0;
+            while (j < num_subtables) : (j += 1) {
+                const item_offset = self.eblc_offset.? + index_subtable_array_offset + j * SubtableArrayItemSize;
+                const sub_start_glyph_id = fromBigU16(&self.data[item_offset]);
+                const sub_end_glyph_id = fromBigU16(&self.data[item_offset+2]);
+                const sub_add_offset = fromBigU32(&self.data[item_offset+4]);
+                if (glyph_id >= sub_start_glyph_id and glyph_id <= sub_end_glyph_id) {
+                    const subtable_idx = self.eblc_offset.? + index_subtable_array_offset + sub_add_offset;
+                    const index_format = fromBigU16(&self.data[subtable_idx]);
+                    const image_format = fromBigU16(&self.data[subtable_idx+2]);
+                    const data_offset = fromBigU32(&self.data[subtable_idx+4]);
+                    switch (index_format) {
+                        2 => {
+                            const glyph_size = fromBigU32(&self.data[subtable_idx+8]);
+                            const height = self.data[subtable_idx+12];
+                            const width = self.data[subtable_idx+13];
+                            const hori_bearing_x = @bitCast(i8, self.data[subtable_idx+14]);
+                            const hori_bearing_y = @bitCast(i8, self.data[subtable_idx+15]);
+                            const hori_advance = self.data[subtable_idx+16];
+
+                            const glyph_idx = glyph_id - sub_start_glyph_id;
+                            const glyph_data = self.data[self.ebdt_offset.? + data_offset + glyph_idx * glyph_size..][0..glyph_size];
+                            return try parseGlyphBitmapData5(alloc, width, height, hori_bearing_x, hori_bearing_y, hori_advance, glyph_data);
+                        },
+                        3 => {
+                            const glyph_idx = glyph_id - sub_start_glyph_id;
+                            const glyph_offset = fromBigU16(&self.data[subtable_idx+8+glyph_idx*2]);
+                            return try parseGlyphBitmapData(alloc, image_format, self.data[self.ebdt_offset.?+data_offset+glyph_offset..]);
+                        },
+                        else => {
+                            log.debug("unsupported format: {}", .{index_format});
+                            return error.UnsupportedIndexFormat;
+                        },
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Format #5 has metrics data provided.
+    pub fn parseGlyphBitmapData5(alloc: std.mem.Allocator, width: u8, height: u8, bearing_x: i8, bearing_y: i8, advance: u8, data: []const u8) !GlyphBitmap {
+        const cdata = alloc.alloc(u8, width * height) catch @panic("error");
+        var reader = std.io.bitReader(.Big, std.io.fixedBufferStream(data).reader());
+        var out_bits: usize = undefined;
+        for (cdata) |_, i| {
+            const val = try reader.readBits(u1, 1, &out_bits);
+            if (val == 1) {
+                cdata[i] = 255;
+            } else {
+                cdata[i] = 0;
+            }
+        }
+        return GlyphBitmap{
+            .bearing_x = bearing_x,
+            .bearing_y = bearing_y,
+            .advance = advance,
+            .width = width,
+            .height = height,
+            .data = cdata,
+        };
+    }
+
+    pub fn parseGlyphBitmapData(alloc: std.mem.Allocator, image_format: u16, data: []const u8) !GlyphBitmap {
+        switch (image_format) {
+            2 => {
+                const num_rows = data[0];
+                const num_cols = data[1];
+                const bearing_x = @bitCast(i8, data[2]);
+                const bearing_y = @bitCast(i8, data[3]);
+                const advance = data[4];
+                if (num_rows * num_cols > 1e3) {
+                    return error.GlyphTooBig;
+                }
+                const cdata = alloc.alloc(u8, num_rows * num_cols) catch @panic("error");
+                var reader = std.io.bitReader(.Big, std.io.fixedBufferStream(data[5..]).reader());
+                var out_bits: usize = undefined;
+                for (cdata) |_, i| {
+                    const val = try reader.readBits(u1, 1, &out_bits);
+                    if (val == 1) {
+                        cdata[i] = 255;
+                    } else {
+                        cdata[i] = 0;
+                    }
+                }
+                return GlyphBitmap{
+                    .bearing_x = bearing_x,
+                    .bearing_y = bearing_y,
+                    .advance = advance,
+                    .width = num_cols,
+                    .height = num_rows,
+                    .data = cdata,
+                };
+            },
+            else => return error.UnsupportedImageFormat,
+        }
     }
 
     // Get's the color bitmap data for glyph id.
@@ -303,13 +478,13 @@ pub const TTF_Font = struct {
         return self.glyph_mapper.getGlyphId(cp);
     }
 
-    pub fn getFontFamilyName(self: *const Self, alloc: std.mem.Allocator) ?string.BoxString {
-        return self.getNameString(alloc, NAME_ID_FONT_FAMILY);
+    pub fn allocFontFamilyName(self: *const Self, alloc: std.mem.Allocator) ?[]const u8 {
+        return self.allocNameString(alloc, NAME_ID_FONT_FAMILY);
     }
 
     // stbtt has GetFontNameString but requires you to pass in specific platformId, encodingId and languageId.
     // This will return the first acceptable value for a given nameId. Useful for getting things like font family.
-    pub fn getNameString(self: *const Self, alloc: std.mem.Allocator, name_id: u16) ?string.BoxString {
+    pub fn allocNameString(self: *const Self, alloc: std.mem.Allocator, name_id: u16) ?[]const u8 {
         const pos = self.findTable("name".*) orelse return null;
         const data = self.data;
         const count = fromBigU16(&data[pos + 2]);
@@ -329,7 +504,7 @@ pub const TTF_Font = struct {
             if (it_name_id == name_id) {
                 const len = fromBigU16(&data[loc + 8]);
                 const str_pos = string_data_pos + fromBigU16(&data[loc + 10]);
-                return fromBigUTF16(alloc, data[str_pos .. str_pos + len]);
+                return allocBigUTF16(alloc, data[str_pos .. str_pos + len]);
             }
         }
         return null;
@@ -369,6 +544,10 @@ pub const TTF_Font = struct {
             const val: [4]u8 = data[loc .. loc + 4][0..4].*;
             if (std.meta.eql(val, "CBDT".*)) {
                 self.cbdt_offset = fromBigU32(&data[loc + 8]);
+            } else if (std.meta.eql(val, "EBLC".*)) {
+                self.eblc_offset = fromBigU32(&data[loc + 8]);
+            } else if (std.meta.eql(val, "EBDT".*)) {
+                self.ebdt_offset = fromBigU32(&data[loc + 8]);
             } else if (std.meta.eql(val, "CBLC".*)) {
                 self.cblc_offset = fromBigU32(&data[loc + 8]);
             } else if (std.meta.eql(val, "head".*)) {
@@ -644,17 +823,16 @@ const UvsGlyphMapper = struct {
     }
 };
 
-fn fromBigUTF16(alloc: std.mem.Allocator, data: []const u8) string.BoxString {
+fn allocBigUTF16(alloc: std.mem.Allocator, data: []const u8) []const u8 {
     const utf16 = std.mem.bytesAsSlice(u16, data);
 
-    const aligned = alloc.alloc(u16, utf16.len) catch unreachable;
+    const aligned = alloc.alloc(u16, utf16.len) catch @panic("error");
     defer alloc.free(aligned);
     for (utf16) |it, i| {
         aligned[i] = it;
     }
 
-    const utf8 = stdx.unicode.utf16beToUtf8Alloc(alloc, aligned) catch unreachable;
-    return string.BoxString.init(alloc, utf8);
+    return stdx.unicode.utf16beToUtf8Alloc(alloc, aligned) catch @panic("error");
 }
 
 // TTF files use big endian.
@@ -676,4 +854,31 @@ fn fromBigU24(ptr: *const u8) u24 {
 fn fromBigU32(ptr: *const u8) u32 {
     const arr_ptr = @intToPtr(*[4]u8, @ptrToInt(ptr));
     return std.mem.readIntBig(u32, arr_ptr);
+}
+
+const tamzen = @embedFile("../../assets/tamzen5x9r.otb");
+
+test "Parse tamzen." {
+    const font = try OpenTypeFont.init(t.alloc, tamzen, 0);
+    defer font.deinit();
+
+    const glyph_id = (try font.getGlyphId('a')).?;
+    const glyph = (try font.getGlyphBitmap(t.alloc, glyph_id)).?;
+    defer glyph.deinit(t.alloc);
+    try t.eq(glyph.width, 4);
+    try t.eq(glyph.height, 4);
+    try t.eq(glyph.bearing_x, 0);
+    try t.eq(glyph.bearing_y, 4);
+    try t.eq(glyph.advance, 5);
+    try t.eqSlice(u8, glyph.data, &.{0, 255, 255, 255, 255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 255, 255});
+}
+
+const vera_ttf = @embedFile("../../assets/vera.ttf");
+
+test "Parse vera.ttf" {
+    const font = try OpenTypeFont.init(t.alloc, vera_ttf, 0);
+    defer font.deinit();
+
+    const glyph_id = (try font.getGlyphId('i')).?;
+    try t.eq(glyph_id, 76);
 }

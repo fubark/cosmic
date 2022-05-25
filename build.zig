@@ -12,6 +12,7 @@ const platform = @import("platform/lib.zig");
 const graphics = @import("graphics/lib.zig");
 const ui = @import("ui/lib.zig");
 const parser = @import("parser/lib.zig");
+const runtime = @import("runtime/lib.zig");
 
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
@@ -21,6 +22,7 @@ const curl = @import("lib/curl/lib.zig");
 const uv = @import("lib/uv/lib.zig");
 const h2o = @import("lib/h2o/lib.zig");
 const stb = @import("lib/stb/lib.zig");
+const freetype = @import("lib/freetype2/lib.zig");
 const gl = @import("lib/gl/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
@@ -56,6 +58,7 @@ pub fn build(b: *Builder) !void {
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const link_graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const add_runtime = b.option(bool, "runtime", "Add the runtime package") orelse false;
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
@@ -103,6 +106,7 @@ pub fn build(b: *Builder) !void {
         .link_graphics = link_graphics,
         .link_audio = audio,
         .add_v8_pkg = v8,
+        .add_runtime_pkg = add_runtime,
         .link_v8 = v8,
         .link_net = net,
         .link_lyon = link_lyon,
@@ -140,7 +144,7 @@ pub fn build(b: *Builder) !void {
     const get_v8_lib = createGetV8LibStep(b, target);
     b.step("get-v8-lib", "Fetches prebuilt static lib. Use -Dtarget to indicate target platform").dependOn(&get_v8_lib.step);
 
-    const build_lyon = BuildLyonStep.create(b, ctx.target);
+    const build_lyon = lyon.BuildStep.create(b, ctx.target);
     b.step("lyon", "Builds rust lib with cargo and copies to lib/extras/prebuilt").dependOn(&build_lyon.step);
 
     {
@@ -307,6 +311,7 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
+        ctx_.add_runtime_pkg = true;
         ctx_.path = "runtime/main.zig";
         const step = build_cosmic;
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
@@ -367,6 +372,7 @@ const BuilderContext = struct {
 
     link_audio: bool,
     add_v8_pkg: bool = false,
+    add_runtime_pkg: bool = false,
     link_v8: bool,
     link_net: bool,
     link_mock: bool,
@@ -577,6 +583,7 @@ const BuilderContext = struct {
         sdl.addPackage(step);
         stb.addStbttPackage(step);
         stb.addStbiPackage(step);
+        freetype.addPackage(step);
         gl.addPackage(step);
         maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
@@ -619,6 +626,12 @@ const BuilderContext = struct {
             });
             step.step.dependOn(&zig_v8_repo.step);
             addZigV8(step);
+        }
+        if (self.add_runtime_pkg) {
+            runtime.addPackage(step, .{
+                .link_lyon = self.link_lyon,
+                .link_tess2 = self.link_tess2,
+            });
         }
         if (self.link_v8) {
             self.linkZigV8(step);
@@ -729,7 +742,7 @@ const BuilderContext = struct {
     }
 };
 
-const zig_v8_pkg = Pkg{
+pub const zig_v8_pkg = Pkg{
     .name = "v8",
     .path = FileSource.relative("./lib/zig-v8/src/v8.zig"),
 };
@@ -771,63 +784,6 @@ const GenMacLibCStep = struct {
             , .{ path, path },
         );
         try std.fs.cwd().writeFile("./lib/macos.libc", libc_file);
-    }
-};
-
-const BuildLyonStep = struct {
-    const Self = @This();
-
-    step: std.build.Step,
-    builder: *Builder,
-    target: std.zig.CrossTarget,
-
-    fn create(builder: *Builder, target: std.zig.CrossTarget) *Self {
-        const new = builder.allocator.create(Self) catch unreachable;
-        new.* = .{
-            .step = std.build.Step.init(.custom, builder.fmt("lyon", .{}), builder.allocator, make),
-            .builder = builder,
-            .target = target,
-        };
-        return new;
-    }
-
-    fn make(step: *std.build.Step) anyerror!void {
-        const self = @fieldParentPtr(Self, "step", step);
-
-        const toml_path = srcPath() ++ "/lib/clyon/Cargo.toml";
-
-        if (self.target.getOsTag() == .linux and self.target.getCpuArch() == .x86_64) {
-            _ = try self.builder.exec(&.{ "cargo", "build", "--release", "--manifest-path", toml_path });
-            const out_file = srcPath() ++ "/lib/clyon/target/release/libclyon.a";
-            const to_path = srcPath() ++ "/lib/extras/prebuilt/linux64/libclyon.a";
-            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
-            _ = try self.builder.exec(&.{ "strip", "--strip-debug", to_path });
-        } else if (self.target.getOsTag() == .windows and self.target.getCpuArch() == .x86_64 and self.target.getAbi() == .gnu) {
-            var env_map = try self.builder.allocator.create(std.BufMap);
-            env_map.* = try std.process.getEnvMap(self.builder.allocator);
-            // Attempted to use zig cc like: https://github.com/ziglang/zig/issues/10336
-            // But ran into issues linking with -lgcc_eh
-            // try env_map.put("RUSTFLAGS", "-C linker=/Users/fubar/dev/cosmic/zig-cc");
-            try env_map.put("RUSTFLAGS", "-C linker=/usr/local/Cellar/mingw-w64/9.0.0_2/bin/x86_64-w64-mingw32-gcc");
-            try self.builder.spawnChildEnvMap(null, env_map, &.{
-                "cargo", "build", "--target=x86_64-pc-windows-gnu", "--release", "--manifest-path", toml_path,
-            });
-            const out_file = srcPath() ++ "/lib/clyon/target/x86_64-pc-windows-gnu/release/libclyon.a";
-            const to_path = srcPath() ++ "/lib/extras/prebuilt/win64/clyon.lib";
-            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
-        } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .x86_64) {
-            _ = try self.builder.exec(&.{ "cargo", "build", "--target=x86_64-apple-darwin", "--release", "--manifest-path", toml_path });
-            const out_file = srcPath() ++ "/lib/clyon/target/x86_64-apple-darwin/release/libclyon.a";
-            const to_path = srcPath() ++ "/lib/extras/prebuilt/mac64/libclyon.a";
-            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
-            // This actually corrupts the lib and zig will fail to parse it after linking.
-            // _ = try self.builder.exec(&[_][]const u8{ "strip", "-S", to_path });
-        } else if (self.target.getOsTag() == .macos and self.target.getCpuArch() == .aarch64) {
-            _ = try self.builder.exec(&.{ "cargo", "build", "--target=aarch64-apple-darwin", "--release", "--manifest-path", toml_path });
-            const out_file = srcPath() ++ "/lib/clyon/target/aarch64-apple-darwin/release/libclyon.a";
-            const to_path = srcPath() ++ "/lib/extras/prebuilt/mac-arm64/libclyon.a";
-            _ = try self.builder.exec(&.{ "cp", out_file, to_path });
-        }
     }
 };
 

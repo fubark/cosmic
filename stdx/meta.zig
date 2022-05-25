@@ -15,6 +15,13 @@ pub fn assertFunctionType(comptime T: type) void {
     }
 }
 
+pub fn hasFunctionSignature(comptime ExpFunc: type, comptime Func: type) bool {
+    if (FnNumParams(ExpFunc) != FnNumParams(Func)) {
+        return false;
+    }
+    return std.mem.eql(std.builtin.TypeInfo.FnArg, FnParams(ExpFunc), FnParams(Func));
+}
+
 pub fn isFunc(comptime Fn: type) bool {
     return @typeInfo(Fn) == .Fn;
 }
@@ -96,6 +103,21 @@ test "typeId" {
     const b = S;
     try t.eq(TypeId(a), TypeId(b));
     try t.neq(TypeId(a), TypeId(struct {}));
+}
+
+/// Generate a unique id for an enum literal.
+/// This should work in debug and release modes.
+pub fn enumLiteralId(comptime T: @Type(.EnumLiteral)) usize {
+    _ = T;
+    const S = struct {
+        pub var id: u8 = 0;
+    };
+    return @ptrToInt(&S.id);
+}
+
+test "enumLiteralId" {
+    try t.eq(enumLiteralId(.foo), enumLiteralId(.foo));
+    try t.neq(enumLiteralId(.foo), enumLiteralId(.bar));
 }
 
 pub fn TupleLen(comptime T: type) usize {

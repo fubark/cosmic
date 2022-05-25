@@ -41,20 +41,15 @@ const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
 const TexShaderVertex = mesh.TexShaderVertex;
 const Shader = @import("shader.zig").Shader;
+const shaders = @import("shaders.zig");
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
-pub const MeasureTextIterator = text_renderer.MeasureTextIterator;
-const RenderTextContext = text_renderer.RenderTextContext;
+pub const TextGlyphIterator = text_renderer.TextGlyphIterator;
+const RenderTextIterator = text_renderer.RenderTextIterator;
 const svg = graphics.svg;
 const stroke = @import("stroke.zig");
 const tessellator = @import("../../tessellator.zig");
 const Tessellator = tessellator.Tessellator;
-
-const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
-const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
-
-const tex_vert_webgl2 = @embedFile("../../shaders/tex_vert_webgl2.glsl");
-const tex_frag_webgl2 = @embedFile("../../shaders/tex_frag_webgl2.glsl");
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
@@ -67,7 +62,8 @@ pub const Graphics = struct {
     alloc: std.mem.Allocator,
 
     white_tex: ImageDesc,
-    tex_shader: Shader,
+    tex_shader: shaders.TexShader,
+    gradient_shader: shaders.GradientShader,
     batcher: Batcher,
     font_cache: FontCache,
 
@@ -110,12 +106,16 @@ pub const Graphics = struct {
     qbez_helper_buf: std.ArrayList(SubQuadBez),
     tessellator: Tessellator,
 
+    /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
+    raster_glyph_buffer: std.ArrayList(u8),
+
     // We can initialize without gl calls for use in tests.
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
             .tex_shader = undefined,
+            .gradient_shader = undefined,
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
@@ -143,6 +143,7 @@ pub const Graphics = struct {
             .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
             .tessellator = undefined,
+            .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
         };
         self.tessellator.init(alloc);
 
@@ -150,35 +151,23 @@ pub const Graphics = struct {
         const max_fragment_textures = gl.getMaxFragmentTextures();
         log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
 
+        // Builtin shaders use the same vert buffer.
+        var vert_buf_id: gl.GLuint = undefined;
+        gl.genBuffers(1, &vert_buf_id);
+
         // Initialize shaders.
-        if (IsWasm) {
-            self.tex_shader = Shader.init(tex_vert_webgl2, tex_frag_webgl2) catch unreachable;
-        } else {
-            self.tex_shader = Shader.init(tex_vert, tex_frag) catch unreachable;
-        }
+        self.tex_shader = shaders.TexShader.init(vert_buf_id);
+        self.gradient_shader = shaders.GradientShader.init(vert_buf_id);
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
-        self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false, .{});
+        self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
 
-        self.batcher = Batcher.init(alloc, self.tex_shader);
-        // Set the initial texture without triggering any flushing.
-        self.batcher.setCurrentTexture(self.white_tex);
-
-        // Setup tex shader vao.
-        gl.bindVertexArray(self.tex_shader.vao_id);
-        gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.batcher.vert_buf_id);
-        // a_pos
-        gl.enableVertexAttribArray(0);
-        vertexAttribPointer(0, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(0));
-        // a_uv
-        gl.enableVertexAttribArray(1);
-        vertexAttribPointer(1, 2, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(4 * 4));
-        // a_color
-        gl.enableVertexAttribArray(2);
-        vertexAttribPointer(2, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(6 * 4));
-        gl.bindVertexArray(0);
+        self.batcher = Batcher.init(alloc, vert_buf_id, .{
+            .tex = self.tex_shader,
+            .gradient = self.gradient_shader,
+        });
 
         self.font_cache.init(alloc, self);
 
@@ -216,6 +205,7 @@ pub const Graphics = struct {
 
     pub fn deinit(self: *Self) void {
         self.tex_shader.deinit();
+        self.gradient_shader.deinit();
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
@@ -235,10 +225,15 @@ pub const Graphics = struct {
         self.vec2_slice_helper_buf.deinit();
         self.qbez_helper_buf.deinit();
         self.tessellator.deinit();
+        self.raster_glyph_buffer.deinit();
+    }
+
+    pub fn addOTB_Font(self: *Self, data: []const graphics.BitmapFontData) FontId {
+        return self.font_cache.addOTB_Font(data);
     }
 
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
-        return self.font_cache.addFont(data);
+        return self.font_cache.addTTF_Font(data);
     }
 
     pub fn addFallbackFont(self: *Self, font_id: FontId) void {
@@ -267,11 +262,8 @@ pub const Graphics = struct {
 
     pub fn resetTransform(self: *Self) void {
         self.view_transform.reset();
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        // Need to flush before changing view transform.
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     pub fn pushState(self: *Self) void {
@@ -303,8 +295,8 @@ pub const Graphics = struct {
         }
         if (!std.meta.eql(self.view_transform.mat, state.view_transform.mat)) {
             self.view_transform = state.view_transform;
-            const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-            self.batcher.setMvp(mvp);
+            const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+            self.batcher.mvp = mvp;
         }
     }
 
@@ -352,7 +344,15 @@ pub const Graphics = struct {
     }
 
     pub fn setFillColor(self: *Self, color: Color) void {
+        self.batcher.beginTex(self.white_tex);
         self.cur_fill_color = color;
+    }
+
+    pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
+        // Convert to screen coords on cpu.
+        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y));
+        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y));
+        self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
     }
 
     pub fn getStrokeColor(self: Self) Color {
@@ -365,6 +365,17 @@ pub const Graphics = struct {
 
     pub fn getFontSize(self: Self) f32 {
         return self.cur_font_size;
+    }
+
+    pub fn getOrLoadFontGroupByFamily(self: *Self, family: graphics.FontFamily) FontGroupId {
+        switch (family) {
+            .Name => {
+                return self.font_cache.getOrLoadFontGroupByNameSeq(&.{family.Name}).?;
+            },
+            .FontGroup => return family.FontGroup,
+            .Font => return self.font_cache.getOrLoadFontGroup(&.{ family.Font }),
+            .Default => return self.default_font_gid,
+        }
     }
 
     pub fn setFontSize(self: *Self, size: f32) void {
@@ -381,20 +392,13 @@ pub const Graphics = struct {
         self.cur_text_baseline = baseline;
     }
 
-    pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool, props: anytype) void {
+    pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) void {
         _ = self;
         image.* = .{
             .tex_id = undefined,
             .width = width,
             .height = height,
-            .needs_update = false,
-            .ctx = undefined,
-            .update_fn = undefined,
         };
-        if (@hasField(@TypeOf(props), "update")) {
-            image.ctx = @field(props, "ctx");
-            image.update_fn = @field(props, "update");
-        }
 
         gl.genTextures(1, &image.tex_id);
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
@@ -434,7 +438,7 @@ pub const Graphics = struct {
         // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
 
         const bitmap_len = @intCast(usize, src_width * src_height * channels);
-        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true, .{});
+        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true);
         return graphics.Image{
             .id = desc.image_id,
             .width = @intCast(usize, src_width),
@@ -447,9 +451,9 @@ pub const Graphics = struct {
         return self.images.add(image);
     }
 
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool, props: anytype) ImageDesc {
+    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageDesc {
         var image: Image = undefined;
-        self.initImage(&image, width, height, data, linear_filter, props);
+        self.initImage(&image, width, height, data, linear_filter);
         const image_id = self.images.add(image) catch unreachable;
         return ImageDesc{
             .image_id = image_id,
@@ -470,7 +474,7 @@ pub const Graphics = struct {
         // If we deleted the current tex, flush and reset to default texture.
         if (self.batcher.cur_tex_image.tex_id == image.tex_id) {
             self.flushDraw();
-            self.batcher.setCurrentTexture(self.white_tex);
+            self.batcher.cur_tex_image = self.white_tex;
         }
         image.deinit();
     }
@@ -483,16 +487,14 @@ pub const Graphics = struct {
         text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res, true);
     }
 
-    // Since MeasureTextIterator init needs to do a fieldParentPtr, we pass the res pointer in.
-    pub fn measureFontTextIter(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *MeasureTextIterator) void {
-        text_renderer.measureTextIter(self, group_id, size, self.cur_dpr, str, res);
+    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
+        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr, str);
     }
 
     pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
 
-        var quad: text_renderer.TextureQuad = undefined;
         var vdata: VertexData(4, 6) = undefined;
 
         var start_x = x;
@@ -516,35 +518,35 @@ pub const Graphics = struct {
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var ctx = text_renderer.startRenderText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
+        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
 
-        while (text_renderer.renderNextCodepoint(&ctx, &quad, true)) {
-            self.setCurrentTexture(quad.image);
+        while (iter.nextCodepointQuad(true)) {
+            self.setCurrentTexture(iter.quad.image);
 
-            if (quad.is_color_bitmap) {
+            if (iter.quad.is_color_bitmap) {
                 vert.setColor(Color.White);
             } else {
                 vert.setColor(self.cur_fill_color);
             }
 
             // top left
-            vert.setXY(quad.x0, quad.y0);
-            vert.setUV(quad.u0, quad.v0);
+            vert.setXY(iter.quad.x0, iter.quad.y0);
+            vert.setUV(iter.quad.u0, iter.quad.v0);
             vdata.verts[0] = vert;
 
             // top right
-            vert.setXY(quad.x1, quad.y0);
-            vert.setUV(quad.u1, quad.v0);
+            vert.setXY(iter.quad.x1, iter.quad.y0);
+            vert.setUV(iter.quad.u1, iter.quad.v0);
             vdata.verts[1] = vert;
 
             // bottom right
-            vert.setXY(quad.x1, quad.y1);
-            vert.setUV(quad.u1, quad.v1);
+            vert.setXY(iter.quad.x1, iter.quad.y1);
+            vert.setUV(iter.quad.u1, iter.quad.v1);
             vdata.verts[2] = vert;
 
             // bottom left
-            vert.setXY(quad.x0, quad.y1);
-            vert.setUV(quad.u0, quad.v1);
+            vert.setXY(iter.quad.x0, iter.quad.y1);
+            vert.setUV(iter.quad.u0, iter.quad.v1);
             vdata.verts[3] = vert;
 
             // indexes
@@ -554,11 +556,8 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setCurrentTexture(self: *Self, desc: ImageDesc) void {
-        if (self.batcher.shouldFlushBeforeSetCurrentTexture(desc.tex_id)) {
-            self.flushDraw();
-        }
-        self.batcher.setCurrentTexture(desc);
+    pub inline fn setCurrentTexture(self: *Self, desc: ImageDesc) void {
+        self.batcher.beginTexture(desc);
     }
 
     fn ensureUnusedBatchCapacity(self: *Self, vert_inc: usize, index_inc: usize) void {
@@ -582,6 +581,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+        self.batcher.beginTex(self.white_tex);
         // Top border.
         self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, width + self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
         // Right border.
@@ -594,6 +594,7 @@ pub const Graphics = struct {
 
     // Uses path rendering.
     pub fn strokeRectLyon(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+        self.batcher.beginTex(self.white_tex);
         // log.debug("strokeRect {d:.2} {d:.2} {d:.2} {d:.2}", .{pos.x, pos.y, width, height});
         const b = lyon.initBuilder();
         lyon.addRectangle(b, &.{ .x = x, .y = y, .width = width, .height = height });
@@ -621,6 +622,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.batcher.beginTex(self.white_tex);
         // Top left corner.
         self.drawCircleArcN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
@@ -678,6 +680,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+        self.batcher.beginTex(self.white_tex);
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -689,7 +692,7 @@ pub const Graphics = struct {
 
     // n is the number of sections in the arc we will draw.
     pub fn drawCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
 
         const inner_rad = radius - self.cur_line_width_half;
@@ -853,7 +856,7 @@ pub const Graphics = struct {
 
     // n is the number of sections in the arc we will draw.
     pub fn drawEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
 
         const inner_h_rad = h_radius - self.cur_line_width_half;
@@ -898,10 +901,12 @@ pub const Graphics = struct {
     }
 
     pub fn drawPoint(self: *Self, x: f32, y: f32) void {
+        self.batcher.beginTex(self.white_tex);
         self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
     }
 
     pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
+        self.batcher.beginTex(self.white_tex);
         if (x1 == x2) {
             self.fillRectColor(x1 - self.cur_line_width_half, y1, self.cur_line_width, y2 - y1, self.cur_stroke_color);
         } else {
@@ -921,7 +926,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawQuadraticBezierCurve(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         const q_bez = QuadBez{
             .x0 = x0,
             .y0 = y0,
@@ -935,6 +940,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawQuadraticBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+        self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.quadraticBezierTo(b, &pt(cx, cy), &pt(x1, y1));
@@ -945,7 +951,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawCubicBezierCurve(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
-        self.setCurrentTexture(self.white_tex);
+        self.batcher.beginTex(self.white_tex);
         const c_bez = CubicBez{
             .x0 = x0,
             .y0 = y0,
@@ -962,6 +968,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawCubicBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+        self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.cubicBezierTo(b, &pt(cx0, cy0), &pt(cx1, cy1), &pt(x1, y1));
@@ -1577,7 +1584,7 @@ pub const Graphics = struct {
         }
     }
 
-    // Assumes pts are in ccw order.
+    /// Assumes pts are in ccw order.
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(3, 3);
@@ -1596,7 +1603,7 @@ pub const Graphics = struct {
         self.batcher.mesh.addTriangle(start_idx, start_idx + 1, start_idx + 2);
     }
 
-    // Assumes pts are in ccw order.
+    /// Assumes pts are in ccw order.
     pub fn fillConvexPolygon(self: *Self, pts: []const Vec2) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(pts.len, (pts.len - 2) * 3);
@@ -1675,21 +1682,22 @@ pub const Graphics = struct {
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
         _ = self;
         _ = pts;
+        self.batcher.beginTex(self.white_tex);
         // TODO: Implement this.
     }
 
     pub fn drawPolygonLyon(self: *Self, pts: []const Vec2) void {
+        self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
         var data = lyon.buildStroke(b, self.cur_line_width);
 
-        self.setCurrentTexture(self.white_tex);
         self.pushLyonVertexData(&data, self.cur_stroke_color);
     }
 
     pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const image = self.images.get(image_id);
-        self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1728,7 +1736,7 @@ pub const Graphics = struct {
 
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const image = self.images.getNoCheck(image_id);
-        self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1762,7 +1770,7 @@ pub const Graphics = struct {
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
         const image = self.images.getNoCheck(image_id);
-        self.setCurrentTexture(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1804,8 +1812,8 @@ pub const Graphics = struct {
         gl.viewport(0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height));
         self.cur_proj_transform = window.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
         self.view_transform = Transform.initIdentity();
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     fn createTextureFramebuffer(self: Self, tex_id: gl.GLuint) gl.GLuint {
@@ -1840,7 +1848,7 @@ pub const Graphics = struct {
 
         // Reset view transform.
         self.view_transform = Transform.initIdentity();
-        self.batcher.setMvp(initial_mvp);
+        self.batcher.resetState(Transform.initRowMajor(initial_mvp), self.white_tex);
 
         // Scissor affects glClear so reset it first.
         self.cur_clip_rect = .{
@@ -1881,27 +1889,20 @@ pub const Graphics = struct {
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
         self.view_transform.translate(x, y);
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        // Need to flush before changing view transform.
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     pub fn scale(self: *Self, x: f32, y: f32) void {
         self.view_transform.scale(x, y);
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     pub fn rotate(self: *Self, rad: f32) void {
         self.view_transform.rotateZ(rad);
-        const mvp = math.Mul4x4_4x4(self.cur_proj_transform.mat, self.view_transform.mat);
-
-        self.flushDraw();
-        self.batcher.setMvp(mvp);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
     }
 
     // GL Only.
@@ -1947,17 +1948,10 @@ pub const Graphics = struct {
     }
 
     pub fn flushDraw(self: *Self) void {
-        // Custom logic to run before flushing batcher.
-        // log.debug("tex {}", .{self.batcher.cur_tex_id});
-        const image = self.images.getPtrNoCheck(self.batcher.cur_tex_image.image_id);
-        if (image.needs_update) {
-            image.update();
-            image.needs_update = false;
-        }
         self.batcher.flushDraw();
     }
 
-    pub fn updateTextureData(self: *const Self, image: *const Image, buf: []const u8) void {
+    pub fn updateTextureData(self: *const Self, image: Image, buf: []const u8) void {
         _ = self;
         gl.activeTexture(gl.GL_TEXTURE0 + 0);
         gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
@@ -1966,20 +1960,6 @@ pub const Graphics = struct {
     }
 };
 
-// Define how to get attribute data out of vertex buffer. Eg. an attribute a_pos could be a vec4 meaning 4 components.
-// size - num of components for the attribute.
-// type - component data type.
-// normalized - normally false, only relevant for non GL_FLOAT types anyway.
-// stride - number of bytes for each vertex. 0 indicates that the stride is size * sizeof(type)
-// offset - offset in bytes of the first component of first vertex.
-fn vertexAttribPointer(attr_idx: gl.GLuint, size: gl.GLint, data_type: gl.GLenum, stride: gl.GLsizei, offset: ?*const gl.GLvoid) void {
-    gl.vertexAttribPointer(attr_idx, size, data_type, gl.GL_FALSE, stride, offset);
-}
-
-fn u32ToVoidPtr(val: u32) ?*const gl.GLvoid {
-    return @intToPtr(?*const gl.GLvoid, val);
-}
-
 // It's often useful to have both the image id and gl texture id.
 pub const ImageDesc = struct {
     image_id: ImageId,
@@ -1987,8 +1967,6 @@ pub const ImageDesc = struct {
 };
 
 pub const Image = struct {
-    const Self = @This();
-
     tex_id: GLTextureId,
     width: usize,
     height: usize,
@@ -1996,18 +1974,10 @@ pub const Image = struct {
     /// Framebuffer used to draw to the texture.
     fbo_id: ?gl.GLuint = null,
 
-    // Whether this texture needs to be updated in the gpu the next time we draw with it.
-    needs_update: bool,
-
-    ctx: *anyopaque,
-    update_fn: fn (*Self) void,
+    const Self = @This();
 
     pub fn deinit(self: Self) void {
         gl.deleteTextures(1, &self.tex_id);
-    }
-
-    fn update(self: *Self) void {
-        self.update_fn(self);
     }
 };
 

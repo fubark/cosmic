@@ -36,7 +36,7 @@ const adapter = @import("adapter.zig");
 const PromiseSkipJsGen = adapter.PromiseSkipJsGen;
 const FuncData = adapter.FuncData;
 const FuncDataUserPtr = adapter.FuncDataUserPtr;
-const Environment = @import("env.zig").Environment;
+pub const Environment = @import("env.zig").Environment;
 
 pub const PromiseId = u32;
 
@@ -47,7 +47,6 @@ const test_init = @embedFile("snapshots/test_init.js");
 
 // Keep a global rt for debugging and prototyping.
 pub var global: *RuntimeContext = undefined;
-
 
 // Manages runtime resources.
 // Used by V8 callback functions.
@@ -1486,6 +1485,128 @@ pub const RuntimeContext = struct {
             if (self.env.on_main_script_done) |handler| {
                 handler(self.env.on_main_script_done_ctx, self) catch unreachable;
             }
+        }
+    }
+
+    pub fn spawnProcess(self: *Self, ctx: ?*anyopaque, cmd: []const []const u8, cb: ProcessEndCallback) !void {
+        const new = try ProcessHandle.create(self.alloc, self.uv_loop, cmd);
+        new.user_ctx = ctx;
+        new.user_cb = cb;
+    }
+};
+
+const ProcessEndCallback = fn (ctx: ?*anyopaque, output: []const u8) void;
+
+const ProcessHandle = struct {
+    handle: uv.uv_process_t,
+    out: uv.uv_pipe_t,
+    out_buf: std.ArrayList(u8),
+    user_cb: ProcessEndCallback,
+    user_ctx: ?*anyopaque,
+    alloc: std.mem.Allocator,
+    closed_handles: u1,
+
+    const Self = @This();
+
+    fn create(alloc: std.mem.Allocator, loop: *uv.uv_loop_t, cmd: []const []const u8) !*Self {
+        const new = alloc.create(ProcessHandle) catch @panic("error");
+        new.out_buf = std.ArrayList(u8).init(alloc);
+        new.alloc = alloc;
+        new.closed_handles = 0;
+        errdefer new.startDestroy();
+
+        var res = uv.uv_pipe_init(loop, &new.out, 0);
+        uv.assertNoError(res);
+
+        const cargs = stdx.cstr.allocCStrings(alloc, cmd) catch @panic("error");
+        defer alloc.free(cargs);
+
+        const cfile = std.cstr.addNullByte(alloc, cmd[0]) catch @panic("error");
+        defer alloc.free(cfile);
+
+        var opts: uv.uv_process_options_t = undefined;
+        opts.file = cfile;
+        opts.args = stdx.mem.ptrCastAlign([*c][*c]u8, cargs.ptr);
+        opts.exit_cb = onExit;
+        opts.flags = 0;
+        opts.env = null;
+        opts.cwd = null;
+        opts.stdio_count = 3;
+        var stdio: [3]uv.uv_stdio_container_t = undefined;
+        opts.stdio = &stdio;
+        opts.stdio[0].flags = uv.UV_IGNORE;
+        opts.stdio[1].flags = uv.UV_CREATE_PIPE | uv.UV_WRITABLE_PIPE;
+        opts.stdio[1].data.stream = @ptrCast(*uv.uv_stream_t, &new.out);
+        opts.stdio[2].flags = uv.UV_IGNORE;
+        opts.uid = 0;
+        opts.gid = 0;
+
+        res = uv.uv_spawn(loop, &new.handle, &opts);
+        switch (res) {
+            uv.UV_ENOENT => {
+                return error.MissingBin;
+            },
+            else => uv.assertNoError(res),
+        }
+
+        res = uv.uv_read_start(@ptrCast(*uv.uv_stream_t, &new.out), onAlloc, onRead);
+        uv.assertNoError(res);
+
+        return new;
+    }
+
+    fn onRead(stream: [*c]uv.uv_stream_t, nread: isize, buf: [*c]const uv.uv_buf_t) callconv(.C) void {
+        const self = @fieldParentPtr(Self, "out", @ptrCast(*uv.uv_pipe_t, stream));
+        defer self.alloc.free(buf[0].base[0..buf[0].len]);
+        if (nread < 0) {
+            if (nread == uv.UV_EOF) {
+                return;
+            } else {
+                @panic("Handle error");
+            }
+        }
+        const str = buf[0].base[0..@intCast(usize, nread)];
+        self.out_buf.appendSlice(str) catch @panic("error");
+    }
+
+    fn onExit(ptr: [*c]uv.uv_process_t, exit_status: i64, term_signal: c_int) callconv(.C) void {
+        _ = exit_status;
+        _ = term_signal;
+        const self = @ptrCast(*ProcessHandle, ptr);
+        self.user_cb(self.user_ctx, self.out_buf.items);
+        self.startDestroy();
+    }
+
+    /// This handle is not destroyed until all close callbacks are fired.
+    fn startDestroy(self: *Self) void {
+        self.out_buf.deinit();
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.out), onCloseOut);
+        // Must call close if uv_spawn failed.
+        uv.uv_close(@ptrCast(*uv.uv_handle_t, &self.handle), onClose);
+    }
+
+    fn onAlloc(handle: [*c]uv.uv_handle_t, suggested_size: usize, out_buf: [*c]uv.uv_buf_t) callconv(.C) void {
+        const self = @fieldParentPtr(Self, "out", @ptrCast(*uv.uv_pipe_t, handle));
+        const buf = self.alloc.alloc(u8, suggested_size) catch @panic("error");
+        out_buf[0].base = buf.ptr;
+        out_buf[0].len = buf.len;
+    }
+
+    fn onCloseOut(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+        const self = @fieldParentPtr(Self, "out", @ptrCast(*uv.uv_pipe_t, ptr));
+        if (self.closed_handles == 1) {
+            self.alloc.destroy(self);
+        } else {
+            self.closed_handles += 1;
+        }
+    }
+
+    fn onClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
+        const self = @ptrCast(*Self, ptr);
+        if (self.closed_handles == 1) {
+            self.alloc.destroy(self);
+        } else {
+            self.closed_handles += 1;
         }
     }
 };

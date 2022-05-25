@@ -13,34 +13,43 @@ const Node = ui.Node;
 const Padding = ui.widgets.Padding;
 const log = stdx.log.scoped(.text_field);
 
+const NullId = std.math.maxInt(u32);
+
 /// Handles a single line of text input.
 pub const TextField = struct {
-    const Self = @This();
-
     props: struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
+        focused_border_color: Color = Color.Blue,
+        font_id: graphics.font.FontId = NullId,
         font_size: f32 = 20,
         onChangeEnd: ?Function(fn ([]const u8) void) = null,
         onKeyDown: ?Function(fn (ui.WidgetRef(Self), KeyDownEvent) void) = null,
         padding: f32 = 10,
+        placeholder: ?[]const u8 = null,
         width: ?f32 = null,
+        focused_show_border: bool = true,
     },
 
-    buf: std.ArrayList(u8),
-    font_gid: graphics.font.FontGroupId,
+    buf: stdx.textbuf.TextBuffer,
 
     inner: ui.WidgetRef(TextFieldInner),
 
     /// Used to determine if the text changed since it received focus.
     last_buf_hash: [16]u8,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
-        self.buf = std.ArrayList(u8).init(c.alloc);
-        self.font_gid = c.getDefaultFontGroup();
+    ctx: *ui.CommonContext,
+    node: *Node,
+
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
+        self.buf = stdx.textbuf.TextBuffer.init(c.alloc, "") catch @panic("error");
         self.last_buf_hash = undefined;
         c.addKeyDownHandler(self, Self.onKeyDown);
         c.addMouseDownHandler(self, Self.onMouseDown);
+        self.ctx = c.common;
+        self.node = c.node;
     }
 
     pub fn deinit(node: *Node, _: std.mem.Allocator) void {
@@ -48,38 +57,59 @@ pub const TextField = struct {
         self.buf.deinit();
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         return c.decl(Padding, .{
             .padding = self.props.padding,
             .child = c.decl(TextFieldInner, .{
                 .bind = &self.inner,
-                .text = self.buf.items,
+                .text = self.buf.buf.items,
                 .font_size = self.props.font_size,
-                .font_gid = self.font_gid,
+                .font_id = self.props.font_id,
                 .text_color = self.props.text_color,
+                .placeholder = self.props.placeholder,
             }),
         });
     }
 
     pub fn setValueFmt(self: *Self, comptime format: []const u8, args: anytype) void {
-        self.buf.resize(@intCast(usize, std.fmt.count(format, args))) catch unreachable;
-        _ = std.fmt.bufPrint(self.buf.items, format, args) catch unreachable;
+        self.buf.clear();
+        self.buf.appendFmt(format, args);
+        self.ensureCaretPos();
+    }
+
+    pub fn clear(self: *Self) void {
+        self.buf.clear();
+        self.ensureCaretPos();
+    }
+
+    fn ensureCaretPos(self: *Self) void {
+        const inner = self.inner.getWidget();
+        if (inner.caret_idx > self.buf.num_chars) {
+            inner.caret_idx = self.buf.num_chars;
+        }
+    }
+
+    /// Request focus on the TextField.
+    pub fn requestFocus(self: *Self) void {
+        self.ctx.requestFocus(self.node, onBlur);
+        const inner = self.inner.getWidget();
+        inner.setFocused();
+        std.crypto.hash.Md5.hash(self.buf.buf.items, &self.last_buf_hash, .{});
     }
 
     pub fn getValue(self: Self) []const u8 {
-        return self.buf.items;
+        return self.buf.buf.items;
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
         const me = e.val;
-        e.ctx.requestFocus(onBlur);
-        const inner = self.inner.getWidget();
-        inner.setFocused();
-        std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
+        self.requestFocus();
 
         // Map mouse pos to caret pos.
+        const inner = self.inner.getWidget();
         const xf = @intToFloat(f32, me.x);
         inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
+        return .Continue;
     }
 
     fn onBlur(node: *Node, ctx: *ui.CommonContext) void {
@@ -87,7 +117,7 @@ pub const TextField = struct {
         const self = node.getWidget(Self);
         self.inner.getWidget().focused = false;
         var hash: [16]u8 = undefined;
-        std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
+        std.crypto.hash.Md5.hash(self.buf.buf.items, &hash, .{});
         if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
             self.fireOnChangeEnd();
         }
@@ -95,12 +125,13 @@ pub const TextField = struct {
 
     fn fireOnChangeEnd(self: *Self) void {
         if (self.props.onChangeEnd) |cb| {
-            cb.call(.{ self.buf.items });
+            cb.call(.{ self.buf.buf.items });
         }
     }
 
     fn getCaretIdx(self: *Self, ctx: *ui.CommonContext, x: f32) u32 {
-        var iter = ctx.measureTextIter(self.font_gid, self.props.font_size, self.buf.items);
+        const font_gid = ctx.getFontGroupForSingleFontOrDefault(self.props.font_id);
+        var iter = ctx.textGlyphIter(font_gid, self.props.font_size, self.buf.buf.items);
         if (iter.nextCodepoint()) {
             if (x < iter.state.advance_width/2) {
                 return 0;
@@ -108,17 +139,17 @@ pub const TextField = struct {
         } else {
             return 0;
         }
-        var idx: u32 = 1;
+        var char_idx: u32 = 1;
         var cur_x: f32 = iter.state.advance_width;
         while (iter.nextCodepoint()) {
             if (x < cur_x + iter.state.advance_width/2) {
-                return idx;
+                return char_idx;
             }
             cur_x = @round(cur_x + iter.state.kern);
             cur_x += iter.state.advance_width;
-            idx += 1;
+            char_idx += 1;
         }
-        return idx;
+        return char_idx;
     }
 
     fn onKeyDown(self: *Self, e: ui.KeyDownEvent) void {
@@ -131,10 +162,10 @@ pub const TextField = struct {
         const inner = self.inner.getWidget();
         if (ke.code == .Backspace) {
             if (inner.caret_idx > 0) {
-                if (self.buf.items.len == inner.caret_idx) {
-                    self.buf.resize(self.buf.items.len-1) catch unreachable;
+                if (self.buf.num_chars == inner.caret_idx) {
+                    self.buf.removeChar(self.buf.num_chars-1);
                 } else {
-                    _ = self.buf.orderedRemove(inner.caret_idx-1);
+                    self.buf.removeChar(inner.caret_idx-1);
                 }
                 // self.postLineUpdate(self.caret_line);
                 inner.caret_idx -= 1;
@@ -142,14 +173,14 @@ pub const TextField = struct {
                 inner.resetCaretAnim();
             }
         } else if (ke.code == .Delete) {
-            if (inner.caret_idx < self.buf.items.len) {
-                _ = self.buf.orderedRemove(inner.caret_idx);
+            if (inner.caret_idx < self.buf.num_chars) {
+                self.buf.removeChar(inner.caret_idx);
                 inner.keepCaretFixedInView();
                 inner.resetCaretAnim();
             }
         } else if (ke.code == .Enter) {
             var hash: [16]u8 = undefined;
-            std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
+            std.crypto.hash.Md5.hash(self.buf.buf.items, &hash, .{});
             if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
                 self.fireOnChangeEnd();
                 self.last_buf_hash = hash;
@@ -162,17 +193,17 @@ pub const TextField = struct {
                 inner.resetCaretAnim();
             }
         } else if (ke.code == .ArrowRight) {
-            if (inner.caret_idx < self.buf.items.len) {
+            if (inner.caret_idx < self.buf.num_chars) {
                 inner.caret_idx += 1;
                 inner.keepCaretInView();
                 inner.resetCaretAnim();
             }
         } else {
             if (ke.getPrintChar()) |ch| {
-                if (inner.caret_idx == self.buf.items.len) {
-                    self.buf.append(ch) catch unreachable;
+                if (inner.caret_idx == self.buf.num_chars) {
+                    self.buf.appendCodepoint(ch) catch @panic("error");
                 } else {
-                    self.buf.insert(inner.caret_idx, ch) catch unreachable;
+                    self.buf.insertCodepoint(inner.caret_idx, ch) catch @panic("error");
                 }
                 // self.postLineUpdate(self.caret_line);
                 inner.caret_idx += 1;
@@ -182,7 +213,7 @@ pub const TextField = struct {
         }
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
         const child = c.getNode().children.items[0];
         if (self.props.width) |width| {
@@ -205,8 +236,8 @@ pub const TextField = struct {
         g.setFillColor(self.props.bg_color);
         g.fillRect(alo.x, alo.y, alo.width, alo.height);
 
-        if (c.isFocused()) {
-            g.setStrokeColor(Color.Blue);
+        if (c.isFocused() and self.props.focused_show_border) {
+            g.setStrokeColor(self.props.focused_border_color);
             g.setLineWidth(2);
             g.drawRect(alo.x, alo.y, alo.width, alo.height);
         }
@@ -214,12 +245,11 @@ pub const TextField = struct {
 };
 
 pub const TextFieldInner = struct {
-    const Self = @This();
-
     props: struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
-        font_gid: graphics.font.FontGroupId,
+        font_id: graphics.font.FontId = NullId,
+        placeholder: ?[]const u8 = null,
         text: []const u8 = "",
     },
 
@@ -239,7 +269,9 @@ pub const TextFieldInner = struct {
     /// [0,1]
     fixed_in_view: f32,
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.scroll_x = 0;
         self.caret_idx = 0;
         self.caret_pos_x = 0;
@@ -250,7 +282,7 @@ pub const TextFieldInner = struct {
         self.node = c.node;
     }
 
-    pub fn postUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *Self) void {
         // Make sure caret_idx is in bounds.
         if (self.caret_idx > self.props.text.len) {
             self.caret_idx = @intCast(u32, self.props.text.len);
@@ -307,13 +339,14 @@ pub const TextFieldInner = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
-        const vmetrics = c.getPrimaryFontVMetrics(self.props.font_gid, self.props.font_size);
-        const metrics = c.measureText(self.props.font_gid, self.props.font_size, self.props.text);
+        const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
+        const vmetrics = c.getPrimaryFontVMetrics(font_gid, self.props.font_size);
+        const metrics = c.measureText(font_gid, self.props.font_size, self.props.text);
         self.text_width = metrics.width;
-        self.caret_pos_x = c.measureText(self.props.font_gid, self.props.font_size, self.props.text[0..self.caret_idx]).width;
+        self.caret_pos_x = c.measureText(font_gid, self.props.font_size, self.props.text[0..self.caret_idx]).width;
 
         var res = ui.LayoutSize.init(metrics.width, vmetrics.height);
         if (c.prefer_exact_width) {
@@ -334,8 +367,20 @@ pub const TextFieldInner = struct {
             g.clipRect(alo.x, alo.y, alo.width, alo.height);
         }
         g.setFillColor(self.props.text_color);
-        g.setFontGroup(self.props.font_gid, self.props.font_size);
+
+        if (self.props.font_id == NullId) {
+            g.setFont(g.getDefaultFontId(), self.props.font_size);
+        } else {
+            g.setFont(self.props.font_id, self.props.font_size);
+        }
         g.fillText(alo.x - self.scroll_x, alo.y, self.props.text);
+
+        if (self.props.text.len == 0) {
+            if (self.props.placeholder) |placeholder| {
+                g.setFillColor(Color.init(100, 100, 100, 255));
+                g.fillText(alo.x, alo.y, placeholder);
+            }
+        }
 
         // Draw caret.
         if (self.focused) {

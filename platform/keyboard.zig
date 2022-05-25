@@ -2,7 +2,7 @@ const std = @import("std");
 const stdx = @import("stdx");
 const t = stdx.testing;
 
-// Based on w3c specs.
+// Based on w3c specs. New keys are added at the end.
 // https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/keyCode
 pub const KeyCode = enum(u8) {
     Unknown = 0,
@@ -10,8 +10,8 @@ pub const KeyCode = enum(u8) {
     Tab = 9,
     Enter = 13,
     Shift = 16,
-    Control = 17,
-    Alt = 18,
+    ControlLeft = 17,
+    AltLeft = 18,
     Pause = 19,
     CapsLock = 20,
     Escape = 27,
@@ -106,6 +106,10 @@ pub const KeyCode = enum(u8) {
     Backslash = 220,
     BracketRight = 221,
     Quote = 222,
+
+    // Start adding new ones here. Start at a higher index if needed.
+    ControlRight = 223,
+    AltRight = 224,
 };
 
 const ShiftMask = 8;
@@ -113,7 +117,7 @@ const ControlMask = 4;
 const AltMask = 2;
 const MetaMask = 1;
 
-const MaxCodes = 223;
+const MaxCodes = 225;
 const PrintableCharMap = b: {
     var map: [MaxCodes][2]u8 = undefined;
     const S = struct {

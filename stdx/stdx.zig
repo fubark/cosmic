@@ -15,17 +15,17 @@ pub const fs = @import("fs.zig");
 pub const http = @import("http.zig");
 pub const events = @import("events.zig");
 pub const net = @import("net.zig");
-pub const textbuf = struct {
-    pub const document = @import("textbuf/document.zig");
-};
+pub const cstr = @import("cstr.zig");
+pub const textbuf = @import("textbuf/textbuf.zig");
 
 const closure = @import("closure.zig");
 pub const Closure = closure.Closure;
 pub const ClosureIface = closure.ClosureIface;
-pub const Function = closure.Function;
 pub const ClosureSimple = closure.ClosureSimple;
 pub const ClosureSimpleIface = closure.ClosureSimpleIface;
-pub const FunctionSimple = closure.FunctionSimple;
+const function = @import("function.zig");
+pub const Function = function.Function;
+pub const FunctionSimple = function.FunctionSimple;
 const callback = @import("callback.zig");
 pub const Callback = callback.Callback;
 

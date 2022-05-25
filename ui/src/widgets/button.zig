@@ -9,10 +9,9 @@ const MouseDownEvent = platform.MouseDownEvent;
 const ui = @import("../ui.zig");
 const Padding = ui.widgets.Padding;
 const Text = ui.widgets.Text;
+const log = stdx.log.scoped(.button);
 
 pub const TextButton = struct {
-    const Self = @This();
-
     props: struct {
         onClick: ?Function(fn (MouseUpEvent) void) = null,
         bg_color: Color = Color.init(220, 220, 220, 255),
@@ -23,7 +22,9 @@ pub const TextButton = struct {
         text: ?[]const u8,
     },
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         return c.decl(Button, .{
             .onClick = self.props.onClick,
             .bg_color = self.props.bg_color,
@@ -42,8 +43,6 @@ pub const TextButton = struct {
 };
 
 pub const Button = struct {
-    const Self = @This();
-
     props: struct {
         onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
         bg_color: Color = Color.init(220, 220, 220, 255),
@@ -57,12 +56,14 @@ pub const Button = struct {
 
     pressed: bool,
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    const Self = @This();
+
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.pressed = false;
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
         c.addMouseUpHandler(c.node, handleMouseUpEvent);
@@ -80,12 +81,13 @@ pub const Button = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) void {
+    fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
         }
+        return .Continue;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
@@ -95,7 +97,7 @@ pub const Button = struct {
     }
 
     /// Defaults to a fixed size if there is no child widget.
-    pub fn layout(self: *Self, comptime C: ui.Config, c: *C.Layout()) ui.LayoutSize {
+    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         var res: ui.LayoutSize = cstr;

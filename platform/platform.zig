@@ -11,6 +11,7 @@ pub const initSdlKeyUpEvent = input_sdl.initKeyUpEvent;
 pub const initSdlMouseDownEvent = input_sdl.initMouseDownEvent;
 pub const initSdlMouseUpEvent = input_sdl.initMouseUpEvent;
 pub const initSdlMouseMoveEvent = input_sdl.initMouseMoveEvent;
+pub const initSdlMouseScrollEvent = input_sdl.initMouseScrollEvent;
 
 const input_web = @import("input_web.zig");
 pub const webToCanonicalKeyCode = input_web.toCanonicalKeyCode;
@@ -37,6 +38,13 @@ pub fn delay(us: u64) void {
     } else {
         // There isn't a good sleep mechanism in js since it's run on event loop.
         // stdx.time.sleep(self.target_ms_per_frame - render_time_ms);
+    }
+}
+
+pub fn captureMouse(capture: bool) void {
+    if (!builtin.target.isWasm()) {
+        _ = sdl.SDL_CaptureMouse(@boolToInt(capture));
+    } else {
     }
 }
 

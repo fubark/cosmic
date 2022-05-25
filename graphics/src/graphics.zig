@@ -5,6 +5,7 @@ const Vec2 = math.Vec2;
 const builtin = @import("builtin");
 const t = stdx.testing;
 const sdl = @import("sdl");
+const ft = @import("freetype");
 
 const window = @import("window.zig");
 pub const Window = window.Window;
@@ -21,33 +22,46 @@ pub const Color = _color.Color;
 const fps = @import("fps.zig");
 pub const FpsLimiter = fps.FpsLimiter;
 pub const DefaultFpsLimiter = fps.DefaultFpsLimiter;
-const _font_group = @import("font_group.zig");
-const FontGroup = _font_group.FontGroup;
 const text_renderer = @import("backend/gl/text_renderer.zig");
 const FontCache = gl.FontCache;
 const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
 
 pub const tessellator = @import("tessellator.zig");
+pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
 pub const TextMetrics = _text.TextMetrics;
+pub const TextGlyphIterator = _text.TextGlyphIterator;
+pub const TextLayout = _text.TextLayout;
+
+const FontRendererBackendType = enum(u1) {
+    /// Default renderer for desktop.
+    Freetype = 0,
+    Stbtt = 1,
+};
+
+pub const FontRendererBackend: FontRendererBackendType = b: {
+    break :b .Freetype;
+};
 
 const This = @This();
 pub const font = struct {
     pub const FontId = u32;
     pub const FontGroupId = u32;
+    pub const FontType = _font.FontType;
     pub const VMetrics = This.VMetrics;
-    pub const TTF_Font = _ttf.TTF_Font;
+    pub const OpenTypeFont = _ttf.OpenTypeFont;
 
     const _font = @import("backend/gl/font.zig");
+    const _font_group = @import("backend/gl/font_group.zig");
     const glyph = @import("backend/gl/glyph.zig");
 
     pub usingnamespace switch (Backend) {
         .Test, .OpenGL => struct {
             pub const Font = _font.Font;
-            pub const BitmapFont = _font.BitmapFont;
+            pub const RenderFont = _font.RenderFont;
             pub const Glyph = glyph.Glyph;
             pub const FontCache = gl.FontCache;
             pub const FontGroup = _font_group.FontGroup;
@@ -68,13 +82,13 @@ pub const testg = @import("backend/test/graphics.zig");
 // https://github.com/intel/fastuidraw
 // https://github.com/microsoft/Win2D, https://github.com/microsoft/microsoft-ui-xaml
 
-const BackendType = enum {
+const BackendType = enum(u2) {
     /// Stub for testing.
-    Test,
+    Test = 0,
     /// Deprecated. Uses html canvas context for graphics. Kept for historical reference.
-    WasmCanvas,
+    WasmCanvas = 1,
     /// For Desktop and WebGL.
-    OpenGL,
+    OpenGL = 2,
 };
 
 pub const Backend: BackendType = b: {
@@ -87,6 +101,9 @@ pub const Backend: BackendType = b: {
         break :b .OpenGL;
     }
 };
+
+/// Global freetype library handle.
+pub var ft_library: ft.FT_Library = undefined;
 
 pub const Graphics = struct {
     const Self = @This();
@@ -110,6 +127,14 @@ pub const Graphics = struct {
             .text_buf = std.ArrayList(u8).init(alloc),
             .g = undefined,
         };
+
+        if (FontRendererBackend == .Freetype) {
+            const err = ft.FT_Init_FreeType(&ft_library);
+            if (err != 0) {
+                stdx.panicFmt("freetype error: {}", .{err});
+            }
+        }
+
         switch (Backend) {
             .OpenGL => gl.Graphics.init(&self.g, alloc),
             .WasmCanvas => canvas.Graphics.init(&self.g, alloc),
@@ -195,6 +220,14 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => gl.Graphics.setFillColor(&self.g, color),
             .WasmCanvas => canvas.Graphics.setFillColor(&self.g, color),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Set a linear gradient fill style.
+    pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
+        switch (Backend) {
+            .OpenGL => gl.Graphics.setFillGradient(&self.g, start_x, start_y, start_color, end_x, end_y, end_color),
             else => stdx.panic("unsupported"),
         }
     }
@@ -379,6 +412,7 @@ pub const Graphics = struct {
         }
     }
 
+    /// Assumes pts are in ccw order.
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         switch (Backend) {
             .OpenGL => gl.Graphics.fillTriangle(&self.g, x1, y1, x2, y2, x3, y3),
@@ -592,7 +626,7 @@ pub const Graphics = struct {
     pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         switch (Backend) {
             .OpenGL => {
-                const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter, .{});
+                const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter);
                 return image.image_id;
             },
             else => stdx.panic("unsupported"),
@@ -636,6 +670,15 @@ pub const Graphics = struct {
         }
     }
 
+    /// Adds .otb bitmap font with data at different font sizes.
+    pub fn addOTB_Font(self: *Self, data: []const BitmapFontData) FontId {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.addOTB_Font(&self.g, data),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    /// Adds outline or color bitmap font from ttf/otf.
     pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
         switch (Backend) {
             .OpenGL => return gl.Graphics.addTTF_Font(&self.g, data),
@@ -766,24 +809,97 @@ pub const Graphics = struct {
         }
     }
 
-    /// Return an iterator to measure each character.
-    pub fn measureFontTextIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) MeasureTextIterator {
+    /// Perform text layout and save the results.
+    pub fn textLayout(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8, preferred_width: f32, buf: *TextLayout) void {
+        buf.lines.clearRetainingCapacity();
+        var iter = self.textGlyphIter(font_gid, size, str);
+        var y: f32 = 0;
+        var last_fit_start_idx: u32 = 0;
+        var last_fit_end_idx: u32 = 0;
+        var last_fit_x: f32 = 0;
+        var x: f32 = 0;
+        var max_width: f32 = 0;
+        while (iter.nextCodepoint()) {
+            x += iter.state.kern;
+            // Assume snapping.
+            x = @round(x);
+            x += iter.state.advance_width;
+
+            if (iter.state.cp == 10) {
+                // Line feed. Force new line.
+                buf.lines.append(.{
+                    .start_idx = last_fit_start_idx,
+                    .end_idx = @intCast(u32, iter.state.end_idx - 1), // Exclude new line.
+                    .height = iter.primary_height,
+                }) catch @panic("error");
+                last_fit_start_idx = @intCast(u32, iter.state.end_idx);
+                last_fit_end_idx = @intCast(u32, iter.state.end_idx);
+                if (x > max_width) {
+                    max_width = x;
+                }
+                x = 0;
+                y += iter.primary_height;
+                continue;
+            }
+
+            if (x <= preferred_width) {
+                if (stdx.unicode.isSpace(iter.state.cp)) {
+                    // Space character indicates the end of a word.
+                    last_fit_end_idx = @intCast(u32, iter.state.end_idx);
+                }
+            } else {
+                if (last_fit_start_idx == last_fit_end_idx) {
+                    // Haven't fit a word yet. Just keep going.
+                } else {
+                    // Wrap to next line.
+                    buf.lines.append(.{
+                        .start_idx = last_fit_start_idx,
+                        .end_idx = last_fit_end_idx,
+                        .height = iter.primary_height,
+                    }) catch @panic("error");
+                    y += iter.primary_height;
+                    last_fit_start_idx = last_fit_end_idx;
+                    last_fit_x = 0;
+                    if (x > max_width) {
+                        max_width = x;
+                    }
+                    x = 0;
+                    iter.setIndex(last_fit_start_idx);
+                }
+            }
+        }
+        if (last_fit_end_idx < iter.state.end_idx) {
+            // Add last line.
+            buf.lines.append(.{
+                .start_idx = last_fit_start_idx,
+                .end_idx = @intCast(u32, iter.state.end_idx),
+                .height = iter.primary_height,
+            }) catch @panic("error");
+            if (x > max_width) {
+                max_width = x;
+            }
+            y += iter.primary_height;
+        }
+        buf.width = max_width;
+        buf.height = y;
+    }
+
+    /// Return a text glyph iterator over UTF-8 string.
+    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) TextGlyphIterator {
         switch (Backend) {
             .OpenGL => {
-                var iter: MeasureTextIterator = undefined;
-                gl.Graphics.measureFontTextIter(&self.g, font_gid, size, str, &iter.inner);
-                return iter;
+                return gl.Graphics.textGlyphIter(&self.g, font_gid, size, str);
             },
             .Test => {
-                var iter: MeasureTextIterator = undefined;
-                iter.inner = testg.MeasureTextIterator.init(str, size, &self.g);
+                var iter: TextGlyphIterator = undefined;
+                iter.inner = testg.TextGlyphIterator.init(str, size, &self.g);
                 return iter;
             },
             else => stdx.panic("unsupported"),
         }
     }
 
-    pub fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
+    pub inline fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
         switch (Backend) {
             .OpenGL => return FontCache.getPrimaryFontVMetrics(&self.g.font_cache, font_gid, font_size),
             .WasmCanvas => return canvas.Graphics.getPrimaryFontVMetrics(&self.g, font_gid, font_size),
@@ -799,7 +915,14 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getDefaultFontId(self: *Self) FontId {
+    pub inline fn getFontVMetrics(self: *Self, font_id: FontId, font_size: f32) VMetrics {
+        switch (Backend) {
+            .OpenGL => return FontCache.getFontVMetrics(&self.g.font_cache, font_id, font_size),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn getDefaultFontId(self: *Self) FontId {
         switch (Backend) {
             .OpenGL => return self.g.default_font_id,
             .Test => return self.g.default_font_id,
@@ -807,7 +930,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getDefaultFontGroupId(self: *Self) FontGroupId {
+    pub inline fn getDefaultFontGroupId(self: *Self) FontGroupId {
         switch (Backend) {
             .OpenGL => return self.g.default_font_gid,
             .Test => return self.g.default_font_gid,
@@ -819,6 +942,20 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => return FontCache.getFontId(&self.g.font_cache, name),
             .WasmCanvas => return canvas.Graphics.getFontByName(&self.g, name),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub inline fn getFontGroupForSingleFont(self: *Self, font_id: FontId) FontGroupId {
+        switch (Backend) {
+            .OpenGL => return FontCache.getOrLoadFontGroup(&self.g.font_cache, &.{font_id}),
+            else => stdx.panic("unsupported"),
+        }
+    }
+
+    pub fn getFontGroupByFamily(self: *Self, family: FontFamily) FontGroupId {
+        switch (Backend) {
+            .OpenGL => return gl.Graphics.getOrLoadFontGroupByFamily(&self.g, family),
             else => stdx.panic("unsupported"),
         }
     }
@@ -913,52 +1050,6 @@ pub const BlendMode = enum {
     _undefined,
 };
 
-pub const MeasureTextIterator = struct {
-    const Self = @This();
-
-    // Units are scaled to user font size.
-    pub const State = struct {
-        cp: u21,
-
-        start_idx: usize,
-
-        // Not inclusive.
-        end_idx: usize,
-
-        kern: f32,
-        advance_width: f32,
-
-        // Height would be ascent + descent.
-        ascent: f32,
-        descent: f32,
-        height: f32,
-    };
-
-    inner: switch (Backend) {
-        .OpenGL => gl.MeasureTextIterator,
-        .Test => testg.MeasureTextIterator,
-        else => stdx.panic("unsupported"),
-    },
-
-    state: State,
-
-    pub fn nextCodepoint(self: *Self) bool {
-        switch (Backend) {
-            .Test => return testg.MeasureTextIterator.nextCodepoint(&self.inner),
-            .OpenGL => return gl.MeasureTextIterator.nextCodepoint(&self.inner),
-            else => stdx.panic("unsupported"),
-        }
-    }
-
-    pub fn setIndex(self: *Self, i: usize) void {
-        switch (Backend) {
-            .Test => return testg.MeasureTextIterator.setIndex(&self.inner, i),
-            .OpenGL => return gl.font_cache.MeasureTextIterator.setIndex(&self.inner, i),
-            else => stdx.panic("unsupported"),
-        }
-    }
-};
-
 // Vertical metrics that have been scaled to client font size scale.
 pub const VMetrics = struct {
     // max distance above baseline (positive units)
@@ -990,4 +1081,16 @@ pub const TextBaseline = enum {
     Middle,
     Alphabetic,
     Bottom,
+};
+
+pub const BitmapFontData = struct {
+    data: []const u8,
+    size: u8,
+};
+
+pub const FontFamily = union(enum) {
+    Name: []const u8,
+    FontGroup: FontGroupId,
+    Font: FontId,
+    Default: void,
 };

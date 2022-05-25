@@ -17,7 +17,7 @@ const RuntimeConfig = runtime.RuntimeConfig;
 const log = stdx.log.scoped(.main);
 const Environment = @import("env.zig").Environment;
 
-// Cosmic main. Common entry point for cli and gui.
+// Cosmic main. Common entry point for cli and gui (for dev mode).
 pub fn main() !void {
     // Fast temporary memory allocator.
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

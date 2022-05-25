@@ -85,7 +85,7 @@ pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
             return new;
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.id_gen.deinit();
             self.data.deinit();
             self.data_exists.deinit();
@@ -204,7 +204,7 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.nodes.deinit();
         }
 
@@ -351,7 +351,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.nodes.deinit();
             self.lists.deinit();
         }
@@ -567,6 +567,14 @@ pub fn CompactIdGenerator(comptime T: type) type {
             };
         }
 
+        pub fn peekNextId(self: Self) T {
+            if (self.next_ids.readableLength() == 0) {
+                return self.next_default_id;
+            } else {
+                return self.next_ids.peekItem(0);
+            }
+        }
+
         pub fn getNextId(self: *Self) T {
             if (self.next_ids.readableLength() == 0) {
                 defer self.next_default_id += 1;
@@ -586,7 +594,7 @@ pub fn CompactIdGenerator(comptime T: type) type {
             self.next_ids.writeItem(id) catch unreachable;
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.next_ids.deinit();
         }
     };
@@ -620,7 +628,7 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: *Self) void {
+        pub fn deinit(self: Self) void {
             self.nodes.deinit();
         }
 
@@ -684,6 +692,10 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
 
         pub fn getNoCheck(self: Self, idx: Id) T {
             return self.nodes.getNoCheck(idx).data;
+        }
+
+        pub fn getPtrNoCheck(self: Self, idx: Id) *T {
+            return &self.nodes.getPtrNoCheck(idx).data;
         }
 
         pub fn getNextNoCheck(self: Self, id: Id) OptId {

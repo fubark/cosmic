@@ -13,7 +13,7 @@ pub const BitArrayList = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: Self) void {
         self.buf.deinit();
     }
 
@@ -29,7 +29,7 @@ pub const BitArrayList = struct {
         try self.buf.append(true);
     }
 
-    pub fn isSet(self: *const Self, idx: usize) bool {
+    pub fn isSet(self: Self, idx: usize) bool {
         return self.buf.items[idx];
     }
 

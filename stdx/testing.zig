@@ -73,11 +73,20 @@ pub fn eqSlice(comptime T: type, act: []const T, exp: []const T) !void {
     try std.testing.expectEqualSlices(T, exp, act);
 }
 
+pub fn eqStringSlices(act: []const []const u8, exp: []const []const u8) !void {
+    const S = struct {
+        fn check(act_: []const u8, exp_: []const u8) !void {
+            try eqSlice(u8, act_, exp_);
+        }
+    };
+    try eqSliceCb([]const u8, S.check, act, exp);
+}
+
 pub fn eqSliceCb(comptime T: type, cb: fn (act: T, exp: T) anyerror!void, act_slice: []const T, exp_slice: []const T) !void {
     try eq(act_slice.len, exp_slice.len);
     for (act_slice) |act, i| {
         cb(act, exp_slice[i]) catch |err| {
-            std.debug.print("expected {}, found {} at idx {}\n", .{ exp_slice[i], act, i });
+            std.debug.print("expected {any}, found {any} at idx {}\n", .{ exp_slice[i], act, i });
             return err;
         };
     }

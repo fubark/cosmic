@@ -32,6 +32,10 @@ pub const EventDispatcher = struct {
     winresize_cbs: std.ArrayList(HandlerEntry(OnWindowResizeHandler)),
     fetchresult_cbs: std.ArrayList(HandlerEntry(OnFetchResultHandler)),
 
+    // Used for SDL to keep track of the current mouse pos.
+    cur_mouse_x: i16,
+    cur_mouse_y: i16,
+
     pub fn init(alloc: std.mem.Allocator) Self {
         return .{
             .quit_cbs = std.ArrayList(HandlerEntry(OnQuitHandler)).init(alloc),
@@ -43,6 +47,8 @@ pub const EventDispatcher = struct {
             .mousescroll_cbs = std.ArrayList(HandlerEntry(OnMouseScrollHandler)).init(alloc),
             .winresize_cbs = std.ArrayList(HandlerEntry(OnWindowResizeHandler)).init(alloc),
             .fetchresult_cbs = std.ArrayList(HandlerEntry(OnFetchResultHandler)).init(alloc),
+            .cur_mouse_x = 0,
+            .cur_mouse_y = 0,
         };
     }
 
@@ -60,7 +66,7 @@ pub const EventDispatcher = struct {
 
     /// It is recommended to process events before a Window.beginFrame since an event can trigger
     /// a user callback that alters the graphics buffer. eg. Resizing the window.
-    pub fn processEvents(self: Self) void {
+    pub fn processEvents(self: *Self) void {
         if (IsWasm) {
             processWasmEvents(self);
         } else {
@@ -177,7 +183,7 @@ pub const EventDispatcher = struct {
     }
 };
 
-fn processSdlEvents(dispatcher: EventDispatcher) void {
+fn processSdlEvents(dispatcher: *EventDispatcher) void {
     var event: sdl.SDL_Event = undefined;
     while (sdl.SDL_PollEvent(&event) != 0) {
         switch (event.@"type") {
@@ -215,6 +221,16 @@ fn processSdlEvents(dispatcher: EventDispatcher) void {
                 if (dispatcher.mousemove_cbs.items.len > 0) {
                     const std_event = platform.initSdlMouseMoveEvent(event.motion);
                     for (dispatcher.mousemove_cbs.items) |handler| {
+                        handler.cb(handler.ctx, std_event);
+                    }
+                }
+                dispatcher.cur_mouse_x = @intCast(i16, event.motion.x);
+                dispatcher.cur_mouse_y = @intCast(i16, event.motion.y);
+            },
+            sdl.SDL_MOUSEWHEEL => {
+                if (dispatcher.mousescroll_cbs.items.len > 0) {
+                    const std_event = platform.initSdlMouseScrollEvent(dispatcher.cur_mouse_x, dispatcher.cur_mouse_y, event.wheel);
+                    for (dispatcher.mousescroll_cbs.items) |handler| {
                         handler.cb(handler.ctx, std_event);
                     }
                 }

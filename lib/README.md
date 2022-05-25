@@ -32,5 +32,9 @@ For http(s) server.
 For TTF rasterization and image manipulation.
 - https://github.com/nothings/stb.git
 
+### Freetype
+For desktop font rasterization.
+- https://github.com/freetype/freetype.git (a4c4566b6d51a0bd60133e1e1a7fcc19e8fcba9e)
+
 ### Mesa opengl headers
 - https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/include

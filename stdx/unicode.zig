@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx.zig");
+const t = stdx.testing;
 const assert = std.debug.assert;
 const mem = std.mem;
 const log = stdx.log.scoped(.unicode);
@@ -64,4 +65,29 @@ pub fn printCodepoint(cp: u21) void {
     const buf: []u8 = undefined;
     _ = std.unicode.utf8Encode(cp, buf) catch unreachable;
     log.debug("codepoint: {} {s}", .{ cp, buf[0..std.unicode.utf8CodepointSequenceLength(cp)] });
+}
+
+/// Like std.ascii.toLowerString but for unicode.
+pub fn toLowerString(out: []u8, input: []const u8) ![]u8 {
+    const view = try std.unicode.Utf8View.init(input);
+    var iter = view.iterator();
+    var i: u32 = 0;
+    while (iter.nextCodepointSlice()) |cp_slice| {
+        const cp = std.unicode.utf8Decode(cp_slice) catch unreachable;
+        if (cp <= std.math.maxInt(u8)) {
+            const lower = std.ascii.toLower(@intCast(u8, cp));
+            out[i] = lower;
+            i += 1;
+        } else {
+            std.mem.copy(u8, out[i..i+cp_slice.len], cp_slice);
+            i += @intCast(u32, cp_slice.len);
+        }
+    }
+    return out[0..i];
+}
+
+test "toLowerString" {
+    var buf: [100]u8 = undefined;
+    try t.eqSlice(u8, try toLowerString(&buf, "FOO"), "foo");
+    try t.eqSlice(u8, try toLowerString(&buf, "FO🐥O"), "fo🐥o");
 }

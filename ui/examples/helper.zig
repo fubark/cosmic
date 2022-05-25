@@ -11,6 +11,7 @@ const EventDispatcher = platform.EventDispatcher;
 pub const App = struct {
     const Self = @This();
 
+    ui_mod: ui.Module,
     g: *graphics.Graphics,
     dispatcher: EventDispatcher,
     win: Window,
@@ -53,6 +54,9 @@ pub const App = struct {
         if (builtin.target.isWasm()) {
             app.last_frame_time_ms = stdx.time.getMillisTime();
         }
+
+        app.ui_mod.init(app.alloc, app.g);
+        app.ui_mod.addInputHandlers(&app.dispatcher);
     }
 
     pub fn runEventLoop(app: *Self, comptime update: fn (delta_ms: f32) void) void {
@@ -75,6 +79,7 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.ui_mod.deinit();
         self.dispatcher.deinit();
         self.win.deinit();
         stdx.heap.deinitDefaultAllocator();
@@ -98,14 +103,9 @@ pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime u
     return stdx.wasm.js_buffer.writeResult();
 }
 
-pub fn wasmInit(comptime init: fn () void) *const u8 {
+pub fn wasmInit(app: *App, title: []const u8) *const u8 {
     const alloc = stdx.heap.getDefaultAllocator();
     stdx.wasm.init(alloc);
-    init();
+    app.init(title);
     return stdx.wasm.js_buffer.writeResult();
-}
-
-pub fn wasmDeinit(comptime deinit: fn () void) void {
-    stdx.wasm.deinit();
-    deinit();
 }

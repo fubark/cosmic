@@ -7,15 +7,12 @@ const MouseUpEvent = platform.MouseUpEvent;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const importWidget = ui.Import.init;
-const WidgetRef = ui.WidgetRef;
-
 const Row = ui.widgets.Row;
 const Column = ui.widgets.Column;
 const Text = ui.widgets.Text;
 const TextButton = ui.widgets.TextButton;
 const TextField = ui.widgets.TextField;
-const Grow = ui.widgets.Grow;
+const Flex = ui.widgets.Flex;
 const Padding = ui.widgets.Padding;
 const Center = ui.widgets.Center;
 const Sized = ui.widgets.Sized;
@@ -24,28 +21,18 @@ const ScrollList = ui.widgets.ScrollList;
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
-pub const MyConfig = b: {
-    var config = ui.Config{
-        .Imports = ui.widgets.BaseWidgets,
-    };
-    config.Imports = config.Imports ++ &[_]ui.Import{
-        importWidget(App),
-    };
-    break :b config;
-};
-
 pub const App = struct {
-    const Self = @This();
-
     buf: std.ArrayList([]const u8),
     alloc: std.mem.Allocator,
     filter: []const u8,
 
-    list: WidgetRef(ScrollList),
-    first_tf: WidgetRef(TextField),
-    last_tf: WidgetRef(TextField),
+    list: ui.WidgetRef(ScrollList),
+    first_tf: ui.WidgetRef(TextField),
+    last_tf: ui.WidgetRef(TextField),
 
-    pub fn init(self: *Self, comptime C: ui.Config, c: *C.Init()) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, c: *ui.InitContext) void {
         self.buf = std.ArrayList([]const u8).init(c.alloc);
         self.alloc = c.alloc;
         self.filter = "";
@@ -60,7 +47,7 @@ pub const App = struct {
         self.buf.deinit();
     }
 
-    pub fn build(self: *Self, comptime C: ui.Config, c: *C.Build()) ui.FrameId {
+    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onClickCreate(self_: *Self, _: MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
@@ -97,7 +84,7 @@ pub const App = struct {
                 self_.filter = self_.alloc.dupe(u8, val) catch unreachable;
             }
 
-            fn buildItem(self_: *Self, c_: *C.Build(), i: u32) ui.FrameId {
+            fn buildItem(self_: *Self, c_: *ui.BuildContext, i: u32) ui.FrameId {
                 if (std.mem.startsWith(u8, self_.buf.items[i], self_.filter)) {
                     return c_.decl(Text, .{ .text = self_.buf.items[i] });
                 } else {
@@ -110,7 +97,7 @@ pub const App = struct {
 
         const left_side = d(Column, .{
             .children = c.list(.{
-                d(Grow, .{
+                d(Flex, .{
                     .child = d(Sized, .{
                         .width = 300,
                         .child = d(ScrollList, .{
@@ -130,7 +117,7 @@ pub const App = struct {
                         d(Padding, .{
                             .child = d(Text, .{ .text = "First: ", .color = Color.White }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextField, .{
                                 .bind = &self.first_tf,
                             }),
@@ -142,7 +129,7 @@ pub const App = struct {
                         d(Padding, .{
                             .child = d(Text, .{ .text = "Last: ", .color = Color.White }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextField, .{
                                 .bind = &self.last_tf,
                             }),
@@ -152,21 +139,21 @@ pub const App = struct {
                 d(Row, .{
                     .spacing = 10,
                     .children = c.list(.{
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextButton, .{
                                 .text = "Create",
                                 .corner_radius = 10,
                                 .onClick = c.funcExt(self, S.onClickCreate),
                             }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextButton, .{
                                 .text = "Update",
                                 .corner_radius = 10,
                                 .onClick = c.funcExt(self, S.onClickUpdate),
                             }),
                         }),
-                        d(Grow, .{
+                        d(Flex, .{
                             .child = d(TextButton, .{
                                 .text = "Delete",
                                 .corner_radius = 10,
@@ -197,7 +184,7 @@ pub const App = struct {
                                             .color = Color.White,
                                         }),
                                     }),
-                                    d(Grow, .{
+                                    d(Flex, .{
                                         .child = d(TextField, .{
                                             .onChangeEnd = c.funcExt(self, S.onChangeSearch),
                                         }),
@@ -220,40 +207,28 @@ pub const App = struct {
 };
 
 var app: helper.App = undefined;
-var ui_mod: ui.Module(MyConfig) = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
-    init();
-    defer deinit();
-    app.runEventLoop(update);
-}
-
-fn init() void {
     app.init("CRUD");
-    ui_mod.init(app.alloc, app.g);
-    ui_mod.addInputHandlers(&app.dispatcher);
-}
-
-fn deinit() void {
-    ui_mod.deinit();
-    app.deinit();
+    defer app.deinit();
+    app.runEventLoop(update);
 }
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *MyConfig.Build()) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
             return c.decl(App, .{});
         }
     };
     const ui_width = @intToFloat(f32, app.win.getWidth());
     const ui_height = @intToFloat(f32, app.win.getHeight());
-    ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height);
+    app.ui_mod.updateAndRender(delta_ms, {}, S.buildRoot, ui_width, ui_height) catch unreachable;
 }
 
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
-        return helper.wasmInit(init);
+        return helper.wasmInit(&app, "CRUD");
     }
 
     export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
@@ -262,6 +237,7 @@ pub usingnamespace if (IsWasm) struct {
 
     /// Not that useful since it's a long lived process in the browser.
     export fn wasmDeinit() void {
-        helper.wasmDeinit(deinit);
+        app.deinit();
+        stdx.wasm.deinit();
     }
 } else struct {};

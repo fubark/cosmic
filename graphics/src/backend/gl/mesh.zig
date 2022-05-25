@@ -36,7 +36,7 @@ pub const Mesh = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: Self) void {
         self.alloc.free(self.vert_buf);
         self.alloc.free(self.index_buf);
     }
