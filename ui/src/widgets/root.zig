@@ -112,6 +112,7 @@ pub const Root = struct {
             .build_fn = build_fn,
             .close_ctx = opts.close_ctx,
             .close_cb = opts.close_cb,
+            .src_node = undefined,
         }) catch @panic("error");
         return self.next_id;
     }
@@ -204,7 +205,7 @@ pub const ModalOverlay = struct {
                 self.requestClose();
             }
         }
-        return .Stop;
+        return .Continue;
     }
 
     pub fn requestClose(self: *Self) void {
@@ -225,7 +226,7 @@ pub const ModalOverlay = struct {
             const child_size = c.computeLayout(child, cstr);
 
             // Currently always centers.
-            c.setLayout(child, ui.Layout.init((cstr.width + child_size.width) * 0.5, (cstr.height + child_size.height) * 0.5, child_size.width, child_size.height));
+            c.setLayout(child, ui.Layout.init((cstr.width - child_size.width) * 0.5, (cstr.height - child_size.height) * 0.5, child_size.width, child_size.height));
         }
         return cstr;
     }

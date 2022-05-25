@@ -98,7 +98,7 @@ pub const TextField = struct {
     }
 
     pub fn getValue(self: Self) []const u8 {
-        return self.buf.items;
+        return self.buf.buf.items;
     }
 
     fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {

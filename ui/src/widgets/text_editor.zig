@@ -17,7 +17,7 @@ const log = stdx.log.scoped(.text_editor);
 pub const TextEditor = struct {
     props: struct {
         init_val: []const u8,
-        font_family: ?[]const u8 = null,
+        font_family: graphics.FontFamily = graphics.FontFamily.Default,
         width: f32 = 400,
         height: f32 = 300,
         text_color: Color = Color.Black,
@@ -45,11 +45,7 @@ pub const TextEditor = struct {
     pub fn init(self: *Self, c: *ui.InitContext) void {
         const props = self.props;
 
-        var font_gid = c.getDefaultFontGroup();
-        if (props.font_family) |font_family| {
-            font_gid = c.getFontGroupBySingleFontName(font_family);
-        }
-
+        self.font_gid = c.getFontGroupByFamily(self.props.font_family);
         self.lines = std.ArrayList(Line).init(c.alloc);
         self.caret_line = 0;
         self.caret_col = 0;
@@ -57,7 +53,6 @@ pub const TextEditor = struct {
         self.scroll_view = .{};
         self.ctx = c.common;
         self.node = c.node;
-        self.font_gid = font_gid;
         self.setFontSize(24);
 
         var iter = std.mem.split(u8, props.init_val, "\n");
@@ -66,7 +61,7 @@ pub const TextEditor = struct {
             var line = Line.init(c.alloc);
             line.buf.appendSubStr(it) catch @panic("error");
             self.lines.append(line) catch unreachable;
-            line.width = c.measureText(font_gid, self.font_size, line.buf.buf.items).width;
+            line.width = c.measureText(self.font_gid, self.font_size, line.buf.buf.items).width;
         }
 
         // Ensure at least one line.
@@ -96,6 +91,14 @@ pub const TextEditor = struct {
                 .editor = self,
             }),
         });
+    }
+
+    pub fn postPropsUpdate(self: *Self) void {
+        const new_font_gid = self.ctx.getFontGroupByFamily(self.props.font_family);
+        if (new_font_gid != self.font_gid) {
+            self.font_gid = new_font_gid;
+            self.remeasureText();
+        }
     }
 
     fn onMouseDown(self: *Self, e: platform.MouseDownEvent) void {
@@ -179,13 +182,11 @@ pub const TextEditor = struct {
         };
     }
 
-    pub fn setFontSize(self: *Self, font_size: f32) void {
-        const font_vmetrics = self.ctx.getPrimaryFontVMetrics(self.font_gid, font_size);
+    fn remeasureText(self: *Self) void {
+        const font_vmetrics = self.ctx.getPrimaryFontVMetrics(self.font_gid, self.font_size);
         // log.warn("METRICS {}", .{font_vmetrics});
-        self.font_size = font_size;
-
         const font_line_height_factor: f32 = 1.2;
-        const font_line_height = @round(font_line_height_factor * font_size);
+        const font_line_height = @round(font_line_height_factor * self.font_size);
         const font_line_offset_y = (font_line_height - font_vmetrics.height) / 2;
         // log.warn("{} {} {}", .{font_vmetrics.height, font_line_height, font_line_offset_y});
 
@@ -194,20 +195,19 @@ pub const TextEditor = struct {
         self.font_line_offset_y = font_line_offset_y;
 
         for (self.lines.items) |*line| {
-            line.width = self.ctx.measureText(self.font_gid, font_size, line.buf.buf.items).width;
+            line.width = self.ctx.measureText(self.font_gid, self.font_size, line.buf.buf.items).width;
         }
 
         if (self.inner.binded) {
             const w = self.inner.getWidget();
-            w.to_caret_width = self.ctx.measureText(self.font_gid, font_size, w.to_caret_str).width;
+            w.to_caret_width = self.ctx.measureText(self.font_gid, self.font_size, w.to_caret_str).width;
         }
     }
 
-    // fn destroyLine(self: *Self, c: *ModuleContext, line: Line) void {
-    //     _ = self;
-    //     c.destroyTextMeasure(line.measure);
-    //     line.deinit();
-    // }
+    pub fn setFontSize(self: *Self, font_size: f32) void {
+        self.font_size = font_size;
+        self.remeasureText();
+    }
 
     fn getCaretBottomY(self: *Self) f32 {
         return @intToFloat(f32, self.caret_line + 1) * @intToFloat(f32, self.font_line_height);
@@ -307,7 +307,7 @@ pub const TextEditor = struct {
             self.lines.insert(self.caret_line + 1, new_line) catch unreachable;
             // Requery current line since insert could have resized array.
             const cur_line = &self.lines.items[self.caret_line];
-            if (self.caret_col < line.buf.num_chars) {
+            if (self.caret_col < cur_line.buf.num_chars) {
                 // Move text after caret to the new line.
                 const after_text = cur_line.buf.getSubStr(self.caret_col, cur_line.buf.num_chars);
                 self.lines.items[self.caret_line+1].buf.appendSubStr(after_text) catch @panic("error");
@@ -477,7 +477,7 @@ pub const TextEditorInner = struct {
         const g = c.getGraphics();
         const line_height = @intToFloat(f32, editor.font_line_height);
 
-        g.setFont(editor.font_gid, editor.font_size);
+        g.setFontGroup(editor.font_gid, editor.font_size);
         g.setFillColor(self.editor.props.text_color);
         // TODO: Use binary search when word wrap is enabled and we can't determine the first visible line with O(1)
         const scroll_view = editor.scroll_view.getWidget();

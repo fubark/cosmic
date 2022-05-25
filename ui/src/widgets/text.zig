@@ -17,11 +17,13 @@ pub const Text = struct {
     },
 
     tlo: graphics.TextLayout,
+    use_layout: bool,
 
     const Self = @This();
 
     pub fn init(self: *Self, c: *ui.InitContext) void {
         self.tlo = graphics.TextLayout.init(c.alloc);
+        self.use_layout = false;
     }
 
     pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
@@ -40,10 +42,12 @@ pub const Text = struct {
             const cstr = c.getSizeConstraint();
             if (cstr.width == std.math.inf_f32) {
                 const m = c.measureText(font_gid, self.props.font_size, self.props.text.?);
+                self.use_layout = false;
                 return ui.LayoutSize.init(m.width, m.height);
             } else {
                 // Compute text layout. Perform word wrap.
                 c.textLayout(font_gid, self.props.font_size, self.props.text.?, cstr.width, &self.tlo);
+                self.use_layout = true;
                 return ui.LayoutSize.init(self.tlo.width, self.tlo.height);
             }
         } else {
@@ -63,11 +67,15 @@ pub const Text = struct {
             }
             g.setFillColor(self.props.color);
 
-            var y = alo.y;
-            for (self.tlo.lines.items) |line| {
-                const text = self.props.text.?[line.start_idx..line.end_idx];
-                g.fillText(alo.x, y, text);
-                y += line.height;
+            if (self.use_layout) {
+                var y = alo.y;
+                for (self.tlo.lines.items) |line| {
+                    const text = self.props.text.?[line.start_idx..line.end_idx];
+                    g.fillText(alo.x, y, text);
+                    y += line.height;
+                }
+            } else {
+                g.fillText(alo.x, alo.y, self.props.text.?);
             }
         }
     }

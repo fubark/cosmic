@@ -1,4 +1,5 @@
 const std = @import("std");
+const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 
@@ -6,10 +7,12 @@ const ui = @import("../ui.zig");
 const ScrollView = ui.widgets.ScrollView;
 
 const NullId = std.math.maxInt(u32);
+const log = stdx.log.scoped(.list);
 
 pub const ScrollList = struct {
     props: struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        bg_color: Color = Color.White,
     },
 
     list: ui.WidgetRef(List),
@@ -19,8 +22,10 @@ pub const ScrollList = struct {
     pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         return c.decl(ScrollView, .{
             .enable_hscroll = false,
+            .bg_color = self.props.bg_color,
             .child = c.decl(List, .{
                 .bind = &self.list,
+                .bg_color = self.props.bg_color,
                 .children = self.props.children,
             }),
         });
@@ -35,6 +40,7 @@ pub const ScrollList = struct {
 pub const List = struct {
     props: struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        bg_color: Color = Color.White,
     },
 
     selected_idx: u32,
@@ -75,7 +81,7 @@ pub const List = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) void {
+    fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(Self);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
@@ -95,6 +101,7 @@ pub const List = struct {
                 }
             }
         }
+        return .Continue;
     }
 
     pub fn postPropsUpdate(self: *Self) void {
@@ -138,7 +145,7 @@ pub const List = struct {
         const alo = c.getAbsLayout();
         const node = c.node;
 
-        g.setFillColor(Color.White);
+        g.setFillColor(self.props.bg_color);
         g.fillRect(alo.x, alo.y, alo.width, alo.height);
 
         c.renderChildren();
