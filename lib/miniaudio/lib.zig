@@ -21,7 +21,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
         if (!step.target.isNative()) {
             lib.addFrameworkDir("/System/Library/Frameworks");
             lib.addSystemIncludeDir("/usr/include");
-            lib.setLibCFile(std.build.FileSource{ .path = srcPath() ++ "/../macos.libc" });
+            // lib.setLibCFile(std.build.FileSource{ .path = srcPath() ++ "/../macos.libc" });
         }
         lib.linkFramework("CoreAudio");
     }

@@ -703,7 +703,7 @@ const BuilderContext = struct {
             // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow references.
             lib.linkFramework("CoreServices");
         } else {
-            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
         }
 
         step.linkLibrary(lib);

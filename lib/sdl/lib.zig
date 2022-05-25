@@ -356,7 +356,7 @@ pub fn create(
             lib.linkFramework("CoreFoundation");
         } else {
             lib.addFrameworkDir("/System/Library/Frameworks");
-            lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
+            // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
         }
     }
 

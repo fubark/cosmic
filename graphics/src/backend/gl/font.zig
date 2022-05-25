@@ -355,7 +355,7 @@ pub const BitmapFontStrike = struct {
 const FreetypeBackend = struct {
 
     pub fn initFont(lib: ft.FT_Library, face: **ft.Face, data: []const u8, face_idx: u32) void {
-        const err = ft.FT_New_Memory_Face(lib, data.ptr, @intCast(c_long, data.len), face_idx, @ptrCast([*c][*c]ft.Face, face));
+        const err = ft.FT_New_Memory_Face(lib, data.ptr, @intCast(c_long, data.len), @intCast(c_long, face_idx), @ptrCast([*c][*c]ft.Face, face));
         if (err != 0) {
             stdx.panicFmt("freetype error {}: {s}", .{err, ft.FT_Error_String(err)});
         }
