@@ -1,15 +1,16 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const stdx = @import("stdx");
 const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
 const sdl = @import("sdl");
 const gl = @import("gl");
+const vk = @import("vk");
 const builtin = @import("builtin");
-const graphics = @import("../../graphics.zig");
-const Transform = graphics.transform.Transform;
+const Backend = build_options.GraphicsBackend;
 
-const window = @import("../../window.zig");
+const window = @import("window.zig");
 const Config = window.Config;
 const Mode = window.Mode;
 const log = stdx.log.scoped(.window_gl);
@@ -20,16 +21,26 @@ extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) u8;
 const IsDesktop = !IsWebGL2;
 
 pub const Window = struct {
-    const Self = @This();
-
     id: u32,
     sdl_window: *sdl.SDL_Window,
 
     // Since other windows can use the same context, we defer deinit until the last window.
     alloc: std.mem.Allocator,
-    gl_ctx_ref_count: *u32,
-    gl_ctx: *anyopaque,
-    graphics: *graphics.Graphics,
+
+    inner: switch (Backend) {
+        .OpenGL => struct {
+            gl_ctx_ref_count: *u32,
+            gl_ctx: *anyopaque,
+        },
+        .Vulkan => struct {
+            instance: vk.VkInstance,
+            physical_device: vk.VkPhysicalDevice,
+            device: vk.VkDevice,
+            surface: vk.VkSurfaceKHR,
+            queue_family: VkQueueFamilyPair,
+        },
+        else => @compileError("unsupported"),
+    },
 
     width: u32,
     height: u32,
@@ -48,8 +59,7 @@ pub const Window = struct {
 
     msaa: ?MsaaFrameBuffer = null,
 
-    proj_transform: Transform,
-    initial_mvp: Mat4,
+    const Self = @This();
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         if (IsDesktop) {
@@ -60,21 +70,25 @@ pub const Window = struct {
             .id = undefined,
             .sdl_window = undefined,
             .alloc = alloc,
-            .gl_ctx_ref_count = undefined,
-            .gl_ctx = undefined,
-            .graphics = undefined,
+            .inner = undefined,
             .width = undefined,
             .height = undefined,
             .buf_width = undefined,
             .buf_height = undefined,
             .dpr = undefined,
-            .proj_transform = undefined,
-            .initial_mvp = undefined,
         };
         if (IsDesktop) {
             const flags = getSdlWindowFlags(config);
-            try initGL_Window(alloc, &res, config, flags);
-            try initGL_Context(&res);
+            switch (Backend) {
+                .OpenGL => {
+                    try initGL_Window(alloc, &res, config, flags);
+                    try initGL_Context(&res);
+                },
+                .Vulkan => {
+                    try initVulkanWindow(alloc, &res, config, flags);
+                },
+                else => stdx.panic("unsupported"),
+            }
         } else if (IsWebGL2) {
             const dpr = jsSetCanvasBuffer(config.width, config.height);
             res.width = @intCast(u32, config.width);
@@ -83,24 +97,20 @@ pub const Window = struct {
             res.buf_height = dpr * res.height;
             res.dpr = dpr;
         }
-        res.gl_ctx_ref_count = alloc.create(u32) catch unreachable;
-        res.gl_ctx_ref_count.* = 1;
 
         // Initialize graphics.
-        res.graphics = alloc.create(graphics.Graphics) catch unreachable;
-        res.graphics.init(alloc);
-        res.graphics.g.cur_dpr = res.dpr;
-
-        // Setup transforms.
-        res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
-        const view_transform = Transform.initIdentity();
-        res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, view_transform.mat);
-
-        if (config.anti_alias) {
-            if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
-                res.fbo_id = msaa.fbo;
-                res.msaa = msaa;
-            }
+        switch (Backend) {
+            .OpenGL => {
+                res.inner.gl_ctx_ref_count = alloc.create(u32) catch unreachable;
+                res.inner.gl_ctx_ref_count.* = 1;
+                if (config.anti_alias) {
+                    if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
+                        res.fbo_id = msaa.fbo;
+                        res.msaa = msaa;
+                    }
+                }
+            },
+            else => {},
         }
 
         return res;
@@ -120,17 +130,17 @@ pub const Window = struct {
             .alloc = alloc,
             .gl_ctx_ref_count = undefined,
             .gl_ctx = undefined,
-            .graphics = undefined,
             .width = undefined,
             .height = undefined,
             .buf_width = undefined,
             .buf_height = undefined,
             .dpr = undefined,
-            .proj_transform = undefined,
-            .initial_mvp = undefined,
         };
         const flags = getSdlWindowFlags(config);
-        try initGL_Window(alloc, &res, config, flags);
+        switch (Backend) {
+            .OpenGL => try initGL_Window(alloc, &res, config, flags),
+            else => stdx.panic("unsupported"),
+        }
         // Reuse existing window's GL context.
         res.gl_ctx = existing_win.gl_ctx;
         res.alloc = existing_win.alloc;
@@ -138,10 +148,6 @@ pub const Window = struct {
         res.gl_ctx_ref_count.* += 1;
 
         res.graphics = existing_win.graphics;
-
-        // Setup transforms.
-        res.proj_transform = initDisplayProjection(@intToFloat(f32, res.width), @intToFloat(f32, res.height));
-        res.initial_mvp = math.Mul4x4_4x4(res.proj_transform.mat, Transform.initIdentity().mat);
 
         if (config.anti_alias) {
             if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
@@ -157,16 +163,23 @@ pub const Window = struct {
         if (IsDesktop) {
             sdl.SDL_DestroyWindow(self.sdl_window);
         }
-        if (self.gl_ctx_ref_count.* == 1) {
-            self.graphics.deinit();
-            self.alloc.destroy(self.graphics);
-
-            if (IsDesktop) {
-                sdl.SDL_GL_DeleteContext(self.gl_ctx);
-            }
-            self.alloc.destroy(self.gl_ctx_ref_count);
-        } else {
-            self.gl_ctx_ref_count.* -= 1;
+        switch (Backend) {
+            .OpenGL => {
+                if (self.inner.gl_ctx_ref_count.* == 1) {
+                    if (IsDesktop) {
+                        sdl.SDL_GL_DeleteContext(self.inner.gl_ctx);
+                    }
+                    self.alloc.destroy(self.inner.gl_ctx_ref_count);
+                } else {
+                    self.inner.gl_ctx_ref_count.* -= 1;
+                }
+            },
+            .Vulkan => {
+                vk.vkDestroyDevice(self.inner.device, null);
+                vk.vkDestroySurfaceKHR(self.inner.instance, self.inner.surface, null);
+                vk.vkDestroyInstance(self.inner.instance, null);
+            },
+            else => stdx.panicUnsupported(),
         }
     }
 
@@ -184,10 +197,6 @@ pub const Window = struct {
             self.buf_width = self.dpr * self.width;
             self.buf_height = self.dpr * self.height;
         }
-
-        // Resize the transforms.
-        self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
-        self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
 
         // The default frame buffer already resizes to the window.
         // The msaa texture was created separately, so it needs to update.
@@ -217,9 +226,6 @@ pub const Window = struct {
             self.buf_width = width * self.dpr;
             self.buf_height = height * self.dpr;
         }
-
-        self.proj_transform = initDisplayProjection(@intToFloat(f32, self.width), @intToFloat(f32, self.height));
-        self.initial_mvp = math.Mul4x4_4x4(self.proj_transform.mat, Transform.initIdentity().mat);
 
         if (self.msaa) |msaa| {
             resizeMsaaFrameBuffer(msaa, self.buf_width, self.buf_height);
@@ -258,28 +264,8 @@ pub const Window = struct {
         sdl.SDL_RaiseWindow(self.sdl_window);
     }
 
-    pub fn getGraphics(self: Self) *graphics.Graphics {
-        return self.graphics;
-    }
-
     pub fn makeCurrent(self: Self) void {
         _ = sdl.SDL_GL_MakeCurrent(self.sdl_window, self.gl_ctx);
-    }
-
-    pub fn beginFrame(self: Self) void {
-        self.graphics.g.beginFrame(self.buf_width, self.buf_height, self.fbo_id, self.proj_transform, self.initial_mvp);
-    }
-
-    pub fn endFrame(self: Self) void {
-        self.graphics.g.endFrame(self.buf_width, self.buf_height, self.fbo_id);
-    }
-
-    pub fn swapBuffers(self: Self) void {
-        if (IsDesktop) {
-            // Copy over opengl buffer to window. Also flushes any opengl commands that might be queued.
-            // If vsync is enabled, it will also block wait to achieve the target refresh rate (eg. 60fps).
-            sdl.SDL_GL_SwapWindow(self.sdl_window);
-        }
     }
 
     pub fn setTitle(self: Self, title: []const u8) void {
@@ -306,6 +292,312 @@ fn glSetAttr(attr: sdl.SDL_GLattr, val: c_int) !void {
         log.warn("sdl set attribute: {s}", .{sdl.SDL_GetError()});
         return error.Failed;
     }
+}
+
+fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flags: c_int) !void {
+    var window_flags = flags | sdl.SDL_WINDOW_VULKAN;
+    win.sdl_window = sdl.createWindow(alloc, config.title, sdl.SDL_WINDOWPOS_UNDEFINED, sdl.SDL_WINDOWPOS_UNDEFINED, @intCast(c_int, config.width), @intCast(c_int, config.height), @bitCast(u32, window_flags)) orelse {
+        log.err("Unable to create window: {s}", .{sdl.SDL_GetError()});
+        return error.Failed;
+    };
+
+    if (builtin.os.tag == .macos) {
+        vk.initMacVkCreateInstance();
+    }
+
+    // SDL will query platform specific extensions.
+    var count: c_uint = undefined;
+    if (sdl.SDL_Vulkan_GetInstanceExtensions(win.sdl_window, &count, null) == 0) {
+        log.err("SDL_Vulkan_GetInstanceExtensions: {s}", .{sdl.SDL_GetError()});
+        return error.Failed;
+    }
+    const extensions = alloc.alloc([*:0]const u8, count) catch @panic("error");
+    defer alloc.free(extensions);
+    if (sdl.SDL_Vulkan_GetInstanceExtensions(win.sdl_window, &count, @ptrCast([*c][*c]const u8, extensions.ptr)) == 0) {
+        log.err("SDL_Vulkan_GetInstanceExtensions: {s}", .{sdl.SDL_GetError()});
+        return error.Failed;
+    }
+
+    var instance: vk.VkInstance = undefined;
+
+    // Create instance.
+    const app_info = vk.VkApplicationInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pApplicationName = "App",
+        .applicationVersion = vk.VK_MAKE_VERSION(1, 0, 0),
+        .pEngineName = "No Engine",
+        .engineVersion = vk.VK_MAKE_VERSION(1, 0, 0),
+        .apiVersion = vk.VK_API_VERSION_1_0,
+        .pNext = null,
+    };
+    const create_info = vk.VkInstanceCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pApplicationInfo = &app_info,
+        .enabledExtensionCount = @intCast(u32, extensions.len),
+        .ppEnabledExtensionNames = extensions.ptr,
+        // Validation layer disabled.
+        .enabledLayerCount = 0,
+        .ppEnabledLayerNames = null,
+        .pNext = null,
+        .flags = 0,
+    };
+    var res = vk.createInstance(&create_info, null, &instance);
+    vk.assertSuccess(res);
+    win.inner.instance = instance;
+
+    if (builtin.os.tag == .macos) {
+        vk.initMacVkFunctions(instance);
+    }
+
+    // Create surface.
+    var surface: vk.VkSurfaceKHR = undefined;
+    if (sdl.SDL_Vulkan_CreateSurface(win.sdl_window, @ptrCast(sdl.VkInstance, instance), @ptrCast(*sdl.VkSurfaceKHR, &surface)) == 0)  {
+        log.err("SDL_Vulkan_CreateSurface: {s}", .{sdl.SDL_GetError()});
+        return error.Failed;
+    }
+    win.inner.surface = surface;
+
+    // Get physical device.
+    var num_devices: u32 = 0;
+    res = vk.enumeratePhysicalDevices(instance, &num_devices, null);
+    vk.assertSuccess(res);
+    if (num_devices == 0) {
+        return error.NoVulkanDevice;
+    }
+
+    const devices = alloc.alloc(vk.VkPhysicalDevice, num_devices) catch @panic("error");
+    defer alloc.free(devices);
+    res = vk.enumeratePhysicalDevices(instance, &num_devices, devices.ptr);
+    vk.assertSuccess(res);
+
+    const physical_device = for (devices) |device| {
+        if (try isVkDeviceSuitable(alloc, device, surface)) {
+            break device;
+        }
+    } else return error.NoSuitableDevice;
+    win.inner.physical_device = physical_device;
+
+    // Create logical device.
+    const q_family = queryQueueFamily(alloc, physical_device, surface);
+    if (q_family.graphics_family.? != q_family.present_family.?) {
+        return error.UnsupportedQueueFamily;
+    }
+    win.inner.queue_family = q_family;
+
+    const uniq_families: []const u32 = &.{ q_family.graphics_family.? };
+    var queue_priority: f32 = 1;
+
+    var queue_create_infos = std.ArrayList(vk.VkDeviceQueueCreateInfo).init(alloc);
+    defer queue_create_infos.deinit();
+
+    const queue_create_info = vk.VkDeviceQueueCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = uniq_families[0],
+        .queueCount = 1,
+        .pQueuePriorities = &queue_priority,
+        .pNext = null,
+        .flags = 0,
+    };
+    try queue_create_infos.append(queue_create_info);
+
+    const device_features = std.mem.zeroInit(vk.VkPhysicalDeviceFeatures, .{});
+    const d_create_info = vk.VkDeviceCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .queueCreateInfoCount = @intCast(u32, queue_create_infos.items.len),
+        .pQueueCreateInfos = queue_create_infos.items.ptr,
+        .pEnabledFeatures = &device_features,
+        .enabledExtensionCount = @intCast(u32, RequiredVkDeviceExtensions.len),
+        .ppEnabledExtensionNames = &RequiredVkDeviceExtensions,
+        .enabledLayerCount = 0,
+        .ppEnabledLayerNames = null,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    res = vk.createDevice(physical_device, &d_create_info, null, &win.inner.device);
+    vk.assertSuccess(res);
+
+    win.id = sdl.SDL_GetWindowID(win.sdl_window);
+    win.width = @intCast(u32, config.width);
+    win.height = @intCast(u32, config.height);
+
+    var buf_width: c_int = undefined;
+    var buf_height: c_int = undefined;
+    
+    switch (Backend) {
+        .OpenGL => sdl.SDL_GL_GetDrawableSize(win.sdl_window, &buf_width, &buf_height),
+        .Vulkan => sdl.SDL_Vulkan_GetDrawableSize(win.sdl_window, &buf_width, &buf_height),
+        else => stdx.panic("unsupported"),
+    }
+    win.buf_width = @intCast(u32, buf_width);
+    win.buf_height = @intCast(u32, buf_height);
+
+    win.dpr = @intCast(u8, win.buf_width / win.width);
+}
+
+const SwapChainInfo = struct {
+    capabilities: vk.VkSurfaceCapabilitiesKHR,
+    formats: []vk.VkSurfaceFormatKHR,
+    present_modes: []vk.VkPresentModeKHR,
+
+    pub fn deinit(self: SwapChainInfo, alloc: std.mem.Allocator) void {
+        alloc.free(self.formats);
+        alloc.free(self.present_modes);
+    }
+
+    pub fn getDefaultExtent(self: SwapChainInfo) vk.VkExtent2D {
+        if (self.capabilities.currentExtent.width != std.math.maxInt(u32)) {
+            return self.capabilities.currentExtent;
+        } else {
+            var extent = vk.VkExtent2D{
+                .width = 800,
+                .height = 600,
+            };
+            extent.width = std.math.max(self.capabilities.minImageExtent.width, std.math.min(self.capabilities.maxImageExtent.width, extent.width));
+            extent.height = std.math.max(self.capabilities.minImageExtent.height, std.math.min(self.capabilities.maxImageExtent.height, extent.height));
+            return extent;
+        }
+    }
+
+    pub fn getDefaultSurfaceFormat(self: SwapChainInfo) vk.VkSurfaceFormatKHR {
+        if (self.formats.len == 1 and self.formats[0].format == vk.VK_FORMAT_UNDEFINED) {
+            return vk.VkSurfaceFormatKHR{
+                .format = vk.VK_FORMAT_B8G8R8A8_UNORM,
+                .colorSpace = vk.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+            };
+        }
+        for (self.formats) |format| {
+            if (format.format == vk.VK_FORMAT_B8G8R8A8_UNORM and format.colorSpace == vk.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                return format;
+            }
+        }
+        return self.formats[0];
+    }
+
+    pub fn getDefaultPresentMode(self: SwapChainInfo) vk.VkPresentModeKHR {
+        var best: vk.VkPresentModeKHR = vk.VK_PRESENT_MODE_FIFO_KHR;
+        for (self.present_modes) |mode| {
+            if (mode == vk.VK_PRESENT_MODE_MAILBOX_KHR) {
+                return mode;
+            } else if (mode == vk.VK_PRESENT_MODE_IMMEDIATE_KHR) {
+                best = mode;
+            }
+        }
+        return best;
+    }
+};
+
+/// Currently in the platform module to find a suitable physical device.
+pub fn vkQuerySwapChainSupport(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, surface: vk.VkSurfaceKHR) SwapChainInfo {
+    var new = SwapChainInfo{
+        .capabilities = undefined,
+        .formats = undefined,
+        .present_modes = undefined,
+    };
+
+    var res = vk.getPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &new.capabilities);
+    vk.assertSuccess(res);
+
+    var format_count: u32 = undefined;
+    res = vk.getPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, null);
+    vk.assertSuccess(res);
+    new.formats = alloc.alloc(vk.VkSurfaceFormatKHR, format_count) catch @panic("error");
+    res = vk.getPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, new.formats.ptr);
+    vk.assertSuccess(res);
+
+    var present_mode_count: u32 = undefined;
+    res = vk.getPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, null);
+    vk.assertSuccess(res);
+    new.present_modes = alloc.alloc(vk.VkPresentModeKHR, present_mode_count) catch @panic("error");
+    res = vk.getPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, new.present_modes.ptr);
+    vk.assertSuccess(res);
+
+    return new;
+}
+
+const RequiredVkDeviceExtensions = [_][*:0]const u8{vk.VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+pub const VkQueueFamilyPair = struct {
+    graphics_family: ?u32,
+    present_family: ?u32,
+
+    fn isValid(self: VkQueueFamilyPair) bool {
+        return self.graphics_family != null and self.present_family != null;
+    }
+};
+
+fn queryQueueFamily(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, surface: vk.VkSurfaceKHR) VkQueueFamilyPair {
+    // Check queue family.
+    var family_count: u32 = 0;
+    vk.getPhysicalDeviceQueueFamilyProperties(device, &family_count, null);
+
+    const families = alloc.alloc(vk.VkQueueFamilyProperties, family_count) catch @panic("error");
+    defer alloc.free(families);
+    vk.getPhysicalDeviceQueueFamilyProperties(device, &family_count, families.ptr);
+
+    var new = VkQueueFamilyPair{
+        .graphics_family = null,
+        .present_family = null,
+    };
+
+    for (families) |family, idx| {
+        if (family.queueCount > 0 and family.queueFlags & vk.VK_QUEUE_GRAPHICS_BIT != 0) {
+            new.graphics_family = @intCast(u32, idx);
+        }
+
+        var present_support: vk.VkBool32 = 0;
+        const res = vk.getPhysicalDeviceSurfaceSupportKHR(device, @intCast(u32, idx), surface, &present_support);
+        vk.assertSuccess(res);
+
+        if (family.queueCount > 0 and present_support != 0) {
+            new.present_family = @intCast(u32, idx);
+        }
+
+        if (new.isValid()) {
+            break;
+        }
+    }
+
+    return new;
+}
+
+fn isVkDeviceSuitable(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, surface: vk.VkSurfaceKHR) !bool {
+    const q_family = queryQueueFamily(alloc, device, surface);
+    if (!q_family.isValid()) {
+        return false;
+    }
+
+    // Check required extensions.
+    var extension_count: u32 = undefined;
+    var res = vk.enumerateDeviceExtensionProperties(device, null, &extension_count, null);
+    vk.assertSuccess(res);
+
+    const extensions = try alloc.alloc(vk.VkExtensionProperties, extension_count);
+    defer alloc.free(extensions);
+    res = vk.enumerateDeviceExtensionProperties(device, null, &extension_count, extensions.ptr);
+    vk.assertSuccess(res);
+
+    var req_exts = std.StringHashMap(void).init(alloc);
+    defer req_exts.deinit();
+    for (RequiredVkDeviceExtensions) |ext| {
+        const ext_slice = std.mem.span(ext);
+        req_exts.put(ext_slice, {}) catch @panic("error");
+    }
+    for (extensions) |ext| {
+        const name_slice = std.mem.span(@ptrCast([*:0]const u8, &ext.extensionName));
+        _ = req_exts.remove(name_slice);
+    }
+    if (req_exts.count() != 0) {
+        return false;
+    }
+
+    // Check swap chain.
+    const swap_chain = vkQuerySwapChainSupport(alloc, device, surface);
+    defer swap_chain.deinit(alloc);
+    if (swap_chain.formats.len == 0 or swap_chain.present_modes.len == 0) {
+        return false;
+    }
+    return true;
 }
 
 fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: c_int) !void {
@@ -341,7 +633,7 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
 
 fn initGL_Context(win: *Window) !void {
     if (sdl.SDL_GL_CreateContext(win.sdl_window)) |ctx| {
-        win.gl_ctx = ctx;
+        win.inner.gl_ctx = ctx;
 
         // GL version on some platforms is only available after the context is created and made current.
         // This also means it's better to start initing opengl functions (GetProcAddress) on windows after an opengl context is created.
@@ -364,7 +656,7 @@ fn initGL_Context(win: *Window) !void {
     }
 
     // Not necessary but better to be explicit.
-    if (sdl.SDL_GL_MakeCurrent(win.sdl_window, win.gl_ctx) != 0) {
+    if (sdl.SDL_GL_MakeCurrent(win.sdl_window, win.inner.gl_ctx) != 0) {
         log.err("Unable to attach gl context to window: {s}", .{sdl.SDL_GetError()});
         return error.Failed;
     }
@@ -386,40 +678,6 @@ fn getSdlWindowFlags(config: Config) c_int {
         flags |= sdl.SDL_WINDOW_FULLSCREEN;
     }
     return flags;
-}
-
-// TODO: Move both initTextureProjection and initDisplayProjection to graphics package.
-/// For drawing to textures. Similar to display projection but y isn't flipped.
-pub fn initTextureProjection(width: f32, height: f32) Transform {
-    var res = Transform.initIdentity();
-    // first reduce to [0,1] values
-    res.scale(1.0 / width, 1.0 / height);
-    // to [0,2] values
-    res.scale(2.0, 2.0);
-    // to clip space [-1,1]
-    res.translate(-1.0, -1.0);
-    return res;
-}
-
-pub fn initDisplayProjection(width: f32, height: f32) Transform {
-    var res = Transform.initIdentity();
-    // first reduce to [0,1] values
-    res.scale(1.0 / width, 1.0 / height);
-    // to [0,2] values
-    res.scale(2.0, 2.0);
-    // to clip space [-1,1]
-    res.translate(-1.0, -1.0);
-    // flip y since clip space is based on cartesian
-    res.scale(1.0, -1.0);
-    return res;
-}
-
-test "initDisplayProjection" {
-    var transform = initDisplayProjection(800, 600);
-    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{ -1, 1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 800, 0, 0, 1 }), .{ 1, 1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 800, 600, 0, 1 }), .{ 1, -1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 0, 600, 0, 1 }), .{ -1, -1, 0, 1 });
 }
 
 fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {

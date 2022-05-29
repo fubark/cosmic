@@ -1,5 +1,3 @@
-const gl = @import("gl");
-
 const graphics = @import("graphics.zig");
 
 pub const Glyph = struct {

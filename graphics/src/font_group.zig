@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const graphics = @import("../../graphics.zig");
+const graphics = @import("graphics.zig");
 const FontId = graphics.font.FontId;
 const font = @import("font.zig");
 const Font = font.Font;

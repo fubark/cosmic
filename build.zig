@@ -24,10 +24,12 @@ const h2o = @import("lib/h2o/lib.zig");
 const stb = @import("lib/stb/lib.zig");
 const freetype = @import("lib/freetype2/lib.zig");
 const gl = @import("lib/gl/lib.zig");
+const vk = @import("lib/vk/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
 const maudio = @import("lib/miniaudio/lib.zig");
 const mingw = @import("lib/mingw/lib.zig");
+const backend = @import("platform/backend.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -563,10 +565,11 @@ const BuilderContext = struct {
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
+        const graphics_backend = backend.getGraphicsBackend(step);
         stdx.addPackage(step, .{
             .enable_tracy = self.enable_tracy,
         });
-        platform.addPackage(step, .{ .add_dep_pkgs = false });
+        platform.addPackage(step, .{ .add_dep_pkgs = false, .graphics_backend = graphics_backend });
         curl.addPackage(step);
         uv.addPackage(step);
         h2o.addPackage(step);
@@ -585,6 +588,7 @@ const BuilderContext = struct {
         stb.addStbiPackage(step);
         freetype.addPackage(step);
         gl.addPackage(step);
+        vk.addPackage(step);
         maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
         tess2.addPackage(step, self.link_tess2);
@@ -597,10 +601,12 @@ const BuilderContext = struct {
             mingw.buildAndLinkWinPthreads(step);
         }
         ui.addPackage(step, .{
+            .graphics_backend = graphics_backend,
             .add_dep_pkgs = false,
         });
 
         const graphics_opts = graphics.Options{
+            .graphics_backend = graphics_backend,
             .enable_tracy = self.enable_tracy,
             .link_lyon = self.link_lyon,
             .link_tess2 = self.link_tess2,

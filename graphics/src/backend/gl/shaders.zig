@@ -5,19 +5,18 @@ const Vec2 = stdx.math.Vec2;
 const Mat4 = stdx.math.Mat4;
 const gl = @import("gl");
 
-const gl_graphics = @import("graphics.zig");
-const Shader = @import("shader.zig").Shader;
 const graphics = @import("../../graphics.zig");
+const Shader = graphics.gl.Shader;
 const Color = graphics.Color;
 
-const tex_vert = @embedFile("../../shaders/tex_vert.glsl");
-const tex_frag = @embedFile("../../shaders/tex_frag.glsl");
+const tex_vert = @embedFile("shaders/tex_vert.glsl");
+const tex_frag = @embedFile("shaders/tex_frag.glsl");
 
-const tex_vert_webgl2 = @embedFile("../../shaders/tex_vert_webgl2.glsl");
-const tex_frag_webgl2 = @embedFile("../../shaders/tex_frag_webgl2.glsl");
+const tex_vert_webgl2 = @embedFile("shaders/tex_vert_webgl2.glsl");
+const tex_frag_webgl2 = @embedFile("shaders/tex_frag_webgl2.glsl");
 
-const gradient_vert = @embedFile("../../shaders/gradient_vert.glsl");
-const gradient_frag = @embedFile("../../shaders/gradient_frag.glsl");
+const gradient_vert = @embedFile("shaders/gradient_vert.glsl");
+const gradient_frag = @embedFile("shaders/gradient_frag.glsl");
 
 pub const TexShader = struct {
     shader: Shader,

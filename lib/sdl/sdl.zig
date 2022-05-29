@@ -2,11 +2,14 @@ const std = @import("std");
 const stdx = @import("stdx");
 const log_ = stdx.log.scoped(.sdl);
 
+const build_options = @import("build_options");
+
 // c header imports should be wrapped in a common zig file that others import. See: https://github.com/ziglang/zig/issues/3394
 const c = @cImport({
     @cInclude("SDL.h");
     @cDefine("GL_GLEXT_PROTOTYPES", ""); // Includes ext functions, eg. glGenVertexArrays
     @cInclude("SDL_opengl.h");
+    @cInclude("SDL_vulkan.h");
 });
 
 pub usingnamespace c;

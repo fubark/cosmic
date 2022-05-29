@@ -10,15 +10,15 @@ const geom = math.geom;
 const gl = @import("gl");
 pub const GLTextureId = gl.GLuint;
 const builtin = @import("builtin");
-const build_options = @import("build_options");
 const lyon = @import("lyon");
 const tess2 = @import("tess2");
 const pt = lyon.initPt;
 const t = stdx.testing;
 const trace = stdx.debug.tracy.trace;
+const build_options = @import("build_options");
+const Backend = build_options.GraphicsBackend;
 
 const graphics = @import("../../graphics.zig");
-const window = @import("window.zig");
 const QuadBez = graphics.curve.QuadBez;
 const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
@@ -28,7 +28,6 @@ const Transform = graphics.transform.Transform;
 const VMetrics = graphics.font.VMetrics;
 const TextMetrics = graphics.TextMetrics;
 const Font = graphics.font.Font;
-const Glyph = graphics.font.Glyph;
 pub const font_cache = @import("font_cache.zig");
 pub const FontCache = font_cache.FontCache;
 const ImageId = graphics.ImageId;
@@ -40,8 +39,6 @@ const log = stdx.log.scoped(.graphics_gl);
 const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
 const TexShaderVertex = mesh.TexShaderVertex;
-const Shader = @import("shader.zig").Shader;
-const shaders = @import("shaders.zig");
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
 pub const TextGlyphIterator = text_renderer.TextGlyphIterator;
@@ -50,6 +47,8 @@ const svg = graphics.svg;
 const stroke = @import("stroke.zig");
 const tessellator = @import("../../tessellator.zig");
 const Tessellator = tessellator.Tessellator;
+pub const RenderFont = @import("render_font.zig").RenderFont;
+pub const Glyph = @import("glyph.zig").Glyph;
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
@@ -57,13 +56,14 @@ const IsWasm = builtin.target.isWasm();
 
 /// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {
-    const Self = @This();
-
     alloc: std.mem.Allocator,
 
     white_tex: ImageDesc,
-    tex_shader: shaders.TexShader,
-    gradient_shader: shaders.GradientShader,
+    pipelines: switch (Backend) {
+        .OpenGL => graphics.gl.Pipelines,
+        .Vulkan => {},
+        else => @compileError("unsupported"),
+    },
     batcher: Batcher,
     font_cache: FontCache,
 
@@ -109,13 +109,14 @@ pub const Graphics = struct {
     /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
     raster_glyph_buffer: std.ArrayList(u8),
 
+    const Self = @This();
+
     // We can initialize without gl calls for use in tests.
-    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
-            .tex_shader = undefined,
-            .gradient_shader = undefined,
+            .pipelines = undefined,
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
@@ -138,7 +139,7 @@ pub const Graphics = struct {
             .cur_scissors = undefined,
             .cur_text_align = .Left,
             .cur_text_baseline = .Top,
-            .cur_dpr = 1,
+            .cur_dpr = dpr,
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
             .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
@@ -155,26 +156,33 @@ pub const Graphics = struct {
         var vert_buf_id: gl.GLuint = undefined;
         gl.genBuffers(1, &vert_buf_id);
 
-        // Initialize shaders.
-        self.tex_shader = shaders.TexShader.init(vert_buf_id);
-        self.gradient_shader = shaders.GradientShader.init(vert_buf_id);
+        // Initialize pipelines.
+        switch (Backend) {
+            .OpenGL => {
+                self.pipelines.tex = graphics.gl.TexShader.init(vert_buf_id);
+                self.pipelines.gradient = graphics.gl.GradientShader.init(vert_buf_id);
+            },
+            else => stdx.panicUnsupported(),
+        }
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
         self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
 
-        self.batcher = Batcher.init(alloc, vert_buf_id, .{
-            .tex = self.tex_shader,
-            .gradient = self.gradient_shader,
-        });
+        switch (Backend) {
+            .OpenGL => {
+                self.batcher = Batcher.initGL(alloc, vert_buf_id, self.pipelines);
+            },
+            else => stdx.panic("unsupported"),
+        }
 
         self.font_cache.init(alloc, self);
 
         // TODO: Embed a default bitmap font.
         // TODO: Embed a default ttf monospace font.
 
-        self.default_font_id = self.addTTF_Font(vera_ttf);
+        self.default_font_id = self.addFontTTF(vera_ttf);
         self.default_font_gid = self.font_cache.getOrLoadFontGroup(&.{self.default_font_id});
         self.setFont(self.default_font_id);
 
@@ -204,8 +212,7 @@ pub const Graphics = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.tex_shader.deinit();
-        self.gradient_shader.deinit();
+        self.pipelines.deinit();
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
@@ -228,12 +235,12 @@ pub const Graphics = struct {
         self.raster_glyph_buffer.deinit();
     }
 
-    pub fn addOTB_Font(self: *Self, data: []const graphics.BitmapFontData) FontId {
-        return self.font_cache.addOTB_Font(data);
+    pub fn addFontOTB(self: *Self, data: []const graphics.BitmapFontData) FontId {
+        return self.font_cache.addFontOTB(data);
     }
 
-    pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
-        return self.font_cache.addTTF_Font(data);
+    pub fn addFontTTF(self: *Self, data: []const u8) FontId {
+        return self.font_cache.addFontTTF(data);
     }
 
     pub fn addFallbackFont(self: *Self, font_id: FontId) void {
@@ -1810,7 +1817,7 @@ pub const Graphics = struct {
         }
         gl.bindFramebuffer(gl.GL_FRAMEBUFFER, image.fbo_id.?);
         gl.viewport(0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height));
-        self.cur_proj_transform = window.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
+        self.cur_proj_transform = graphics.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
         self.view_transform = Transform.initIdentity();
         const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         self.batcher.beginMvp(mvp);
@@ -1834,21 +1841,16 @@ pub const Graphics = struct {
 
     /// Begin frame sets up the context before any other draw call.
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
-    pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint, proj_transform: Transform, initial_mvp: Mat4) void {
+    pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("beginFrame", .{});
 
         self.cur_buf_width = buf_width;
         self.cur_buf_height = buf_height;
 
-        // Projection transform is different depending on viewport but is needed for user transforms to recompute the mvp.
-        self.cur_proj_transform = proj_transform;
-
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
         gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
-        // Reset view transform.
-        self.view_transform = Transform.initIdentity();
-        self.batcher.resetState(Transform.initRowMajor(initial_mvp), self.white_tex);
+        self.batcher.resetState(self.white_tex);
 
         // Scissor affects glClear so reset it first.
         self.cur_clip_rect = .{
@@ -1885,6 +1887,12 @@ pub const Graphics = struct {
             // blit's filter is only used when the sizes between src and dst buffers are different.
             gl.blitFramebuffer(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), 0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
+    }
+
+    pub fn setCamera(self: *Self, cam: graphics.Camera) void {
+        self.cur_proj_transform = cam.proj_transform;
+        self.view_transform = Transform.initIdentity();
+        self.batcher.mvp = Transform.initRowMajor(cam.initial_mvp);
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {

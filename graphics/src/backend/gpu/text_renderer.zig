@@ -4,29 +4,28 @@ const stbtt = @import("stbtt");
 const gl = @import("gl");
 
 const graphics = @import("../../graphics.zig");
+const gpu = graphics.gpu;
 const TextMetrics = graphics.TextMetrics;
 const FontGroupId = graphics.font.FontGroupId;
 const FontGroup = graphics.font.FontGroup;
 const Font = graphics.font.Font;
-const RenderFont = graphics.font.RenderFont;
+const RenderFont = gpu.RenderFont;
 const OpenTypeFont = graphics.font.OpenTypeFont;
-const graphics_gl = graphics.gl;
-const ImageDesc = graphics_gl.ImageDesc;
-const Graphics = graphics_gl.Graphics;
+const ImageDesc = gpu.ImageDesc;
 const font_cache = @import("font_cache.zig");
-const BitmapFontStrike = @import("font.zig").BitmapFontStrike;
+const BitmapFontStrike = graphics.font.BitmapFontStrike;
 const log = stdx.log.scoped(.text_renderer);
 const Glyph = @import("glyph.zig").Glyph;
 
 /// Returns an glyph iterator over UTF8 text.
-pub fn textGlyphIter(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8) graphics.TextGlyphIterator {
+pub fn textGlyphIter(g: *gpu.Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8) graphics.TextGlyphIterator {
     var iter: graphics.TextGlyphIterator = undefined;
     const fgroup = g.font_cache.getFontGroup(font_gid);
     iter.inner.init(g, fgroup, font_size, dpr, str, &iter);
     return iter;
 }
 
-pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, prev_cp: u21, cp: u21) f32 {
+pub fn measureCharAdvance(g: *gpu.Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, prev_cp: u21, cp: u21) f32 {
     const font_grp = g.font_cache.getFontGroup(font_gid);
     var req_font_size = font_size;
     const render_font_size = font_cache.computeRenderFontSize(&req_font_size) * @intCast(u16, dpr);
@@ -45,7 +44,7 @@ pub fn measureCharAdvance(g: *Graphics, font_gid: FontGroupId, font_size: f32, d
 }
 
 /// For lower font sizes, snap_to_grid is desired since baked fonts don't have subpixel rendering. TODO: Could this be achieved if multiple subpixel variation renders were baked as well?
-pub fn measureText(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics, comptime snap_to_grid: bool) void {
+pub fn measureText(g: *gpu.Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32, str: []const u8, res: *TextMetrics, comptime snap_to_grid: bool) void {
     var iter = textGlyphIter(g, font_gid, font_size, dpr, str);
     res.height = iter.primary_height;
     res.width = 0;
@@ -60,7 +59,7 @@ pub fn measureText(g: *Graphics, font_gid: FontGroupId, font_size: f32, dpr: u32
 }
 
 pub const TextGlyphIterator = struct {
-    g: *Graphics,
+    g: *gpu.Graphics,
     fgroup: *FontGroup,
 
     cp_iter: std.unicode.Utf8Iterator,
@@ -77,7 +76,7 @@ pub const TextGlyphIterator = struct {
 
     const Self = @This();
 
-    fn init(self: *Self, g: *Graphics, fgroup: *FontGroup, font_size: f32, dpr: u32, str: []const u8, iter: *graphics.TextGlyphIterator) void {
+    fn init(self: *Self, g: *gpu.Graphics, fgroup: *FontGroup, font_size: f32, dpr: u32, str: []const u8, iter: *graphics.TextGlyphIterator) void {
         var req_font_size = font_size;
         const render_font_size = font_cache.computeRenderFontSize(fgroup.primary_font_desc, &req_font_size) * @intCast(u16, dpr);
 
@@ -222,7 +221,7 @@ pub const RenderTextIterator = struct {
 
     const Self = @This();
 
-    pub fn init(g: *Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, x: f32, y: f32, str: []const u8) Self {
+    pub fn init(g: *gpu.Graphics, group_id: FontGroupId, font_size: f32, dpr: u32, x: f32, y: f32, str: []const u8) Self {
         return .{
             .iter = textGlyphIter(g, group_id, font_size, dpr, str),
             .quad = undefined,

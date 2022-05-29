@@ -4,16 +4,13 @@ const stbi = @import("stbi");
 const Point2 = stdx.math.Point2;
 
 const graphics = @import("../../graphics.zig");
-const Graphics = graphics.gl.Graphics;
-const Image = graphics.gl.Image;
-const ImageDesc = graphics.gl.ImageDesc;
-const Texture = graphics.gl.Texture;
+const gpu = graphics.gpu;
 const RectBinPacker = graphics.RectBinPacker;
 const log = stdx.log.scoped(.font_atlas);
 
 /// Holds a buffer of font glyphs in memory that is then synced to the gpu.
 pub const FontAtlas = struct {
-    g: *Graphics,
+    g: *gpu.Graphics,
 
     /// Uses a rect bin packer to allocate space.
     packer: RectBinPacker,
@@ -26,7 +23,7 @@ pub const FontAtlas = struct {
     height: u32,
     channels: u8,
 
-    image: ImageDesc,
+    image: gpu.ImageDesc,
 
     // The same allocator is used to do resizing.
     alloc: std.mem.Allocator,
@@ -37,7 +34,7 @@ pub const FontAtlas = struct {
 
     /// Linear filter disabled is good for bitmap fonts that scale upwards.
     /// Outline glyphs and color bitmaps would use linear filtering. Although in the future, outline glyphs might also need to have linear filter disabled.
-    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics, width: u32, height: u32, linear_filter: bool) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *gpu.Graphics, width: u32, height: u32, linear_filter: bool) void {
         self.* = .{
             .g = g,
             .alloc = alloc,

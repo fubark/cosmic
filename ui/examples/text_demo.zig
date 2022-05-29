@@ -1,20 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const platform = @import("platform");
+const Window = platform.Window;
 const graphics = @import("graphics");
-const Graphics = graphics.Graphics;
 const Color = graphics.Color;
-const Window = graphics.Window;
 const ui = @import("ui");
-const importWidget = ui.Import.init;
-const Config = ui.Config;
-const WidgetRef = ui.WidgetRef;
-const EventDispatcher = platform.EventDispatcher;
-const MouseUpEvent = platform.MouseUpEvent;
-const log = stdx.log.scoped(.main);
-const IsWasm = builtin.target.isWasm();
-
 const TextEditor = ui.widgets.TextEditor;
 const TextButton = ui.widgets.TextButton;
 const Column = ui.widgets.Column;
@@ -31,6 +23,7 @@ const FileDialog = ui.widgets.FileDialog;
 const Root = ui.widgets.Root;
 
 const helper = @import("helper.zig");
+const log = stdx.log.scoped(.main);
 
 /// Note: This embedded color emoji font only contains two emojis for the demo. Download the full emoji set on the web.
 const NotoColorEmoji = @embedFile("../../examples/assets/NotoColorEmoji.ttf");
@@ -39,8 +32,8 @@ const tamzen9_otb = @embedFile("../../assets/tamzen5x9r.otb");
 
 pub const App = struct {
     alloc: std.mem.Allocator,
-    text_editor: WidgetRef(TextEditor),
-    size_slider: WidgetRef(Slider),
+    text_editor: ui.WidgetRef(TextEditor),
+    size_slider: ui.WidgetRef(Slider),
 
     text_color: Color,
     bg_color: Color,
@@ -111,7 +104,7 @@ pub const App = struct {
                 const font_data = std.fs.cwd().readFileAlloc(self_.alloc, path, 1e8) catch @panic("error");
                 defer self_.alloc.free(font_data);
                 const g = self_.ctx.getGraphics();
-                const font_id = g.addTTF_Font(font_data);
+                const font_id = g.addFontTTF(font_data);
                 self_.font_family = graphics.FontFamily{ .Font = font_id };
             }
 
@@ -123,7 +116,7 @@ pub const App = struct {
                 });
             }
 
-            fn onLoadFontClick(self_: *Self, _: MouseUpEvent) void {
+            fn onLoadFontClick(self_: *Self, _: platform.MouseUpEvent) void {
                 self_.file_m = self_.root.showModal(self_, buildFileDialog, .{});
             }
         };
@@ -205,10 +198,10 @@ pub fn main() !void {
     app.init("Text Demo");
     defer app.deinit();
 
-    _ = app.g.addOTB_Font(&.{
+    _ = app.g.addFontOTB(&.{
         .{ .data = tamzen9_otb, .size = 9 },
     });
-    const emoji_font = app.g.addTTF_Font(NotoColorEmoji);
+    const emoji_font = app.g.addFontTTF(NotoColorEmoji);
     app.g.addFallbackFont(emoji_font);
 
     app.runEventLoop(update);

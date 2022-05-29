@@ -48,6 +48,11 @@ pub fn captureMouse(capture: bool) void {
     }
 }
 
+pub const window_sdl = @import("window_sdl.zig");
+const window = @import("window.zig");
+pub const Window = window.Window;
+pub const quit = window.quit;
+
 pub const WindowResizeEvent = struct {
     const Self = @This();
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const stdx = @import("stdx");
 const math = stdx.math;
 const Vec2 = math.Vec2;
@@ -6,10 +7,8 @@ const builtin = @import("builtin");
 const t = stdx.testing;
 const sdl = @import("sdl");
 const ft = @import("freetype");
+const platform = @import("platform");
 
-const window = @import("window.zig");
-pub const Window = window.Window;
-pub const quit = window.quit;
 pub const transform = @import("transform.zig");
 const Transform = transform.Transform;
 pub const svg = @import("svg.zig");
@@ -22,13 +21,17 @@ pub const Color = _color.Color;
 const fps = @import("fps.zig");
 pub const FpsLimiter = fps.FpsLimiter;
 pub const DefaultFpsLimiter = fps.DefaultFpsLimiter;
-const text_renderer = @import("backend/gl/text_renderer.zig");
-const FontCache = gl.FontCache;
+const text_renderer = @import("backend/gpu/text_renderer.zig");
+const FontCache = gpu.FontCache;
 const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
+const camera = @import("camera.zig");
+pub const Camera = camera.Camera;
+pub const initTextureProjection = camera.initTextureProjection;
 
 pub const tessellator = @import("tessellator.zig");
 pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
+pub const SwapChain = @import("swapchain.zig").SwapChain;
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
@@ -46,86 +49,55 @@ pub const FontRendererBackend: FontRendererBackendType = b: {
     break :b .Freetype;
 };
 
+const Backend = build_options.GraphicsBackend;
+
 const This = @This();
 pub const font = struct {
     pub const FontId = u32;
+    // Maybe this should be renamed to FontFamilyId. FontGroup renamed to FontFamily.
     pub const FontGroupId = u32;
-    pub const FontType = _font.FontType;
     pub const VMetrics = This.VMetrics;
     pub const OpenTypeFont = _ttf.OpenTypeFont;
+    pub const Font = @import("font.zig").Font;
+    pub const FontType = @import("font.zig").FontType;
+    pub const FontGroup = @import("font_group.zig").FontGroup;
+    pub const FontDesc = @import("font.zig").FontDesc;
+    pub const BitmapFontStrike = @import("font.zig").BitmapFontStrike;
 
-    const _font = @import("backend/gl/font.zig");
-    const _font_group = @import("backend/gl/font_group.zig");
-    const glyph = @import("backend/gl/glyph.zig");
-
-    pub usingnamespace switch (Backend) {
-        .Test, .OpenGL => struct {
-            pub const Font = _font.Font;
-            pub const RenderFont = _font.RenderFont;
-            pub const Glyph = glyph.Glyph;
-            pub const FontCache = gl.FontCache;
-            pub const FontGroup = _font_group.FontGroup;
-        },
-        else => struct {},
-    };
 };
 const FontGroupId = font.FontGroupId;
 const FontId = font.FontId;
 
 pub const canvas = @import("backend/canvas/graphics.zig");
-pub const gl = @import("backend/gl/graphics.zig");
+pub const gpu = @import("backend/gpu/graphics.zig");
+pub const vk = @import("backend/vk/vk.zig");
+pub const gl = @import("backend/gl/gl.zig");
 pub const testg = @import("backend/test/graphics.zig");
-
-// LINKS:
-// https://github.com/michal-z/zig-gamedev (windows directx/2d graphics)
-// https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-25-rendering-vector-art-gpu
-// https://github.com/intel/fastuidraw
-// https://github.com/microsoft/Win2D, https://github.com/microsoft/microsoft-ui-xaml
-
-const BackendType = enum(u2) {
-    /// Stub for testing.
-    Test = 0,
-    /// Deprecated. Uses html canvas context for graphics. Kept for historical reference.
-    WasmCanvas = 1,
-    /// For Desktop and WebGL.
-    OpenGL = 2,
-};
-
-pub const Backend: BackendType = b: {
-    if (builtin.is_test) {
-        break :b .Test;
-    } else if (builtin.target.isWasm()) {
-        // break :b .WasmCanvas;
-        break :b .OpenGL;
-    } else {
-        break :b .OpenGL;
-    }
-};
 
 /// Global freetype library handle.
 pub var ft_library: ft.FT_Library = undefined;
 
 pub const Graphics = struct {
-    const Self = @This();
-
-    // TODO: Rename to inner.
-    g: switch (Backend) {
-        .OpenGL => gl.Graphics,
+    impl: switch (Backend) {
+        .OpenGL, .Vulkan => gpu.Graphics,
         .WasmCanvas => canvas.Graphics,
         .Test => testg.Graphics,
+        else => stdx.panic("unsupported"),
     },
     alloc: std.mem.Allocator,
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
+    const Self = @This();
+
+    pub fn init(self: *Self, alloc: std.mem.Allocator, w: platform.Window) void {
         self.* = .{
             .alloc = alloc,
             .path_parser = svg.PathParser.init(alloc),
             .svg_parser = svg.SvgParser.init(alloc),
             .text_buf = std.ArrayList(u8).init(alloc),
-            .g = undefined,
+            .impl = undefined,
         };
 
         if (FontRendererBackend == .Freetype) {
@@ -136,9 +108,11 @@ pub const Graphics = struct {
         }
 
         switch (Backend) {
-            .OpenGL => gl.Graphics.init(&self.g, alloc),
-            .WasmCanvas => canvas.Graphics.init(&self.g, alloc),
-            .Test => testg.Graphics.init(&self.g, alloc),
+            .OpenGL => gpu.Graphics.init(&self.impl, alloc, w.inner.dpr),
+            .Vulkan => gpu.Graphics.init(&self.impl, alloc, w.inner.dpr),
+            .WasmCanvas => canvas.Graphics.init(&self.impl, alloc),
+            .Test => testg.Graphics.init(&self.impl, alloc),
+            else => stdx.panic("unsupported"),
         }
     }
 
@@ -147,17 +121,18 @@ pub const Graphics = struct {
         self.svg_parser.deinit();
         self.text_buf.deinit();
         switch (Backend) {
-            .OpenGL => self.g.deinit(),
-            .WasmCanvas => self.g.deinit(),
+            .OpenGL => self.impl.deinit(),
+            .WasmCanvas => self.impl.deinit(),
             .Test => {},
+            else => stdx.panicUnsupported(),
         }
     }
 
     // Shifts origin to x units to the right and y units down.
     pub fn translate(self: *Self, x: f32, y: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.translate(&self.g, x, y),
-            .WasmCanvas => canvas.Graphics.translate(&self.g, x, y),
+            .OpenGL => gpu.Graphics.translate(&self.impl, x, y),
+            .WasmCanvas => canvas.Graphics.translate(&self.impl, x, y),
             else => stdx.panic("unsupported"),
         }
     }
@@ -166,8 +141,8 @@ pub const Graphics = struct {
     // Negative value flips the axis. Value of 1 does nothing.
     pub fn scale(self: *Self, x: f32, y: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.scale(&self.g, x, y),
-            .WasmCanvas => canvas.Graphics.scale(&self.g, x, y),
+            .OpenGL => gpu.Graphics.scale(&self.impl, x, y),
+            .WasmCanvas => canvas.Graphics.scale(&self.impl, x, y),
             else => stdx.panic("unsupported"),
         }
     }
@@ -175,8 +150,8 @@ pub const Graphics = struct {
     // Rotates origin by radians clockwise.
     pub fn rotate(self: *Self, rad: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.rotate(&self.g, rad),
-            .WasmCanvas => canvas.Graphics.rotate(&self.g, rad),
+            .OpenGL => gpu.Graphics.rotate(&self.impl, rad),
+            .WasmCanvas => canvas.Graphics.rotate(&self.impl, rad),
             else => stdx.panic("unsupported"),
         }
     }
@@ -188,38 +163,38 @@ pub const Graphics = struct {
     // Resets the current transform to identity.
     pub fn resetTransform(self: *Self) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.resetTransform(&self.g),
-            .WasmCanvas => canvas.Graphics.resetTransform(&self.g),
+            .OpenGL => gpu.Graphics.resetTransform(&self.impl),
+            .WasmCanvas => canvas.Graphics.resetTransform(&self.impl),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn setClearColor(self: *Self, color: Color) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.setClearColor(&self.g, color),
+            .OpenGL, .Vulkan => gpu.Graphics.setClearColor(&self.impl, color),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn clear(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.clear(self.g),
+            .OpenGL => gpu.Graphics.clear(self.impl),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getFillColor(self: Self) Color {
         return switch (Backend) {
-            .OpenGL => gl.Graphics.getFillColor(self.g),
-            .WasmCanvas => canvas.Graphics.getFillColor(self.g),
+            .OpenGL => gpu.Graphics.getFillColor(self.impl),
+            .WasmCanvas => canvas.Graphics.getFillColor(self.impl),
             else => stdx.panic("unsupported"),
         };
     }
 
     pub fn setFillColor(self: *Self, color: Color) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.setFillColor(&self.g, color),
-            .WasmCanvas => canvas.Graphics.setFillColor(&self.g, color),
+            .OpenGL, .Vulkan => gpu.Graphics.setFillColor(&self.impl, color),
+            .WasmCanvas => canvas.Graphics.setFillColor(&self.impl, color),
             else => stdx.panic("unsupported"),
         }
     }
@@ -227,71 +202,71 @@ pub const Graphics = struct {
     /// Set a linear gradient fill style.
     pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.setFillGradient(&self.g, start_x, start_y, start_color, end_x, end_y, end_color),
+            .OpenGL => gpu.Graphics.setFillGradient(&self.impl, start_x, start_y, start_color, end_x, end_y, end_color),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getStrokeColor(self: Self) Color {
         return switch (Backend) {
-            .OpenGL => gl.Graphics.getStrokeColor(self.g),
-            .WasmCanvas => canvas.Graphics.getStrokeColor(self.g),
+            .OpenGL => gpu.Graphics.getStrokeColor(self.impl),
+            .WasmCanvas => canvas.Graphics.getStrokeColor(self.impl),
             else => stdx.panic("unsupported"),
         };
     }
 
     pub fn setStrokeColor(self: *Self, color: Color) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.setStrokeColor(&self.g, color),
-            .WasmCanvas => canvas.Graphics.setStrokeColor(&self.g, color),
+            .OpenGL => gpu.Graphics.setStrokeColor(&self.impl, color),
+            .WasmCanvas => canvas.Graphics.setStrokeColor(&self.impl, color),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getLineWidth(self: Self) f32 {
         return switch (Backend) {
-            .OpenGL => gl.Graphics.getLineWidth(self.g),
-            .WasmCanvas => canvas.Graphics.getLineWidth(self.g),
+            .OpenGL => gpu.Graphics.getLineWidth(self.impl),
+            .WasmCanvas => canvas.Graphics.getLineWidth(self.impl),
             else => stdx.panic("unsupported"),
         };
     }
 
     pub fn setLineWidth(self: *Self, width: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.setLineWidth(&self.g, width),
-            .WasmCanvas => canvas.Graphics.setLineWidth(&self.g, width),
+            .OpenGL => gpu.Graphics.setLineWidth(&self.impl, width),
+            .WasmCanvas => canvas.Graphics.setLineWidth(&self.impl, width),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn fillRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillRect(&self.g, x, y, width, height),
-            .WasmCanvas => canvas.Graphics.fillRect(&self.g, x, y, width, height),
+            .OpenGL => gpu.Graphics.fillRect(&self.impl, x, y, width, height),
+            .WasmCanvas => canvas.Graphics.fillRect(&self.impl, x, y, width, height),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawRect(&self.g, x, y, width, height),
-            .WasmCanvas => canvas.Graphics.drawRect(&self.g, x, y, width, height),
+            .OpenGL => gpu.Graphics.drawRect(&self.impl, x, y, width, height),
+            .WasmCanvas => canvas.Graphics.drawRect(&self.impl, x, y, width, height),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn fillRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillRoundRect(&self.g, x, y, width, height, radius),
-            .WasmCanvas => canvas.Graphics.fillRoundRect(&self.g, x, y, width, height, radius),
+            .OpenGL => gpu.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
+            .WasmCanvas => canvas.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawRoundRect(&self.g, x, y, width, height, radius),
-            .WasmCanvas => canvas.Graphics.drawRoundRect(&self.g, x, y, width, height, radius),
+            .OpenGL => gpu.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
+            .WasmCanvas => canvas.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
             else => stdx.panic("unsupported"),
         }
     }
@@ -299,8 +274,8 @@ pub const Graphics = struct {
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
     pub fn fillCircleSector(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillCircleSector(&self.g, x, y, radius, start_rad, sweep_rad),
-            .WasmCanvas => canvas.Graphics.fillCircleSector(&self.g, x, y, radius, start_rad, sweep_rad),
+            .OpenGL => gpu.Graphics.fillCircleSector(&self.impl, x, y, radius, start_rad, sweep_rad),
+            .WasmCanvas => canvas.Graphics.fillCircleSector(&self.impl, x, y, radius, start_rad, sweep_rad),
             else => stdx.panic("unsupported"),
         }
     }
@@ -312,8 +287,8 @@ pub const Graphics = struct {
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
     pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawCircleArc(&self.g, x, y, radius, start_rad, sweep_rad),
-            .WasmCanvas => canvas.Graphics.drawCircleArc(&self.g, x, y, radius, start_rad, sweep_rad),
+            .OpenGL => gpu.Graphics.drawCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
+            .WasmCanvas => canvas.Graphics.drawCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
             else => stdx.panic("unsupported"),
         }
     }
@@ -324,24 +299,24 @@ pub const Graphics = struct {
 
     pub fn fillCircle(self: *Self, x: f32, y: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillCircle(&self.g, x, y, radius),
-            .WasmCanvas => canvas.Graphics.fillCircle(&self.g, x, y, radius),
+            .OpenGL => gpu.Graphics.fillCircle(&self.impl, x, y, radius),
+            .WasmCanvas => canvas.Graphics.fillCircle(&self.impl, x, y, radius),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawCircle(self: *Self, x: f32, y: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawCircle(&self.g, x, y, radius),
-            .WasmCanvas => canvas.Graphics.drawCircle(&self.g, x, y, radius),
+            .OpenGL => gpu.Graphics.drawCircle(&self.impl, x, y, radius),
+            .WasmCanvas => canvas.Graphics.drawCircle(&self.impl, x, y, radius),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn fillEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillEllipse(&self.g, x, y, h_radius, v_radius),
-            .WasmCanvas => canvas.Graphics.fillEllipse(&self.g, x, y, h_radius, v_radius),
+            .OpenGL => gpu.Graphics.fillEllipse(&self.impl, x, y, h_radius, v_radius),
+            .WasmCanvas => canvas.Graphics.fillEllipse(&self.impl, x, y, h_radius, v_radius),
             else => stdx.panic("unsupported"),
         }
     }
@@ -349,8 +324,8 @@ pub const Graphics = struct {
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
     pub fn fillEllipseSector(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillEllipseSector(&self.g, x, y, h_radius, v_radius, start_rad, sweep_rad),
-            .WasmCanvas => canvas.Graphics.fillEllipseSector(&self.g, x, y, h_radius, v_radius, start_rad, sweep_rad),
+            .OpenGL => gpu.Graphics.fillEllipseSector(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
+            .WasmCanvas => canvas.Graphics.fillEllipseSector(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
             else => stdx.panic("unsupported"),
         }
     }
@@ -361,8 +336,8 @@ pub const Graphics = struct {
 
     pub fn drawEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawEllipse(&self.g, x, y, h_radius, v_radius),
-            .WasmCanvas => canvas.Graphics.drawEllipse(&self.g, x, y, h_radius, v_radius),
+            .OpenGL => gpu.Graphics.drawEllipse(&self.impl, x, y, h_radius, v_radius),
+            .WasmCanvas => canvas.Graphics.drawEllipse(&self.impl, x, y, h_radius, v_radius),
             else => stdx.panic("unsupported"),
         }
     }
@@ -370,8 +345,8 @@ pub const Graphics = struct {
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
     pub fn drawEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawEllipseArc(&self.g, x, y, h_radius, v_radius, start_rad, sweep_rad),
-            .WasmCanvas => canvas.Graphics.drawEllipseArc(&self.g, x, y, h_radius, v_radius, start_rad, sweep_rad),
+            .OpenGL => gpu.Graphics.drawEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
+            .WasmCanvas => canvas.Graphics.drawEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
             else => stdx.panic("unsupported"),
         }
     }
@@ -382,32 +357,32 @@ pub const Graphics = struct {
 
     pub fn drawPoint(self: *Self, x: f32, y: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawPoint(&self.g, x, y),
-            .WasmCanvas => canvas.Graphics.drawPoint(&self.g, x, y),
+            .OpenGL => gpu.Graphics.drawPoint(&self.impl, x, y),
+            .WasmCanvas => canvas.Graphics.drawPoint(&self.impl, x, y),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawLine(&self.g, x1, y1, x2, y2),
-            .WasmCanvas => canvas.Graphics.drawLine(&self.g, x1, y1, x2, y2),
+            .OpenGL => gpu.Graphics.drawLine(&self.impl, x1, y1, x2, y2),
+            .WasmCanvas => canvas.Graphics.drawLine(&self.impl, x1, y1, x2, y2),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawCubicBezierCurve(self: *Self, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawCubicBezierCurve(&self.g, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
-            .WasmCanvas => canvas.Graphics.drawCubicBezierCurve(&self.g, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
+            .OpenGL => gpu.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
+            .WasmCanvas => canvas.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawQuadraticBezierCurve(self: *Self, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawQuadraticBezierCurve(&self.g, x1, y1, cx, cy, x2, y2),
-            .WasmCanvas => canvas.Graphics.drawQuadraticBezierCurve(&self.g, x1, y1, cx, cy, x2, y2),
+            .OpenGL => gpu.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
+            .WasmCanvas => canvas.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
             else => stdx.panic("unsupported"),
         }
     }
@@ -415,32 +390,32 @@ pub const Graphics = struct {
     /// Assumes pts are in ccw order.
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillTriangle(&self.g, x1, y1, x2, y2, x3, y3),
-            .WasmCanvas => canvas.Graphics.fillTriangle(&self.g, x1, y1, x2, y2, x3, y3),
+            .OpenGL => gpu.Graphics.fillTriangle(&self.impl, x1, y1, x2, y2, x3, y3),
+            .WasmCanvas => canvas.Graphics.fillTriangle(&self.impl, x1, y1, x2, y2, x3, y3),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn fillConvexPolygon(self: *Self, pts: []const Vec2) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillConvexPolygon(&self.g, pts),
-            .WasmCanvas => canvas.Graphics.fillPolygon(&self.g, pts),
+            .OpenGL => gpu.Graphics.fillConvexPolygon(&self.impl, pts),
+            .WasmCanvas => canvas.Graphics.fillPolygon(&self.impl, pts),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn fillPolygon(self: *Self, pts: []const Vec2) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillPolygon(&self.g, pts),
-            .WasmCanvas => canvas.Graphics.fillPolygon(&self.g, pts),
+            .OpenGL => gpu.Graphics.fillPolygon(&self.impl, pts),
+            .WasmCanvas => canvas.Graphics.fillPolygon(&self.impl, pts),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.drawPolygon(&self.g, pts),
-            .WasmCanvas => canvas.Graphics.drawPolygon(&self.g, pts),
+            .OpenGL => gpu.Graphics.drawPolygon(&self.impl, pts),
+            .WasmCanvas => canvas.Graphics.drawPolygon(&self.impl, pts),
             else => stdx.panic("unsupported"),
         }
     }
@@ -471,16 +446,16 @@ pub const Graphics = struct {
 
     pub fn fillSvgPath(self: *Self, x: f32, y: f32, path: *const SvgPath) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillSvgPath(&self.g, x, y, path),
-            .WasmCanvas => canvas.Graphics.fillSvgPath(&self.g, x, y, path),
+            .OpenGL => gpu.Graphics.fillSvgPath(&self.impl, x, y, path),
+            .WasmCanvas => canvas.Graphics.fillSvgPath(&self.impl, x, y, path),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawSvgPath(self: *Self, x: f32, y: f32, path: *const SvgPath) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.strokeSvgPath(&self.g, x, y, path),
-            .WasmCanvas => canvas.Graphics.strokeSvgPath(&self.g, x, y, path),
+            .OpenGL => gpu.Graphics.strokeSvgPath(&self.impl, x, y, path),
+            .WasmCanvas => canvas.Graphics.strokeSvgPath(&self.impl, x, y, path),
             else => stdx.panic("unsupported"),
         }
     }
@@ -527,14 +502,14 @@ pub const Graphics = struct {
                     if (Backend == .OpenGL) {
                         const cmd = list.getCommand(.FillPolygon, ptr);
                         const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
-                        self.g.fillPolygonLyon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                        self.impl.fillPolygonLyon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
                     }
                 },
                 .FillPath => {
                     if (Backend == .OpenGL) {
                         const cmd = list.getCommand(.FillPath, ptr);
                         var end = cmd.start_path_cmd_id + cmd.num_cmds;
-                        self.g.fillSvgPathLyon(0, 0, &SvgPath{
+                        self.impl.fillSvgPathLyon(0, 0, &SvgPath{
                             .alloc = null,
                             .data = list.extra_data[cmd.start_data_id..],
                             .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
@@ -561,14 +536,14 @@ pub const Graphics = struct {
                     if (Backend == .OpenGL) {
                         const cmd = list.getCommand(.FillPolygon, ptr);
                         const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
-                        self.g.fillPolygonTess2(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                        self.impl.fillPolygonTess2(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
                     }
                 },
                 .FillPath => {
                     if (Backend == .OpenGL) {
                         const cmd = list.getCommand(.FillPath, ptr);
                         var end = cmd.start_path_cmd_id + cmd.num_cmds;
-                        self.g.fillSvgPathTess2(0, 0, &SvgPath{
+                        self.impl.fillSvgPathTess2(0, 0, &SvgPath{
                             .alloc = null,
                             .data = list.extra_data[cmd.start_data_id..],
                             .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
@@ -585,8 +560,8 @@ pub const Graphics = struct {
 
     pub fn setBlendMode(self: *Self, mode: BlendMode) void {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.setBlendMode(&self.g, mode),
-            .WasmCanvas => return canvas.Graphics.setBlendMode(&self.g, mode),
+            .OpenGL => return gpu.Graphics.setBlendMode(&self.impl, mode),
+            .WasmCanvas => return canvas.Graphics.setBlendMode(&self.impl, mode),
             else => stdx.panic("unsupported"),
         }
     }
@@ -594,7 +569,7 @@ pub const Graphics = struct {
     pub fn createImageFromPathPromise(self: *Self, path: []const u8) stdx.wasm.Promise(Image) {
         switch (Backend) {
             // Only web wasm is supported.
-            .WasmCanvas => return canvas.Graphics.createImageFromPathPromise(&self.g, path),
+            .WasmCanvas => return canvas.Graphics.createImageFromPathPromise(&self.impl, path),
             else => @compileError("unsupported"),
         }
     }
@@ -615,7 +590,7 @@ pub const Graphics = struct {
     // Loads an image from various data formats.
     pub fn createImage(self: *Self, data: []const u8) !Image {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.createImageFromData(&self.g, data),
+            .OpenGL => return gpu.Graphics.createImageFromData(&self.impl, data),
             .WasmCanvas => stdx.panic("unsupported, use createImageFromPathPromise"),
             else => stdx.panic("unsupported"),
         }
@@ -626,7 +601,7 @@ pub const Graphics = struct {
     pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         switch (Backend) {
             .OpenGL => {
-                const image = gl.Graphics.createImageFromBitmap(&self.g, width, height, data, linear_filter);
+                const image = gpu.Graphics.createImageFromBitmap(&self.impl, width, height, data, linear_filter);
                 return image.image_id;
             },
             else => stdx.panic("unsupported"),
@@ -635,89 +610,89 @@ pub const Graphics = struct {
 
     pub inline fn bindImageBuffer(self: *Self, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.bindImageBuffer(&self.g, image_id),
+            .OpenGL => gpu.Graphics.bindImageBuffer(&self.impl, image_id),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.drawImage(&self.g, x, y, image_id),
-            .WasmCanvas => return canvas.Graphics.drawImage(&self.g, x, y, image_id),
+            .OpenGL => return gpu.Graphics.drawImage(&self.impl, x, y, image_id),
+            .WasmCanvas => return canvas.Graphics.drawImage(&self.impl, x, y, image_id),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.drawImageSized(&self.g, x, y, width, height, image_id),
-            .WasmCanvas => return canvas.Graphics.drawImageSized(&self.g, x, y, width, height, image_id),
+            .OpenGL => return gpu.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
+            .WasmCanvas => return canvas.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.drawSubImage(&self.g, src_x, src_y, src_width, src_height, x, y, width, height, image_id),
+            .OpenGL => return gpu.Graphics.drawSubImage(&self.impl, src_x, src_y, src_width, src_height, x, y, width, height, image_id),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn addFallbackFont(self: *Self, font_id: FontId) void {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.addFallbackFont(&self.g, font_id),
+            .OpenGL, .Vulkan => gpu.Graphics.addFallbackFont(&self.impl, font_id),
             else => stdx.panic("unsupported"),
         }
     }
 
     /// Adds .otb bitmap font with data at different font sizes.
-    pub fn addOTB_Font(self: *Self, data: []const BitmapFontData) FontId {
+    pub fn addFontOTB(self: *Self, data: []const BitmapFontData) FontId {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.addOTB_Font(&self.g, data),
+            .OpenGL, .Vulkan => return gpu.Graphics.addFontOTB(&self.impl, data),
             else => stdx.panic("unsupported"),
         }
     }
 
     /// Adds outline or color bitmap font from ttf/otf.
-    pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Self, data: []const u8) FontId {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.addTTF_Font(&self.g, data),
+            .OpenGL, .Vulkan => return gpu.Graphics.addFontTTF(&self.impl, data),
             .WasmCanvas => stdx.panic("Unsupported for WasmCanvas. Use addTTF_FontPathForName instead."),
             else => stdx.panic("unsupported"),
         }
     }
 
     /// Path can be absolute or relative to cwd.
-    pub fn addTTF_FontFromPath(self: *Self, path: []const u8) !FontId {
+    pub fn addFontFromPathTTF(self: *Self, path: []const u8) !FontId {
         const MaxFileSize = 20e6;
         const data = try std.fs.cwd().readFileAlloc(self.alloc, path, MaxFileSize);
         defer self.alloc.free(data);
-        return self.addTTF_Font(data);
+        return self.addFontTTF(data);
     }
 
     /// Wasm/Canvas relies on css to load fonts so it doesn't have access to the font family name.
     /// Other backends will just ignore the name arg. 
-    pub fn addTTF_FontFromPathCompat(self: *Self, path: []const u8, name: []const u8) !FontId {
+    pub fn addFontFromPathCompatTTF(self: *Self, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
             .OpenGL => {
-                return self.addTTF_FontFromPath(path);
+                return self.addFontFromPathTTF(path);
             },
-            .WasmCanvas => return canvas.Graphics.addTTF_FontFromPath(&self.g, path, name),
+            .WasmCanvas => return canvas.Graphics.addFontFromPathTTF(&self.impl, path, name),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getFontSize(self: *Self) f32 {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.getFontSize(self.g),
+            .OpenGL => return gpu.Graphics.getFontSize(self.impl),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn setFontSize(self: *Self, font_size: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.setFontSize(&self.g, font_size),
-            .WasmCanvas => canvas.Graphics.setFontSize(&self.g, font_size),
+            .OpenGL => gpu.Graphics.setFontSize(&self.impl, font_size),
+            .WasmCanvas => canvas.Graphics.setFontSize(&self.impl, font_size),
             else => stdx.panic("unsupported"),
         }
     }
@@ -725,10 +700,10 @@ pub const Graphics = struct {
     pub fn setFont(self: *Self, font_id: FontId, font_size: f32) void {
         switch (Backend) {
             .OpenGL => {
-                gl.Graphics.setFont(&self.g, font_id);
-                gl.Graphics.setFontSize(&self.g, font_size);
+                gpu.Graphics.setFont(&self.impl, font_id);
+                gpu.Graphics.setFontSize(&self.impl, font_size);
             },
-            .WasmCanvas => canvas.Graphics.setFont(&self.g, font_id, font_size),
+            .WasmCanvas => canvas.Graphics.setFont(&self.impl, font_id, font_size),
             else => stdx.panic("unsupported"),
         }
     }
@@ -736,10 +711,10 @@ pub const Graphics = struct {
     pub fn setFontGroup(self: *Self, font_gid: FontGroupId, font_size: f32) void {
         switch (Backend) {
             .OpenGL => {
-                gl.Graphics.setFontGroup(&self.g, font_gid);
-                gl.Graphics.setFontSize(&self.g, font_size);
+                gpu.Graphics.setFontGroup(&self.impl, font_gid);
+                gpu.Graphics.setFontSize(&self.impl, font_size);
             },
-            .WasmCanvas => canvas.Graphics.setFontGroup(&self.g, font_gid, font_size),
+            .WasmCanvas => canvas.Graphics.setFontGroup(&self.impl, font_gid, font_size),
             else => stdx.panic("unsupported"),
         }
     }
@@ -747,7 +722,7 @@ pub const Graphics = struct {
     pub fn setTextAlign(self: *Self, align_: TextAlign) void {
         switch (Backend) {
             .OpenGL =>  {
-                gl.Graphics.setTextAlign(&self.g, align_);
+                gpu.Graphics.setTextAlign(&self.impl, align_);
             },
             else => stdx.panic("unsupported"),
         }
@@ -756,7 +731,7 @@ pub const Graphics = struct {
     pub fn setTextBaseline(self: *Self, baseline: TextBaseline) void {
         switch (Backend) {
             .OpenGL =>  {
-                gl.Graphics.setTextBaseline(&self.g, baseline);
+                gpu.Graphics.setTextBaseline(&self.impl, baseline);
             },
             else => stdx.panic("unsupported"),
         }
@@ -764,8 +739,8 @@ pub const Graphics = struct {
 
     pub fn fillText(self: *Self, x: f32, y: f32, text: []const u8) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.fillText(&self.g, x, y, text),
-            .WasmCanvas => canvas.Graphics.fillText(&self.g, x, y, text),
+            .OpenGL => gpu.Graphics.fillText(&self.impl, x, y, text),
+            .WasmCanvas => canvas.Graphics.fillText(&self.impl, x, y, text),
             else => stdx.panic("unsupported"),
         }
     }
@@ -781,21 +756,22 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => {
                 for (arr) |measure| {
-                    gl.Graphics.measureFontText(&self.g, measure.font_gid, measure.font_size, measure.text, &measure.res);
+                    gpu.Graphics.measureFontText(&self.impl, measure.font_gid, measure.font_size, measure.text, &measure.res);
                 }
             },
-            .WasmCanvas => canvas.Graphics.measureTexts(&self.g, arr),
+            .WasmCanvas => canvas.Graphics.measureTexts(&self.impl, arr),
             .Test => {},
+            else => stdx.panic("unsupported"),
         }
     }
 
     /// Measure the char advance between two codepoints.
     pub fn measureCharAdvance(self: *Self, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
         switch (Backend) {
-            .OpenGL => return text_renderer.measureCharAdvance(&self.g.font_cache, &self.g, font_gid, font_size, prev_cp, cp),
+            .OpenGL => return text_renderer.measureCharAdvance(&self.impl.font_cache, &self.impl, font_gid, font_size, prev_cp, cp),
             .Test => {
-                const factor = font_size / self.g.default_font_size;
-                return factor * self.g.default_font_glyph_advance_width;
+                const factor = font_size / self.impl.default_font_size;
+                return factor * self.impl.default_font_glyph_advance_width;
             },
             else => stdx.panic("unsupported"),
         }
@@ -804,7 +780,7 @@ pub const Graphics = struct {
     /// Measure some text with a given font.
     pub fn measureFontText(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8, out: *TextMetrics) void {
         switch (Backend) {
-            .OpenGL => return self.g.measureFontText(font_gid, font_size, str, out),
+            .OpenGL, .Vulkan => return self.impl.measureFontText(font_gid, font_size, str, out),
             else => stdx.panic("unsupported"),
         }
     }
@@ -888,11 +864,11 @@ pub const Graphics = struct {
     pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) TextGlyphIterator {
         switch (Backend) {
             .OpenGL => {
-                return gl.Graphics.textGlyphIter(&self.g, font_gid, size, str);
+                return gpu.Graphics.textGlyphIter(&self.impl, font_gid, size, str);
             },
             .Test => {
                 var iter: TextGlyphIterator = undefined;
-                iter.inner = testg.TextGlyphIterator.init(str, size, &self.g);
+                iter.inner = testg.TextGlyphIterator.init(str, size, &self.impl);
                 return iter;
             },
             else => stdx.panic("unsupported"),
@@ -901,108 +877,109 @@ pub const Graphics = struct {
 
     pub inline fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
         switch (Backend) {
-            .OpenGL => return FontCache.getPrimaryFontVMetrics(&self.g.font_cache, font_gid, font_size),
-            .WasmCanvas => return canvas.Graphics.getPrimaryFontVMetrics(&self.g, font_gid, font_size),
+            .OpenGL, .Vulkan => return FontCache.getPrimaryFontVMetrics(&self.impl.font_cache, font_gid, font_size),
+            .WasmCanvas => return canvas.Graphics.getPrimaryFontVMetrics(&self.impl, font_gid, font_size),
             .Test => {
-                const factor = font_size / self.g.default_font_size;
+                const factor = font_size / self.impl.default_font_size;
                 return .{
-                    .ascender = factor * self.g.default_font_metrics.ascender,
+                    .ascender = factor * self.impl.default_font_metrics.ascender,
                     .descender = 0,
-                    .height = factor * self.g.default_font_metrics.height,
-                    .line_gap = factor * self.g.default_font_metrics.line_gap,
+                    .height = factor * self.impl.default_font_metrics.height,
+                    .line_gap = factor * self.impl.default_font_metrics.line_gap,
                 };
             },
+            else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn getFontVMetrics(self: *Self, font_id: FontId, font_size: f32) VMetrics {
         switch (Backend) {
-            .OpenGL => return FontCache.getFontVMetrics(&self.g.font_cache, font_id, font_size),
+            .OpenGL => return FontCache.getFontVMetrics(&self.impl.font_cache, font_id, font_size),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn getDefaultFontId(self: *Self) FontId {
         switch (Backend) {
-            .OpenGL => return self.g.default_font_id,
-            .Test => return self.g.default_font_id,
+            .OpenGL => return self.impl.default_font_id,
+            .Test => return self.impl.default_font_id,
             else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn getDefaultFontGroupId(self: *Self) FontGroupId {
         switch (Backend) {
-            .OpenGL => return self.g.default_font_gid,
-            .Test => return self.g.default_font_gid,
+            .OpenGL, .Vulkan => return self.impl.default_font_gid,
+            .Test => return self.impl.default_font_gid,
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getFontByName(self: *Self, name: []const u8) ?FontId {
         switch (Backend) {
-            .OpenGL => return FontCache.getFontId(&self.g.font_cache, name),
-            .WasmCanvas => return canvas.Graphics.getFontByName(&self.g, name),
+            .OpenGL => return FontCache.getFontId(&self.impl.font_cache, name),
+            .WasmCanvas => return canvas.Graphics.getFontByName(&self.impl, name),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn getFontGroupForSingleFont(self: *Self, font_id: FontId) FontGroupId {
         switch (Backend) {
-            .OpenGL => return FontCache.getOrLoadFontGroup(&self.g.font_cache, &.{font_id}),
+            .OpenGL => return FontCache.getOrLoadFontGroup(&self.impl.font_cache, &.{font_id}),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getFontGroupByFamily(self: *Self, family: FontFamily) FontGroupId {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.getOrLoadFontGroupByFamily(&self.g, family),
+            .OpenGL, .Vulkan => return gpu.Graphics.getOrLoadFontGroupByFamily(&self.impl, family),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
         switch (Backend) {
-            .OpenGL => return FontCache.getOrLoadFontGroupByNameSeq(&self.g.font_cache, &.{name}).?,
+            .OpenGL => return FontCache.getOrLoadFontGroupByNameSeq(&self.impl.font_cache, &.{name}).?,
             .WasmCanvas => stdx.panic("TODO"),
-            .Test => return testg.Graphics.getFontGroupBySingleFontName(&self.g, name),
+            .Test => return testg.Graphics.getFontGroupBySingleFontName(&self.impl, name),
         }
     }
 
     pub fn getOrLoadFontGroupByNameSeq(self: *Self, names: []const []const u8) ?FontGroupId {
         switch (Backend) {
-            .OpenGL => return FontCache.getOrLoadFontGroupByNameSeq(&self.g.font_cache, names),
-            .Test => return self.g.default_font_gid,
+            .OpenGL => return FontCache.getOrLoadFontGroupByNameSeq(&self.impl.font_cache, names),
+            .Test => return self.impl.default_font_gid,
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn pushState(self: *Self) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.pushState(&self.g),
-            .WasmCanvas => canvas.Graphics.save(&self.g),
+            .OpenGL => gpu.Graphics.pushState(&self.impl),
+            .WasmCanvas => canvas.Graphics.save(&self.impl),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.clipRect(&self.g, x, y, width, height),
-            .WasmCanvas => canvas.Graphics.clipRect(&self.g, x, y, width, height),
+            .OpenGL => gpu.Graphics.clipRect(&self.impl, x, y, width, height),
+            .WasmCanvas => canvas.Graphics.clipRect(&self.impl, x, y, width, height),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn popState(self: *Self) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.popState(&self.g),
-            .WasmCanvas => canvas.Graphics.restore(&self.g),
+            .OpenGL => gpu.Graphics.popState(&self.impl),
+            .WasmCanvas => canvas.Graphics.restore(&self.impl),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub fn getViewTransform(self: Self) Transform {
         switch (Backend) {
-            .OpenGL => return gl.Graphics.getViewTransform(self.g),
+            .OpenGL => return gpu.Graphics.getViewTransform(self.impl),
             else => stdx.panic("unsupported"),
         }
     }
@@ -1010,7 +987,7 @@ pub const Graphics = struct {
     /// Flush any draw commands queued up.
     pub inline fn flushDraw(self: *Self) void {
         switch (Backend) {
-            .OpenGL => gl.Graphics.flushDraw(&self.g),
+            .OpenGL => gpu.Graphics.flushDraw(&self.impl),
             .WasmCanvas => {},
             else => stdx.panic("unsupported"),
         }

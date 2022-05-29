@@ -5,7 +5,6 @@ const vec2 = Vec2.init;
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const graphics = @import("graphics");
-const Window = graphics.Window;
 const Graphics = graphics.Graphics;
 const FontId = graphics.font.FontId;
 const Image = graphics.Image;
@@ -15,8 +14,10 @@ const platform = @import("platform");
 const log = stdx.log.scoped(.demo);
 
 var dispatcher: platform.EventDispatcher = undefined;
-var win: Window = undefined;
-var g: *Graphics = undefined;
+var win: platform.Window = undefined;
+var swapchain: graphics.SwapChain = undefined;
+var cam: graphics.Camera = undefined;
+var g: Graphics = undefined;
 var quit = false;
 
 var zig_logo_svg: []const u8 = undefined;
@@ -32,7 +33,7 @@ pub fn main() !void {
     dispatcher = platform.EventDispatcher.init(alloc);
     defer dispatcher.deinit();
 
-    win = try Window.init(alloc, .{
+    win = try platform.Window.init(alloc, .{
         .title = "Demo",
         .width = 1200,
         .height = 720,
@@ -50,7 +51,12 @@ pub fn main() !void {
     };
     dispatcher.addOnQuit(null, S.onQuit);
 
-    g = win.getGraphics();
+    g.init(alloc, win);
+    defer g.deinit();
+
+    swapchain.init(alloc, &win, &g);
+
+    cam.init2D(win.getWidth(), win.getHeight());
 
     try initAssets(alloc);
     defer deinitAssets(alloc);
@@ -69,7 +75,7 @@ pub fn main() !void {
 
 // Main loop shared by desktop and web.
 fn update(delta_ms: f32) void {
-    win.beginFrame();
+    swapchain.beginFrame(cam);
 
     g.setFillColor(Color.Black);
     g.fillRect(0, 0, @intToFloat(f32, win.getWidth()), @intToFloat(f32, win.getHeight()));
@@ -188,15 +194,14 @@ fn update(delta_ms: f32) void {
     g.setFont(font_id, 26);
     g.fillTextFmt(1100, 10, "fps {d:.1}", .{fps});
 
-    win.endFrame();
-    win.swapBuffers();
+    swapchain.endFrame();
 }
 
 fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 20e6;
 
-    font_id = try g.addTTF_FontFromPath(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
-    const emoji_font = try g.addTTF_FontFromPath(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
+    font_id = try g.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
+    const emoji_font = try g.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
     g.addFallbackFont(emoji_font);
 
     const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
@@ -247,14 +252,14 @@ pub usingnamespace if (IsWasm) struct {
         stdx.wasm.init(alloc);
 
         dispatcher = platform.EventDispatcher.init(alloc);
-        win = Window.init(alloc, .{
+        win = platform.Window.init(alloc, .{
             .title = "Demo",
             .width = 1200,
             .height = 720,
             .anti_alias = true,
         }) catch unreachable;
         win.addDefaultHandlers(&dispatcher);
-        g = win.getGraphics();
+        g.init(alloc, win);
 
         const S = struct {
             fn onFetchResult(_: ?*anyopaque, e: platform.FetchResultEvent) void {
@@ -265,13 +270,13 @@ pub usingnamespace if (IsWasm) struct {
                     game_char_image = g.createImage(e.buf) catch unreachable;
                     loaded_assets += 1;
                 } else if (e.fetch_id == nunito_font_id) {
-                    font_id = g.addTTF_Font(e.buf);
+                    font_id = g.addFontTTF(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == tiger_head_id) {
                     rasterizeTigerHead(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == noto_emoji_id) {
-                    const emoji_font = g.addTTF_Font(e.buf);
+                    const emoji_font = g.addFontTTF(e.buf);
                     g.addFallbackFont(emoji_font);
                     loaded_assets += 1;
                 }

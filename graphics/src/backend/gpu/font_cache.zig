@@ -6,16 +6,16 @@ const graphics = @import("../../graphics.zig");
 const FontGroupId = graphics.font.FontGroupId;
 const FontId = graphics.font.FontId;
 const Font = graphics.font.Font;
-const Glyph = graphics.font.Glyph;
 const VMetrics = graphics.font.VMetrics;
-const RenderFont = graphics.font.RenderFont;
+const RenderFont = graphics.gpu.RenderFont;
 const FontGroup = graphics.font.FontGroup;
-const Graphics = graphics.gl.Graphics;
+const gpu = graphics.gpu;
+const Glyph = gpu.Glyph;
 const TextMetrics = graphics.TextMetrics;
 const FontAtlas = @import("font_atlas.zig").FontAtlas;
 const Batcher = @import("batcher.zig").Batcher;
 const font_renderer = @import("font_renderer.zig");
-const FontDesc = @import("font.zig").FontDesc;
+const FontDesc = graphics.font.FontDesc;
 const log = std.log.scoped(.font_cache);
 
 pub const RenderFontId = u32;
@@ -65,8 +65,7 @@ pub const FontCache = struct {
     // System fallback fonts. Used when user fallback fonts was not enough.
     system_fonts: std.ArrayList(FontId),
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, g: *Graphics) void {
-
+    pub fn init(self: *Self, alloc: std.mem.Allocator, gctx: *gpu.Graphics) void {
         self.* = .{
             .alloc = alloc,
             .main_atlas = undefined,
@@ -86,13 +85,13 @@ pub const FontCache = struct {
         // Start with a larger width since we currently just grow the height.
         const main_atlas_width = 1024;
         const main_atlas_height = 1024;
-        self.main_atlas.init(alloc, g, main_atlas_width, main_atlas_height, true);
-        self.bitmap_atlas.init(alloc, g, 256, 256, false);
+        self.main_atlas.init(alloc, gctx, main_atlas_width, main_atlas_height, true);
+        self.bitmap_atlas.init(alloc, gctx, 256, 256, false);
     }
 
     pub fn deinit(self: *Self) void {
-        // self.color_atlas.dumpBufferToDisk("color_font_atlas.bmp");
-        // self.main_atlas.dumpBufferToDisk("main_font_atlas.bmp");
+        self.main_atlas.dumpBufferToDisk("main_atlas.bmp");
+        self.bitmap_atlas.dumpBufferToDisk("bitmap_atlas.bmp");
 
         self.main_atlas.deinit();
         self.bitmap_atlas.deinit();
@@ -142,7 +141,7 @@ pub const FontCache = struct {
     }
 
     // If a glyph is loaded, this will queue a gpu buffer upload.
-    pub fn getOrLoadFontGroupGlyph(self: *Self, g: *Graphics, font_grp: *FontGroup, render_font_size: u16, cp: u21) GlyphResult {
+    pub fn getOrLoadFontGroupGlyph(self: *Self, g: *gpu.Graphics, font_grp: *FontGroup, render_font_size: u16, cp: u21) GlyphResult {
         // Find glyph by iterating fonts until the glyph is found.
         for (font_grp.fonts) |font_id| {
             const render_font = self.getOrCreateRenderFont(font_id, render_font_size);
@@ -310,7 +309,7 @@ pub const FontCache = struct {
         }
     }
 
-    pub fn addOTB_Font(self: *Self, data: []const graphics.BitmapFontData) FontId {
+    pub fn addFontOTB(self: *Self, data: []const graphics.BitmapFontData) FontId {
         const next_id = @intCast(u32, self.fonts.items.len);
 
         var font: Font = undefined;
@@ -328,7 +327,7 @@ pub const FontCache = struct {
         return next_id;
     }
 
-    pub fn addTTF_Font(self: *Self, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Self, data: []const u8) FontId {
         const next_id = @intCast(u32, self.fonts.items.len);
 
         var font: Font = undefined;

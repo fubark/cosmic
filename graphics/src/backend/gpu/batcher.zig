@@ -7,7 +7,7 @@ const Vec2 = stdx.math.Vec2;
 
 const graphics = @import("../../graphics.zig");
 const ImageId = graphics.ImageId;
-const ImageDesc = graphics.gl.ImageDesc;
+const ImageDesc = graphics.gpu.ImageDesc;
 const GLTextureId = graphics.gl.GLTextureId;
 const Color = graphics.Color;
 const Transform = graphics.transform.Transform;
@@ -16,13 +16,6 @@ const VertexData = _mesh.VertexData;
 const TexShaderVertex = _mesh.TexShaderVertex;
 const Mesh = _mesh.Mesh;
 const log = stdx.log.scoped(.batcher);
-const Shader = @import("shader.zig").Shader;
-const shaders = @import("shaders.zig");
-
-const BuiltinShaders = struct {
-    tex: shaders.TexShader,
-    gradient: shaders.GradientShader,
-};
 
 const ShaderType = enum(u2) {
     Tex = 0,
@@ -58,7 +51,7 @@ pub const Batcher = struct {
     /// Keep track of the current shader used.
     cur_shader_type: ShaderType,
 
-    builtin_shaders: BuiltinShaders,
+    pipelines: graphics.gl.Pipelines,
 
     /// Vars for gradient shader.
     start_pos: Vec2,
@@ -67,7 +60,7 @@ pub const Batcher = struct {
     end_color: Color,
 
     /// Batcher owns vert_buf_id afterwards.
-    pub fn init(alloc: std.mem.Allocator, vert_buf_id: gl.GLuint, builtin_shaders: BuiltinShaders) Self {
+    pub fn initGL(alloc: std.mem.Allocator, vert_buf_id: gl.GLuint, pipelines: graphics.gl.Pipelines) Self {
         var new = Self{
             .mesh = Mesh.init(alloc),
             .vert_buf_id = vert_buf_id,
@@ -78,7 +71,7 @@ pub const Batcher = struct {
                 .image_id = 0,
                 .tex_id = 0,
             },
-            .builtin_shaders = builtin_shaders,
+            .pipelines = pipelines,
             .cur_shader_type = undefined,
             .start_pos = undefined,
             .start_color = undefined,
@@ -89,6 +82,27 @@ pub const Batcher = struct {
         var buf_ids: [1]gl.GLuint = undefined;
         gl.genBuffers(1, &buf_ids);
         new.index_buf_id = buf_ids[0];
+        return new;
+    }
+
+    pub fn initVK(alloc: std.mem.Allocator) Self {
+        var new = Self{
+            .mesh = Mesh.init(alloc),
+            .vert_buf_id = undefined,
+            .index_buf_id = undefined,
+            .pre_flush_tasks = std.ArrayList(PreFlushTask).init(alloc),
+            .mvp = undefined,
+            .cur_tex_image = .{
+                .image_id = 0,
+                .tex_id = 0,
+            },
+            .pipelines = undefined,
+            .cur_shader_type = undefined,
+            .start_pos = undefined,
+            .start_color = undefined,
+            .end_pos = undefined,
+            .end_color = undefined,
+        };
         return new;
     }
 
@@ -140,8 +154,7 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn resetState(self: *Self, mvp: Transform, tex: ImageDesc) void {
-        self.mvp = mvp;
+    pub fn resetState(self: *Self, tex: ImageDesc) void {
         self.cur_tex_image = tex;
         self.cur_shader_type = .Tex;
     }
@@ -211,14 +224,14 @@ pub const Batcher = struct {
     fn drawMesh(self: *const Self) void {
         switch (self.cur_shader_type) {
             .Tex => {
-                self.builtin_shaders.tex.bind(self.mvp.mat, self.cur_tex_image.tex_id);
+                self.pipelines.tex.bind(self.mvp.mat, self.cur_tex_image.tex_id);
                 // Recall how to pull data from the buffer for shader.
-                gl.bindVertexArray(self.builtin_shaders.tex.shader.vao_id);
+                gl.bindVertexArray(self.pipelines.tex.shader.vao_id);
             },
             .Gradient => {
-                self.builtin_shaders.gradient.bind(self.mvp.mat, self.start_pos, self.start_color, self.end_pos, self.end_color);
+                self.pipelines.gradient.bind(self.mvp.mat, self.start_pos, self.start_color, self.end_pos, self.end_color);
                 // Recall how to pull data from the buffer for shader.
-                gl.bindVertexArray(self.builtin_shaders.gradient.shader.vao_id);
+                gl.bindVertexArray(self.pipelines.gradient.shader.vao_id);
             },
             .Custom => @panic("unsupported"),
         }

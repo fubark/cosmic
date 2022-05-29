@@ -5,15 +5,14 @@ const stbi = @import("stbi");
 const ft = @import("freetype");
 
 const graphics = @import("../../graphics.zig");
-const gl = graphics.gl;
-const Graphics = gl.Graphics;
+const gpu = graphics.gpu;
 const Font = graphics.font.Font;
-const RenderFont = graphics.font.RenderFont;
+const RenderFont = gpu.RenderFont;
 const OpenTypeFont = graphics.font.OpenTypeFont;
-const Glyph = graphics.font.Glyph;
+const Glyph = gpu.Glyph;
 const log = std.log.scoped(.font_renderer);
 
-pub fn getOrLoadMissingGlyph(g: *Graphics, font: *Font, render_font: *RenderFont) *Glyph {
+pub fn getOrLoadMissingGlyph(g: *gpu.Graphics, font: *Font, render_font: *RenderFont) *Glyph {
     if (render_font.missing_glyph) |*glyph| {
         return glyph;
     } else {
@@ -24,7 +23,7 @@ pub fn getOrLoadMissingGlyph(g: *Graphics, font: *Font, render_font: *RenderFont
     }
 }
 
-pub fn getOrLoadGlyph(g: *Graphics, font: *Font, render_font: *RenderFont, cp: u21) ?*Glyph {
+pub fn getOrLoadGlyph(g: *gpu.Graphics, font: *Font, render_font: *RenderFont, cp: u21) ?*Glyph {
     // var buf: [4]u8 = undefined;
     if (render_font.glyphs.getEntry(cp)) |entry| {
         // _ = std.unicode.utf8Encode(cp, &buf) catch unreachable;
@@ -49,7 +48,7 @@ pub fn getOrLoadGlyph(g: *Graphics, font: *Font, render_font: *RenderFont, cp: u
 /// Then set flag to indicate the FontAtlas was updated.
 /// New glyph metadata is stored into Font's glyph cache and returned.
 /// Even though the ot_font can be retrieved from font, it's provided by the caller to avoid an extra lookup for bitmap fonts.
-fn generateGlyph(g: *Graphics, font: *Font, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateGlyph(g: *gpu.Graphics, font: *Font, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
     if (ot_font.hasEmbeddedBitmap()) {
         // Bitmap fonts.
         return generateEmbeddedBitmapGlyph(g, ot_font, render_font, glyph_id);
@@ -75,7 +74,7 @@ fn generateGlyph(g: *Graphics, font: *Font, ot_font: OpenTypeFont, render_font: 
 const h_padding = Glyph.Padding * 2;
 const v_padding = Glyph.Padding * 2;
 
-fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFont, glyph_id: u16, set_size: bool) Glyph {
+fn generateOutlineGlyph(g: *gpu.Graphics, font: *Font, render_font: *const RenderFont, glyph_id: u16, set_size: bool) Glyph {
     const scale = render_font.scale_from_ttf;
     const fc = &g.font_cache;
 
@@ -189,7 +188,7 @@ fn generateOutlineGlyph(g: *Graphics, font: *Font, render_font: *const RenderFon
     return glyph;
 }
 
-fn generateColorBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) ?Glyph {
+fn generateColorBitmapGlyph(g: *gpu.Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) ?Glyph {
     // Copy over png glyph data instead of going through the normal stbtt rasterizer.
     if (ot_font.getGlyphColorBitmap(glyph_id) catch unreachable) |data| {
         // const scale = render_font.scale_from_ttf;
@@ -260,7 +259,7 @@ fn generateColorBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *c
     } else return null;
 }
 
-fn generateEmbeddedBitmapGlyph(g: *Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
+fn generateEmbeddedBitmapGlyph(g: *gpu.Graphics, ot_font: OpenTypeFont, render_font: *const RenderFont, glyph_id: u16) Glyph {
     const fc = &g.font_cache;
 
     if (ot_font.getGlyphBitmap(g.alloc, glyph_id) catch @panic("error")) |ot_glyph| {

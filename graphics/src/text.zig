@@ -1,9 +1,10 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const Backend = @import("build_options").GraphicsBackend;
 
 const graphics = @import("graphics.zig");
 const FontGroupId = graphics.font.FontGroupId;
-const gl = @import("backend/gl/graphics.zig");
+const gpu = @import("backend/gpu/graphics.zig");
 const testg = @import("backend/test/graphics.zig");
 
 pub const TextMetrics = struct {
@@ -56,8 +57,9 @@ pub const TextLine = struct {
 
 /// Used to traverse text one UTF-8 codepoint at a time.
 pub const TextGlyphIterator = struct {
-    inner: switch (graphics.Backend) {
-        .OpenGL => gl.TextGlyphIterator,
+    inner: switch (Backend) {
+        .OpenGL => gpu.TextGlyphIterator,
+        .Vulkan => struct {},
         .Test => testg.TextGlyphIterator,
         else => stdx.panic("unsupported"),
     },
@@ -103,16 +105,16 @@ pub const TextGlyphIterator = struct {
     };
 
     pub inline fn nextCodepoint(self: *Self) bool {
-        switch (graphics.Backend) {
-            .OpenGL => return gl.TextGlyphIterator.nextCodepoint(&self.inner, &self.state, {}, null),
+        switch (Backend) {
+            .OpenGL => return gpu.TextGlyphIterator.nextCodepoint(&self.inner, &self.state, {}, null),
             .Test => return testg.TextGlyphIterator.nextCodepoint(&self.inner, &self.state),
             else => stdx.panic("unsupported"),
         }
     }
 
     pub inline fn setIndex(self: *Self, i: usize) void {
-        switch (graphics.Backend) {
-            .OpenGL => return gl.TextGlyphIterator.setIndex(&self.inner, i),
+        switch (Backend) {
+            .OpenGL => return gpu.TextGlyphIterator.setIndex(&self.inner, i),
             .Test => return testg.TextGlyphIterator.setIndex(&self.inner, i),
             else => stdx.panic("unsupported"),
         }
