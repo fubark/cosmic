@@ -6,14 +6,14 @@ const gl = @import("gl");
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
 const TextMetrics = graphics.TextMetrics;
-const FontGroupId = graphics.font.FontGroupId;
-const FontGroup = graphics.font.FontGroup;
-const Font = graphics.font.Font;
+const FontGroupId = graphics.FontGroupId;
+const FontGroup = graphics.FontGroup;
+const Font = graphics.Font;
 const RenderFont = gpu.RenderFont;
-const OpenTypeFont = graphics.font.OpenTypeFont;
+const OpenTypeFont = graphics.OpenTypeFont;
 const ImageDesc = gpu.ImageDesc;
 const font_cache = @import("font_cache.zig");
-const BitmapFontStrike = graphics.font.BitmapFontStrike;
+const BitmapFontStrike = graphics.BitmapFontStrike;
 const log = stdx.log.scoped(.text_renderer);
 const Glyph = @import("glyph.zig").Glyph;
 
@@ -71,7 +71,7 @@ pub const TextGlyphIterator = struct {
     req_font_size: f32,
     render_font_size: u16,
 
-    primary_font: graphics.font.FontId,
+    primary_font: graphics.FontId,
     primary_ascent: f32,
 
     const Self = @This();

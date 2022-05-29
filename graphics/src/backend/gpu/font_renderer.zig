@@ -6,9 +6,9 @@ const ft = @import("freetype");
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
-const Font = graphics.font.Font;
+const Font = graphics.Font;
 const RenderFont = gpu.RenderFont;
-const OpenTypeFont = graphics.font.OpenTypeFont;
+const OpenTypeFont = graphics.OpenTypeFont;
 const Glyph = gpu.Glyph;
 const log = std.log.scoped(.font_renderer);
 

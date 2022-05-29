@@ -4,8 +4,8 @@ const ft = @import("freetype");
 const stbtt = @import("stbtt");
 
 const graphics = @import("graphics.zig");
-const FontId = graphics.font.FontId;
-const OpenTypeFont = graphics.font.OpenTypeFont;
+const FontId = graphics.FontId;
+const OpenTypeFont = graphics.OpenTypeFont;
 const log = std.log.scoped(.font);
 
 pub const FontType = enum(u1) {

@@ -12,7 +12,7 @@ pub const Text = struct {
     props: struct {
         text: ?[]const u8,
         font_size: f32 = 20,
-        font_id: graphics.font.FontId = NullId,
+        font_id: graphics.FontId = NullId,
         color: Color = Color.Black,
     },
 

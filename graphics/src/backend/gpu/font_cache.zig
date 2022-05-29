@@ -3,19 +3,19 @@ const stdx = @import("stdx");
 const ds = stdx.ds;
 
 const graphics = @import("../../graphics.zig");
-const FontGroupId = graphics.font.FontGroupId;
-const FontId = graphics.font.FontId;
-const Font = graphics.font.Font;
-const VMetrics = graphics.font.VMetrics;
+const FontGroupId = graphics.FontGroupId;
+const FontId = graphics.FontId;
+const Font = graphics.Font;
+const VMetrics = graphics.VMetrics;
 const RenderFont = graphics.gpu.RenderFont;
-const FontGroup = graphics.font.FontGroup;
+const FontGroup = graphics.FontGroup;
 const gpu = graphics.gpu;
 const Glyph = gpu.Glyph;
 const TextMetrics = graphics.TextMetrics;
 const FontAtlas = @import("font_atlas.zig").FontAtlas;
 const Batcher = @import("batcher.zig").Batcher;
 const font_renderer = @import("font_renderer.zig");
-const FontDesc = graphics.font.FontDesc;
+const FontDesc = graphics.FontDesc;
 const log = std.log.scoped(.font_cache);
 
 pub const RenderFontId = u32;

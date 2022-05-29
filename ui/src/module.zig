@@ -9,8 +9,8 @@ const Duration = stdx.time.Duration;
 const string = stdx.string;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
-const FontGroupId = graphics.font.FontGroupId;
-const FontId = graphics.font.FontId;
+const FontGroupId = graphics.FontGroupId;
+const FontId = graphics.FontId;
 const platform = @import("platform");
 const EventDispatcher = platform.EventDispatcher;
 
@@ -1344,11 +1344,11 @@ pub const CommonContext = struct {
     common: *ModuleCommon,
     alloc: std.mem.Allocator,
 
-    pub inline fn getFontVMetrics(self: Self, font_gid: FontGroupId, font_size: f32) graphics.font.VMetrics {
+    pub inline fn getFontVMetrics(self: Self, font_gid: FontGroupId, font_size: f32) graphics.VMetrics {
         return self.common.g.getFontVMetrics(font_gid, font_size);
     }
 
-    pub inline fn getPrimaryFontVMetrics(self: Self, font_gid: FontGroupId, font_size: f32) graphics.font.VMetrics {
+    pub inline fn getPrimaryFontVMetrics(self: Self, font_gid: FontGroupId, font_size: f32) graphics.VMetrics {
         return self.common.g.getPrimaryFontVMetrics(font_gid, font_size);
     }
 

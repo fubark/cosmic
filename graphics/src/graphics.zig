@@ -51,22 +51,17 @@ pub const FontRendererBackend: FontRendererBackendType = b: {
 
 const Backend = build_options.GraphicsBackend;
 
-const This = @This();
-pub const font = struct {
-    pub const FontId = u32;
-    // Maybe this should be renamed to FontFamilyId. FontGroup renamed to FontFamily.
-    pub const FontGroupId = u32;
-    pub const VMetrics = This.VMetrics;
-    pub const OpenTypeFont = _ttf.OpenTypeFont;
-    pub const Font = @import("font.zig").Font;
-    pub const FontType = @import("font.zig").FontType;
-    pub const FontGroup = @import("font_group.zig").FontGroup;
-    pub const FontDesc = @import("font.zig").FontDesc;
-    pub const BitmapFontStrike = @import("font.zig").BitmapFontStrike;
-
-};
-const FontGroupId = font.FontGroupId;
-const FontId = font.FontId;
+pub const FontId = u32;
+// Maybe this should be renamed to FontFamilyId. FontGroup renamed to FontFamily.
+pub const FontGroupId = u32;
+pub const OpenTypeFont = _ttf.OpenTypeFont;
+const font_ = @import("font.zig");
+pub const Font = font_.Font;
+pub const FontType = font_.FontType;
+const font_group_ = @import("font_group.zig");
+pub const FontGroup = font_group_.FontGroup;
+pub const FontDesc = font_.FontDesc;
+pub const BitmapFontStrike = font_.BitmapFontStrike;
 
 pub const canvas = @import("backend/canvas/graphics.zig");
 pub const gpu = @import("backend/gpu/graphics.zig");

@@ -3,7 +3,7 @@ const stdx = @import("stdx");
 const Backend = @import("build_options").GraphicsBackend;
 
 const graphics = @import("graphics.zig");
-const FontGroupId = graphics.font.FontGroupId;
+const FontGroupId = graphics.FontGroupId;
 const gpu = @import("backend/gpu/graphics.zig");
 const testg = @import("backend/test/graphics.zig");
 

@@ -3,10 +3,10 @@ const stdx = @import("stdx");
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
-const OpenTypeFont = graphics.font.OpenTypeFont;
+const OpenTypeFont = graphics.OpenTypeFont;
 const Glyph = gpu.Glyph;
-const FontId = graphics.font.FontId;
-const VMetrics = graphics.font.VMetrics;
+const FontId = graphics.FontId;
+const VMetrics = graphics.VMetrics;
 const log = std.log.scoped(.font);
 
 // Represents a font rendered at a specific bitmap font size.
