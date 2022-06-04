@@ -160,9 +160,6 @@ pub const Window = struct {
     }
 
     pub fn deinit(self: Self) void {
-        if (IsDesktop) {
-            sdl.SDL_DestroyWindow(self.sdl_window);
-        }
         switch (Backend) {
             .OpenGL => {
                 if (self.inner.gl_ctx_ref_count.* == 1) {
@@ -175,11 +172,15 @@ pub const Window = struct {
                 }
             },
             .Vulkan => {
-                vk.vkDestroyDevice(self.inner.device, null);
-                vk.vkDestroySurfaceKHR(self.inner.instance, self.inner.surface, null);
-                vk.vkDestroyInstance(self.inner.instance, null);
+                vk.destroyDevice(self.inner.device, null);
+                vk.destroySurfaceKHR(self.inner.instance, self.inner.surface, null);
+                vk.destroyInstance(self.inner.instance, null);
             },
             else => stdx.panicUnsupported(),
+        }
+        if (IsDesktop) {
+            // Destroy window after destroying graphics context.
+            sdl.SDL_DestroyWindow(self.sdl_window);
         }
     }
 
@@ -302,7 +303,11 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
     };
 
     if (builtin.os.tag == .macos) {
-        vk.initMacVkCreateInstance();
+        vk.initMacVkInstanceFuncs();
+    }
+
+    if (vk_enable_validation_layers and !vkCheckValidationLayerSupport(alloc)) {
+        stdx.panic("validation layers requested, but not available.");
     }
 
     // SDL will query platform specific extensions.
@@ -311,11 +316,20 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
         log.err("SDL_Vulkan_GetInstanceExtensions: {s}", .{sdl.SDL_GetError()});
         return error.Failed;
     }
+    var enabled_extensions = std.ArrayList([*:0]const u8).init(alloc);
+    defer enabled_extensions.deinit();
+
     const extensions = alloc.alloc([*:0]const u8, count) catch @panic("error");
     defer alloc.free(extensions);
     if (sdl.SDL_Vulkan_GetInstanceExtensions(win.sdl_window, &count, @ptrCast([*c][*c]const u8, extensions.ptr)) == 0) {
         log.err("SDL_Vulkan_GetInstanceExtensions: {s}", .{sdl.SDL_GetError()});
         return error.Failed;
+    }
+    enabled_extensions.appendSlice(extensions) catch stdx.fatal();
+
+    if (builtin.os.tag == .macos) {
+        // Macos needs VK_KHR_get_physical_device_properties2 for device extension: VK_KHR_portability_subset.
+        enabled_extensions.append("VK_KHR_get_physical_device_properties2") catch stdx.fatal();
     }
 
     var instance: vk.VkInstance = undefined;
@@ -333,11 +347,11 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
     const create_info = vk.VkInstanceCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &app_info,
-        .enabledExtensionCount = @intCast(u32, extensions.len),
-        .ppEnabledExtensionNames = extensions.ptr,
+        .enabledExtensionCount = @intCast(u32, enabled_extensions.items.len),
+        .ppEnabledExtensionNames = enabled_extensions.items.ptr,
         // Validation layer disabled.
-        .enabledLayerCount = 0,
-        .ppEnabledLayerNames = null,
+        .enabledLayerCount = if (vk_enable_validation_layers) @intCast(u32, VkRequiredValidationLayers.len) else 0,
+        .ppEnabledLayerNames = if (vk_enable_validation_layers) &VkRequiredValidationLayers else null,
         .pNext = null,
         .flags = 0,
     };
@@ -400,14 +414,35 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
     };
     try queue_create_infos.append(queue_create_info);
 
-    const device_features = std.mem.zeroInit(vk.VkPhysicalDeviceFeatures, .{});
+    var enabled_dextensions = std.ArrayList([*:0]const u8).init(alloc);
+    defer enabled_dextensions.deinit();
+    enabled_dextensions.appendSlice(&VkRequiredDeviceExtensions) catch stdx.fatal();
+
+    const device_extensions = getDeviceExtensionProperties(alloc, physical_device);
+    defer alloc.free(device_extensions);
+    for (device_extensions) |ext| {
+        const name_slice = std.mem.span(@ptrCast([*:0]const u8, &ext.extensionName));
+        if (std.mem.eql(u8, name_slice, "VK_KHR_portability_subset")) {
+            // If the device reports this extension it wants to translate to a non Vulkan API. eg. Translate to Metal on macos.
+            enabled_dextensions.append("VK_KHR_portability_subset") catch stdx.fatal();
+        }
+    }
+
+    var device_features: vk.VkPhysicalDeviceFeatures = undefined;
+    vk.getPhysicalDeviceFeatures(physical_device, &device_features);
+    if (device_features.shaderSampledImageArrayDynamicIndexing == vk.VK_FALSE) {
+        return error.MissingRequiredFeature;
+    }
+
+    var enabled_features = std.mem.zeroInit(vk.VkPhysicalDeviceFeatures, .{});
+    enabled_features.shaderSampledImageArrayDynamicIndexing = vk.VK_TRUE;
     const d_create_info = vk.VkDeviceCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .queueCreateInfoCount = @intCast(u32, queue_create_infos.items.len),
         .pQueueCreateInfos = queue_create_infos.items.ptr,
-        .pEnabledFeatures = &device_features,
-        .enabledExtensionCount = @intCast(u32, RequiredVkDeviceExtensions.len),
-        .ppEnabledExtensionNames = &RequiredVkDeviceExtensions,
+        .pEnabledFeatures = &enabled_features,
+        .enabledExtensionCount = @intCast(u32, enabled_dextensions.items.len),
+        .ppEnabledExtensionNames = enabled_dextensions.items.ptr,
         .enabledLayerCount = 0,
         .ppEnabledLayerNames = null,
         .pNext = null,
@@ -427,7 +462,7 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
     switch (Backend) {
         .OpenGL => sdl.SDL_GL_GetDrawableSize(win.sdl_window, &buf_width, &buf_height),
         .Vulkan => sdl.SDL_Vulkan_GetDrawableSize(win.sdl_window, &buf_width, &buf_height),
-        else => stdx.panic("unsupported"),
+        else => stdx.unsupported(),
     }
     win.buf_width = @intCast(u32, buf_width);
     win.buf_height = @intCast(u32, buf_height);
@@ -515,7 +550,14 @@ pub fn vkQuerySwapChainSupport(alloc: std.mem.Allocator, device: vk.VkPhysicalDe
     return new;
 }
 
-const RequiredVkDeviceExtensions = [_][*:0]const u8{vk.VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+const VkRequiredDeviceExtensions = [_][*:0]const u8{
+    vk.VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+};
+const VkRequiredValidationLayers = [_][*:0]const u8{
+    // "VK_LAYER_LUNARG_standard_validation",
+    "VK_LAYER_KHRONOS_validation", // Available with MoltenVK
+};
+const vk_enable_validation_layers = true and builtin.mode == .Debug;
 
 pub const VkQueueFamilyPair = struct {
     graphics_family: ?u32,
@@ -561,6 +603,16 @@ fn queryQueueFamily(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, surfa
     return new;
 }
 
+fn getDeviceExtensionProperties(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice) []const vk.VkExtensionProperties {
+    var extension_count: u32 = undefined;
+    var res = vk.enumerateDeviceExtensionProperties(device, null, &extension_count, null);
+    vk.assertSuccess(res);
+    const extensions = alloc.alloc(vk.VkExtensionProperties, extension_count) catch stdx.fatal();
+    res = vk.enumerateDeviceExtensionProperties(device, null, &extension_count, extensions.ptr);
+    vk.assertSuccess(res);
+    return extensions;
+}
+
 fn isVkDeviceSuitable(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, surface: vk.VkSurfaceKHR) !bool {
     const q_family = queryQueueFamily(alloc, device, surface);
     if (!q_family.isValid()) {
@@ -568,18 +620,12 @@ fn isVkDeviceSuitable(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, sur
     }
 
     // Check required extensions.
-    var extension_count: u32 = undefined;
-    var res = vk.enumerateDeviceExtensionProperties(device, null, &extension_count, null);
-    vk.assertSuccess(res);
-
-    const extensions = try alloc.alloc(vk.VkExtensionProperties, extension_count);
+    const extensions = getDeviceExtensionProperties(alloc, device);
     defer alloc.free(extensions);
-    res = vk.enumerateDeviceExtensionProperties(device, null, &extension_count, extensions.ptr);
-    vk.assertSuccess(res);
 
     var req_exts = std.StringHashMap(void).init(alloc);
     defer req_exts.deinit();
-    for (RequiredVkDeviceExtensions) |ext| {
+    for (VkRequiredDeviceExtensions) |ext| {
         const ext_slice = std.mem.span(ext);
         req_exts.put(ext_slice, {}) catch @panic("error");
     }
@@ -596,6 +642,33 @@ fn isVkDeviceSuitable(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, sur
     defer swap_chain.deinit(alloc);
     if (swap_chain.formats.len == 0 or swap_chain.present_modes.len == 0) {
         return false;
+    }
+    return true;
+}
+
+fn vkCheckValidationLayerSupport(alloc: std.mem.Allocator) bool {
+    var layer_count: u32 = undefined;
+
+    var res = vk.enumerateInstanceLayerProperties(&layer_count, null);
+    vk.assertSuccess(res);
+
+    const available_layers = alloc.alloc(vk.VkLayerProperties, layer_count) catch stdx.fatal();
+    defer alloc.free(available_layers);
+
+    res = vk.enumerateInstanceLayerProperties(&layer_count, available_layers.ptr);
+    vk.assertSuccess(res);
+
+    for (VkRequiredValidationLayers) |layer| {
+        var found = false;
+        for (available_layers) |it| {
+            if (std.cstr.cmp(layer, @ptrCast([*:0]const u8, &it.layerName)) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
     }
     return true;
 }
