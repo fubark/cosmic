@@ -6,10 +6,11 @@ const gl = @import("gl");
 const vk = @import("vk");
 const lyon = @import("lyon");
 const Vec2 = stdx.math.Vec2;
+const Vec4 = stdx.math.Vec4;
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
-const cs_vk = graphics.vk;
+const gvk = graphics.vk;
 const ImageId = graphics.ImageId;
 const ImageTex = graphics.gpu.ImageTex;
 const GLTextureId = gl.GLuint;
@@ -63,7 +64,7 @@ pub const Batcher = struct {
             cur_gl_tex_id: GLTextureId,
         },
         .Vulkan => struct {
-            ctx: cs_vk.VkContext,
+            ctx: gvk.VkContext,
             cur_cmd_buf: vk.VkCommandBuffer,
             tex_pipeline: cs_vk.pipeline.Pipeline,
             vert_buf: vk.VkBuffer,
@@ -71,6 +72,8 @@ pub const Batcher = struct {
             index_buf: vk.VkBuffer,
             index_buf_mem: vk.VkDeviceMemory,
             cur_tex_desc_set: vk.VkDescriptorSet,
+            host_vert_buf: [*]TexShaderVertex,
+            host_index_buf: [*]u16,
         },
         else => @compileError("unsupported"),
     },
@@ -146,9 +149,15 @@ pub const Batcher = struct {
                 .index_buf = index_buf,
                 .index_buf_mem = index_buf_mem,
                 .cur_tex_desc_set = undefined,
+                .host_vert_buf = undefined,
+                .host_index_buf = undefined,
             },
             .image_store = image_store,
         };
+        var res = vk.mapMemory(new.inner.ctx.device, new.inner.vert_buf_mem, 0, 40 * 10000, 0, @ptrCast([*c]?*anyopaque, &new.inner.host_vert_buf));
+        vk.assertSuccess(res);
+        res = vk.mapMemory(new.inner.ctx.device, new.inner.index_buf_mem, 0, 2 * 10000 * 3, 0, @ptrCast([*c]?*anyopaque, &new.inner.host_index_buf));
+        vk.assertSuccess(res);
         return new;
     }
 
@@ -244,8 +253,8 @@ pub const Batcher = struct {
         self.mesh.reset();
 
         const cmd_buf = self.inner.cur_cmd_buf;
-        cs_vk.command.beginCommandBuffer(cmd_buf);
-        cs_vk.command.beginRenderPass(cmd_buf, self.inner.ctx.pass, self.inner.ctx.framebuffers[image_idx], self.inner.ctx.framebuffer_size, clear_color);
+        gvk.command.beginCommandBuffer(cmd_buf);
+        gvk.command.beginRenderPass(cmd_buf, self.inner.ctx.pass, self.inner.ctx.framebuffers[image_idx], self.inner.ctx.framebuffer_size, clear_color);
 
         var offset: vk.VkDeviceSize = 0;
         vk.cmdBindVertexBuffers(cmd_buf, 0, 1, &self.inner.vert_buf, &offset);
@@ -254,24 +263,19 @@ pub const Batcher = struct {
 
     pub fn endFrameVK(self: *Self) void {
         const cmd_buf = self.inner.cur_cmd_buf;
-        cs_vk.command.endRenderPass(cmd_buf);
-        cs_vk.command.endCommandBuffer(cmd_buf);
+        gvk.command.endRenderPass(cmd_buf);
+        gvk.command.endCommandBuffer(cmd_buf);
 
         // Send all the mesh data at once.
 
+        // TODO: This should work with zero copy if mesh is aware of the buffer pointer.
+        // TODO: Buffer should be reallocated if it's not big enough.
+        // TODO: The buffers should be large enough to hold 2 frames worth of data and writing data should use an offset from the previous frame.
         // Copy vertex buffer.
-        var vert_dst: [*]TexShaderVertex = undefined;
-        var res = vk.mapMemory(self.inner.ctx.device, self.inner.vert_buf_mem, 0, self.mesh.cur_vert_buf_size * 40, 0, @ptrCast([*c]?*anyopaque, &vert_dst));
-        vk.assertSuccess(res);
-        std.mem.copy(TexShaderVertex, vert_dst[0..self.mesh.cur_vert_buf_size], self.mesh.vert_buf[0..self.mesh.cur_vert_buf_size]);
-        vk.unmapMemory(self.inner.ctx.device, self.inner.vert_buf_mem);
+        std.mem.copy(TexShaderVertex, self.inner.host_vert_buf[0..self.mesh.cur_vert_buf_size], self.mesh.vert_buf[0..self.mesh.cur_vert_buf_size]);
 
         // Copy index buffer.
-        var index_dst: [*]u16 = undefined;
-        res = vk.mapMemory(self.inner.ctx.device, self.inner.index_buf_mem, 0, self.mesh.cur_index_buf_size * 2, 0, @ptrCast([*c]?*anyopaque, &index_dst));
-        vk.assertSuccess(res);
-        std.mem.copy(u16, index_dst[0..self.mesh.cur_index_buf_size], self.mesh.index_buf[0..self.mesh.cur_index_buf_size]);
-        vk.unmapMemory(self.inner.ctx.device, self.inner.index_buf_mem);
+        std.mem.copy(u16, self.inner.host_index_buf[0..self.mesh.cur_index_buf_size], self.mesh.index_buf[0..self.mesh.cur_index_buf_size]);
     }
 
     pub fn beginMvp(self: *Self, mvp: Transform) void {
