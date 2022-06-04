@@ -87,7 +87,7 @@ pub const Window = struct {
                 .Vulkan => {
                     try initVulkanWindow(alloc, &res, config, flags);
                 },
-                else => stdx.panic("unsupported"),
+                else => stdx.unsupported(),
             }
         } else if (IsWebGL2) {
             const dpr = jsSetCanvasBuffer(config.width, config.height);
@@ -139,7 +139,7 @@ pub const Window = struct {
         const flags = getSdlWindowFlags(config);
         switch (Backend) {
             .OpenGL => try initGL_Window(alloc, &res, config, flags),
-            else => stdx.panic("unsupported"),
+            else => stdx.unsupported(),
         }
         // Reuse existing window's GL context.
         res.gl_ctx = existing_win.gl_ctx;

@@ -96,7 +96,7 @@ pub inline fn genTextures(n: c.GLsizei, textures: [*c]c.GLuint) void {
         if (n == 1) {
             textures[0] = jsGlCreateTexture();
         } else {
-            stdx.panic("unsupported");
+            stdx.unsupported();
         }
     } else {
         c.glGenTextures(n, textures);
@@ -108,7 +108,7 @@ pub inline fn deleteTextures(n: c.GLsizei, textures: [*c]const c.GLuint) void {
         if (n == 1) {
             jsGlDeleteTexture(textures[0]);
         } else {
-            stdx.panic("unsupported");
+            stdx.unsupported();
         }
     } else {
         c.glDeleteTextures(n, textures);
@@ -367,7 +367,7 @@ pub inline fn genVertexArrays(n: c.GLsizei, arrays: [*c]c.GLuint) void {
         if (n == 1) {
             arrays[0] = jsGlCreateVertexArray();
         } else {
-            stdx.panic("unsupported");
+            stdx.unsupported();
         }
     } else if (IsWindows) {
         winGenVertexArrays(n, arrays);
@@ -381,7 +381,7 @@ pub inline fn shaderSource(shader: c.GLuint, count: c.GLsizei, string: [*c]const
         if (count == 1) {
             jsGlShaderSource(shader, @ptrCast(*const u8, string[0]), @intCast(usize, length[0]));
         } else {
-            stdx.panic("unsupported");
+            stdx.unsupported();
         }
     } else if (IsWindows) {
         winShaderSource(shader, count, string, length);
@@ -529,7 +529,7 @@ pub inline fn genFramebuffers(n: c.GLsizei, framebuffers: [*c]c.GLuint) void {
         if (n == 1) {
             framebuffers[0] = jsGlCreateFramebuffer();
         } else {
-            stdx.panic("unsupported");
+            stdx.unsupported();
         }
     } else if (IsWindows) {
         winGenFramebuffers(n, framebuffers);
@@ -668,7 +668,7 @@ pub inline fn uniformMatrix4fv(location: c.GLint, count: c.GLsizei, transpose: c
         if (count == 1) {
             jsGlUniformMatrix4fv(location, transpose, value);
         } else {
-            stdx.panic("unsupported");
+            stdx.unsupported();
         }
     } else if (IsWindows) {
         winUniformMatrix4fv(location, count, transpose, value);
