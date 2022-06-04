@@ -32,6 +32,7 @@ pub const initTextureProjection = camera.initTextureProjection;
 pub const tessellator = @import("tessellator.zig");
 pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
+pub const Renderer = @import("renderer.zig").Renderer;
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
