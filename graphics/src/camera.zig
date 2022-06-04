@@ -1,3 +1,5 @@
+const build_options = @import("build_options");
+const Backend = build_options.GraphicsBackend;
 const stdx = @import("stdx");
 const t = stdx.testing;
 const graphics = @import("graphics.zig");
@@ -23,8 +25,10 @@ pub fn initDisplayProjection(width: f32, height: f32) Transform {
     res.scale(2.0, 2.0);
     // to clip space [-1,1]
     res.translate(-1.0, -1.0);
-    // flip y since clip space is based on cartesian
-    res.scale(1.0, -1.0);
+    if (Backend == .OpenGL) {
+        // flip y since clip space is based on cartesian
+        res.scale(1.0, -1.0);
+    }
     return res;
 }
 
