@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const ds = stdx.ds;
+const platform = @import("platform");
 const stbi = @import("stbi");
 const math = stdx.math;
 const Vec2 = math.Vec2;
@@ -8,7 +9,7 @@ const vec2 = math.Vec2.init;
 const Mat4 = math.Mat4;
 const geom = math.geom;
 const gl = @import("gl");
-pub const GLTextureId = gl.GLuint;
+const vk = @import("vk");
 const builtin = @import("builtin");
 const lyon = @import("lyon");
 const tess2 = @import("tess2");
@@ -49,19 +50,38 @@ const tessellator = @import("../../tessellator.zig");
 const Tessellator = tessellator.Tessellator;
 pub const RenderFont = @import("render_font.zig").RenderFont;
 pub const Glyph = @import("glyph.zig").Glyph;
+const gvk = graphics.vk;
+const VkContext = gvk.VkContext;
+const image = @import("image.zig");
+pub const ImageStore = image.ImageStore;
+pub const Image = image.Image;
+pub const ImageTex = image.ImageTex;
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
 const IsWasm = builtin.target.isWasm();
 
+/// Having 2 frames "in flight" to draw on allows the cpu and gpu to work in parallel. More than 2 is not recommended right now.
+/// This doesn't have to match the number of swap chain images/framebuffers. This indicates the max number of frames that can be active at any moment.
+/// Once this limit is reached, the cpu will block until the gpu is done with the oldest frame.
+/// Currently used explicitly by the Vulkan implementation.
+pub const MaxActiveFrames = 2;
+
 /// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {
     alloc: std.mem.Allocator,
 
-    white_tex: ImageDesc,
-    pipelines: switch (Backend) {
-        .OpenGL => graphics.gl.Pipelines,
-        .Vulkan => {},
+    white_tex: image.ImageTex,
+    inner: switch (Backend) {
+        .OpenGL => struct {
+            pipelines: graphics.gl.Pipelines,
+        },
+        .Vulkan => struct {
+            ctx: VkContext,
+            tex_pipeline: gvk.pipeline.Pipeline,
+            tex_desc_pool: vk.VkDescriptorPool,
+            tex_desc_set_layout: vk.VkDescriptorSetLayout,
+        },
         else => @compileError("unsupported"),
     },
     batcher: Batcher,
@@ -85,14 +105,15 @@ pub const Graphics = struct {
     cur_line_width: f32,
     cur_line_width_half: f32,
 
+    clear_color: Color,
+
     // Depth pixel ratio:
     // This is used to fetch a higher res font bitmap for high dpi displays.
     // eg. 18px user font size would normally use a 32px backed font bitmap but with dpr=2,
     // it would use a 64px bitmap font instead.
     cur_dpr: u8,
 
-    // Images are handles to textures.
-    images: ds.CompactUnorderedList(ImageId, Image),
+    image_store: image.ImageStore,
 
     // Draw state stack.
     state_stack: std.ArrayList(DrawState),
@@ -111,12 +132,57 @@ pub const Graphics = struct {
 
     const Self = @This();
 
-    // We can initialize without gl calls for use in tests.
-    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+    pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+        self.initDefault(alloc, dpr);
+        self.initCommon(alloc);
+
+        const max_total_textures = gl.getMaxTotalTextures();
+        const max_fragment_textures = gl.getMaxFragmentTextures();
+        log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
+
+        // Builtin shaders use the same vert buffer.
+        var vert_buf_id: gl.GLuint = undefined;
+        gl.genBuffers(1, &vert_buf_id);
+
+        // Initialize pipelines.
+        self.inner.pipelines.tex = graphics.gl.TexShader.init(vert_buf_id);
+        self.inner.pipelines.gradient = graphics.gl.GradientShader.init(vert_buf_id);
+
+        self.batcher = Batcher.initGL(alloc, vert_buf_id, self.inner.pipelines, &self.image_store);
+
+        // 2D graphics for now. Turn off 3d options.
+        gl.disable(gl.GL_DEPTH_TEST);
+        gl.disable(gl.GL_CULL_FACE);
+
+        // Enable blending by default.
+        gl.enable(gl.GL_BLEND);
+    }
+
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: u8, vk_ctx: VkContext) void {
+        self.initDefault(alloc, dpr);
+        self.inner.ctx = vk_ctx;
+        self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(vk_ctx.device);
+        self.inner.tex_desc_pool = gvk.createTexDescriptorPool(vk_ctx.device);
+        self.initCommon(alloc);
+
+        var vert_buf: vk.VkBuffer = undefined;
+        var vert_buf_mem: vk.VkDeviceMemory = undefined;
+        gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 10000, &vert_buf, &vert_buf_mem);
+
+        var index_buf: vk.VkBuffer = undefined;
+        var index_buf_mem: vk.VkDeviceMemory = undefined;
+        gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 10000 * 3, &index_buf, &index_buf_mem);
+
+        self.inner.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout);
+
+        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.tex_pipeline, &self.image_store);
+    }
+    
+    fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
-            .pipelines = undefined,
+            .inner = undefined,
             .batcher = undefined,
             .font_cache = undefined,
             .default_font_id = undefined,
@@ -133,7 +199,7 @@ pub const Graphics = struct {
             .cur_proj_transform = undefined,
             .view_transform = undefined,
             .initial_mvp = undefined,
-            .images = ds.CompactUnorderedList(ImageId, Image).init(alloc),
+            .image_store = image.ImageStore.init(alloc, self),
             .state_stack = std.ArrayList(DrawState).init(alloc),
             .cur_clip_rect = undefined,
             .cur_scissors = undefined,
@@ -145,37 +211,17 @@ pub const Graphics = struct {
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
             .tessellator = undefined,
             .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
+            .clear_color = undefined,
         };
+    }
+
+    fn initCommon(self: *Self, alloc: std.mem.Allocator) void {
         self.tessellator.init(alloc);
-
-        const max_total_textures = gl.getMaxTotalTextures();
-        const max_fragment_textures = gl.getMaxFragmentTextures();
-        log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
-
-        // Builtin shaders use the same vert buffer.
-        var vert_buf_id: gl.GLuint = undefined;
-        gl.genBuffers(1, &vert_buf_id);
-
-        // Initialize pipelines.
-        switch (Backend) {
-            .OpenGL => {
-                self.pipelines.tex = graphics.gl.TexShader.init(vert_buf_id);
-                self.pipelines.gradient = graphics.gl.GradientShader.init(vert_buf_id);
-            },
-            else => stdx.panicUnsupported(),
-        }
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
-        self.white_tex = self.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
-
-        switch (Backend) {
-            .OpenGL => {
-                self.batcher = Batcher.initGL(alloc, vert_buf_id, self.pipelines);
-            },
-            else => stdx.panic("unsupported"),
-        }
+        self.white_tex = self.image_store.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
 
         self.font_cache.init(alloc, self);
 
@@ -199,20 +245,25 @@ pub const Graphics = struct {
         }
 
         // Clear color. Default to white.
-        gl.clearColor(1, 1, 1, 1.0);
+        self.setClearColor(Color.White);
         // gl.clearColor(0.1, 0.2, 0.3, 1.0);
         // gl.clearColor(0, 0, 0, 1.0);
-
-        // 2D graphics for now. Turn off 3d options.
-        gl.disable(gl.GL_DEPTH_TEST);
-        gl.disable(gl.GL_CULL_FACE);
-
-        // Enable blending by default.
-        gl.enable(gl.GL_BLEND);
     }
 
     pub fn deinit(self: *Self) void {
-        self.pipelines.deinit();
+        switch (Backend) {
+            .OpenGL => {
+                self.inner.pipelines.deinit();
+            },
+            .Vulkan => {
+                const device = self.inner.ctx.device;
+                self.inner.tex_pipeline.deinit(device);
+
+                vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
+                vk.destroyDescriptorPool(device, self.inner.tex_desc_pool, null);
+            },
+            else => {},
+        }
         self.batcher.deinit();
         self.font_cache.deinit();
         self.state_stack.deinit();
@@ -221,12 +272,7 @@ pub const Graphics = struct {
             lyon.deinit();
         }
 
-        // Delete images after since some deinit could have removed images.
-        var iter = self.images.iterator();
-        while (iter.next()) |image| {
-            self.deinitImage(image);
-        }
-        self.images.deinit();
+        self.image_store.deinit();
 
         self.vec2_helper_buf.deinit();
         self.vec2_slice_helper_buf.deinit();
@@ -261,7 +307,7 @@ pub const Graphics = struct {
         const r = self.cur_clip_rect;
 
         // Execute current draw calls before we alter state.
-        self.flushDraw();
+        self.endCmd();
 
         gl.scissor(@floatToInt(c_int, r.x), @floatToInt(c_int, r.y), @floatToInt(c_int, r.width), @floatToInt(c_int, r.height));
         gl.enable(gl.GL_SCISSOR_TEST);
@@ -286,7 +332,7 @@ pub const Graphics = struct {
         // log.debug("popState", .{});
 
         // Execute current draw calls before altering state.
-        self.flushDraw();
+        self.endCmd();
 
         const state = self.state_stack.pop();
         if (state.use_scissors) {
@@ -338,12 +384,11 @@ pub const Graphics = struct {
     }
 
     pub fn setClearColor(self: *Self, color: Color) void {
-        _ = self;
-        const r = @intToFloat(f32, color.channels.r) / 255;
-        const g = @intToFloat(f32, color.channels.g) / 255;
-        const b = @intToFloat(f32, color.channels.b) / 255;
-        const a = @intToFloat(f32, color.channels.a) / 255;
-        gl.clearColor(r, g, b, a);
+        self.clear_color = color;
+        if (Backend == .OpenGL) {
+            const f = color.toFloatArray();
+            gl.clearColor(f[0], f[1], f[2], f[3]);
+        }
     }
 
     pub fn getFillColor(self: Self) Color {
@@ -397,93 +442,6 @@ pub const Graphics = struct {
 
     pub fn setTextBaseline(self: *Self, baseline: TextBaseline) void {
         self.cur_text_baseline = baseline;
-    }
-
-    pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) void {
-        _ = self;
-        image.* = .{
-            .tex_id = undefined,
-            .width = width,
-            .height = height,
-        };
-
-        gl.genTextures(1, &image.tex_id);
-        gl.activeTexture(gl.GL_TEXTURE0 + 0);
-        gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
-
-        // A GLint specifying the level of detail. Level 0 is the base image level and level n is the nth mipmap reduction level.
-        const level = 0;
-        // A GLint specifying the width of the border. Usually 0.
-        const border = 0;
-        // Data type of the texel data.
-        const data_type = gl.GL_UNSIGNED_BYTE;
-
-        // Set the filtering so we don't need mips.
-        // TEXTURE_MIN_FILTER - filter for scaled down texture
-        // TEXTURE_MAG_FILTER - filter for scaled up texture
-        // Linear filter is better for anti-aliased font bitmaps.
-        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
-        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, if (linear_filter) gl.GL_LINEAR else gl.GL_NEAREST);
-        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
-        gl.texParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
-        const data_ptr = if (data != null) data.?.ptr else null;
-        gl.texImage2D(gl.GL_TEXTURE_2D, level, gl.GL_RGBA8, @intCast(c_int, width), @intCast(c_int, height), border, gl.GL_RGBA, data_type, data_ptr);
-
-        gl.bindTexture(gl.GL_TEXTURE_2D, 0);
-    }
-
-    pub fn createImageFromData(self: *Self, data: []const u8) !graphics.Image {
-        var src_width: c_int = undefined;
-        var src_height: c_int = undefined;
-        var channels: c_int = undefined;
-        const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
-        defer stbi.stbi_image_free(bitmap);
-        if (bitmap == null) {
-            log.debug("{s}", .{stbi.stbi_failure_reason()});
-            return error.BadImage;
-        }
-        // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
-
-        const bitmap_len = @intCast(usize, src_width * src_height * channels);
-        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true);
-        return graphics.Image{
-            .id = desc.image_id,
-            .width = @intCast(usize, src_width),
-            .height = @intCast(usize, src_height),
-        };
-    }
-
-    pub fn createImageFromBitmapInto(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) !ImageId {
-        self.initImage(&image, width, height, data, linear_filter, .{ .update = undefined });
-        return self.images.add(image);
-    }
-
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageDesc {
-        var image: Image = undefined;
-        self.initImage(&image, width, height, data, linear_filter);
-        const image_id = self.images.add(image) catch unreachable;
-        return ImageDesc{
-            .image_id = image_id,
-            .tex_id = image.tex_id,
-        };
-    }
-
-    pub fn removeImage(self: *Self, id: ImageId) void {
-        const image = self.images.getNoCheck(id);
-        self.deinitImage(image);
-        _ = self.images.remove(id);
-    }
-
-    // Used to deinit image without removing the image. Useful for recreating a texture under the same ImageId.
-    pub fn deinitImage(self: *Self, image: Image) void {
-        // log.debug("deleting texture {}", .{tex_id});
-
-        // If we deleted the current tex, flush and reset to default texture.
-        if (self.batcher.cur_tex_image.tex_id == image.tex_id) {
-            self.flushDraw();
-            self.batcher.cur_tex_image = self.white_tex;
-        }
-        image.deinit();
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
@@ -563,13 +521,13 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn setCurrentTexture(self: *Self, desc: ImageDesc) void {
-        self.batcher.beginTexture(desc);
+    pub inline fn setCurrentTexture(self: *Self, image_tex: image.ImageTex) void {
+        self.batcher.beginTexture(image_tex);
     }
 
     fn ensureUnusedBatchCapacity(self: *Self, vert_inc: usize, index_inc: usize) void {
         if (!self.batcher.ensureUnusedBuffer(vert_inc, index_inc)) {
-            self.flushDraw();
+            self.endCmd();
         }
     }
 
@@ -732,7 +690,7 @@ pub const Graphics = struct {
             self.batcher.mesh.addVertex(&vert);
 
             // Add arc sector.
-            self.batcher.mesh.addQuad(cur_vert_idx + 1, cur_vert_idx - 1, cur_vert_idx - 2, cur_vert_idx);
+            self.batcher.mesh.addQuad(cur_vert_idx - 1, cur_vert_idx + 1, cur_vert_idx, cur_vert_idx - 2);
             cur_vert_idx += 2;
         }
     }
@@ -1703,8 +1661,8 @@ pub const Graphics = struct {
     }
 
     pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
-        const image = self.images.get(image_id);
-        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        const img = self.image_store.images.get(image_id);
+        self.batcher.beginTex(image.ImageDesc{ .image_id = image_id, .tex_id = img.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1742,8 +1700,8 @@ pub const Graphics = struct {
     }
 
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
-        const image = self.images.getNoCheck(image_id);
-        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        const img = self.image_store.images.getNoCheck(image_id);
+        self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1776,8 +1734,8 @@ pub const Graphics = struct {
     }
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
-        const image = self.images.getNoCheck(image_id);
-        self.batcher.beginTex(ImageDesc{ .image_id = image_id, .tex_id = image.tex_id });
+        const img = self.image_store.images.getNoCheck(image_id);
+        self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.ensureUnusedBatchCapacity(4, 6);
 
         var vert: TexShaderVertex = undefined;
@@ -1791,17 +1749,17 @@ pub const Graphics = struct {
         self.batcher.mesh.addVertex(&vert);
 
         // top right
-        vert.setXY(x + @intToFloat(f32, image.width), y);
+        vert.setXY(x + @intToFloat(f32, img.width), y);
         vert.setUV(1, 0);
         self.batcher.mesh.addVertex(&vert);
 
         // bottom right
-        vert.setXY(x + @intToFloat(f32, image.width), y + @intToFloat(f32, image.height));
+        vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
         vert.setUV(1, 1);
         self.batcher.mesh.addVertex(&vert);
 
         // bottom left
-        vert.setXY(x, y + @intToFloat(f32, image.height));
+        vert.setXY(x, y + @intToFloat(f32, img.height));
         vert.setUV(0, 1);
         self.batcher.mesh.addVertex(&vert);
 
@@ -1811,13 +1769,13 @@ pub const Graphics = struct {
 
     /// Binds an image to the write buffer. 
     pub fn bindImageBuffer(self: *Self, image_id: ImageId) void {
-        var image = self.images.getPtrNoCheck(image_id);
-        if (image.fbo_id == null) {
-            image.fbo_id = self.createTextureFramebuffer(image.tex_id);
+        var img = self.image_store.images.getPtrNoCheck(image_id);
+        if (img.fbo_id == null) {
+            img.fbo_id = self.createTextureFramebuffer(img.tex_id);
         }
-        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, image.fbo_id.?);
-        gl.viewport(0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height));
-        self.cur_proj_transform = graphics.initTextureProjection(@intToFloat(f32, image.width), @intToFloat(f32, image.height));
+        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, img.fbo_id.?);
+        gl.viewport(0, 0, @intCast(c_int, img.width), @intCast(c_int, img.height));
+        self.cur_proj_transform = graphics.initTextureProjection(@intToFloat(f32, img.width), @intToFloat(f32, img.height));
         self.view_transform = Transform.initIdentity();
         const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         self.batcher.beginMvp(mvp);
@@ -1837,6 +1795,13 @@ pub const Graphics = struct {
             unreachable;
         }
         return fbo_id;
+    }
+
+    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, image_idx: u32, frame_idx: u32) void {
+        self.cur_buf_width = buf_width;
+        self.cur_buf_height = buf_height;
+
+        self.batcher.resetStateVK(self.white_tex, image_idx, frame_idx, self.clear_color);
     }
 
     /// Begin frame sets up the context before any other draw call.
@@ -1877,9 +1842,15 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
+    pub fn endFrameVK(self: *Self) void {
+        self.endCmd();
+        self.batcher.endFrameVK();
+        self.image_store.processRemovals();
+    }
+
     pub fn endFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("endFrame", .{});
-        self.flushDraw();
+        self.endCmd();
         if (custom_fbo != 0) {
             // If we were drawing to custom framebuffer such as msaa buffer, then blit the custom buffer into the default ogl buffer.
             gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, custom_fbo);
@@ -1920,9 +1891,10 @@ pub const Graphics = struct {
         gl.blendEquation(eq);
     }
 
+    // TODO: Implement this in Vulkan.
     pub fn setBlendMode(self: *Self, mode: BlendMode) void {
         if (self.cur_blend_mode != mode) {
-            self.flushDraw();
+            self.endCmd();
             switch (mode) {
                 .StraightAlpha => gl.blendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
                 .Add, .Glow => {
@@ -1955,37 +1927,48 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn flushDraw(self: *Self) void {
-        self.batcher.flushDraw();
+    pub fn endCmd(self: *Self) void {
+        self.batcher.endCmd();
     }
 
-    pub fn updateTextureData(self: *const Self, image: Image, buf: []const u8) void {
+    pub fn updateTextureData(self: *const Self, img: image.Image, buf: []const u8) void {
         _ = self;
-        gl.activeTexture(gl.GL_TEXTURE0 + 0);
-        gl.bindTexture(gl.GL_TEXTURE_2D, image.tex_id);
-        gl.texSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, image.width), @intCast(c_int, image.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
-        gl.bindTexture(gl.GL_TEXTURE_2D, 0);
-    }
-};
+        switch (Backend) {
+            .OpenGL => {
+                gl.activeTexture(gl.GL_TEXTURE0 + 0);
+                const gl_tex_id = self.image_store.getTexture(img.tex_id).inner.tex_id;
+                gl.bindTexture(gl.GL_TEXTURE_2D, gl_tex_id);
+                gl.texSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, @intCast(c_int, img.width), @intCast(c_int, img.height), gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, buf.ptr);
+                gl.bindTexture(gl.GL_TEXTURE_2D, 0);
+            },
+            .Vulkan => {
+                const ctx = self.inner.ctx;
 
-// It's often useful to have both the image id and gl texture id.
-pub const ImageDesc = struct {
-    image_id: ImageId,
-    tex_id: GLTextureId,
-};
+                var staging_buf: vk.VkBuffer = undefined;
+                var staging_buf_mem: vk.VkDeviceMemory = undefined;
 
-pub const Image = struct {
-    tex_id: GLTextureId,
-    width: usize,
-    height: usize,
+                const size = @intCast(u32, buf.len);
+                gvk.buffer.createBuffer(ctx.physical, ctx.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_buf, &staging_buf_mem);
 
-    /// Framebuffer used to draw to the texture.
-    fbo_id: ?gl.GLuint = null,
+                // Copy to gpu.
+                var gpu_data: ?*anyopaque = null;
+                var res = vk.mapMemory(ctx.device, staging_buf_mem, 0, size, 0, &gpu_data);
+                vk.assertSuccess(res);
+                std.mem.copy(u8, @ptrCast([*]u8, gpu_data)[0..size], buf);
+                vk.unmapMemory(ctx.device, staging_buf_mem);
 
-    const Self = @This();
+                // Transition to transfer dst layout.
+                ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                ctx.copyBufferToImage(staging_buf, img.inner.image, img.width, img.height);
+                // Transition to shader access layout.
+                ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    pub fn deinit(self: Self) void {
-        gl.deleteTextures(1, &self.tex_id);
+                // Cleanup.
+                vk.destroyBuffer(ctx.device, staging_buf, null);
+                vk.freeMemory(ctx.device, staging_buf_mem, null);
+            },
+            else => {},
+        }
     }
 };
 
