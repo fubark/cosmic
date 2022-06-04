@@ -18,6 +18,7 @@ pub const buffer = @import("buffer.zig");
 pub const command = @import("command.zig");
 pub const memory = @import("memory.zig");
 pub const pipeline = @import("pipeline.zig");
+pub const Pipeline = pipeline.Pipeline;
 pub const descriptor = @import("descriptor.zig");
 const shaders = @import("shaders/shaders.zig");
 
@@ -356,36 +357,7 @@ pub const VkContext = struct {
     }
 };
 
-
-pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout) pipeline.Pipeline {
-    const vert_src align(4) = shaders.tex_vert_spv;
-    const frag_src align(4) = shaders.tex_frag_spv;
-
-    const vert_mod = shader.createShaderModule(device, &vert_src);
-    const frag_mod = shader.createShaderModule(device, &frag_src);
-
-    const vert_pss_info = vk.VkPipelineShaderStageCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = vk.VK_SHADER_STAGE_VERTEX_BIT,
-        .module = vert_mod,
-        .pName = "main",
-        .pNext = null,
-        .flags = 0,
-        .pSpecializationInfo = null,
-    };
-
-    const frag_pss_info = vk.VkPipelineShaderStageCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = frag_mod,
-        .pName = "main",
-        .pNext = null,
-        .flags = 0,
-        .pSpecializationInfo = null,
-    };
-
-    const stages = [_]vk.VkPipelineShaderStageCreateInfo{ vert_pss_info, frag_pss_info };
-
+pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -393,7 +365,59 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
             .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
         },
     };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 0,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = 0,
+        },
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .vertexAttributeDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
 
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = 16 * 4,
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+        vk.VkPushConstantRange{
+            .offset = 16 * 4,
+            .size = 4 * 12,
+            .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+    };
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+        .pSetLayouts = null,
+        .pushConstantRangeCount = 2,
+        .pPushConstantRanges = &push_const_range[0],
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.gradient_vert_spv;
+    const frag_src align(4) = shaders.gradient_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info);
+}
+
+pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = 40,
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
     const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
         vk.VkVertexInputAttributeDescription{
             .binding = 0,
@@ -414,7 +438,6 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
             .offset = 24,
         },
     };
-
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = 1,
@@ -425,153 +448,26 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
         .flags = 0,
     };
 
-    const pias_info = vk.VkPipelineInputAssemblyStateCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        .primitiveRestartEnable = vk.VK_FALSE,
-        .pNext = null,
-        .flags = 0,
-    };
-
-    const viewport = [_]vk.VkViewport{vk.VkViewport{
-        .x = 0.0,
-        .y = 0.0,
-        .width = @intToFloat(f32, view_dim.width),
-        .height = @intToFloat(f32, view_dim.height),
-        .minDepth = 0.0,
-        .maxDepth = 1.0,
-    }};
-
-    const scissor = [_]vk.VkRect2D{vk.VkRect2D{
-        .offset = vk.VkOffset2D{ .x = 0, .y = 0 },
-        .extent = view_dim,
-    }};
-
-    const pvs_info = vk.VkPipelineViewportStateCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        .viewportCount = 1,
-        .pViewports = &viewport,
-        .scissorCount = 1,
-        .pScissors = &scissor,
-        .pNext = null,
-        .flags = 0,
-    };
-
-    const prs_info = vk.VkPipelineRasterizationStateCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .depthClampEnable = vk.VK_FALSE,
-        .rasterizerDiscardEnable = vk.VK_FALSE,
-        .polygonMode = vk.VK_POLYGON_MODE_FILL,
-        .lineWidth = 1.0,
-        .cullMode = vk.VK_CULL_MODE_BACK_BIT,
-        .frontFace = vk.VK_FRONT_FACE_COUNTER_CLOCKWISE,
-        .depthBiasEnable = vk.VK_FALSE,
-        .pNext = null,
-        .flags = 0,
-        .depthBiasConstantFactor = 0,
-        .depthBiasClamp = 0,
-        .depthBiasSlopeFactor = 0,
-    };
-
-    const pms_info = vk.VkPipelineMultisampleStateCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .sampleShadingEnable = vk.VK_FALSE,
-        .rasterizationSamples = vk.VK_SAMPLE_COUNT_1_BIT,
-        .pNext = null,
-        .flags = 0,
-        .minSampleShading = 0,
-        .pSampleMask = null,
-        .alphaToCoverageEnable = 0,
-        .alphaToOneEnable = 0,
-    };
-
-    // For now default to transparent blending.
-    const pcba_state = vk.VkPipelineColorBlendAttachmentState{
-        .colorWriteMask = vk.VK_COLOR_COMPONENT_R_BIT | vk.VK_COLOR_COMPONENT_G_BIT | vk.VK_COLOR_COMPONENT_B_BIT | vk.VK_COLOR_COMPONENT_A_BIT,
-        .blendEnable = vk.VK_TRUE,
-        .srcColorBlendFactor = vk.VK_BLEND_FACTOR_SRC_ALPHA,
-        .dstColorBlendFactor = vk.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        .colorBlendOp = vk.VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = vk.VK_BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = vk.VK_BLEND_FACTOR_ZERO,
-        .alphaBlendOp = vk.VK_BLEND_OP_ADD,
-        // .blendEnable = vk.VK_FALSE,
-        // .srcColorBlendFactor = vk.VK_BLEND_FACTOR_ZERO,
-        // .dstColorBlendFactor = vk.VK_BLEND_FACTOR_ZERO,
-        // .colorBlendOp = vk.VK_BLEND_OP_ADD,
-        // .srcAlphaBlendFactor = vk.VK_BLEND_FACTOR_ZERO,
-        // .dstAlphaBlendFactor = vk.VK_BLEND_FACTOR_ZERO,
-        // .alphaBlendOp = vk.VK_BLEND_OP_ADD,
-    };
-
-    const pcbs_info = vk.VkPipelineColorBlendStateCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .logicOpEnable = vk.VK_FALSE,
-        .logicOp = vk.VK_LOGIC_OP_COPY,
-        .attachmentCount = 1,
-        .pAttachments = &pcba_state,
-        .blendConstants = [_]f32{ 0, 0, 0, 0 },
-        .pNext = null,
-        .flags = 0,
-    };
-
     const push_const_range = [_]vk.VkPushConstantRange{
         vk.VkPushConstantRange{
             .offset = 0,
             .size = 16 * 4,
             .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
         },
-        vk.VkPushConstantRange{
-            .offset = 16 * 4,
-            .size = 4,
-            .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
-        },
     };
     const pl_info = vk.VkPipelineLayoutCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts = &desc_set,
-        .pushConstantRangeCount = 2,
+        .pushConstantRangeCount = 1,
         .pPushConstantRanges = &push_const_range,
         .pNext = null,
         .flags = 0,
     };
 
-    var pipeline_layout: vk.VkPipelineLayout = undefined;
-    var res = vk.createPipelineLayout(device, &pl_info, null, &pipeline_layout);
-
-    const g_pipelines = [_]vk.VkGraphicsPipelineCreateInfo{vk.VkGraphicsPipelineCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        .stageCount = @intCast(u32, stages.len),
-        .pStages = &stages,
-        .pVertexInputState = &pvis_info,
-        .pInputAssemblyState = &pias_info,
-        .pViewportState = &pvs_info,
-        .pRasterizationState = &prs_info,
-        .pMultisampleState = &pms_info,
-        .pColorBlendState = &pcbs_info,
-        .layout = pipeline_layout,
-        .renderPass = pass,
-        .subpass = 0,
-        .basePipelineHandle = null,
-        .pNext = null,
-        .flags = 0,
-        .pTessellationState = null,
-        .pDepthStencilState = null,
-        .pDynamicState = null,
-        .basePipelineIndex = 0,
-    }};
-
-    var pipeln: vk.VkPipeline = undefined;
-    res = vk.createGraphicsPipelines(device, null, @intCast(u32, g_pipelines.len), &g_pipelines, null, &pipeln);
-    vk.assertSuccess(res);
-    vk.destroyShaderModule(device, vert_mod, null);
-    vk.destroyShaderModule(device, frag_mod, null);
-
-    return .{
-        .pipeline = pipeln,
-        .layout = pipeline_layout,
-    };
+    const vert_src align(4) = shaders.tex_vert_spv;
+    const frag_src align(4) = shaders.tex_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info);
 }
 
 // TODO: Implement a list of pools. Once a pool runs out of space a new one is created.

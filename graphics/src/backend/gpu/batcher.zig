@@ -66,7 +66,8 @@ pub const Batcher = struct {
         .Vulkan => struct {
             ctx: gvk.VkContext,
             cur_cmd_buf: vk.VkCommandBuffer,
-            tex_pipeline: cs_vk.pipeline.Pipeline,
+            tex_pipeline: gvk.Pipeline,
+            gradient_pipeline: gvk.Pipeline,
             vert_buf: vk.VkBuffer,
             vert_buf_mem: vk.VkDeviceMemory,
             index_buf: vk.VkBuffer,
@@ -122,7 +123,7 @@ pub const Batcher = struct {
 
     pub fn initVK(alloc: std.mem.Allocator,
         vert_buf: vk.VkBuffer, vert_buf_mem: vk.VkDeviceMemory, index_buf: vk.VkBuffer, index_buf_mem: vk.VkDeviceMemory,
-        vk_ctx: cs_vk.VkContext, tex_pipeline: cs_vk.pipeline.Pipeline, image_store: *graphics.gpu.ImageStore
+        vk_ctx: gvk.VkContext, tex_pipeline: gvk.Pipeline, gradient_pipeline: gvk.Pipeline, image_store: *graphics.gpu.ImageStore
     ) Self {
         var new = Self{
             .mesh = Mesh.init(alloc),
@@ -144,6 +145,7 @@ pub const Batcher = struct {
                 .ctx = vk_ctx,
                 .cur_cmd_buf = undefined,
                 .tex_pipeline = tex_pipeline,
+                .gradient_pipeline = gradient_pipeline,
                 .vert_buf = vert_buf,
                 .vert_buf_mem = vert_buf_mem,
                 .index_buf = index_buf,
@@ -393,6 +395,17 @@ pub const Batcher = struct {
                         // It's expensive to update a uniform buffer all the time so use push constants.
                         vk.cmdPushConstants(cmd_buf, self.inner.tex_pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
+                    .Gradient => {
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, self.inner.gradient_pipeline.pipeline);
+                        vk.cmdPushConstants(cmd_buf, self.inner.gradient_pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                        const data = GradientFragmentData{
+                            .start_pos = self.start_pos,
+                            .start_color = self.start_color.toFloatArray(),
+                            .end_pos = self.end_pos,
+                            .end_color = self.end_color.toFloatArray(),
+                        };
+                        vk.cmdPushConstants(cmd_buf, self.inner.gradient_pipeline.layout, vk.VK_SHADER_STAGE_FRAGMENT_BIT, 16 * 4, 4 * 12, &data);
+                    },
                     else => stdx.unsupported(),
                 }
                 const num_indexes = self.mesh.cur_index_buf_size - self.cmd_index_start_idx;
@@ -407,4 +420,12 @@ pub const Batcher = struct {
 const DrawCmd = struct {
     vert_offset: u32,
     idx_offset: u32,
+};
+
+/// Properties are ordered to have the same alignment in glsl.
+const GradientFragmentData = struct {
+    start_color: [4]f32,
+    end_color: [4]f32,
+    start_pos: Vec2,
+    end_pos: Vec2,
 };

@@ -188,7 +188,7 @@ pub const Graphics = struct {
 
     pub fn getFillColor(self: Self) Color {
         return switch (Backend) {
-            .OpenGL => gpu.Graphics.getFillColor(self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.getFillColor(self.impl),
             .WasmCanvas => canvas.Graphics.getFillColor(self.impl),
             else => stdx.unsupported(),
         };
@@ -205,14 +205,14 @@ pub const Graphics = struct {
     /// Set a linear gradient fill style.
     pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         switch (Backend) {
-            .OpenGL => gpu.Graphics.setFillGradient(&self.impl, start_x, start_y, start_color, end_x, end_y, end_color),
+            .OpenGL, .Vulkan => gpu.Graphics.setFillGradient(&self.impl, start_x, start_y, start_color, end_x, end_y, end_color),
             else => stdx.unsupported(),
         }
     }
 
     pub fn getStrokeColor(self: Self) Color {
         return switch (Backend) {
-            .OpenGL => gpu.Graphics.getStrokeColor(self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.getStrokeColor(self.impl),
             .WasmCanvas => canvas.Graphics.getStrokeColor(self.impl),
             else => stdx.unsupported(),
         };
@@ -228,7 +228,7 @@ pub const Graphics = struct {
 
     pub fn getLineWidth(self: Self) f32 {
         return switch (Backend) {
-            .OpenGL => gpu.Graphics.getLineWidth(self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.getLineWidth(self.impl),
             .WasmCanvas => canvas.Graphics.getLineWidth(self.impl),
             else => stdx.unsupported(),
         };

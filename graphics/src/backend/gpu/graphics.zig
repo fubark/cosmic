@@ -78,9 +78,10 @@ pub const Graphics = struct {
         },
         .Vulkan => struct {
             ctx: VkContext,
-            tex_pipeline: gvk.pipeline.Pipeline,
+            tex_pipeline: gvk.Pipeline,
             tex_desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
+            gradient_pipeline: gvk.Pipeline,
         },
         else => @compileError("unsupported"),
     },
@@ -174,8 +175,9 @@ pub const Graphics = struct {
         gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 10000 * 3, &index_buf, &index_buf_mem);
 
         self.inner.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout);
+        self.inner.gradient_pipeline = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.tex_pipeline, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.tex_pipeline, self.inner.gradient_pipeline, &self.image_store);
     }
     
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
@@ -258,6 +260,7 @@ pub const Graphics = struct {
             .Vulkan => {
                 const device = self.inner.ctx.device;
                 self.inner.tex_pipeline.deinit(device);
+                self.inner.gradient_pipeline.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
                 vk.destroyDescriptorPool(device, self.inner.tex_desc_pool, null);
@@ -877,14 +880,10 @@ pub const Graphics = struct {
         } else {
             const normal = vec2(y2 - y1, x2 - x1).toLength(self.cur_line_width_half);
             self.fillQuad(
-                x1 + normal.x,
-                y1 - normal.y,
-                x1 - normal.x,
-                y1 + normal.y,
-                x2 - normal.x,
-                y2 + normal.y,
-                x2 + normal.x,
-                y2 - normal.y,
+                x1 - normal.x, y1 + normal.y,
+                x1 + normal.x, y1 - normal.y,
+                x2 + normal.x, y2 - normal.y,
+                x2 - normal.x, y2 + normal.y,
                 self.cur_stroke_color,
             );
         }
