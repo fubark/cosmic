@@ -16,29 +16,40 @@ pub const SwapChain = struct {
 
     const Self = @This();
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, w: *platform.Window, g: *graphics.Graphics) void {
+    pub fn init(self: *Self, _: std.mem.Allocator, win: *platform.Window) void {
         switch (Backend) {
-            .OpenGL => gl.SwapChain.init(&self.impl, w, g),
-            .Vulkan => vk.SwapChain.init(&self.impl, alloc, w, g),
-            else => stdx.panic("unsupported"),
+            .OpenGL => gl.SwapChain.init(&self.impl, win),
+            else => stdx.unsupported(),
         }
     }
 
-    /// Setup for the frame before any user draw calls.
-    pub inline fn beginFrame(self: Self, cam: graphics.Camera) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, win: *platform.Window) void {
+        vk.SwapChain.init(&self.impl, alloc, win);
+    }
+
+    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         switch (Backend) {
-            .OpenGL => gl.SwapChain.beginFrame(self.impl, cam),
-            .Vulkan => vk.SwapChain.beginFrame(self.impl),
-            else => stdx.panic("unsupported"),
+            .OpenGL => {},
+            .Vulkan => vk.SwapChain.deinit(self.impl, alloc),
+            else => stdx.unsupported(),
         }
     }
 
-    /// Post frame ops.
-    pub inline fn endFrame(self: Self) void {
+    /// Acquire the next available framebuffer.
+    pub inline fn beginFrame(self: *Self) void {
+        switch (Backend) {
+            .OpenGL => gl.SwapChain.beginFrame(self.impl),
+            .Vulkan => vk.SwapChain.beginFrame(&self.impl),
+            else => stdx.unsupported(),
+        }
+    }
+
+    /// Copy buffer to window buffer.
+    pub inline fn endFrame(self: *Self) void {
         switch (Backend) {
             .OpenGL => gl.SwapChain.endFrame(self.impl),
-            .Vulkan => vk.SwapChain.endFrame(self.impl),
-            else => stdx.panic("unsupported"),
+            .Vulkan => vk.SwapChain.endFrame(&self.impl),
+            else => stdx.unsupported(),
         }
     }
 };
