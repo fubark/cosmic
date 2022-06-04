@@ -11,7 +11,7 @@ const FontGroup = graphics.FontGroup;
 const Font = graphics.Font;
 const RenderFont = gpu.RenderFont;
 const OpenTypeFont = graphics.OpenTypeFont;
-const ImageDesc = gpu.ImageDesc;
+const ImageTex = gpu.ImageTex;
 const font_cache = @import("font_cache.zig");
 const BitmapFontStrike = graphics.BitmapFontStrike;
 const log = stdx.log.scoped(.text_renderer);
@@ -285,7 +285,7 @@ pub const RenderTextIterator = struct {
 
 // Holds compact data relevant to adding texture vertex data.
 pub const TextureQuad = struct {
-    image: ImageDesc,
+    image: ImageTex,
     cp: u21,
     is_color_bitmap: bool,
     x0: f32,

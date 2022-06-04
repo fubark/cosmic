@@ -23,7 +23,7 @@ pub const FontAtlas = struct {
     height: u32,
     channels: u8,
 
-    image: gpu.ImageDesc,
+    image: gpu.ImageTex,
 
     // The same allocator is used to do resizing.
     alloc: std.mem.Allocator,
@@ -47,7 +47,7 @@ pub const FontAtlas = struct {
             .gl_buf = undefined,
             .linear_filter = linear_filter,
         };
-        self.image = g.createImageFromBitmap(width, height, null, linear_filter);
+        self.image = g.image_store.createImageFromBitmap(width, height, null, linear_filter);
 
         self.gl_buf = alloc.alloc(u8, width * height * self.channels) catch @panic("error");
         std.mem.set(u8, self.gl_buf, 0);
@@ -64,7 +64,7 @@ pub const FontAtlas = struct {
     pub fn deinit(self: Self) void {
         self.packer.deinit();
         self.alloc.free(self.gl_buf);
-        self.g.removeImage(self.image.image_id);
+        self.g.image_store.markForRemoval(self.image.image_id);
     }
 
     fn resizeLocalBuffer(self: *Self, width: u32, height: u32) void {
@@ -82,12 +82,10 @@ pub const FontAtlas = struct {
         // Copy over existing data.
         self.copySubImageFrom(0, 0, old_width, old_height, old_buf);
 
-        // Reinit the underlying image texture. The image id remains the same.
-        // deinitImage will force flush if current batcher is using the texture. This would prevent a later flush with invalid uv data.
-        const image = self.g.images.getPtrNoCheck(self.image.image_id);
-        const old_tex_id = image.tex_id;
-        self.g.deinitImage(image.*);
-        self.g.initImage(image, self.width, self.height, null, self.linear_filter);
+        // End the current command so the current uv data still maps to correct texture data and create a new image.
+        const old_image_id = self.image.image_id;
+        self.g.image_store.endCmdAndMarkForRemoval(self.image.image_id);
+        self.image = self.g.image_store.createImageFromBitmap(self.width, self.height, null, self.linear_filter);
 
         // Update tex_id and uvs in existing glyphs.
         const tex_width = @intToFloat(f32, self.width);
@@ -95,8 +93,8 @@ pub const FontAtlas = struct {
         for (self.g.font_cache.render_fonts.items) |font| {
             var iter = font.glyphs.valueIterator();
             while (iter.next()) |glyph| {
-                if (glyph.image.tex_id == old_tex_id) {
-                    glyph.image.tex_id = image.tex_id;
+                if (glyph.image.image_id == old_image_id) {
+                    glyph.image = self.image;
                     glyph.u0 = @intToFloat(f32, glyph.x) / tex_width;
                     glyph.v0 = @intToFloat(f32, glyph.y) / tex_height;
                     glyph.u1 = @intToFloat(f32, glyph.x + glyph.width) / tex_width;
@@ -170,6 +168,6 @@ fn syncFontAtlasToGpu(ptr: ?*anyopaque) void {
 
     // Send bitmap data.
     // TODO: send only subimage that changed.
-    const image = self.g.images.getNoCheck(self.image.image_id);
+    const image = self.g.image_store.images.getNoCheck(self.image.image_id);
     self.g.updateTextureData(image, self.gl_buf);
 }

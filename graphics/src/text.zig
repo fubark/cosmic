@@ -58,10 +58,9 @@ pub const TextLine = struct {
 /// Used to traverse text one UTF-8 codepoint at a time.
 pub const TextGlyphIterator = struct {
     inner: switch (Backend) {
-        .OpenGL => gpu.TextGlyphIterator,
-        .Vulkan => struct {},
+        .OpenGL, .Vulkan => gpu.TextGlyphIterator,
         .Test => testg.TextGlyphIterator,
-        else => stdx.panic("unsupported"),
+        else => stdx.unsupported(),
     },
 
     /// The primary vertical metrics are available and won't change.
@@ -108,7 +107,7 @@ pub const TextGlyphIterator = struct {
         switch (Backend) {
             .OpenGL => return gpu.TextGlyphIterator.nextCodepoint(&self.inner, &self.state, {}, null),
             .Test => return testg.TextGlyphIterator.nextCodepoint(&self.inner, &self.state),
-            else => stdx.panic("unsupported"),
+            else => stdx.unsupported(),
         }
     }
 
@@ -116,7 +115,7 @@ pub const TextGlyphIterator = struct {
         switch (Backend) {
             .OpenGL => return gpu.TextGlyphIterator.setIndex(&self.inner, i),
             .Test => return testg.TextGlyphIterator.setIndex(&self.inner, i),
-            else => stdx.panic("unsupported"),
+            else => stdx.unsupported(),
         }
     }
 };

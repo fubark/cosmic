@@ -105,7 +105,7 @@ pub const Graphics = struct {
         self.text_buf.deinit();
     }
 
-    pub fn flushDraw(self: *Self) void {
+    pub fn endCmd(self: *Self) void {
         _ = self;
     }
 
@@ -127,7 +127,7 @@ pub const Graphics = struct {
     pub fn setBlendMode(self: *Self, mode: BlendMode) void {
         _ = mode;
         _ = self;
-        stdx.panic("unsupported");
+        stdx.unsupported();
     }
 
     pub fn resetTransform(self: *Self) void {
