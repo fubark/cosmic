@@ -57,7 +57,7 @@ pub const ImageStore = struct {
 
     /// Cleans up images and their textures that are no longer used.
     pub fn processRemovals(self: *Self) void {
-        for (self.removals.items) |*entry| {
+        for (self.removals.items) |*entry, entry_idx| {
             if (entry.frame_age < gpu.MaxActiveFrames) {
                 entry.frame_age += 1;
                 continue;
@@ -84,6 +84,8 @@ pub const ImageStore = struct {
                 }
                 self.textures.remove(tex_id);
             }
+            // Remove the entry.
+            _ = self.removals.swapRemove(entry_idx);
         }
     }
 

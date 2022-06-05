@@ -1931,7 +1931,6 @@ pub const Graphics = struct {
     }
 
     pub fn updateTextureData(self: *const Self, img: image.Image, buf: []const u8) void {
-        _ = self;
         switch (Backend) {
             .OpenGL => {
                 gl.activeTexture(gl.GL_TEXTURE0 + 0);

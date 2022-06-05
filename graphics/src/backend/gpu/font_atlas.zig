@@ -29,6 +29,7 @@ pub const FontAtlas = struct {
     alloc: std.mem.Allocator,
 
     linear_filter: bool,
+    dirty: bool,
 
     const Self = @This();
 
@@ -46,6 +47,7 @@ pub const FontAtlas = struct {
             .image = undefined,
             .gl_buf = undefined,
             .linear_filter = linear_filter,
+            .dirty = false,
         };
         self.image = g.image_store.createImageFromBitmap(width, height, null, linear_filter);
 
@@ -153,7 +155,10 @@ pub const FontAtlas = struct {
     }
 
     pub fn markDirtyBuffer(self: *Self) void {
-        self.g.batcher.addNextPreFlushTask(self, syncFontAtlasToGpu);
+        if (!self.dirty) {
+            self.dirty = true;
+            self.g.batcher.addNextPreFlushTask(self, syncFontAtlasToGpu);
+        }
     }
 
     pub fn dumpBufferToDisk(self: Self, filename: [*:0]const u8) void {
@@ -165,6 +170,7 @@ pub const FontAtlas = struct {
 /// Updates gpu texture before current draw call batch is sent to gpu.
 fn syncFontAtlasToGpu(ptr: ?*anyopaque) void {
     const self = stdx.mem.ptrCastAlign(*FontAtlas, ptr);
+    self.dirty = false;
 
     // Send bitmap data.
     // TODO: send only subimage that changed.

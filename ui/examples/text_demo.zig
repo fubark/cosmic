@@ -198,11 +198,11 @@ pub fn main() !void {
     app.init("Text Demo");
     defer app.deinit();
 
-    _ = app.g.addFontOTB(&.{
+    _ = app.gctx.addFontOTB(&.{
         .{ .data = tamzen9_otb, .size = 9 },
     });
-    const emoji_font = app.g.addFontTTF(NotoColorEmoji);
-    app.g.addFallbackFont(emoji_font);
+    const emoji_font = app.gctx.addFontTTF(NotoColorEmoji);
+    app.gctx.addFallbackFont(emoji_font);
 
     app.runEventLoop(update);
 }

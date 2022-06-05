@@ -105,7 +105,7 @@ pub const TextGlyphIterator = struct {
 
     pub inline fn nextCodepoint(self: *Self) bool {
         switch (Backend) {
-            .OpenGL => return gpu.TextGlyphIterator.nextCodepoint(&self.inner, &self.state, {}, null),
+            .OpenGL, .Vulkan => return gpu.TextGlyphIterator.nextCodepoint(&self.inner, &self.state, {}, null),
             .Test => return testg.TextGlyphIterator.nextCodepoint(&self.inner, &self.state),
             else => stdx.unsupported(),
         }
@@ -113,7 +113,7 @@ pub const TextGlyphIterator = struct {
 
     pub inline fn setIndex(self: *Self, i: usize) void {
         switch (Backend) {
-            .OpenGL => return gpu.TextGlyphIterator.setIndex(&self.inner, i),
+            .OpenGL, .Vulkan => return gpu.TextGlyphIterator.setIndex(&self.inner, i),
             .Test => return testg.TextGlyphIterator.setIndex(&self.inner, i),
             else => stdx.unsupported(),
         }

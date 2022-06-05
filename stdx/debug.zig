@@ -57,7 +57,7 @@ const EnableTimerTrace = builtin.mode == .Debug;
 const TimerTrace = struct {
     timer: if (EnableTimerTrace) std.time.Timer else void,
 
-    pub fn endPrint(self: @This(), msg: []const u8) void {
+    pub fn endPrint(self: *TimerTrace, msg: []const u8) void {
         if (EnableTimerTrace) {
             const now = self.timer.read();
             log.debug("{s}: {d:.3}ms", .{ msg, @intToFloat(f32, now) / 1e6 });
