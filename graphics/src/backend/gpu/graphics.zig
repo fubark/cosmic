@@ -300,13 +300,26 @@ pub const Graphics = struct {
     pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         // log.debug("clipRect {} {} {} {}", .{x, y, width, height});
 
-        self.cur_clip_rect = .{
-            .x = x,
-            // clip-y starts at bottom.
-            .y = @intToFloat(f32, self.cur_buf_height) - (y + height),
-            .width = width,
-            .height = height,
-        };
+        switch (Backend) {
+            .OpenGL => {
+                self.cur_clip_rect = .{
+                    .x = x,
+                    // clip-y starts at bottom.
+                    .y = @intToFloat(f32, self.cur_buf_height) - (y + height),
+                    .width = width,
+                    .height = height,
+                };
+            },
+            .Vulkan => {
+                self.cur_clip_rect = .{
+                    .x = x,
+                    .y = y,
+                    .width = width,
+                    .height = height,
+                };
+            },
+            else => {},
+        }
         self.cur_scissors = true;
 
         // Execute current draw calls before we alter state.
