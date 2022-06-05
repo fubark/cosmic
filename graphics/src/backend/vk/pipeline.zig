@@ -139,6 +139,18 @@ pub fn createDefaultPipeline(
         .flags = 0,
     };
 
+    // DynamicState
+    const dynamic_states = [_]vk.VkDynamicState{
+        vk.VK_DYNAMIC_STATE_SCISSOR,
+    };
+    const dynamic_state_info = vk.VkPipelineDynamicStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 1,
+        .flags = 0,
+        .pDynamicStates = &dynamic_states,
+        .pNext = null,
+    };
+
     var pipeline_layout: vk.VkPipelineLayout = undefined;
     var res = vk.createPipelineLayout(device, &pl_info, null, &pipeline_layout);
 
@@ -160,7 +172,7 @@ pub fn createDefaultPipeline(
         .flags = 0,
         .pTessellationState = null,
         .pDepthStencilState = null,
-        .pDynamicState = null,
+        .pDynamicState = &dynamic_state_info,
         .basePipelineIndex = 0,
     }};
 

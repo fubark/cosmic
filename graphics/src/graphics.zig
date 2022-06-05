@@ -958,7 +958,7 @@ pub const Graphics = struct {
 
     pub fn pushState(self: *Self) void {
         switch (Backend) {
-            .OpenGL => gpu.Graphics.pushState(&self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.pushState(&self.impl),
             .WasmCanvas => canvas.Graphics.save(&self.impl),
             else => stdx.unsupported(),
         }
@@ -966,7 +966,7 @@ pub const Graphics = struct {
 
     pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL => gpu.Graphics.clipRect(&self.impl, x, y, width, height),
+            .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x, y, width, height),
             .WasmCanvas => canvas.Graphics.clipRect(&self.impl, x, y, width, height),
             else => stdx.unsupported(),
         }
@@ -974,7 +974,7 @@ pub const Graphics = struct {
 
     pub fn popState(self: *Self) void {
         switch (Backend) {
-            .OpenGL => gpu.Graphics.popState(&self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.popState(&self.impl),
             .WasmCanvas => canvas.Graphics.restore(&self.impl),
             else => stdx.unsupported(),
         }

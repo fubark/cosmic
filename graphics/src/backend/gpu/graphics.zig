@@ -82,6 +82,7 @@ pub const Graphics = struct {
             tex_desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
             gradient_pipeline: gvk.Pipeline,
+            cur_cmd_buf: vk.VkCommandBuffer,
         },
         else => @compileError("unsupported"),
     },
@@ -307,13 +308,34 @@ pub const Graphics = struct {
             .height = height,
         };
         self.cur_scissors = true;
-        const r = self.cur_clip_rect;
 
         // Execute current draw calls before we alter state.
         self.endCmd();
 
-        gl.scissor(@floatToInt(c_int, r.x), @floatToInt(c_int, r.y), @floatToInt(c_int, r.width), @floatToInt(c_int, r.height));
-        gl.enable(gl.GL_SCISSOR_TEST);
+        self.clipRectCmd(self.cur_clip_rect);
+    }
+
+    fn clipRectCmd(self: Self, rect: geom.Rect) void {
+        switch (Backend) {
+            .OpenGL => {
+                gl.scissor(@floatToInt(c_int, rect.x), @floatToInt(c_int, rect.y), @floatToInt(c_int, rect.width), @floatToInt(c_int, rect.height));
+                gl.enable(gl.GL_SCISSOR_TEST);
+            },
+            .Vulkan => {
+                const vk_rect = vk.VkRect2D{
+                    .offset = .{
+                        .x = @floatToInt(i32, rect.x),
+                        .y = @floatToInt(i32, rect.y),
+                    },
+                    .extent = .{
+                        .width = @floatToInt(u32, rect.width),
+                        .height = @floatToInt(u32, rect.height),
+                    },
+                };
+                vk.cmdSetScissor(self.inner.cur_cmd_buf, 0, 1, &vk_rect);
+            },
+            else => {},
+        }
     }
 
     pub fn resetTransform(self: *Self) void {
@@ -342,9 +364,17 @@ pub const Graphics = struct {
             const r = state.clip_rect;
             self.clipRect(r.x, r.y, r.width, r.height);
         } else {
-            // log.debug("disable scissors", .{});
             self.cur_scissors = false;
-            gl.disable(gl.GL_SCISSOR_TEST);
+            switch (Backend) {
+                .OpenGL => {
+                    gl.disable(gl.GL_SCISSOR_TEST);
+                },
+                .Vulkan => {
+                    const r = state.clip_rect;
+                    self.clipRect(r.x, r.y, r.width, r.height);
+                },
+                else => {},
+            }
         }
         if (state.blend_mode != self.cur_blend_mode) {
             self.setBlendMode(state.blend_mode);
@@ -1799,8 +1829,18 @@ pub const Graphics = struct {
     pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, image_idx: u32, frame_idx: u32) void {
         self.cur_buf_width = buf_width;
         self.cur_buf_height = buf_height;
-
+        self.inner.cur_cmd_buf = self.inner.ctx.cmd_bufs[image_idx];
         self.batcher.resetStateVK(self.white_tex, image_idx, frame_idx, self.clear_color);
+
+        self.cur_clip_rect = .{
+            .x = 0,
+            .y = 0,
+            .width = @intToFloat(f32, buf_width),
+            .height = @intToFloat(f32, buf_height),
+        };
+        self.cur_scissors = false;
+
+        self.clipRectCmd(self.cur_clip_rect);
     }
 
     /// Begin frame sets up the context before any other draw call.
