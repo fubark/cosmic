@@ -1052,11 +1052,11 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
 pub fn MixinContextFontOps(comptime Context: type) type {
     return struct {
 
-        pub inline fn getFontVMetrics(self: Context, font_id: FontId, font_size: f32) graphics.font.VMetrics {
+        pub inline fn getFontVMetrics(self: Context, font_id: FontId, font_size: f32) graphics.VMetrics {
             return self.common.getFontVMetrics(font_id, font_size);
         }
 
-        pub inline fn getPrimaryFontVMetrics(self: Context, font_gid: FontGroupId, font_size: f32) graphics.font.VMetrics {
+        pub inline fn getPrimaryFontVMetrics(self: Context, font_gid: FontGroupId, font_size: f32) graphics.VMetrics {
             return self.common.getPrimaryFontVMetrics(font_gid, font_size);
         }
 

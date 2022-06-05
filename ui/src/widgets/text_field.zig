@@ -21,7 +21,7 @@ pub const TextField = struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
         focused_border_color: Color = Color.Blue,
-        font_id: graphics.font.FontId = NullId,
+        font_id: graphics.FontId = NullId,
         font_size: f32 = 20,
         onChangeEnd: ?Function(fn ([]const u8) void) = null,
         onKeyDown: ?Function(fn (ui.WidgetRef(Self), KeyDownEvent) void) = null,
@@ -248,7 +248,7 @@ pub const TextFieldInner = struct {
     props: struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
-        font_id: graphics.font.FontId = NullId,
+        font_id: graphics.FontId = NullId,
         placeholder: ?[]const u8 = null,
         text: []const u8 = "",
     },
