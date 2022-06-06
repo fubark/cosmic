@@ -69,7 +69,7 @@ pub const VkContext = struct {
 
         ret.pass = renderpass.createRenderPass(ret.device, swapchain.impl.buf_format);
 
-        ret.framebuffers = framebuffer.createFramebuffers(alloc, ret.device, ret.pass, ret.framebuffer_size, swapchain.impl.image_views);
+        ret.framebuffers = framebuffer.createFramebuffers(alloc, ret.device, ret.pass, ret.framebuffer_size, swapchain.impl.image_views, swapchain.impl.depth_image_views);
 
         ret.default_linear_sampler = ret.createDefaultTextureSampler(true);
         ret.default_nearest_sampler = ret.createDefaultTextureSampler(false);
@@ -119,7 +119,7 @@ pub const VkContext = struct {
         var tex_image: vk.VkImage = undefined;
         var tex_image_mem: vk.VkDeviceMemory = undefined;
 
-        self.createVkImage(width, height,
+        image.createDefaultImage(self.physical, self.device, width, height,
             vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_TILING_OPTIMAL,
             vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT | vk.VK_IMAGE_USAGE_SAMPLED_BIT, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &tex_image, &tex_image_mem);
@@ -171,47 +171,6 @@ pub const VkContext = struct {
         const res = vk.createSampler(self.device, &create_info, null, &ret);
         vk.assertSuccess(res);
         return ret;
-    }
-
-    fn createVkImage(self: Self, width: usize, height: usize, format: vk.VkFormat, tiling: vk.VkImageTiling, usage: vk.VkImageUsageFlags, properties: vk.VkMemoryPropertyFlags, img: *vk.VkImage, image_mem: *vk.VkDeviceMemory) void {
-        const create_info = vk.VkImageCreateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = vk.VK_IMAGE_TYPE_2D,
-            .extent = .{
-                .width = @intCast(u32, width),
-                .height = @intCast(u32, height),
-                .depth = 1,
-            },
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .format = format,
-            .tiling = tiling,
-            .initialLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
-            .usage = usage,
-            .sharingMode = vk.VK_SHARING_MODE_EXCLUSIVE,
-            .samples = vk.VK_SAMPLE_COUNT_1_BIT,
-            .flags = 0,
-            .pNext = null,
-            .queueFamilyIndexCount = 0,
-            .pQueueFamilyIndices = null,
-        };
-        var res = vk.createImage(self.device, &create_info, null, img);
-        vk.assertSuccess(res);
-
-        var mem_requirements: vk.VkMemoryRequirements = undefined;
-        vk.getImageMemoryRequirements(self.device, img.*, &mem_requirements);
-
-        var alloc_info = vk.VkMemoryAllocateInfo{
-            .sType = vk.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = mem_requirements.size,
-            .memoryTypeIndex = memory.findMemoryType(self.physical, mem_requirements.memoryTypeBits, properties),
-            .pNext = null,
-        };
-        res = vk.allocateMemory(self.device, &alloc_info, null, image_mem);
-        vk.assertSuccess(res);
-
-        res = vk.bindImageMemory(self.device, img.*, image_mem.*, 0);
-        vk.assertSuccess(res);
     }
 
     fn beginSingleTimeCommands(self: Self) vk.VkCommandBuffer {
@@ -407,10 +366,12 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
 
     const vert_src align(4) = shaders.gradient_vert_spv;
     const frag_src align(4) = shaders.gradient_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info);
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
+        .depth_test = false,
+    });
 }
 
-pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout, depth_test: bool) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -467,7 +428,9 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
 
     const vert_src align(4) = shaders.tex_vert_spv;
     const frag_src align(4) = shaders.tex_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info);
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
+        .depth_test = depth_test,
+    });
 }
 
 // TODO: Implement a list of pools. Once a pool runs out of space a new one is created.
@@ -531,3 +494,15 @@ pub fn createTexDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayou
     vk.assertSuccess(res);
     return set_layout;
 }
+
+pub const Pipelines = struct {
+    tex_pipeline: Pipeline,
+    tex_pipeline_2d: Pipeline,
+    gradient_pipeline_2d: Pipeline,
+
+    pub fn deinit(self: Pipelines, device: vk.VkDevice) void {
+        self.tex_pipeline.deinit(device);
+        self.tex_pipeline_2d.deinit(device);
+        self.gradient_pipeline_2d.deinit(device);
+    }
+};

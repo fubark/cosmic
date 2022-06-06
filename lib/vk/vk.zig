@@ -836,3 +836,11 @@ pub fn assertSuccess(res: c.VkResult) void {
         @panic("expected success");
     }
 }
+
+pub fn fromBool(b: bool) c.VkBool32 {
+    if (b) {
+        return c.VK_TRUE;
+    } else {
+        return c.VK_FALSE;
+    }
+}

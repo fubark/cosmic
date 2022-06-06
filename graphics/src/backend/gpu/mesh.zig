@@ -193,6 +193,13 @@ pub const TexShaderVertex = packed struct {
         self.pos_w = 1;
     }
 
+    pub fn setXYZ(self: *Self, x: f32, y: f32, z: f32) void {
+        self.pos_x = x;
+        self.pos_y = y;
+        self.pos_z = z;
+        self.pos_w = 1;
+    }
+
     pub fn setColor(self: *Self, color: Color) void {
         self.color_r = @intToFloat(f32, color.channels.r) / 255;
         self.color_g = @intToFloat(f32, color.channels.g) / 255;

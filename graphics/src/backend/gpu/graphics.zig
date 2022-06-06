@@ -78,10 +78,9 @@ pub const Graphics = struct {
         },
         .Vulkan => struct {
             ctx: VkContext,
-            tex_pipeline: gvk.Pipeline,
+            pipelines: gvk.Pipelines,
             tex_desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
-            gradient_pipeline: gvk.Pipeline,
             cur_cmd_buf: vk.VkCommandBuffer,
         },
         else => @compileError("unsupported"),
@@ -91,7 +90,6 @@ pub const Graphics = struct {
 
     cur_proj_transform: Transform,
     view_transform: Transform,
-    initial_mvp: Mat4,
     cur_buf_width: u32,
     cur_buf_height: u32,
 
@@ -175,10 +173,11 @@ pub const Graphics = struct {
         var index_buf_mem: vk.VkDeviceMemory = undefined;
         gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 10000 * 3, &index_buf, &index_buf_mem);
 
-        self.inner.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout);
-        self.inner.gradient_pipeline = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
+        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true);
+        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false);
+        self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.tex_pipeline, self.inner.gradient_pipeline, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.pipelines, &self.image_store);
     }
     
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
@@ -201,7 +200,6 @@ pub const Graphics = struct {
             .cur_line_width_half = undefined,
             .cur_proj_transform = undefined,
             .view_transform = undefined,
-            .initial_mvp = undefined,
             .image_store = image.ImageStore.init(alloc, self),
             .state_stack = std.ArrayList(DrawState).init(alloc),
             .cur_clip_rect = undefined,
@@ -260,8 +258,7 @@ pub const Graphics = struct {
             },
             .Vulkan => {
                 const device = self.inner.ctx.device;
-                self.inner.tex_pipeline.deinit(device);
-                self.inner.gradient_pipeline.deinit(device);
+                self.inner.pipelines.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
                 vk.destroyDescriptorPool(device, self.inner.tex_desc_pool, null);
@@ -1591,7 +1588,25 @@ pub const Graphics = struct {
         }
     }
 
-    /// Assumes pts are in ccw order.
+    /// Points of front face is in ccw order.
+    pub fn fillTriangle3D(self: *Self, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
+        self.batcher.beginTex3D(self.white_tex);
+        self.ensureUnusedBatchCapacity(3, 3);
+
+        var vert: TexShaderVertex = undefined;
+        vert.setColor(self.cur_fill_color);
+        vert.setUV(0, 0); // Don't map uvs for now.
+
+        const start_idx = self.batcher.mesh.getNextIndexId();
+        vert.setXYZ(x1, y1, z1);
+        self.batcher.mesh.addVertex(&vert);
+        vert.setXYZ(x2, y2, z2);
+        self.batcher.mesh.addVertex(&vert);
+        vert.setXYZ(x3, y3, z3);
+        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.addTriangle(start_idx, start_idx + 1, start_idx + 2);
+    }
+
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         self.setCurrentTexture(self.white_tex);
         self.ensureUnusedBatchCapacity(3, 3);
@@ -1914,12 +1929,18 @@ pub const Graphics = struct {
 
     pub fn setCamera(self: *Self, cam: graphics.Camera) void {
         self.cur_proj_transform = cam.proj_transform;
-        self.view_transform = Transform.initIdentity();
-        self.batcher.mvp = Transform.initRowMajor(cam.initial_mvp);
+        self.view_transform = cam.view_transform;
+        self.batcher.mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
         self.view_transform.translate(x, y);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
+    }
+
+    pub fn translate3D(self: *Self, x: f32, y: f32, z: f32) void {
+        self.view_transform.translate3D(x, y, z);
         const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         self.batcher.beginMvp(mvp);
     }
@@ -1930,8 +1951,20 @@ pub const Graphics = struct {
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn rotate(self: *Self, rad: f32) void {
+    pub fn rotateZ(self: *Self, rad: f32) void {
         self.view_transform.rotateZ(rad);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
+    }
+
+    pub fn rotateX(self: *Self, rad: f32) void {
+        self.view_transform.rotateX(rad);
+        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(mvp);
+    }
+
+    pub fn rotateY(self: *Self, rad: f32) void {
+        self.view_transform.rotateY(rad);
         const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         self.batcher.beginMvp(mvp);
     }

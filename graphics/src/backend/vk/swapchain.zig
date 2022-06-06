@@ -1,11 +1,12 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const platform = @import("platform");
 const vk = @import("vk");
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
-const cs_vk = graphics.vk;
+const gvk = graphics.vk;
 const log = stdx.log.scoped(.swapchain);
 
 pub const SwapChain = struct {
@@ -19,6 +20,10 @@ pub const SwapChain = struct {
 
     images: []vk.VkImage,
     image_views: []vk.VkImageView,
+
+    depth_images: []vk.VkImage,
+    depth_images_mem: []vk.VkDeviceMemory,
+    depth_image_views: []vk.VkImageView,
 
     buf_format: vk.VkFormat,
     buf_dim: vk.VkExtent2D,
@@ -40,6 +45,9 @@ pub const SwapChain = struct {
             .buf_dim = undefined,
             .images = undefined,
             .image_views = undefined,
+            .depth_images = undefined,
+            .depth_images_mem = undefined,
+            .depth_image_views = undefined,
             .cur_frame_idx = 0,
             .device = w.impl.inner.device,
             .swapchain = undefined,
@@ -47,14 +55,14 @@ pub const SwapChain = struct {
             .present_queue = undefined,
         };
 
-        const physical_device = w.impl.inner.physical_device;
+        const physical = w.impl.inner.physical_device;
         const surface = w.impl.inner.surface;
         const device = w.impl.inner.device;
         const queue_family = w.impl.inner.queue_family;
 
         vk.getDeviceQueue(device, queue_family.present_family.?, 0, &self.present_queue);
 
-        const swapc_info = platform.window_sdl.vkQuerySwapChainSupport(alloc, physical_device, surface);
+        const swapc_info = platform.window_sdl.vkQuerySwapChainSupport(alloc, physical, surface);
         defer swapc_info.deinit(alloc);
 
         const surface_format = swapc_info.getDefaultSurfaceFormat();
@@ -97,14 +105,23 @@ pub const SwapChain = struct {
 
         res = vk.getSwapchainImagesKHR(device, self.swapchain, &image_count, null);
         vk.assertSuccess(res);
-        self.images = alloc.alloc(vk.VkImage, image_count) catch stdx.fatal();
+        self.images = alloc.alloc(vk.VkImage, image_count) catch fatal();
         res = vk.getSwapchainImagesKHR(device, self.swapchain, &image_count, self.images.ptr);
         vk.assertSuccess(res);
 
         // Create image views.
-        self.image_views = alloc.alloc(vk.VkImageView, self.images.len) catch stdx.fatal();
+        self.image_views = alloc.alloc(vk.VkImageView, self.images.len) catch fatal();
         for (self.images) |image, i| {
-            self.image_views[i] = cs_vk.image.createDefaultImageView(device, image, self.buf_format);
+            self.image_views[i] = gvk.image.createDefaultImageView(device, image, self.buf_format);
+        }
+
+        self.depth_images = alloc.alloc(vk.VkImage, image_count) catch fatal();
+        self.depth_images_mem = alloc.alloc(vk.VkDeviceMemory, image_count) catch fatal();
+        self.depth_image_views = alloc.alloc(vk.VkImageView, image_count) catch fatal();
+        for (self.depth_images) |_, i| {
+            gvk.image.createDefaultImage(physical, device, self.buf_dim.width, self.buf_dim.height, vk.VK_FORMAT_D32_SFLOAT, vk.VK_IMAGE_TILING_OPTIMAL,
+                vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &self.depth_images[i], &self.depth_images_mem[i]);
+            self.depth_image_views[i] = gvk.image.createDefaultImageView(device, self.depth_images[i], vk.VK_FORMAT_D32_SFLOAT);
         }
 
         createSyncObjects(self);
@@ -126,6 +143,21 @@ pub const SwapChain = struct {
         for (self.inflight_fences) |fence| {
             vk.destroyFence(self.device, fence, null);
         }
+
+        for (self.depth_image_views) |image_view| {
+            vk.destroyImageView(self.device, image_view, null);
+        }
+        alloc.free(self.depth_image_views);
+
+        for (self.depth_images) |image| {
+            vk.destroyImage(self.device, image, null);
+        }
+        alloc.free(self.depth_images);
+
+        for (self.depth_images_mem) |mem| {
+            vk.freeMemory(self.device, mem, null);
+        }
+        alloc.free(self.depth_images_mem);
 
         for (self.image_views) |image_view| {
             vk.destroyImageView(self.device, image_view, null);

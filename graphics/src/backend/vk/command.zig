@@ -45,8 +45,16 @@ pub fn beginCommandBuffer(cmd_buf: vk.VkCommandBuffer) void {
 }
 
 pub fn beginRenderPass(cmd_buf: vk.VkCommandBuffer, pass: vk.VkRenderPass, framebuffer: vk.VkFramebuffer, extent: vk.VkExtent2D, clear_color: graphics.Color) void {
-    const vk_clear_color = vk.VkClearValue{
-        .color = vk.VkClearColorValue{ .float32 = clear_color.toFloatArray() },
+    const clear_vals = [_]vk.VkClearValue{
+        vk.VkClearValue{
+            .color = vk.VkClearColorValue{ .float32 = clear_color.toFloatArray() },
+        },
+        vk.VkClearValue{
+            .depthStencil = vk.VkClearDepthStencilValue{
+                .depth = 0,
+                .stencil = 0,
+            },
+        },
     };
     const begin_info = vk.VkRenderPassBeginInfo{
         .sType = vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -56,8 +64,8 @@ pub fn beginRenderPass(cmd_buf: vk.VkCommandBuffer, pass: vk.VkRenderPass, frame
             .offset = vk.VkOffset2D{ .x = 0, .y = 0 },
             .extent = extent,
         },
-        .clearValueCount = 1,
-        .pClearValues = &vk_clear_color,
+        .clearValueCount = clear_vals.len,
+        .pClearValues = &clear_vals,
         .pNext = null,
     };
     vk.cmdBeginRenderPass(cmd_buf, &begin_info, vk.VK_SUBPASS_CONTENTS_INLINE);

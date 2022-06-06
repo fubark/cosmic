@@ -12,6 +12,10 @@ pub const Pipeline = struct {
     }
 };
 
+const PipelineOptions = struct {
+    depth_test: bool = true,
+};
+
 pub fn createDefaultPipeline(
     device: vk.VkDevice,
     pass: vk.VkRenderPass,
@@ -20,6 +24,7 @@ pub fn createDefaultPipeline(
     frag_spv: []align(4) const u8,
     pvis_info: vk.VkPipelineVertexInputStateCreateInfo,
     pl_info: vk.VkPipelineLayoutCreateInfo,
+    opts: PipelineOptions,
 ) Pipeline {
     const vert_mod = gvk.shader.createShaderModule(device, vert_spv);
     const frag_mod = gvk.shader.createShaderModule(device, frag_spv);
@@ -60,8 +65,8 @@ pub fn createDefaultPipeline(
         .y = 0.0,
         .width = @intToFloat(f32, view_dim.width),
         .height = @intToFloat(f32, view_dim.height),
-        .minDepth = 0.0,
-        .maxDepth = 1.0,
+        .minDepth = 0,
+        .maxDepth = 1,
     }};
     const scissor = [_]vk.VkRect2D{vk.VkRect2D{
         .offset = vk.VkOffset2D{ .x = 0, .y = 0 },
@@ -139,16 +144,35 @@ pub fn createDefaultPipeline(
         .flags = 0,
     };
 
-    // DynamicState
+    // DynamicState, allow these states to by dynamically set in command buffers.
     const dynamic_states = [_]vk.VkDynamicState{
         vk.VK_DYNAMIC_STATE_SCISSOR,
+        // VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE isn't widely supported.
     };
     const dynamic_state_info = vk.VkPipelineDynamicStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .dynamicStateCount = 1,
+        .dynamicStateCount = dynamic_states.len,
         .flags = 0,
         .pDynamicStates = &dynamic_states,
         .pNext = null,
+    };
+
+    // DepthStencilState
+    const depth_stencil_state = vk.VkPipelineDepthStencilStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .depthTestEnable = vk.fromBool(opts.depth_test),
+        .depthWriteEnable = vk.fromBool(opts.depth_test),
+        // Note that this will overwrite fragments if the depth is greater than what's in the buffer.
+        // This implies that 0 is the far side and should be the clear value while 1 is the near side.
+        .depthCompareOp = vk.VK_COMPARE_OP_GREATER,
+        .depthBoundsTestEnable = vk.VK_FALSE,
+        .minDepthBounds = 0,
+        .maxDepthBounds = 1,
+        .stencilTestEnable = vk.VK_FALSE,
+        .front = std.mem.zeroInit(vk.VkStencilOpState, .{}),
+        .back = std.mem.zeroInit(vk.VkStencilOpState, .{}),
     };
 
     var pipeline_layout: vk.VkPipelineLayout = undefined;
@@ -171,7 +195,7 @@ pub fn createDefaultPipeline(
         .pNext = null,
         .flags = 0,
         .pTessellationState = null,
-        .pDepthStencilState = null,
+        .pDepthStencilState = &depth_stencil_state,
         .pDynamicState = &dynamic_state_info,
         .basePipelineIndex = 0,
     }};

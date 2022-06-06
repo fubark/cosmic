@@ -24,10 +24,11 @@ const log = stdx.log.scoped(.batcher);
 
 const NullId = std.math.maxInt(u32);
 
-const ShaderType = enum(u2) {
+const ShaderType = enum(u3) {
     Tex = 0,
-    Gradient = 1,
-    Custom = 2,
+    Tex3D = 1,
+    Gradient = 2,
+    Custom = 3,
 };
 
 const PreFlushTask = struct {
@@ -66,8 +67,7 @@ pub const Batcher = struct {
         .Vulkan => struct {
             ctx: gvk.VkContext,
             cur_cmd_buf: vk.VkCommandBuffer,
-            tex_pipeline: gvk.Pipeline,
-            gradient_pipeline: gvk.Pipeline,
+            pipelines: gvk.Pipelines,
             vert_buf: vk.VkBuffer,
             vert_buf_mem: vk.VkDeviceMemory,
             index_buf: vk.VkBuffer,
@@ -123,7 +123,9 @@ pub const Batcher = struct {
 
     pub fn initVK(alloc: std.mem.Allocator,
         vert_buf: vk.VkBuffer, vert_buf_mem: vk.VkDeviceMemory, index_buf: vk.VkBuffer, index_buf_mem: vk.VkDeviceMemory,
-        vk_ctx: gvk.VkContext, tex_pipeline: gvk.Pipeline, gradient_pipeline: gvk.Pipeline, image_store: *graphics.gpu.ImageStore
+        vk_ctx: gvk.VkContext,
+        pipelines: gvk.Pipelines,
+        image_store: *graphics.gpu.ImageStore
     ) Self {
         var new = Self{
             .mesh = Mesh.init(alloc),
@@ -144,8 +146,7 @@ pub const Batcher = struct {
             .inner = .{
                 .ctx = vk_ctx,
                 .cur_cmd_buf = undefined,
-                .tex_pipeline = tex_pipeline,
-                .gradient_pipeline = gradient_pipeline,
+                .pipelines = pipelines,
                 .vert_buf = vert_buf,
                 .vert_buf_mem = vert_buf_mem,
                 .index_buf = index_buf,
@@ -197,6 +198,15 @@ pub const Batcher = struct {
         if (self.cur_shader_type != .Tex) {
             self.endCmd();
             self.cur_shader_type = .Tex;
+            return;
+        }
+        self.setTexture(image);
+    }
+
+    pub fn beginTex3D(self: *Self, image: ImageTex) void {
+        if (self.cur_shader_type != .Tex3D) {
+            self.endCmd();
+            self.cur_shader_type = .Tex3D;
             return;
         }
         self.setTexture(image);
@@ -325,27 +335,31 @@ pub const Batcher = struct {
         self.mesh.addVertexData(num_verts, num_indices, data);
     }
 
+    pub fn endCmdForce(self: *Self) void {
+        // Run pre flush callbacks.
+        if (self.pre_flush_tasks.items.len > 0) {
+            for (self.pre_flush_tasks.items) |it| {
+                it.cb(it.ctx);
+            }
+            self.pre_flush_tasks.clearRetainingCapacity();
+        }
+
+        self.pushDrawCall();
+        switch (Backend) {
+            .OpenGL => {
+                self.mesh.reset();
+            },
+            .Vulkan => {
+                self.cmd_vert_start_idx = self.mesh.cur_vert_buf_size;
+                self.cmd_index_start_idx = self.mesh.cur_index_buf_size;
+            },
+            else => {},
+        }
+    }
+
     pub fn endCmd(self: *Self) void {
         if (self.mesh.cur_index_buf_size > self.cmd_index_start_idx) {
-            // Run pre flush callbacks.
-            if (self.pre_flush_tasks.items.len > 0) {
-                for (self.pre_flush_tasks.items) |it| {
-                    it.cb(it.ctx);
-                }
-                self.pre_flush_tasks.clearRetainingCapacity();
-            }
-
-            self.pushDrawCall();
-            switch (Backend) {
-                .OpenGL => {
-                    self.mesh.reset();
-                },
-                .Vulkan => {
-                    self.cmd_vert_start_idx = self.mesh.cur_vert_buf_size;
-                    self.cmd_index_start_idx = self.mesh.cur_index_buf_size;
-                },
-                else => {},
-            }
+            self.endCmdForce();
         }
     }
 
@@ -387,24 +401,35 @@ pub const Batcher = struct {
             .Vulkan => {
                 const cmd_buf = self.inner.cur_cmd_buf;
                 switch (self.cur_shader_type) {
-                    .Tex => {
-                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, self.inner.tex_pipeline.pipeline);
+                    .Tex3D => {
+                        const pipeline = self.inner.pipelines.tex_pipeline;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
-                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, self.inner.tex_pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
 
                         // It's expensive to update a uniform buffer all the time so use push constants.
-                        vk.cmdPushConstants(cmd_buf, self.inner.tex_pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                    },
+                    .Tex => {
+                        const pipeline = self.inner.pipelines.tex_pipeline_2d;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
+
+                        // It's expensive to update a uniform buffer all the time so use push constants.
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     .Gradient => {
-                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, self.inner.gradient_pipeline.pipeline);
-                        vk.cmdPushConstants(cmd_buf, self.inner.gradient_pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                        const pipeline = self.inner.pipelines.gradient_pipeline_2d;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                         const data = GradientFragmentData{
                             .start_pos = self.start_pos,
                             .start_color = self.start_color.toFloatArray(),
                             .end_pos = self.end_pos,
                             .end_color = self.end_color.toFloatArray(),
                         };
-                        vk.cmdPushConstants(cmd_buf, self.inner.gradient_pipeline.layout, vk.VK_SHADER_STAGE_FRAGMENT_BIT, 16 * 4, 4 * 12, &data);
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_FRAGMENT_BIT, 16 * 4, 4 * 12, &data);
                     },
                     else => stdx.unsupported(),
                 }

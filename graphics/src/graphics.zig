@@ -10,7 +10,7 @@ const ft = @import("freetype");
 const platform = @import("platform");
 
 pub const transform = @import("transform.zig");
-const Transform = transform.Transform;
+pub const Transform = transform.Transform;
 pub const svg = @import("svg.zig");
 const SvgPath = svg.SvgPath;
 const draw_cmd = @import("draw_cmd.zig");
@@ -28,6 +28,7 @@ pub const curve = @import("curve.zig");
 const camera = @import("camera.zig");
 pub const Camera = camera.Camera;
 pub const initTextureProjection = camera.initTextureProjection;
+pub const initPerspectiveProjection = camera.initPerspectiveProjection;
 
 pub const tessellator = @import("tessellator.zig");
 pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
@@ -131,11 +132,25 @@ pub const Graphics = struct {
         }
     }
 
-    // Shifts origin to x units to the right and y units down.
+    pub fn setCamera(self: *Self, cam: Camera) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.setCamera(&self.impl, cam),
+            else => stdx.unsupported(),
+        }
+    }
+
+    /// Shifts origin to x units to the right and y units down.
     pub fn translate(self: *Self, x: f32, y: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.translate(&self.impl, x, y),
             .WasmCanvas => canvas.Graphics.translate(&self.impl, x, y),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn translate3D(self: *Self, x: f32, y: f32, z: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.translate3D(&self.impl, x, y, z),
             else => stdx.unsupported(),
         }
     }
@@ -150,10 +165,10 @@ pub const Graphics = struct {
         }
     }
 
-    // Rotates origin by radians clockwise.
+    /// Rotates 2D origin by radians clockwise.
     pub fn rotate(self: *Self, rad: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.rotate(&self.impl, rad),
+            .OpenGL, .Vulkan => gpu.Graphics.rotateZ(&self.impl, rad),
             .WasmCanvas => canvas.Graphics.rotate(&self.impl, rad),
             else => stdx.unsupported(),
         }
@@ -161,6 +176,27 @@ pub const Graphics = struct {
 
     pub fn rotateDeg(self: *Self, deg: f32) void {
         self.rotate(math.degToRad(deg));
+    }
+
+    pub fn rotateZ(self: *Self, rad: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.rotateZ(&self.impl, rad),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn rotateX(self: *Self, rad: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.rotateX(&self.impl, rad),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn rotateY(self: *Self, rad: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.rotateY(&self.impl, rad),
+            else => stdx.unsupported(),
+        }
     }
 
     // Resets the current transform to identity.
@@ -395,6 +431,13 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillTriangle(&self.impl, x1, y1, x2, y2, x3, y3),
             .WasmCanvas => canvas.Graphics.fillTriangle(&self.impl, x1, y1, x2, y2, x3, y3),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn fillTriangle3D(self: *Self, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillTriangle3D(&self.impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
             else => stdx.unsupported(),
         }
     }
