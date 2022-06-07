@@ -399,8 +399,8 @@ pub fn renderDevHud(rt: *RuntimeContext, w: *CsWindow) void {
     }
 
     const g = w.graphics;
-    _ = @intToFloat(f32, w.window.inner.width);
-    const height = @intToFloat(f32, w.window.inner.height);
+    _ = @intToFloat(f32, w.window.impl.width);
+    const height = @intToFloat(f32, w.window.impl.height);
 
     g.setFont(g.getDefaultFontId(), 16);
     var y = height - 70;

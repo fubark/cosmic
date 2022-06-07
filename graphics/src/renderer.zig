@@ -22,8 +22,8 @@ pub const Renderer = struct {
         .Vulkan => struct {
             ctx: gvk.VkContext,
         },
-        .OpenGL => struct {},
-        else => @compileError("unsupported"),
+        .OpenGL => void,
+        else => void,
     },
 
     const Self = @This();
@@ -31,16 +31,20 @@ pub const Renderer = struct {
     /// Creates a renderer that targets a window.
     pub fn init(self: *Self, alloc: std.mem.Allocator, win: *platform.Window) void {
         self.win = win;
-        if (Backend == .Vulkan) {
-            self.swapchain.initVK(alloc, win);
-            
-            const vk_ctx = gvk.VkContext.init(alloc, win, self.swapchain);
-            self.inner.ctx = vk_ctx;
+        switch (Backend) {
+            .Vulkan => {
+                self.swapchain.initVK(alloc, win);
+                
+                const vk_ctx = gvk.VkContext.init(alloc, win, self.swapchain);
+                self.inner.ctx = vk_ctx;
 
-            self.gctx.initVK(alloc, win.impl.dpr, vk_ctx);
-        } else {
-            self.swapchain.init(alloc, win);
-            self.gctx.init(alloc, win.impl.dpr);
+                self.gctx.initVK(alloc, win.impl.dpr, vk_ctx);
+            },
+            .OpenGL => {
+                self.swapchain.init(alloc, win);
+                self.gctx.init(alloc, win.impl.dpr);
+            },
+            else => {},
         }
     }
 

@@ -15,9 +15,9 @@ const log = stdx.log.scoped(.demo);
 
 var dispatcher: platform.EventDispatcher = undefined;
 var win: platform.Window = undefined;
-var swapchain: graphics.SwapChain = undefined;
+var renderer: graphics.Renderer = undefined;
 var cam: graphics.Camera = undefined;
-var g: Graphics = undefined;
+var gctx: *graphics.Graphics = undefined;
 var quit = false;
 
 var zig_logo_svg: []const u8 = undefined;
@@ -51,10 +51,9 @@ pub fn main() !void {
     };
     dispatcher.addOnQuit(null, S.onQuit);
 
-    g.init(alloc, win);
-    defer g.deinit();
-
-    swapchain.init(alloc, &win, &g);
+    renderer.init(alloc, &win);
+    defer renderer.deinit(alloc);
+    gctx = renderer.getGraphics();
 
     cam.init2D(win.getWidth(), win.getHeight());
 
@@ -75,7 +74,8 @@ pub fn main() !void {
 
 // Main loop shared by desktop and web.
 fn update(delta_ms: f32) void {
-    swapchain.beginFrame(cam);
+    renderer.beginFrame(cam);
+    const g = gctx;
 
     g.setFillColor(Color.Black);
     g.fillRect(0, 0, @intToFloat(f32, win.getWidth()), @intToFloat(f32, win.getHeight()));
@@ -194,19 +194,19 @@ fn update(delta_ms: f32) void {
     g.setFont(font_id, 26);
     g.fillTextFmt(1100, 10, "fps {d:.1}", .{fps});
 
-    swapchain.endFrame();
+    renderer.endFrame();
 }
 
 fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 20e6;
 
-    font_id = try g.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
-    const emoji_font = try g.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
-    g.addFallbackFont(emoji_font);
+    font_id = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
+    const emoji_font = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
+    gctx.addFallbackFont(emoji_font);
 
     const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
     defer alloc.free(game_char_data);
-    game_char_image = try g.createImage(game_char_data);
+    game_char_image = try gctx.createImage(game_char_data);
 
     zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
 
@@ -226,13 +226,13 @@ fn deinitAssets(alloc: std.mem.Allocator) void {
 fn rasterizeTigerHead(tiger_head_svg: []const u8) void {
     // Renders the svg to an image and then the image is drawn.
     // The graphics context also supports drawing the svg directly to the main frame buffer, although it isn't recommended for large svgs like the tiger head.
-    tiger_head_image = g.createImageFromBitmap(600, 600, null, true);
-    g.bindImageBuffer(tiger_head_image);
-    g.setFillColor(Color.Transparent);
-    g.fillRect(0, 0, 600, 600);
-    g.translate(200, 200);
-    g.drawSvgContent(tiger_head_svg) catch unreachable;
-    g.flushDraw();
+    tiger_head_image = gctx.createImageFromBitmap(600, 600, null, true);
+    gctx.bindImageBuffer(tiger_head_image);
+    gctx.setFillColor(Color.Transparent);
+    gctx.fillRect(0, 0, 600, 600);
+    gctx.translate(200, 200);
+    gctx.drawSvgContent(tiger_head_svg) catch unreachable;
+    gctx.endCmd();
 }
 
 // Below is the bootstrap code for wasm.
@@ -259,7 +259,9 @@ pub usingnamespace if (IsWasm) struct {
             .anti_alias = true,
         }) catch unreachable;
         win.addDefaultHandlers(&dispatcher);
-        g.init(alloc, win);
+
+        renderer.init(alloc, &win);
+        gctx = renderer.getGraphics();
 
         const S = struct {
             fn onFetchResult(_: ?*anyopaque, e: platform.FetchResultEvent) void {
@@ -267,17 +269,17 @@ pub usingnamespace if (IsWasm) struct {
                     zig_logo_svg = galloc.dupe(u8, e.buf) catch unreachable;
                     loaded_assets += 1;
                 } else if (e.fetch_id == game_char_id) {
-                    game_char_image = g.createImage(e.buf) catch unreachable;
+                    game_char_image = gctx.createImage(e.buf) catch unreachable;
                     loaded_assets += 1;
                 } else if (e.fetch_id == nunito_font_id) {
-                    font_id = g.addFontTTF(e.buf);
+                    font_id = gctx.addFontTTF(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == tiger_head_id) {
                     rasterizeTigerHead(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == noto_emoji_id) {
-                    const emoji_font = g.addFontTTF(e.buf);
-                    g.addFallbackFont(emoji_font);
+                    const emoji_font = gctx.addFontTTF(e.buf);
+                    gctx.addFallbackFont(emoji_font);
                     loaded_assets += 1;
                 }
             }

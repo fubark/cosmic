@@ -1,4 +1,7 @@
+const stdx = @import("../stdx.zig");
+const t = stdx.testing;
 const math = @import("math.zig");
+const log = stdx.log.scoped(.matrix);
 
 const Vec4 = [4]f32;
 
@@ -7,7 +10,7 @@ pub const Mat4 = [16]f32;
 
 // Because we're using row major order, we prefer to do mat * vec where vec is on the right side.
 // In theory it should be faster since more contiguous memory is accessed in order from the bigger matrix on the left.
-pub fn Mul4x4_4x1(a: Mat4, b: Vec4) Vec4 {
+pub fn mul4x4_4x1(a: Mat4, b: Vec4) Vec4 {
     const stride = 4;
     const r0 = 0 * stride;
     const r1 = 1 * stride;
@@ -41,7 +44,7 @@ pub fn Mul4x4_4x1(a: Mat4, b: Vec4) Vec4 {
     };
 }
 
-pub fn Mul4x4_4x4(a: Mat4, b: Mat4) Mat4 {
+pub fn mul4x4_4x4(a: Mat4, b: Mat4) Mat4 {
     const stride = 4;
     const r0 = 0 * stride;
     const r1 = 1 * stride;

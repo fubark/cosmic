@@ -11,7 +11,7 @@ pub const SwapChain = struct {
     impl: switch (Backend) {
         .OpenGL => gl.SwapChain,
         .Vulkan => vk.SwapChain,
-        else => @compileError("unsupported"),
+        else => void,
     },
 
     const Self = @This();

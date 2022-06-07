@@ -2,6 +2,7 @@ const std = @import("std");
 const Pkg = std.build.Pkg;
 
 const platform = @import("../platform/lib.zig");
+const graphics = @import("../graphics/lib.zig");
 const GraphicsBackend = @import("../platform/backend.zig").GraphicsBackend;
 const stdx = @import("../stdx/lib.zig");
 const stb = @import("../lib/stb/lib.zig");

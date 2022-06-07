@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const Backend = build_options.GraphicsBackend;
 const stdx = @import("stdx");
+const Vec2 = stdx.math.Vec2;
 const t = stdx.testing;
 const graphics = @import("graphics.zig");
 const Transform = graphics.transform.Transform;
@@ -27,6 +28,11 @@ pub const Camera = struct {
 };
 
 pub fn initDisplayProjection(width: f32, height: f32) Transform {
+    return initDisplayProjection2(width, height, Backend);
+}
+
+/// Expose for testing.
+inline fn initDisplayProjection2(width: f32, height: f32, comptime backend: @TypeOf(Backend)) Transform {
     var res = Transform.initIdentity();
     // first reduce to [0,1] values
     res.scale(1.0 / width, 1.0 / height);
@@ -34,7 +40,7 @@ pub fn initDisplayProjection(width: f32, height: f32) Transform {
     res.scale(2.0, 2.0);
     // to clip space [-1,1]
     res.translate(-1.0, -1.0);
-    if (Backend == .OpenGL) {
+    if (backend == .OpenGL) {
         // flip y since clip space is based on cartesian
         res.scale(1.0, -1.0);
     }
@@ -42,11 +48,11 @@ pub fn initDisplayProjection(width: f32, height: f32) Transform {
 }
 
 test "initDisplayProjection" {
-    var transform = initDisplayProjection(800, 600);
-    try t.eq(transform.transformPoint(.{ 0, 0, 0, 1 }), .{ -1, 1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 800, 0, 0, 1 }), .{ 1, 1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 800, 600, 0, 1 }), .{ 1, -1, 0, 1 });
-    try t.eq(transform.transformPoint(.{ 0, 600, 0, 1 }), .{ -1, -1, 0, 1 });
+    var transform = initDisplayProjection2(800, 600, .OpenGL);
+    try t.eq(transform.interpolatePt(Vec2.init(0, 0)), Vec2.init(-1, 1));
+    try t.eq(transform.interpolatePt(Vec2.init(800, 0)), Vec2.init(1, 1));
+    try t.eq(transform.interpolatePt(Vec2.init(800, 600)), Vec2.init(1, -1));
+    try t.eq(transform.interpolatePt(Vec2.init(0, 600)), Vec2.init(-1, -1));
 }
 
 /// For drawing to textures. Similar to display projection but y isn't flipped.

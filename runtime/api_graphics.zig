@@ -3,7 +3,7 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const graphics = @import("graphics");
 const Graphics = graphics.Graphics;
-const FontId = graphics.font.FontId;
+const FontId = graphics.FontId;
 const StdColor = graphics.Color;
 const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
@@ -75,8 +75,8 @@ pub const cs_graphics = struct {
 
         /// Path can be absolute or relative to the cwd.
         /// @param path
-        pub fn addTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.font.FontId {
-            return g.addTTF_FontFromPath(path) catch |err| {
+        pub fn addTtfFont(rt: *RuntimeContext, g: *Graphics, path: []const u8) graphics.FontId {
+            return g.addFontFromPathTTF(path) catch |err| {
                 if (err == error.FileNotFound) {
                     v8x.throwErrorExceptionFmt(rt.alloc, rt.isolate, "Could not find file: {s}", .{path});
                     return 0;
@@ -598,12 +598,12 @@ pub fn debugTriangulatePolygon(rt: *RuntimeContext, g: *Graphics, pts: []const f
     }) {
         rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
     }
-    g.g.tessellator.clearBuffers();
-    g.g.tessellator.debugTriangulatePolygons(&.{rt.vec2_buf.items});
+    g.impl.tessellator.clearBuffers();
+    g.impl.tessellator.debugTriangulatePolygons(&.{rt.vec2_buf.items});
 }
 
 pub fn debugTriangulateProcessNext(rt: *RuntimeContext, g: *Graphics) ?ManagedStruct(graphics.tessellator.DebugTriangulateStepResult) {
-    const res = g.g.tessellator.debugProcessNext(rt.alloc) orelse return null;
+    const res = g.impl.tessellator.debugProcessNext(rt.alloc) orelse return null;
     return ManagedStruct(graphics.tessellator.DebugTriangulateStepResult).init(rt.alloc, res);
 }
 

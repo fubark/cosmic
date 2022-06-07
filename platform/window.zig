@@ -113,6 +113,10 @@ pub const Window = struct {
         return self.impl.height;
     }
 
+    pub fn getAspectRatio(self: Self) f32 {
+        return @intToFloat(f32, self.impl.width) / @intToFloat(f32, self.impl.height);
+    }
+
     pub fn minimize(self: Self) void {
         switch (Backend) {
             .OpenGL => WindowSdl.minimize(self.impl),

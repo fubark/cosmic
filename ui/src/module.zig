@@ -2226,7 +2226,7 @@ const TestModule = struct {
     const Self = @This();
 
     pub fn init(self: *Self) void {
-        self.g.init(t.alloc);
+        self.g.init(t.alloc, 1);
         self.mod.init(t.alloc, &self.g);
         self.size = LayoutSize.init(800, 600);
     }
@@ -2491,7 +2491,7 @@ test "Widget instance lifecycle." {
 
 test "Module.update creates or updates existing node" {
     var g: graphics.Graphics = undefined;
-    g.init(t.alloc);
+    g.init(t.alloc, 1);
     defer g.deinit();
 
     const Foo = struct {

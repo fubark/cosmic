@@ -220,7 +220,7 @@ pub const Image = struct {
             image_mem: vk.VkDeviceMemory,
             sampler: vk.VkSampler,
         },
-        else => @compileError("unsupported"),
+        else => void,
     },
     /// Framebuffer used to draw to the texture.
     fbo_id: ?gl.GLuint = null,

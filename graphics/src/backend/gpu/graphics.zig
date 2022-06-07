@@ -1928,6 +1928,7 @@ pub const Graphics = struct {
     }
 
     pub fn setCamera(self: *Self, cam: graphics.Camera) void {
+        self.endCmd();
         self.cur_proj_transform = cam.proj_transform;
         self.view_transform = cam.view_transform;
         self.batcher.mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
