@@ -78,7 +78,7 @@ pub const Mesh = struct {
         self.cur_index_buf_size += 1;
     }
 
-    fn addDeltaIndices(self: *Self, offset: u16, deltas: []const u16) void {
+    pub fn addDeltaIndices(self: *Self, offset: u16, deltas: []const u16) void {
         for (deltas) |it| {
             self.addIndex(offset + it);
         }

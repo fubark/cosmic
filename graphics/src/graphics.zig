@@ -1064,6 +1064,13 @@ pub const Graphics = struct {
             return error.FailedToLoad;
         }
     }
+
+    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillMesh3D(&self.impl, xform, verts, indexes),
+            else => unsupported(),
+        }
+    }
 };
 
 pub const LoadBuffersOptionsGLTF = struct {

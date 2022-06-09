@@ -1715,6 +1715,17 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+        self.batcher.beginTex3D(self.white_tex);
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+        self.batcher.pushMeshData(verts, indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
         _ = self;
         _ = pts;

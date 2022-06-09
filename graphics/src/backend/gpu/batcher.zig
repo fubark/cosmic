@@ -338,6 +338,14 @@ pub const Batcher = struct {
         self.mesh.addVertexData(num_verts, num_indices, data);
     }
 
+    pub fn pushMeshData(self: *Self, verts: []const TexShaderVertex, indexes: []const u16) void {
+        if (!self.ensureUnusedBuffer(verts.len, indexes.len)) {
+            self.endCmd();
+        }
+        const vert_start = self.mesh.addVertices(verts);
+        self.mesh.addDeltaIndices(vert_start, indexes);
+    }
+
     pub fn endCmdForce(self: *Self) void {
         // Run pre flush callbacks.
         if (self.pre_flush_tasks.items.len > 0) {
