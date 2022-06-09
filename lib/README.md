@@ -41,3 +41,6 @@ For desktop font rasterization.
 
 ### vk - Contains zig vk bindings and headers.
 - https://github.com/KhronosGroup/Vulkan-Headers
+
+### cgltf - Load gltf models.
+- https://github.com/jkuhlmann/cgltf (be2ef0f351df3b8c9ef5bdfb7b587b1aebfb4acd)
