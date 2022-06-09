@@ -316,6 +316,56 @@ pub const VkContext = struct {
     }
 };
 
+pub fn createPlanePipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
+    // const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+    //     vk.VkVertexInputBindingDescription{
+    //         .binding = 0,
+    //         .stride = 0,
+    //         .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+    //     },
+    // };
+    // const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        // vk.VkVertexInputAttributeDescription{
+        //     .binding = 0,
+        //     .location = 0,
+        //     .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+        //     .offset = 0,
+        // },
+    // };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 0,
+        .vertexAttributeDescriptionCount = 0,
+        // .pVertexBindingDescriptions = &bind_descriptors,
+        .pVertexBindingDescriptions = null,
+        // .pVertexAttributeDescriptions = &attr_descriptors,
+        .pVertexAttributeDescriptions = null,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = 16 * 4,
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+        .pSetLayouts = null,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range[0],
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.plane_vert_spv;
+    const frag_src align(4) = shaders.plane_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{ .depth_test = false });
+}
+
 pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
@@ -499,10 +549,12 @@ pub const Pipelines = struct {
     tex_pipeline: Pipeline,
     tex_pipeline_2d: Pipeline,
     gradient_pipeline_2d: Pipeline,
+    plane_pipeline: Pipeline,
 
     pub fn deinit(self: Pipelines, device: vk.VkDevice) void {
         self.tex_pipeline.deinit(device);
         self.tex_pipeline_2d.deinit(device);
         self.gradient_pipeline_2d.deinit(device);
+        self.plane_pipeline.deinit(device);
     }
 };

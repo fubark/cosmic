@@ -176,6 +176,7 @@ pub const Graphics = struct {
         self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true);
         self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
+        self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
 
         self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.pipelines, &self.image_store);
     }
@@ -647,6 +648,18 @@ pub const Graphics = struct {
         self.fillRectColor(x + width - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
         // Bottom right corner.
         self.drawCircleArcN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
+    }
+
+    pub fn drawPlane(self: *Self) void {
+        self.batcher.endCmd();
+        self.batcher.cur_shader_type = .Plane;
+        self.batcher.mesh.addIndex(0);
+        self.batcher.mesh.addIndex(1);
+        self.batcher.mesh.addIndex(2);
+        self.batcher.mesh.addIndex(3);
+        self.batcher.mesh.addIndex(4);
+        self.batcher.mesh.addIndex(5);
+        self.batcher.endCmdForce();
     }
 
     pub fn fillRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {

@@ -28,7 +28,8 @@ const ShaderType = enum(u3) {
     Tex = 0,
     Tex3D = 1,
     Gradient = 2,
-    Custom = 3,
+    Plane = 3,
+    Custom = 4,
 };
 
 const PreFlushTask = struct {
@@ -198,6 +199,7 @@ pub const Batcher = struct {
         if (self.cur_shader_type != .Tex) {
             self.endCmd();
             self.cur_shader_type = .Tex;
+            self.setTexture(image);
             return;
         }
         self.setTexture(image);
@@ -207,6 +209,7 @@ pub const Batcher = struct {
         if (self.cur_shader_type != .Tex3D) {
             self.endCmd();
             self.cur_shader_type = .Tex3D;
+            self.setTexture(image);
             return;
         }
         self.setTexture(image);
@@ -430,6 +433,11 @@ pub const Batcher = struct {
                             .end_color = self.end_color.toFloatArray(),
                         };
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_FRAGMENT_BIT, 16 * 4, 4 * 12, &data);
+                    },
+                    .Plane => {
+                        const pipeline = self.inner.pipelines.plane_pipeline;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     else => stdx.unsupported(),
                 }

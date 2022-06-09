@@ -1,6 +1,8 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
+const unsupported = stdx.unsupported;
 const math = stdx.math;
 const Vec2 = math.Vec2;
 const builtin = @import("builtin");
@@ -1026,6 +1028,13 @@ pub const Graphics = struct {
     pub fn getViewTransform(self: Self) Transform {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.getViewTransform(self.impl),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub inline fn drawPlane(self: *Self) void {
+        switch (Backend) {
+            .Vulkan => gpu.Graphics.drawPlane(&self.impl),
             else => stdx.unsupported(),
         }
     }
