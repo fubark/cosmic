@@ -3,10 +3,15 @@ const build_options = @import("build_options");
 const Backend = build_options.GraphicsBackend;
 const stdx = @import("stdx");
 const Vec2 = stdx.math.Vec2;
+const Vec3 = stdx.math.Vec3;
+const Vec4 = stdx.math.Vec4;
 const t = stdx.testing;
 const graphics = @import("graphics.zig");
 const Transform = graphics.transform.Transform;
 const log = stdx.log.scoped(.camera);
+const eqApproxVec2 = stdx.math.eqApproxVec2;
+const eqApproxVec3 = stdx.math.eqApproxVec3;
+const eqApproxVec4 = stdx.math.eqApproxVec4;
 
 // Vulkan clip-space: [-1,1][-1,1][0,1]
 // OpenGL clip-space: [-1,1][-1,1][-1,1]
@@ -14,6 +19,11 @@ const log = stdx.log.scoped(.camera);
 pub const Camera = struct {
     proj_transform: Transform,
     view_transform: Transform,
+
+    world_pos: Vec3,
+    up_nvec: Vec3,
+    right_nvec: Vec3,
+    forward_nvec: Vec3,
 
     /// Logical width and height.
     pub fn init2D(self: *Camera, width: u32, height: u32) void {
@@ -23,7 +33,39 @@ pub const Camera = struct {
 
     pub fn initPerspective3D(self: *Camera, vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) void {
         self.proj_transform = initPerspectiveProjection(vert_fov_deg, aspect_ratio, near, far);
+        self.world_pos = stdx.math.Vec3.init(0, 0, 0);
+        self.setForward(Vec3.init(0, 0, -1));
+    }
+
+    pub fn moveForward(self: *Camera, delta: f32) void {
+        self.world_pos.x += self.forward_nvec.x * delta;
+        self.world_pos.y += self.forward_nvec.y * delta;
+        self.world_pos.z += self.forward_nvec.z * delta;
+        self.computeViewTransform();
+    }
+
+    pub fn moveUp(self: *Camera, delta: f32) void {
+        self.world_pos.x += self.up_nvec.x * delta;
+        self.world_pos.y += self.up_nvec.y * delta;
+        self.world_pos.z += self.up_nvec.z * delta;
+        self.computeViewTransform();
+    }
+
+    pub fn setForward(self: *Camera, forward: Vec3) void {
+        self.forward_nvec = forward.normalize();
+        self.right_nvec = Vec3.init(0, 1, 0).cross(self.forward_nvec).normalize();
+        self.up_nvec = self.forward_nvec.cross(self.right_nvec).normalize();
+        self.computeViewTransform();
+    }
+
+    fn computeViewTransform(self: *Camera) void {
         self.view_transform = Transform.initIdentity();
+        self.view_transform.translate3D(-self.world_pos.x, -self.world_pos.y, -self.world_pos.z);
+        // Use opposite forward, right vectors since eye defaults to looking behind.
+        var xvec = self.right_nvec.mul(-1);
+        var yvec = self.up_nvec;
+        var zvec = self.forward_nvec.mul(-1);
+        self.view_transform.rotate3D(xvec, yvec, zvec);
     }
 };
 
@@ -81,6 +123,30 @@ pub fn initPerspectiveProjection(vert_fov_deg: f32, aspect_ratio: f32, near: f32
         0, 0, a, b,
         0, 0, -1, 0,
     });
+}
+
+test "Perspective camera." {
+    var cam: Camera = undefined;
+    cam.initPerspective3D(60, 2, 0.1, 100);
+
+    try eqApproxVec3(cam.forward_nvec, Vec3.init(0, 0, -1));
+    try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(0, 0, -10, 1));
+
+    // Look downward.
+    cam.setForward(Vec3.init(0, -1, -1));
+    try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(0, std.math.sqrt(50.0), -std.math.sqrt(50.0), 1));
+
+    // Look upward.
+    cam.setForward(Vec3.init(0, 1, -1));
+    try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(0, -std.math.sqrt(50.0), -std.math.sqrt(50.0), 1));
+
+    // Look to the left.
+    cam.setForward(Vec3.init(-1, 0, -1));
+    try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(std.math.sqrt(50.0), 0, -std.math.sqrt(50.0), 1));
+
+    // Look to the right.
+    cam.setForward(Vec3.init(1, 0, -1));
+    try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(-std.math.sqrt(50.0), 0, -std.math.sqrt(50.0), 1));
 }
 
 /// near and far are towards -z.

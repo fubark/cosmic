@@ -106,7 +106,7 @@ pub fn mul4x4_4x4(a: Mat4, b: Mat4) Mat4 {
     };
 }
 
-fn transpose4x4(m: Mat4) Mat4 {
+pub fn transpose4x4(m: Mat4) Mat4 {
     return .{
         m[0], m[4], m[8], m[12],
         m[1], m[5], m[9], m[13],
@@ -135,7 +135,7 @@ test "transpose4x4" {
 
 /// From Mesa's implementation of GLU.
 /// https://stackoverflow.com/questions/1148309/inverting-a-4x4-matrix
-fn invert4x4(m: Mat4, out: *Mat4) bool {
+pub fn invert4x4(m: Mat4, out: *Mat4) bool {
     var inv: [16]f32 = undefined;
 
     inv[0] = m[5]  * m[10] * m[15] - 

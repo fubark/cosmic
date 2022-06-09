@@ -33,8 +33,21 @@ pub const Transform = struct {
         };
     }
 
+    pub fn invert(self: *Self) bool {
+        var res: Mat4 = undefined;
+        if (!math.invert4x4(self.mat, &res)) {
+            return false;
+        }
+        self.mat = res;
+        return true;
+    }
+
     pub fn scale(self: *Self, x: f32, y: f32) void {
         self.mat = math.mul4x4_4x4(getScaling(x, y), self.mat);
+    }
+
+    pub fn scale3D(self: *Self, x: f32, y: f32, z: f32) void {
+        self.mat = math.mul4x4_4x4(getScaling3D(x, y, z), self.mat);
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
@@ -47,6 +60,10 @@ pub const Transform = struct {
 
     pub fn translateVec3D(self: *Self, vec: Vec3) void {
         self.mat = math.mul4x4_4x4(getTranslation3D(vec.x, vec.y, vec.z), self.mat);
+    }
+
+    pub fn rotate3D(self: *Self, xvec: Vec3, yvec: Vec3, zvec: Vec3) void {
+        self.mat = math.mul4x4_4x4(getRotation3D(xvec, yvec, zvec), self.mat);
     }
 
     pub fn rotateX(self: *Self, rad: f32) void {
@@ -113,6 +130,15 @@ fn getTranslation3D(x: f32, y: f32, z: f32) Mat4 {
     };
 }
 
+fn getRotation3D(xvec: Vec3, yvec: Vec3, zvec: Vec3) Mat4 {
+    return .{
+        xvec.x, xvec.y, xvec.z, 0,
+        yvec.x, yvec.y, yvec.z, 0,
+        zvec.x, zvec.y, zvec.z, 0,
+        0, 0, 0, 1,
+    };
+}
+
 fn getRotationX(rad: f32) Mat4 {
     const c = @cos(rad);
     const s = @sin(rad);
@@ -151,6 +177,15 @@ fn getScaling(x: f32, y: f32) Mat4 {
         x, 0, 0, 0,
         0, y, 0, 0,
         0, 0, 1, 0,
+        0, 0, 0, 1,
+    };
+}
+
+fn getScaling3D(x: f32, y: f32, z: f32) Mat4 {
+    return .{
+        x, 0, 0, 0,
+        0, y, 0, 0,
+        0, 0, z, 0,
         0, 0, 0, 1,
     };
 }
