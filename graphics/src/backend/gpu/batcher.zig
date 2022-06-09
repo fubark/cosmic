@@ -29,7 +29,8 @@ const ShaderType = enum(u3) {
     Tex3D = 1,
     Gradient = 2,
     Plane = 3,
-    Custom = 4,
+    Wireframe = 4,
+    Custom = 5,
 };
 
 const PreFlushTask = struct {
@@ -213,6 +214,13 @@ pub const Batcher = struct {
             return;
         }
         self.setTexture(image);
+    }
+
+    pub fn beginWireframe(self: *Self) void {
+        if (self.cur_shader_type != .Wireframe) {
+            self.endCmd();
+            self.cur_shader_type = .Wireframe;
+        }
     }
 
     /// Begins the gradient shader. Will flush previous batched command.
@@ -415,19 +423,20 @@ pub const Batcher = struct {
                     .Tex3D => {
                         const pipeline = self.inner.pipelines.tex_pipeline;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
-
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
 
                         // It's expensive to update a uniform buffer all the time so use push constants.
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
+                    .Wireframe => {
+                        const pipeline = self.inner.pipelines.wireframe_pipeline;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                    },
                     .Tex => {
                         const pipeline = self.inner.pipelines.tex_pipeline_2d;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
-
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
-
-                        // It's expensive to update a uniform buffer all the time so use push constants.
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     .Gradient => {

@@ -14,6 +14,9 @@ pub const Pipeline = struct {
 
 const PipelineOptions = struct {
     depth_test: bool = true,
+
+    // Draw line vs filling triangles.
+    line_mode: bool = false,
 };
 
 pub fn createDefaultPipeline(
@@ -87,7 +90,7 @@ pub fn createDefaultPipeline(
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .depthClampEnable = vk.VK_FALSE,
         .rasterizerDiscardEnable = vk.VK_FALSE,
-        .polygonMode = vk.VK_POLYGON_MODE_FILL,
+        .polygonMode = if (opts.line_mode) vk.VK_POLYGON_MODE_LINE else vk.VK_POLYGON_MODE_FILL,
         .lineWidth = 1.0,
         .cullMode = vk.VK_CULL_MODE_BACK_BIT,
         .frontFace = vk.VK_FRONT_FACE_COUNTER_CLOCKWISE,

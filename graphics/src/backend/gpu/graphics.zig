@@ -174,8 +174,9 @@ pub const Graphics = struct {
         var index_buf_mem: vk.VkDeviceMemory = undefined;
         gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 10000 * 3, &index_buf, &index_buf_mem);
 
-        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true);
-        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false);
+        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, false);
+        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false, false);
+        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
 
@@ -1723,6 +1724,29 @@ pub const Graphics = struct {
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
         self.batcher.pushMeshData(verts, indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+        self.batcher.beginWireframe();
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+
+        // TODO: stroke color should pushed as a constant.
+        if (!self.batcher.ensureUnusedBuffer(verts.len, indexes.len)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        for (verts) |vert| {
+            var new_vert = vert;
+            new_vert.setColor(self.cur_stroke_color);
+            self.batcher.mesh.addVertex(&new_vert);
+        }
+        self.batcher.mesh.addDeltaIndices(vert_start, indexes);
+
         self.batcher.beginMvp(cur_mvp);
     }
 

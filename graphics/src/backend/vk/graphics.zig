@@ -421,7 +421,7 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     });
 }
 
-pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout, depth_test: bool) Pipeline {
+pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout, depth_test: bool, wireframe: bool) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -480,6 +480,7 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
     const frag_src align(4) = shaders.tex_frag_spv;
     return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
         .depth_test = depth_test,
+        .line_mode = wireframe,
     });
 }
 
@@ -546,12 +547,14 @@ pub fn createTexDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayou
 }
 
 pub const Pipelines = struct {
+    wireframe_pipeline: Pipeline,
     tex_pipeline: Pipeline,
     tex_pipeline_2d: Pipeline,
     gradient_pipeline_2d: Pipeline,
     plane_pipeline: Pipeline,
 
     pub fn deinit(self: Pipelines, device: vk.VkDevice) void {
+        self.wireframe_pipeline.deinit(device);
         self.tex_pipeline.deinit(device);
         self.tex_pipeline_2d.deinit(device);
         self.gradient_pipeline_2d.deinit(device);

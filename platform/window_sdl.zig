@@ -436,6 +436,7 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
 
     var enabled_features = std.mem.zeroInit(vk.VkPhysicalDeviceFeatures, .{});
     enabled_features.shaderSampledImageArrayDynamicIndexing = vk.VK_TRUE;
+    enabled_features.fillModeNonSolid = vk.VK_TRUE;
     const d_create_info = vk.VkDeviceCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .queueCreateInfoCount = @intCast(u32, queue_create_infos.items.len),
