@@ -30,6 +30,7 @@ const tess2 = @import("lib/tess2/lib.zig");
 const maudio = @import("lib/miniaudio/lib.zig");
 const mingw = @import("lib/mingw/lib.zig");
 const backend = @import("platform/backend.zig");
+const cgltf = @import("lib/cgltf/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -618,6 +619,7 @@ const BuilderContext = struct {
             .sdl_lib_path = LibSdlPath,
             .add_dep_pkgs = false,
         };
+        cgltf.addPackage(step);
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
