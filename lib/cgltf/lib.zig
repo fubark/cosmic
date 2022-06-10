@@ -19,8 +19,9 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     lib.addIncludeDir(srcPath() ++ "/vendor");
     lib.linkLibC();
 
-    const c_flags = &[_][]const u8{ "-DCGLTF_IMPLEMENTATION=1" };
-    lib.addCSourceFile(srcPath() ++ "/cgltf.c", c_flags);
+    var c_flags = std.ArrayList([]const u8).init(b.allocator);
+    c_flags.appendSlice(&.{ "-DCGLTF_IMPLEMENTATION=1" }) catch @panic("error");
+    lib.addCSourceFile(srcPath() ++ "/cgltf.c", c_flags.items);
     step.linkLibrary(lib);
 }
 
