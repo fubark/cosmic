@@ -6,6 +6,7 @@ const Vec2 = stdx.math.Vec2;
 const Vec3 = stdx.math.Vec3;
 const Vec4 = stdx.math.Vec4;
 const t = stdx.testing;
+const platform = @import("platform");
 const graphics = @import("graphics.zig");
 const Transform = graphics.transform.Transform;
 const log = stdx.log.scoped(.camera);
@@ -216,3 +217,106 @@ pub fn initFrustumProjection(near: f32, far: f32, left: f32, right: f32, top: f3
         0, 0, -1, 0,
     });
 }
+
+
+/// Binds to the event dispatcher and allows camera movement with mouse and keyboard events.
+pub const CameraModule = struct {
+    cam: *Camera,
+    move_forward: bool,
+    move_backward: bool,
+    move_left: bool,
+    move_right: bool,
+
+    dragging: bool,
+    drag_start_rotate_x: f32,
+    drag_start_rotate_y: f32,
+    drag_start_x: f32,
+    drag_start_y: f32,
+
+    const Self = @This();
+
+    pub fn init(self_: *Self, cam: *Camera, dispatcher: *platform.EventDispatcher) void {
+        const S = struct {
+            fn onKeyDown(ptr: ?*anyopaque, ke: platform.KeyDownEvent) void {
+                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                switch (ke.code) {
+                    .W => self.move_forward = true,
+                    .S => self.move_backward = true,
+                    .A => self.move_left = true,
+                    .D => self.move_right = true,
+                    else => {},
+                }
+            }
+            fn onKeyUp(ptr: ?*anyopaque, ke: platform.KeyUpEvent) void {
+                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                switch (ke.code) {
+                    .W => self.move_forward = false,
+                    .S => self.move_backward = false,
+                    .A => self.move_left = false,
+                    .D => self.move_right = false,
+                    else => {},
+                }
+            }
+            fn onMouseDown(ptr: ?*anyopaque, me: platform.MouseDownEvent) platform.EventResult {
+                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                if (me.button == .Left) {
+                    self.dragging = true;
+                    self.drag_start_x = @intToFloat(f32, me.x);
+                    self.drag_start_y = @intToFloat(f32, me.y);
+                    self.drag_start_rotate_x = self.cam.rotate_x;
+                    self.drag_start_rotate_y = self.cam.rotate_y;
+                }
+                return .Continue;
+            }
+            fn onMouseUp(ptr: ?*anyopaque, me: platform.MouseUpEvent) void {
+                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                if (me.button == .Left) {
+                    self.dragging = false;
+                }
+            }
+            fn onMouseMove(ptr: ?*anyopaque, me: platform.MouseMoveEvent) void {
+                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                if (self.dragging) {
+                    const delta_x = @intToFloat(f32, me.x) - self.drag_start_x;
+                    const delta_y = -(@intToFloat(f32, me.y) - self.drag_start_y);
+
+                    const delta_pitch = delta_y * 0.01;
+                    const delta_yaw = delta_x * 0.01;
+                    self.cam.setRotation(self.drag_start_rotate_x + delta_pitch, self.drag_start_rotate_y - delta_yaw);
+                }
+            }
+        };
+        dispatcher.addOnKeyDown(self_, S.onKeyDown);
+        dispatcher.addOnKeyUp(self_, S.onKeyUp);
+        dispatcher.addOnMouseDown(self_, S.onMouseDown);
+        dispatcher.addOnMouseUp(self_, S.onMouseUp);
+        dispatcher.addOnMouseMove(self_, S.onMouseMove);
+        self_.* = .{
+            .cam = cam,
+            .move_forward = false,
+            .move_backward = false,
+            .move_left = false,
+            .move_right = false,
+            .dragging = false,
+            .drag_start_rotate_x = undefined,
+            .drag_start_rotate_y = undefined,
+            .drag_start_x = undefined,
+            .drag_start_y = undefined,
+        };
+    }
+
+    pub fn update(self: *Self, delta_ms: f32) void {
+        if (self.move_backward) {
+            self.cam.moveForward(-0.05 * delta_ms);
+        }
+        if (self.move_forward) {
+            self.cam.moveForward(0.05 * delta_ms);
+        }
+        if (self.move_left) {
+            self.cam.moveRight(-0.05 * delta_ms);
+        }
+        if (self.move_right) {
+            self.cam.moveRight(0.05 * delta_ms);
+        }
+    }
+};

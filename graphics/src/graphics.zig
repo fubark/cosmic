@@ -30,6 +30,7 @@ const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
 const camera = @import("camera.zig");
 pub const Camera = camera.Camera;
+pub const CameraModule = camera.CameraModule;
 pub const initTextureProjection = camera.initTextureProjection;
 pub const initPerspectiveProjection = camera.initPerspectiveProjection;
 
