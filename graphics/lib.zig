@@ -96,6 +96,7 @@ fn isWasm(target: std.zig.CrossTarget) bool {
 pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
     if (!isWasm(step.target)) {
         gl.link(step);
+        vk.link(step);
         sdl.buildAndLink(step, .{
             .lib_path = opts.sdl_lib_path,
         });

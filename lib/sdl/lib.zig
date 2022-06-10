@@ -36,6 +36,8 @@ pub fn create(
             "-Wno-deprecated-declarations",
             "-Wno-unguarded-availability",
         });
+    } else if (target.getOsTag() == .linux) {
+        try c_flags.append("-DSDL_VIDEO_VULKAN=1");
     }
 
     // Look at CMakeLists.txt.

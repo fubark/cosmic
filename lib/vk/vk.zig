@@ -212,7 +212,7 @@ pub inline fn cmdEndRenderPass(commandBuffer: c.VkCommandBuffer) void {
     if (builtin.os.tag == .macos) {
         rtVkCmdEndRenderPass(commandBuffer);
     } else {
-        c.VkCmdEndRenderPass(commandBuffer);
+        c.vkCmdEndRenderPass(commandBuffer);
     }
 }
 
