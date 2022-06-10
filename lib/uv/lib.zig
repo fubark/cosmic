@@ -13,6 +13,7 @@ pub const Options = struct {
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
     step.addIncludeDir(srcPath() ++ "/vendor/include");
+    step.addIncludeDir(srcPath() ++ "/");
 }
 
 pub fn create(

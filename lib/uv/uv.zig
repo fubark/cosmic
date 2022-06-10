@@ -2,7 +2,8 @@ const std = @import("std");
 const log = std.log.scoped(.uv);
 
 const c = @cImport({
-    @cInclude("uv.h");
+    // Make sure to pull the repo's uv.h. On macos, /usr/local/include/uv.h has precedence.
+    @cInclude("vendor/include/uv.h");
 });
 
 pub const sockaddr = c.sockaddr;

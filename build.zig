@@ -177,21 +177,23 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
-        ctx_.path = "runtime/main.zig";
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
         step.step.dependOn(&extras_repo.step);
-        const test_exe = ctx_.createTestFileStep("test/behavior_test.zig");
+
+        const build_options = ctx_.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", VersionName);
+        const test_exe = ctx_.createTestFileStep("test/behavior_test.zig", build_options);
         // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
         test_exe.setFilter("behavior:");
         step.step.dependOn(&test_exe.step);
         b.step("test-behavior", "Run behavior tests").dependOn(&step.step);
     }
 
-    const test_file = ctx.createTestFileStep(ctx.path);
+    const test_file = ctx.createTestFileStep(ctx.path, null);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
     {
@@ -258,10 +260,6 @@ pub fn build(b: *Builder) !void {
     b.step("version", "Get the build version.").dependOn(&get_version.step);
 
     {
-        const build_options = b.addOptions();
-        build_options.addOption([]const u8, "VersionName", VersionName);
-        build_options.addOption([]const u8, "BuildRoot", b.build_root);
-        build_options.addOption(bool, "enable_tracy", tracy);
         var ctx_ = ctx;
         ctx_.link_net = false;
         ctx_.link_graphics = false;
@@ -271,6 +269,10 @@ pub fn build(b: *Builder) !void {
         ctx_.link_v8 = false;
         ctx_.link_mock = true;
         ctx_.path = "tools/gen.zig";
+
+        const build_options = ctx.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", VersionName);
+        build_options.addOption([]const u8, "BuildRoot", b.build_root);
 
         const exe = ctx_.createBuildExeStep(build_options);
         ctx_.buildLinkMock(exe);
@@ -292,7 +294,10 @@ pub fn build(b: *Builder) !void {
             step.step.dependOn(&gen_mac_libc.step);
         }
         step.step.dependOn(&extras_repo.step);
-        const run = ctx_.createBuildExeStep(null).run();
+
+        const build_options = ctx_.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", VersionName);
+        const run = ctx_.createBuildExeStep(build_options).run();
         run.addArgs(&.{ "test", "test/js/test.js" });
         // run.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
         step.step.dependOn(&run.step);
@@ -523,7 +528,7 @@ const BuilderContext = struct {
         return exe;
     }
 
-    fn createTestFileStep(self: *Self, path: []const u8) *std.build.LibExeObjStep {
+    fn createTestFileStep(self: *Self, path: []const u8, build_options: ?*std.build.OptionsStep) *std.build.LibExeObjStep {
         const step = self.builder.addTest(path);
         self.setBuildMode(step);
         self.setTarget(step);
@@ -531,8 +536,11 @@ const BuilderContext = struct {
 
         self.addDeps(step) catch unreachable;
 
-        const build_opts = self.createDefaultBuildOptions();
+        const build_opts = build_options orelse self.createDefaultBuildOptions();
         step.addPackage(build_opts.getPackage("build_options"));
+
+        build_opts.addOption(backend.GraphicsBackend, "GraphicsBackend", .Test);
+
         self.postStep(step);
         return step;
     }
