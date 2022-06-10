@@ -21,9 +21,16 @@ pub const Camera = struct {
     view_transform: Transform,
 
     world_pos: Vec3,
+
+    /// Used to do movement along axis.
     up_nvec: Vec3,
     right_nvec: Vec3,
     forward_nvec: Vec3,
+
+    // TODO: Implement with geometric algebra.
+    /// It's easier to deal with changing rotations by keeping the axis rotation values.
+    rotate_x: f32,
+    rotate_y: f32,
 
     /// Logical width and height.
     pub fn init2D(self: *Camera, width: u32, height: u32) void {
@@ -34,7 +41,7 @@ pub const Camera = struct {
     pub fn initPerspective3D(self: *Camera, vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) void {
         self.proj_transform = initPerspectiveProjection(vert_fov_deg, aspect_ratio, near, far);
         self.world_pos = stdx.math.Vec3.init(0, 0, 0);
-        self.setForward(Vec3.init(0, 0, -1));
+        self.setRotation(0, -std.math.pi);
     }
 
     pub fn moveForward(self: *Camera, delta: f32) void {
@@ -51,21 +58,49 @@ pub const Camera = struct {
         self.computeViewTransform();
     }
 
-    pub fn setForward(self: *Camera, forward: Vec3) void {
-        self.forward_nvec = forward.normalize();
-        self.right_nvec = Vec3.init(0, 1, 0).cross(self.forward_nvec).normalize();
-        self.up_nvec = self.forward_nvec.cross(self.right_nvec).normalize();
+    pub fn moveRight(self: *Camera, delta: f32) void {
+        self.world_pos.x += self.right_nvec.x * delta;
+        self.world_pos.y += self.right_nvec.y * delta;
+        self.world_pos.z += self.right_nvec.z * delta;
         self.computeViewTransform();
     }
+
+    pub fn setPos(self: *Camera, x: f32, y: f32, z: f32) void {
+        self.world_pos.x = x;
+        self.world_pos.y = y;
+        self.world_pos.z = z;
+        self.computeViewTransform();
+    }
+
+    pub fn setRotation(self: *Camera, rotate_x: f32, rotate_y: f32) void {
+        self.rotate_x = rotate_x;
+        self.rotate_y = rotate_y;
+        self.computeViewTransform();
+    }
+
+    // TODO: Convert to rotate_x, rotate_y.
+    // pub fn setForward(self: *Camera, forward: Vec3) void {
+    //     self.forward_nvec = forward.normalize();
+    //     self.right_nvec = self.forward_nvec.cross(Vec3.init(0, 1, 0)).normalize();
+    //     if (std.math.isNan(self.right_nvec.x)) {
+    //         self.right_nvec = self.forward_nvec.cross(Vec3.init(0, 0, 1)).normalize();
+    //     }
+    //     self.up_nvec = self.right_nvec.cross(self.forward_nvec).normalize();
+    //     self.computeViewTransform();
+    // }
 
     fn computeViewTransform(self: *Camera) void {
         self.view_transform = Transform.initIdentity();
         self.view_transform.translate3D(-self.world_pos.x, -self.world_pos.y, -self.world_pos.z);
-        // Use opposite forward, right vectors since eye defaults to looking behind.
-        var xvec = self.right_nvec.mul(-1);
-        var yvec = self.up_nvec;
-        var zvec = self.forward_nvec.mul(-1);
-        self.view_transform.rotate3D(xvec, yvec, zvec);
+        var rotate_xform = Transform.initIdentity();
+        rotate_xform.rotateY(self.rotate_y + std.math.pi);
+        rotate_xform.rotateX(self.rotate_x);
+        // Set forward, up, right vecs from rotation matrix.
+        // Use opposite forward vector since eye defaults to looking behind.
+        self.forward_nvec = Vec3.init(-rotate_xform.mat[8], -rotate_xform.mat[9], -rotate_xform.mat[10]);
+        self.right_nvec = Vec3.init(rotate_xform.mat[0], rotate_xform.mat[1], rotate_xform.mat[2]);
+        self.up_nvec = Vec3.init(rotate_xform.mat[4], rotate_xform.mat[5], rotate_xform.mat[6]);
+        self.view_transform.applyTransform(rotate_xform);
     }
 };
 
@@ -126,27 +161,48 @@ pub fn initPerspectiveProjection(vert_fov_deg: f32, aspect_ratio: f32, near: f32
 }
 
 test "Perspective camera." {
+    const pif = @as(f32, std.math.pi);
     var cam: Camera = undefined;
     cam.initPerspective3D(60, 2, 0.1, 100);
 
     try eqApproxVec3(cam.forward_nvec, Vec3.init(0, 0, -1));
+    try eqApproxVec3(cam.right_nvec, Vec3.init(1, 0, 0));
+    try eqApproxVec3(cam.up_nvec, Vec3.init(0, 1, 0));
     try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(0, 0, -10, 1));
 
-    // Look downward.
-    cam.setForward(Vec3.init(0, -1, -1));
+    // Look tilted downward.
+    cam.setRotation(-pif * 0.25, -pif);
+    try eqApproxVec3(cam.forward_nvec, Vec3.init(0, -1, -1).normalize());
+    try eqApproxVec3(cam.right_nvec, Vec3.init(1, 0, 0));
+    try eqApproxVec3(cam.up_nvec, Vec3.init(0, 1, -1).normalize());
     try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(0, std.math.sqrt(50.0), -std.math.sqrt(50.0), 1));
 
-    // Look upward.
-    cam.setForward(Vec3.init(0, 1, -1));
+    // Look tilted upward.
+    cam.setRotation(pif * 0.25, -pif);
+    try eqApproxVec3(cam.forward_nvec, Vec3.init(0, 1, -1).normalize());
+    try eqApproxVec3(cam.right_nvec, Vec3.init(1, 0, 0));
+    try eqApproxVec3(cam.up_nvec, Vec3.init(0, 1, 1).normalize());
     try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(0, -std.math.sqrt(50.0), -std.math.sqrt(50.0), 1));
 
-    // Look to the left.
-    cam.setForward(Vec3.init(-1, 0, -1));
+    // Look tilted to the left.
+    cam.setRotation(0, -pif * 0.75);
+    try eqApproxVec3(cam.forward_nvec, Vec3.init(-1, 0, -1).normalize());
+    try eqApproxVec3(cam.right_nvec, Vec3.init(1, 0, -1).normalize());
+    try eqApproxVec3(cam.up_nvec, Vec3.init(0, 1, 0));
     try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(std.math.sqrt(50.0), 0, -std.math.sqrt(50.0), 1));
 
-    // Look to the right.
-    cam.setForward(Vec3.init(1, 0, -1));
+    // Look tilted to the right.
+    cam.setRotation(0, pif * 0.75);
+    try eqApproxVec3(cam.forward_nvec, Vec3.init(1, 0, -1).normalize());
+    try eqApproxVec3(cam.right_nvec, Vec3.init(1, 0, 1).normalize());
+    try eqApproxVec3(cam.up_nvec, Vec3.init(0, 1, 0));
     try eqApproxVec4(cam.view_transform.interpolate4(0, 0, -10, 1), Vec4.init(-std.math.sqrt(50.0), 0, -std.math.sqrt(50.0), 1));
+
+    // Look downwards.
+    cam.setRotation(pif, 0);
+    try eqApproxVec3(cam.forward_nvec, Vec3.init(0, 0, -1));
+    try eqApproxVec3(cam.right_nvec, Vec3.init(-1, 0, 0));
+    try eqApproxVec3(cam.up_nvec, Vec3.init(0, -1, 0));
 }
 
 /// near and far are towards -z.

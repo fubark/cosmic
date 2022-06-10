@@ -46,13 +46,17 @@ pub const Vec3 = struct {
         return rba;
     }
 
-    /// Rotates a 3d vector towards the y axis. Does not preserve length.
-    pub fn rotateToY(self: Vec3, rad: f32) Vec3 {
-        const len = self.length();
-        const cur_rad = std.math.asin(self.y / len);
-        const xz_len = std.math.sqrt(self.x * self.x + self.z * self.z);
-        const new_y = std.math.tan(cur_rad + rad) * xz_len;
-        return Vec3.init(self.x, new_y, self.z);
+    /// Rotates the vector along an arbitrary axis. Assumes axis vector is normalized.
+    pub fn rotateAxis(self: Vec3, axis: Vec3, rad: f32) Vec3 {
+        const v_para = axis.mul(self.dot(axis));
+        const v_perp = self.add(v_para.mul(-1));
+        const v_perp_term = v_perp.mul(std.math.cos(rad));
+        const axv_term = axis.cross(self).mul(std.math.sin(rad));
+        return Vec3.init(
+            v_para.x + v_perp_term.x + axv_term.x,
+            v_para.y + v_perp_term.y + axv_term.y,
+            v_para.z + v_perp_term.z + axv_term.z,
+        );
     }
 
     pub fn dot(self: Vec3, v: Vec3) f32 {
@@ -63,8 +67,6 @@ pub const Vec3 = struct {
         const x = self.y * v.z - self.z * v.y;
         const y = self.z * v.x - self.x * v.z;
         const z = self.x * v.y - self.y * v.x;
-
-
         return Vec3.init(x, y, z);
     }
 
@@ -89,20 +91,30 @@ pub const Vec3 = struct {
 };
 
 test "Vec3.rotateY" {
-    const fpi = @as(f32, pi);
+    const pif = @as(f32, pi);
     // On xz plane.
     var v = Vec3.init(1, 0, 0);
     try eqApproxVec3(v.rotateY(0), Vec3.init(1, 0, 0));
-    try eqApproxVec3(v.rotateY(fpi*0.5), Vec3.init(0, 0, 1));
-    try eqApproxVec3(v.rotateY(fpi), Vec3.init(-1, 0, 0));
-    try eqApproxVec3(v.rotateY(fpi*1.5), Vec3.init(0, 0, -1));
+    try eqApproxVec3(v.rotateY(pif*0.5), Vec3.init(0, 0, 1));
+    try eqApproxVec3(v.rotateY(pif), Vec3.init(-1, 0, 0));
+    try eqApproxVec3(v.rotateY(pif*1.5), Vec3.init(0, 0, -1));
 
     // Tilted into y.
     v = Vec3.init(1, 1, 0);
     try eqApproxVec3(v.rotateY(0), Vec3.init(1, 1, 0));
-    try eqApproxVec3(v.rotateY(fpi*0.5), Vec3.init(0, 1, 1));
-    try eqApproxVec3(v.rotateY(fpi), Vec3.init(-1, 1, 0));
-    try eqApproxVec3(v.rotateY(fpi*1.5), Vec3.init(0, 1, -1));
+    try eqApproxVec3(v.rotateY(pif*0.5), Vec3.init(0, 1, 1));
+    try eqApproxVec3(v.rotateY(pif), Vec3.init(-1, 1, 0));
+    try eqApproxVec3(v.rotateY(pif*1.5), Vec3.init(0, 1, -1));
+}
+
+test "Vec3.rotateAxis" {
+    const pif = @as(f32, pi);
+    // Rotate from +y toward +z
+    var v = Vec3.init(0, 1, 0);
+    try eqApproxVec3(v.rotateAxis(Vec3.init(1, 0, 0), 0), Vec3.init(0, 1, 0));
+    try eqApproxVec3(v.rotateAxis(Vec3.init(1, 0, 0), pif*0.5), Vec3.init(0, 0, 1));
+    try eqApproxVec3(v.rotateAxis(Vec3.init(1, 0, 0), pif), Vec3.init(0, -1, 0));
+    try eqApproxVec3(v.rotateAxis(Vec3.init(1, 0, 0), pif*1.5), Vec3.init(0, 0, -1));
 }
 
 pub fn eqApproxVec2(act: Vec2, exp: Vec2) !void {
@@ -111,9 +123,9 @@ pub fn eqApproxVec2(act: Vec2, exp: Vec2) !void {
 }
 
 pub fn eqApproxVec3(act: Vec3, exp: Vec3) !void {
-    try t.eqApproxEps(act.x, exp.x);
-    try t.eqApproxEps(act.y, exp.y);
-    try t.eqApproxEps(act.z, exp.z);
+    try t.eqApprox(act.x, exp.x, 1e-4);
+    try t.eqApprox(act.y, exp.y, 1e-4);
+    try t.eqApprox(act.z, exp.z, 1e-4);
 }
 
 pub fn eqApproxVec4(act: Vec4, exp: Vec4) !void {

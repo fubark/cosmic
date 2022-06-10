@@ -33,6 +33,10 @@ pub const Transform = struct {
         };
     }
 
+    pub fn applyTransform(self: *Self, transform: Transform) void {
+        self.mat = math.mul4x4_4x4(transform.mat, self.mat);
+    }
+
     pub fn invert(self: *Self) bool {
         var res: Mat4 = undefined;
         if (!math.invert4x4(self.mat, &res)) {
