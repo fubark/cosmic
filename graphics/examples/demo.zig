@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const build_options = @import("build_options");
 const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
 const builtin = @import("builtin");
@@ -216,7 +217,10 @@ fn initAssets(alloc: std.mem.Allocator) !void {
     var parser = graphics.svg.SvgParser.init(alloc);
     defer parser.deinit();
 
-    rasterizeTigerHead(tiger_head_svg);
+    // TODO: Make this work for vulkan.
+    if (build_options.GraphicsBackend != .Vulkan) {
+        rasterizeTigerHead(tiger_head_svg);
+    }
 }
 
 fn deinitAssets(alloc: std.mem.Allocator) void {

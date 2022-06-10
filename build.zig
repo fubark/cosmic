@@ -515,6 +515,11 @@ const BuilderContext = struct {
             self.linkTracy(exe);
         }
 
+        const graphics_backend = backend.getGraphicsBackend(exe);
+        const build_opts = self.createDefaultBuildOptions();
+        build_opts.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
+        exe.addPackage(build_opts.getPackage("build_options"));
+
         _ = self.addInstallArtifact(exe);
         self.copyAssets(exe);
         return exe;
