@@ -208,7 +208,10 @@ fn processSdlEvents(dispatcher: *EventDispatcher) void {
             sdl.SDL_MOUSEBUTTONDOWN => {
                 const std_event = platform.initSdlMouseDownEvent(event.button);
                 for (dispatcher.mousedown_cbs.items) |handler| {
-                    handler.cb(handler.ctx, std_event);
+                    const res = handler.cb(handler.ctx, std_event);
+                    if (res == .Stop) {
+                        break;
+                    }
                 }
             },
             sdl.SDL_MOUSEBUTTONUP => {
@@ -311,7 +314,10 @@ fn processWasmEvents(dispatcher: EventDispatcher) void {
                 const std_event = MouseDownEvent.init(std_button, x, y, clicks);
                 i += 7;
                 for (dispatcher.mousedown_cbs.items) |handler| {
-                    handler.cb(handler.ctx, std_event);
+                    const res = handler.cb(handler.ctx, std_event);
+                    if (res == .Stop) {
+                        break;
+                    }
                 }
             },
             Command.MouseUp => {
@@ -386,9 +392,16 @@ fn HandlerEntry(comptime Handler: type) type {
 const OnQuitHandler = fn (?*anyopaque) void;
 const OnKeyDownHandler = fn(?*anyopaque, KeyDownEvent) void;
 const OnKeyUpHandler = fn(?*anyopaque, KeyUpEvent) void;
-const OnMouseDownHandler = fn(?*anyopaque, MouseDownEvent) void;
+const OnMouseDownHandler = fn(?*anyopaque, MouseDownEvent) EventResult;
 const OnMouseUpHandler = fn(?*anyopaque, MouseUpEvent) void;
 const OnMouseMoveHandler = fn(?*anyopaque, MouseMoveEvent) void;
 const OnMouseScrollHandler = fn(?*anyopaque, MouseScrollEvent) void;
 const OnWindowResizeHandler = fn(?*anyopaque, WindowResizeEvent) void;
 const OnFetchResultHandler = fn(?*anyopaque, FetchResultEvent) void;
+
+pub const EventResult = enum(u1) {
+    /// Event will continue to propagate down to children. 
+    Continue = 0,
+    /// Stop the event from propagating to children.
+    Stop = 1,
+};

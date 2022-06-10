@@ -30,6 +30,7 @@ pub const KeyCode = keyboard.KeyCode;
 
 const event_dispatcher = @import("event_dispatcher.zig");
 pub const EventDispatcher = event_dispatcher.EventDispatcher;
+pub const EventResult = event_dispatcher.EventResult;
 
 pub fn delay(us: u64) void {
     if (!builtin.target.isWasm()) {

@@ -319,9 +319,9 @@ pub const Module = struct {
                 const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
                 self_.processKeyUpEvent(e);
             }
-            fn onMouseDown(ctx: ?*anyopaque, e: platform.MouseDownEvent) void {
+            fn onMouseDown(ctx: ?*anyopaque, e: platform.MouseDownEvent) platform.EventResult {
                 const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
-                self_.processMouseDownEvent(e);
+                return self_.processMouseDownEvent(e);
             }
             fn onMouseUp(ctx: ?*anyopaque, e: platform.MouseUpEvent) void {
                 const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
@@ -405,13 +405,14 @@ pub const Module = struct {
 
     /// Start at the root node and propagate downwards on the first hit box.
     /// TODO: Handlers should be able to return Stop to prevent propagation.
-    pub fn processMouseDownEvent(self: *Self, e: platform.MouseDownEvent) void {
+    pub fn processMouseDownEvent(self: *Self, e: platform.MouseDownEvent) platform.EventResult {
         const xf = @intToFloat(f32, e.x);
         const yf = @intToFloat(f32, e.y);
         self.common.last_focused_widget = self.common.focused_widget;
         self.common.hit_last_focused = false;
+        var hit_widget = false;
         if (self.root_node) |node| {
-            _ = self.processMouseDownEventRecurse(node, xf, yf, e);
+            _ = self.processMouseDownEventRecurse(node, xf, yf, e, &hit_widget);
         }
         // If the existing focused widget wasn't hit and no other widget requested focus, trigger blur.
         if (self.common.last_focused_widget != null and self.common.last_focused_widget == self.common.focused_widget and !self.common.hit_last_focused) {
@@ -419,15 +420,26 @@ pub const Module = struct {
             self.common.focused_widget = null;
             self.common.focused_onblur = undefined;
         }
+        if (hit_widget) {
+            return .Stop;
+        } else {
+            return .Continue;
+        }
     }
 
-    fn processMouseDownEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: platform.MouseDownEvent) bool {
+    fn processMouseDownEventRecurse(self: *Self, node: *Node, xf: f32, yf: f32, e: platform.MouseDownEvent, hit_widget: *bool) bool {
         const pos = node.abs_pos;
         if (xf >= pos.x and xf <= pos.x + node.layout.width and yf >= pos.y and yf <= pos.y + node.layout.height) {
             if (node == self.common.last_focused_widget) {
                 self.common.hit_last_focused = true;
+                hit_widget.* = true;
             }
             var cur = node.mouse_down_list;
+            if (cur != NullId) {
+                // If there is a handler, assume the event hits the widget.
+                // If the widget performs clearMouseHitFlag() in any of the handlers, the flag is reset so it does not change hit_widget.
+                self.common.widget_hit_flag = true;
+            }
             var propagate = true;
             while (cur != NullId) {
                 const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
@@ -437,12 +449,15 @@ pub const Module = struct {
                 }
                 cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
             }
+            if (self.common.widget_hit_flag) {
+                hit_widget.* = true;
+            }
             if (!propagate) {
                 return true;
             }
             const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
             for (event_children) |child| {
-                if (self.processMouseDownEventRecurse(child, xf, yf, e)) {
+                if (self.processMouseDownEventRecurse(child, xf, yf, e, hit_widget)) {
                     break;
                 }
             }
@@ -1694,6 +1709,7 @@ pub const ModuleCommon = struct {
     /// Scratch vars to track the last focused widget.
     last_focused_widget: ?*Node,
     hit_last_focused: bool,
+    widget_hit_flag: bool,
 
     next_post_layout_cbs: std.ArrayList(ClosureIface(fn () void)),
 
@@ -1744,6 +1760,7 @@ pub const ModuleCommon = struct {
             .focused_onblur = undefined,
             .last_focused_widget = null,
             .hit_last_focused = false,
+            .widget_hit_flag = false,
 
             .ctx = .{
                 .common = self,
