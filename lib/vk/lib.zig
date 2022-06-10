@@ -19,6 +19,8 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
 pub fn link(step: *std.build.LibExeObjStep) void {
     const target = step.target;
     switch (target.getOsTag()) {
+        .windows => {},
+        .macos => {},
         .linux => {
             step.addLibPath("/usr/lib/x86_64-linux-gnu");
             step.linkSystemLibrary("vulkan");
