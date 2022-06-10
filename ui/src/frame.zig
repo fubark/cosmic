@@ -1,5 +1,7 @@
 const stdx = @import("stdx");
 
+const NodeRef = @import("ui.zig").NodeRef;
+
 const widget = @import("widget.zig");
 const WidgetUserId = widget.WidgetUserId;
 const WidgetTypeId = widget.WidgetTypeId;
@@ -21,8 +23,11 @@ pub const Frame = struct {
     /// Used to map a unique id to the created node.
     id: ?WidgetUserId,
 
-    /// Binds the corresponding widget instance to a WidgetRef upon initialization.
-    bind: ?*anyopaque,
+    /// Binds to WidgetRef upon initializing Widget instance.
+    widget_bind: ?*anyopaque,
+
+    /// Binds to NodeRefs upon initializing Widget instance.
+    node_binds: ?*BindNode,
 
     /// Used to find an existing node under the same parent.
     /// Should only be of type WidgetKey.EnumLiteral.
@@ -42,7 +47,8 @@ pub const Frame = struct {
         return .{
             .vtable = vtable,
             .id = id,
-            .bind = bind,
+            .widget_bind = bind,
+            .node_binds = null,
             .props = props,
             .fragment_children = fragment_children,
             .key = null,
@@ -62,4 +68,10 @@ pub const FrameListPtr = struct {
     pub fn init(id: FrameId, len: u32) @This() {
         return .{ .id = id, .len = len };
     }
+};
+
+/// Allows more than one builder to bind to a frame.
+pub const BindNode = struct {
+    node_ref: *NodeRef,
+    next: ?*BindNode,
 };

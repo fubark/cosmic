@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const t = stdx.testing;
 const ds = stdx.ds;
 const Closure = stdx.Closure;
@@ -19,6 +20,7 @@ const Config = ui.Config;
 const Import = ui.Import;
 const Node = ui.Node;
 const Frame = ui.Frame;
+const BindNode = @import("frame.zig").BindNode;
 const FrameListPtr = ui.FrameListPtr;
 const FramePropsPtr = ui.FramePropsPtr;
 const FrameId = ui.FrameId;
@@ -26,6 +28,7 @@ const ui_render = @import("render.zig");
 const WidgetTypeId = ui.WidgetTypeId;
 const WidgetKey = ui.WidgetKey;
 const WidgetRef = ui.WidgetRef;
+const NodeRef = ui.NodeRef;
 const WidgetVTable = ui.WidgetVTable;
 const LayoutSize = ui.LayoutSize;
 const NullId = ds.CompactNull(u32);
@@ -253,6 +256,7 @@ pub const Module = struct {
     alloc: std.mem.Allocator,
 
     root_node: ?*Node,
+    user_root: NodeRef,
 
     init_ctx: InitContext,
     build_ctx: BuildContext,
@@ -273,8 +277,9 @@ pub const Module = struct {
         self.* = .{
             .alloc = alloc,
             .root_node = null,
+            .user_root = .{},
             .init_ctx = InitContext.init(self),
-            .build_ctx = BuildContext.init(alloc, self),
+            .build_ctx = undefined,
             .layout_ctx = LayoutContext.init(self, g),
             .event_ctx = EventContext.init(self),
             .render_ctx = undefined,
@@ -283,6 +288,7 @@ pub const Module = struct {
             .text_measure_batch_buf = std.ArrayList(*graphics.TextMeasure).init(alloc),
         };
         self.common.init(alloc, self, g);
+        self.build_ctx = BuildContext.init(alloc, self.common.arena_alloc, self);
         self.render_ctx = RenderContext.init(&self.common.ctx, g);
     }
 
@@ -342,6 +348,16 @@ pub const Module = struct {
         dispatcher.addOnMouseUp(self, S.onMouseUp);
         dispatcher.addOnMouseScroll(self, S.onMouseScroll);
         dispatcher.addOnMouseMove(self, S.onMouseMove);
+    }
+
+    pub fn getUserRoot(self: Self, comptime Widget: type) ?*Widget {
+        if (self.root_node != null) {
+            const root = self.root_node.?.getWidget(ui.widgets.Root);
+            if (root.user_root.binded) {
+                return root.user_root.node.getWidget(Widget);
+            } 
+        }
+        return null;
     }
 
     fn getWidget(self: *Self, comptime Widget: type, node: *Node) *Widget {
@@ -619,6 +635,13 @@ pub const Module = struct {
         const layout_size = LayoutSize.init(width, height);
         try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
         self.render(delta_ms);
+        self.postUpdate();
+    }
+
+    /// Just do an update without rendering.
+    pub fn update(self: *Self, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) FrameId, width: f32, height: f32) !void {
+        const layout_size = LayoutSize.init(width, height);
+        try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
         self.postUpdate();
     }
 
@@ -920,7 +943,7 @@ pub const Module = struct {
             new_node.id = id;
             new_node.has_widget_id = true;
         }
-        new_node.bind = frame.bind;
+        new_node.bind = frame.widget_bind;
 
         if (parent != null) {
             parent.?.key_to_child.put(key, new_node) catch unreachable;
@@ -929,6 +952,13 @@ pub const Module = struct {
         self.init_ctx.prepareForNode(new_node);
         const new_widget = widget_vtable.create(self.alloc, new_node, &self.init_ctx, props_ptr);
         new_node.widget = new_widget;
+        if (frame.node_binds != null) {
+            var mb_cur = frame.node_binds;
+            while (mb_cur) |cur| {
+                cur.node_ref.* = NodeRef.init(new_node);
+                mb_cur = cur.next;
+            }
+        }
 
         //log.warn("created: {}", .{frame.type_id});
 
@@ -1987,6 +2017,7 @@ fn Subscriber(comptime T: type) type {
 
 pub const BuildContext = struct {
     alloc: std.mem.Allocator,
+    arena_alloc: std.mem.Allocator,
     mod: *Module,
 
     // Temporary buffers used to build Frames in Widget's `build` function.
@@ -2009,9 +2040,10 @@ pub const BuildContext = struct {
 
     const Self = @This();
 
-    fn init(alloc: std.mem.Allocator, mod: *Module) Self {
+    fn init(alloc: std.mem.Allocator, arena_alloc: std.mem.Allocator, mod: *Module) Self {
         return .{
             .alloc = alloc,
+            .arena_alloc = arena_alloc,
             .mod = mod,
             .frames = std.ArrayList(Frame).init(alloc),
             .frame_lists = std.ArrayList(FrameId).init(alloc),
@@ -2117,6 +2149,15 @@ pub const BuildContext = struct {
         const frame_id = @intCast(FrameId, @intCast(u32, self.frames.items.len));
         self.frames.append(frame) catch unreachable;
         return frame_id;
+    }
+
+    /// Allows caller to bind a FrameId to a NodeRef. One frame can be binded to many NodeRefs.
+    pub fn bindFrame(self: *Self, frame_id: FrameId, ref: *ui.NodeRef) void {
+        const frame = &self.frames.items[frame_id];
+        const node = self.arena_alloc.create(BindNode) catch fatal();
+        node.node_ref = ref;
+        node.next = frame.node_binds;
+        frame.node_binds = node;
     }
 
     fn createFrameList(self: *Self, frame_ids: anytype) FrameListPtr {

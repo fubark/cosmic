@@ -17,6 +17,19 @@ pub const WidgetKey = union(enum) {
     EnumLiteral: usize,
 };
 
+/// If the user does not have the access to a widget's type, NodeRef still allows capturing the creating Node.
+pub const NodeRef = struct {
+    node: *Node = undefined,
+    binded: bool = false,
+
+    pub fn init(node: *Node) NodeRef {
+        return .{
+            .node = node,
+            .binded = true,
+        };
+    }
+};
+
 /// Contains the widget and it's corresponding node in the layout tree.
 /// Although the widget can be obtained from the node, this is more type safe and can provide convenience functions.
 pub fn WidgetRef(comptime Widget: type) type {
