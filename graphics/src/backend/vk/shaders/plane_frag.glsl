@@ -1,8 +1,9 @@
 #version 450
 #pragma shader_stage(fragment)
 
-layout(location = 1) in vec3 nearPoint;
-layout(location = 2) in vec3 farPoint;
+layout(location = 0) in vec3 nearPoint;
+layout(location = 1) in vec3 farPoint;
+layout(location = 2) in mat4 mvp;
 
 layout(location = 0) out vec4 outColor;
 
@@ -28,5 +29,10 @@ vec4 grid(vec3 fragPos3D, float cell_size) {
 void main() {
     float t = -nearPoint.y / (farPoint.y - nearPoint.y);
     vec3 fragPos3D = nearPoint + t * (farPoint - nearPoint);
+
+    // Output depth buffer value.
+    vec4 clip_space_pos = vec4(fragPos3D.xyz, 1.0) * mvp;
+    gl_FragDepth = clip_space_pos.z / clip_space_pos.w;
+
     outColor = grid(fragPos3D, 10) * float(t > 0);
 }

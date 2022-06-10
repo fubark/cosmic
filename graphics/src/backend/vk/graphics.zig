@@ -363,7 +363,7 @@ pub fn createPlanePipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim:
 
     const vert_src align(4) = shaders.plane_vert_spv;
     const frag_src align(4) = shaders.plane_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{ .depth_test = false });
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{ .depth_test = true });
 }
 
 pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {

@@ -5,8 +5,9 @@ layout(push_constant) uniform VertConstants {
     mat4 mvp;
 } u_const;
 
-layout(location = 1) out vec3 nearPoint;
-layout(location = 2) out vec3 farPoint;
+layout(location = 0) out vec3 nearPoint;
+layout(location = 1) out vec3 farPoint;
+layout(location = 2) out mat4 mvp;
 
 // Grid position are in xy clipped space
 vec3 gridPlane[6] = vec3[](
@@ -24,5 +25,6 @@ void main() {
     vec3 p = gridPlane[gl_VertexIndex].xyz;
     nearPoint = UnprojectPoint(p.x, p.y, 1, u_const.mvp).xyz; // unprojecting on the near plane
     farPoint = UnprojectPoint(p.x, p.y, 0, u_const.mvp).xyz; // unprojecting on the far plane
+    mvp = u_const.mvp;
     gl_Position = vec4(p, 1); // using directly the clipped coordinates
 }
