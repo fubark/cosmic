@@ -1065,6 +1065,15 @@ pub const Graphics = struct {
         }
     }
 
+    /// Pushes the mesh without modifying the vertex data.
+    pub fn drawMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawMesh3D(&self.impl, xform, verts, indexes),
+            else => unsupported(),
+        }
+    }
+
+    /// Draws the mesh with the current fill color.
     pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillMesh3D(&self.impl, xform, verts, indexes),
@@ -1072,6 +1081,7 @@ pub const Graphics = struct {
         }
     }
 
+    /// Draws a wireframe around the mesh with the current stroke color.
     pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.strokeMesh3D(&self.impl, xform, verts, indexes),
@@ -1151,7 +1161,7 @@ pub const HandleGLTF = struct {
                 while (i < node.children_count) : (i += 1) {
                     const child = node.children[i][0];
                     if (child.mesh != null) {
-                        const mesh = child.mesh[0];
+                        const mesh = @ptrCast(*cgltf.cgltf_mesh, child.mesh);
                         if (mesh.primitives_count > 0) {
                             const primitive = mesh.primitives[0];
                             const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
@@ -1204,7 +1214,7 @@ pub const HandleGLTF = struct {
                                                     val_buf[vi * num_component_vals + 1],
                                                     val_buf[vi * num_component_vals + 2],
                                                 );
-                                                verts[vi].setColor(Color.Green);
+                                                verts[vi].setColor(Color.White);
                                             }
                                         } else {
                                             return error.UnsupportedComponentType;

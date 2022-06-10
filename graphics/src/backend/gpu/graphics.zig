@@ -168,11 +168,11 @@ pub const Graphics = struct {
 
         var vert_buf: vk.VkBuffer = undefined;
         var vert_buf_mem: vk.VkDeviceMemory = undefined;
-        gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 10000, &vert_buf, &vert_buf_mem);
+        gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 20000, &vert_buf, &vert_buf_mem);
 
         var index_buf: vk.VkBuffer = undefined;
         var index_buf_mem: vk.VkDeviceMemory = undefined;
-        gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 10000 * 3, &index_buf, &index_buf_mem);
+        gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 20000 * 3, &index_buf, &index_buf_mem);
 
         self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, false);
         self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false, false);
@@ -1716,7 +1716,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+    pub fn drawMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
         self.batcher.beginTex3D(self.white_tex);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
@@ -1724,6 +1724,28 @@ pub const Graphics = struct {
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
         self.batcher.pushMeshData(verts, indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+        self.batcher.beginTex3D(self.white_tex);
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+
+        if (!self.batcher.ensureUnusedBuffer(verts.len, indexes.len)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        for (verts) |vert| {
+            var new_vert = vert;
+            new_vert.setColor(self.cur_fill_color);
+            self.batcher.mesh.addVertex(&new_vert);
+        }
+        self.batcher.mesh.addDeltaIndices(vert_start, indexes);
+
         self.batcher.beginMvp(cur_mvp);
     }
 
