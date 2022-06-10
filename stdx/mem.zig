@@ -4,6 +4,13 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const log = stdx.log.scoped(.mem);
 
+/// Dupe with new target alignment.
+pub fn dupeAlign(alloc: std.mem.Allocator, comptime T: type, comptime A: u8, src: []const T) ![] align (A) T {
+    var aligned = try alloc.alignedAlloc(T, A, src.len);
+    std.mem.copy(T, aligned, src);
+    return aligned;
+}
+
 pub fn ptrCastTo(ptr_to_ptr: anytype, from: anytype) void {
     const Ptr = std.meta.Child(@TypeOf(ptr_to_ptr));
     ptr_to_ptr.* = @ptrCast(Ptr, from);
