@@ -505,20 +505,18 @@ const BuilderContext = struct {
         self.setTarget(exe);
         exe.setMainPkgPath(".");
 
-        if (options_step) |step| {
-            const pkg = step.getPackage("build_options");
-            exe.addPackage(pkg);
-        }
+        const opts_step = options_step orelse self.createDefaultBuildOptions();
+        const pkg = opts_step.getPackage("build_options");
+        exe.addPackage(pkg);
+
+        const graphics_backend = backend.getGraphicsBackend(exe);
+        opts_step.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
+
         self.addDeps(exe) catch unreachable;
 
         if (self.enable_tracy) {
             self.linkTracy(exe);
         }
-
-        const graphics_backend = backend.getGraphicsBackend(exe);
-        const build_opts = self.createDefaultBuildOptions();
-        build_opts.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
-        exe.addPackage(build_opts.getPackage("build_options"));
 
         _ = self.addInstallArtifact(exe);
         self.copyAssets(exe);

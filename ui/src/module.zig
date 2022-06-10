@@ -2153,11 +2153,13 @@ pub const BuildContext = struct {
 
     /// Allows caller to bind a FrameId to a NodeRef. One frame can be binded to many NodeRefs.
     pub fn bindFrame(self: *Self, frame_id: FrameId, ref: *ui.NodeRef) void {
-        const frame = &self.frames.items[frame_id];
-        const node = self.arena_alloc.create(BindNode) catch fatal();
-        node.node_ref = ref;
-        node.next = frame.node_binds;
-        frame.node_binds = node;
+        if (frame_id != NullFrameId) {
+            const frame = &self.frames.items[frame_id];
+            const node = self.arena_alloc.create(BindNode) catch fatal();
+            node.node_ref = ref;
+            node.next = frame.node_binds;
+            frame.node_binds = node;
+        }
     }
 
     fn createFrameList(self: *Self, frame_ids: anytype) FrameListPtr {

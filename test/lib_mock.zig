@@ -471,3 +471,8 @@ export fn FT_New_Memory_Face() void {}
 export fn FT_Render_Glyph() void {}
 export fn FT_Set_Pixel_Sizes() void {}
 export fn stbi_write_bmp() void {}
+
+export fn SDL_Vulkan_GetVkGetInstanceProcAddr() void {}
+export fn SDL_Vulkan_GetInstanceExtensions() void {}
+export fn SDL_Vulkan_GetDrawableSize() void {}
+export fn SDL_Vulkan_CreateSurface() void {}
