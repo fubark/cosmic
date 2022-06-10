@@ -8,7 +8,7 @@ const vk = @import("../lib/vk/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "platform",
-    .path = .{ .path = srcPath() ++ "/platform.zig" },
+    .source = .{ .path = srcPath() ++ "/platform.zig" },
 };
 
 pub const Options = struct {

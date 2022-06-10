@@ -4,7 +4,7 @@ const sdl = @import("../sdl/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "vk",
-    .path = .{ .path = srcPath() ++ "/vk.zig" },
+    .source = .{ .path = srcPath() ++ "/vk.zig" },
     .dependencies = &.{ sdl.pkg },
 };
 

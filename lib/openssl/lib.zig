@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const pkg = std.build.Pkg{
     .name = "openssl",
-    .path = .{ .path = srcPath() ++ "/openssl.zig" },
+    .source = .{ .path = srcPath() ++ "/openssl.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {

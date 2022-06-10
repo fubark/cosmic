@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const pkg = std.build.Pkg{
     .name = "uv",
-    .path = .{ .path = srcPath() ++ "/uv.zig" },
+    .source = .{ .path = srcPath() ++ "/uv.zig" },
 };
 
 pub const Options = struct {

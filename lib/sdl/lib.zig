@@ -5,7 +5,7 @@ const stdx = @import("../../stdx/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "sdl",
-    .path = .{ .path = srcPath() ++ "/sdl.zig" },
+    .source = .{ .path = srcPath() ++ "/sdl.zig" },
     .dependencies = &.{ stdx.pkg },
 };
 

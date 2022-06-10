@@ -15,7 +15,7 @@ const GraphicsBackend = @import("../platform/backend.zig").GraphicsBackend;
 
 pub const pkg = std.build.Pkg{
     .name = "ui",
-    .path = .{ .path = srcPath() ++ "/src/ui.zig" },
+    .source = .{ .path = srcPath() ++ "/src/ui.zig" },
 };
 
 pub const Options = struct {

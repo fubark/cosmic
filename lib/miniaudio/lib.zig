@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const pkg = std.build.Pkg{
     .name = "miniaudio",
-    .path = .{ .path = srcPath() ++ "/miniaudio.zig" },
+    .source = .{ .path = srcPath() ++ "/miniaudio.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {

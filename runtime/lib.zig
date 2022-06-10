@@ -15,7 +15,7 @@ const sdl = @import("../lib/sdl/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "runtime",
-    .path = .{ .path = srcPath() ++ "/runtime.zig" },
+    .source = .{ .path = srcPath() ++ "/runtime.zig" },
 };
 
 pub const Options = struct {

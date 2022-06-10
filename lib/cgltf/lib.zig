@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const pkg = std.build.Pkg{
     .name = "cgltf",
-    .path = .{ .path = srcPath() ++ "/cgltf.zig" },
+    .source = .{ .path = srcPath() ++ "/cgltf.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {

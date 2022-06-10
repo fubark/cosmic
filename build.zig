@@ -768,7 +768,7 @@ const BuilderContext = struct {
 
 pub const zig_v8_pkg = Pkg{
     .name = "v8",
-    .path = FileSource.relative("./lib/zig-v8/src/v8.zig"),
+    .source = FileSource.relative("./lib/zig-v8/src/v8.zig"),
 };
 
 fn addZigV8(step: *LibExeObjStep) void {

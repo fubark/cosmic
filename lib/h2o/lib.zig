@@ -12,7 +12,7 @@ const Options = struct {
 
 pub const pkg = std.build.Pkg{
     .name = "h2o",
-    .path = .{ .path = srcPath() ++ "/h2o.zig" },
+    .source = .{ .path = srcPath() ++ "/h2o.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {

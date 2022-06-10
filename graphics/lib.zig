@@ -16,7 +16,7 @@ const cgltf = @import("../lib/cgltf/lib.zig");
 
 pub const pkg = Pkg{
     .name = "graphics",
-    .path = .{ .path = srcPath() ++ "/src/graphics.zig" },
+    .source = .{ .path = srcPath() ++ "/src/graphics.zig" },
 };
 
 pub const Options = struct {

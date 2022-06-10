@@ -2,12 +2,12 @@ const std = @import("std");
 
 pub const pkg = std.build.Pkg{
     .name = "lyon",
-    .path = .{ .path = srcPath() ++ "/lyon.zig" },
+    .source = .{ .path = srcPath() ++ "/lyon.zig" },
 };
 
 pub const dummy_pkg = std.build.Pkg{
     .name = "lyon",
-    .path = .{ .path = srcPath() ++ "/lyon_dummy.zig" },
+    .source = .{ .path = srcPath() ++ "/lyon_dummy.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep, link_lyon: bool) void {
