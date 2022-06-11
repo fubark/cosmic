@@ -6,10 +6,12 @@ const c = @cImport({
     @cInclude("vulkan/vulkan.h");
 });
 
+const use_rt_funcs = builtin.os.tag == .macos or builtin.os.tag == .windows;
+
 pub usingnamespace c;
 
 pub inline fn createInstance(pCreateInfo: [*c]const c.VkInstanceCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pInstance: [*c]c.VkInstance) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateInstance(pCreateInfo, pAllocator, pInstance);
     } else {
         return c.vkCreateInstance(pCreateInfo, pAllocator, pInstance);
@@ -17,7 +19,7 @@ pub inline fn createInstance(pCreateInfo: [*c]const c.VkInstanceCreateInfo, pAll
 }
 
 pub inline fn enumeratePhysicalDevices(instance: c.VkInstance, pPhysicalDeviceCount: [*c]u32, pPhysicalDevices: [*c]c.VkPhysicalDevice) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkEnumeratePhysicalDevices(instance, pPhysicalDeviceCount, pPhysicalDevices);
     } else {
         return c.vkEnumeratePhysicalDevices(instance, pPhysicalDeviceCount, pPhysicalDevices);
@@ -25,7 +27,7 @@ pub inline fn enumeratePhysicalDevices(instance: c.VkInstance, pPhysicalDeviceCo
 }
 
 pub inline fn getPhysicalDeviceQueueFamilyProperties(physicalDevice: c.VkPhysicalDevice, pQueueFamilyPropertyCount: [*c]u32, pQueueFamilyProperties: [*c]c.VkQueueFamilyProperties) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, pQueueFamilyPropertyCount, pQueueFamilyProperties);
     } else {
         c.vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, pQueueFamilyPropertyCount, pQueueFamilyProperties);
@@ -33,7 +35,7 @@ pub inline fn getPhysicalDeviceQueueFamilyProperties(physicalDevice: c.VkPhysica
 }
 
 pub inline fn getPhysicalDeviceSurfaceSupportKHR(physicalDevice: c.VkPhysicalDevice, queueFamilyIndex: u32, surface: c.VkSurfaceKHR, pSupported: [*c]c.VkBool32) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, pSupported);
     } else {
         return c.vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, pSupported);
@@ -41,7 +43,7 @@ pub inline fn getPhysicalDeviceSurfaceSupportKHR(physicalDevice: c.VkPhysicalDev
 }
 
 pub inline fn enumerateDeviceExtensionProperties(physicalDevice: c.VkPhysicalDevice, pLayerName: [*c]const u8, pPropertyCount: [*c]u32, pProperties: [*c]c.VkExtensionProperties) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkEnumerateDeviceExtensionProperties(physicalDevice, pLayerName, pPropertyCount, pProperties);
     } else {
         return c.vkEnumerateDeviceExtensionProperties(physicalDevice, pLayerName, pPropertyCount, pProperties);
@@ -49,7 +51,7 @@ pub inline fn enumerateDeviceExtensionProperties(physicalDevice: c.VkPhysicalDev
 }
 
 pub inline fn getPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, pSurfaceCapabilities: [*c]c.VkSurfaceCapabilitiesKHR) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, pSurfaceCapabilities);
     } else {
         return c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, pSurfaceCapabilities);
@@ -57,7 +59,7 @@ pub inline fn getPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice: c.VkPhysic
 }
 
 pub inline fn getPhysicalDeviceSurfacePresentModesKHR(physicalDevice: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, pPresentModeCount: [*c]u32, pPresentModes: [*c]c.VkPresentModeKHR) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, pPresentModeCount, pPresentModes);
     } else {
         return c.vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, pPresentModeCount, pPresentModes);
@@ -65,7 +67,7 @@ pub inline fn getPhysicalDeviceSurfacePresentModesKHR(physicalDevice: c.VkPhysic
 }
 
 pub inline fn getPhysicalDeviceSurfaceFormatsKHR(physicalDevice: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, pSurfaceFormatCount: [*c]u32, pSurfaceFormats: [*c]c.VkSurfaceFormatKHR) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, pSurfaceFormatCount, pSurfaceFormats);
     } else {
         return c.vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, pSurfaceFormatCount, pSurfaceFormats);
@@ -73,7 +75,7 @@ pub inline fn getPhysicalDeviceSurfaceFormatsKHR(physicalDevice: c.VkPhysicalDev
 }
 
 pub inline fn createDevice(physicalDevice: c.VkPhysicalDevice, pCreateInfo: [*c]const c.VkDeviceCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pDevice: [*c]c.VkDevice) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
     } else {
         return c.vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
@@ -81,7 +83,7 @@ pub inline fn createDevice(physicalDevice: c.VkPhysicalDevice, pCreateInfo: [*c]
 }
 
 pub inline fn getDeviceQueue(device: c.VkDevice, queueFamilyIndex: u32, queueIndex: u32, pQueue: [*c]c.VkQueue) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkGetDeviceQueue(device, queueFamilyIndex, queueIndex, pQueue);
     } else {
         c.vkGetDeviceQueue(device, queueFamilyIndex, queueIndex, pQueue);
@@ -89,7 +91,7 @@ pub inline fn getDeviceQueue(device: c.VkDevice, queueFamilyIndex: u32, queueInd
 }
 
 pub inline fn createSwapchainKHR(device: c.VkDevice, pCreateInfo: [*c]const c.VkSwapchainCreateInfoKHR, pAllocator: [*c]const c.VkAllocationCallbacks, pSwapchain: [*c]c.VkSwapchainKHR) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
     } else {
         return c.vkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
@@ -97,7 +99,7 @@ pub inline fn createSwapchainKHR(device: c.VkDevice, pCreateInfo: [*c]const c.Vk
 }
 
 pub inline fn getSwapchainImagesKHR(device: c.VkDevice, swapchain: c.VkSwapchainKHR, pSwapchainImageCount: [*c]u32, pSwapchainImages: [*c]c.VkImage) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkGetSwapchainImagesKHR(device, swapchain, pSwapchainImageCount, pSwapchainImages);
     } else {
         return c.vkGetSwapchainImagesKHR(device, swapchain, pSwapchainImageCount, pSwapchainImages);
@@ -105,7 +107,7 @@ pub inline fn getSwapchainImagesKHR(device: c.VkDevice, swapchain: c.VkSwapchain
 }
 
 pub inline fn createImageView(device: c.VkDevice, pCreateInfo: [*c]const c.VkImageViewCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pView: [*c]c.VkImageView) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateImageView(device, pCreateInfo, pAllocator, pView);
     } else {
         return c.vkCreateImageView(device, pCreateInfo, pAllocator, pView);
@@ -113,7 +115,7 @@ pub inline fn createImageView(device: c.VkDevice, pCreateInfo: [*c]const c.VkIma
 }
 
 pub inline fn createRenderPass(device: c.VkDevice, pCreateInfo: [*c]const c.VkRenderPassCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pRenderPass: [*c]c.VkRenderPass) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
     } else {
         return c.vkCreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass);
@@ -121,7 +123,7 @@ pub inline fn createRenderPass(device: c.VkDevice, pCreateInfo: [*c]const c.VkRe
 }
 
 pub inline fn createPipelineLayout(device: c.VkDevice, pCreateInfo: [*c]const c.VkPipelineLayoutCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pPipelineLayout: [*c]c.VkPipelineLayout) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreatePipelineLayout(device, pCreateInfo, pAllocator, pPipelineLayout);
     } else {
         return c.vkCreatePipelineLayout(device, pCreateInfo, pAllocator, pPipelineLayout);
@@ -129,7 +131,7 @@ pub inline fn createPipelineLayout(device: c.VkDevice, pCreateInfo: [*c]const c.
 }
 
 pub inline fn createShaderModule(device: c.VkDevice, pCreateInfo: [*c]const c.VkShaderModuleCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pShaderModule: [*c]c.VkShaderModule) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule);
     } else {
         return c.vkCreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule);
@@ -137,7 +139,7 @@ pub inline fn createShaderModule(device: c.VkDevice, pCreateInfo: [*c]const c.Vk
 }
 
 pub inline fn createGraphicsPipelines(device: c.VkDevice, pipelineCache: c.VkPipelineCache, createInfoCount: u32, pCreateInfos: [*c]const c.VkGraphicsPipelineCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pPipelines: [*c]c.VkPipeline) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
     } else {
         return c.vkCreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
@@ -145,7 +147,7 @@ pub inline fn createGraphicsPipelines(device: c.VkDevice, pipelineCache: c.VkPip
 }
 
 pub inline fn destroyShaderModule(device: c.VkDevice, shaderModule: c.VkShaderModule, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyShaderModule(device, shaderModule, pAllocator);
     } else {
         c.vkDestroyShaderModule(device, shaderModule, pAllocator);
@@ -153,7 +155,7 @@ pub inline fn destroyShaderModule(device: c.VkDevice, shaderModule: c.VkShaderMo
 }
 
 pub inline fn createFramebuffer(device: c.VkDevice, pCreateInfo: [*c]const c.VkFramebufferCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pFramebuffer: [*c]c.VkFramebuffer) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateFramebuffer(device, pCreateInfo, pAllocator, pFramebuffer);
     } else {
         return c.vkCreateFramebuffer(device, pCreateInfo, pAllocator, pFramebuffer);
@@ -161,7 +163,7 @@ pub inline fn createFramebuffer(device: c.VkDevice, pCreateInfo: [*c]const c.VkF
 }
 
 pub inline fn createCommandPool(device: c.VkDevice, pCreateInfo: [*c]const c.VkCommandPoolCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pCommandPool: [*c]c.VkCommandPool) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateCommandPool(device, pCreateInfo, pAllocator, pCommandPool);
     } else {
         return c.vkCreateCommandPool(device, pCreateInfo, pAllocator, pCommandPool);
@@ -169,7 +171,7 @@ pub inline fn createCommandPool(device: c.VkDevice, pCreateInfo: [*c]const c.VkC
 }
 
 pub inline fn allocateCommandBuffers(device: c.VkDevice, pAllocateInfo: [*c]const c.VkCommandBufferAllocateInfo, pCommandBuffers: [*c]c.VkCommandBuffer) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkAllocateCommandBuffers(device, pAllocateInfo, pCommandBuffers);
     } else {
         return c.vkAllocateCommandBuffers(device, pAllocateInfo, pCommandBuffers);
@@ -177,7 +179,7 @@ pub inline fn allocateCommandBuffers(device: c.VkDevice, pAllocateInfo: [*c]cons
 }
 
 pub inline fn beginCommandBuffer(commandBuffer: c.VkCommandBuffer, pBeginInfo: [*c]const c.VkCommandBufferBeginInfo) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkBeginCommandBuffer(commandBuffer, pBeginInfo);
     } else {
         return c.vkBeginCommandBuffer(commandBuffer, pBeginInfo);
@@ -185,7 +187,7 @@ pub inline fn beginCommandBuffer(commandBuffer: c.VkCommandBuffer, pBeginInfo: [
 }
 
 pub inline fn cmdBeginRenderPass(commandBuffer: c.VkCommandBuffer, pRenderPassBegin: [*c]const c.VkRenderPassBeginInfo, contents: c.VkSubpassContents) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdBeginRenderPass(commandBuffer, pRenderPassBegin, contents);
     } else {
         c.vkCmdBeginRenderPass(commandBuffer, pRenderPassBegin, contents);
@@ -193,7 +195,7 @@ pub inline fn cmdBeginRenderPass(commandBuffer: c.VkCommandBuffer, pRenderPassBe
 }
 
 pub inline fn cmdBindPipeline(commandBuffer: c.VkCommandBuffer, pipelineBindPoint: c.VkPipelineBindPoint, pipeline: c.VkPipeline) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdBindPipeline(commandBuffer, pipelineBindPoint, pipeline);
     } else {
         c.vkCmdBindPipeline(commandBuffer, pipelineBindPoint, pipeline);
@@ -201,7 +203,7 @@ pub inline fn cmdBindPipeline(commandBuffer: c.VkCommandBuffer, pipelineBindPoin
 }
 
 pub inline fn cmdDraw(commandBuffer: c.VkCommandBuffer, vertexCount: u32, instanceCount: u32, firstVertex: u32, firstInstance: u32) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdDraw(commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
     } else {
         c.vkCmdDraw(commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
@@ -209,7 +211,7 @@ pub inline fn cmdDraw(commandBuffer: c.VkCommandBuffer, vertexCount: u32, instan
 }
 
 pub inline fn cmdEndRenderPass(commandBuffer: c.VkCommandBuffer) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdEndRenderPass(commandBuffer);
     } else {
         c.vkCmdEndRenderPass(commandBuffer);
@@ -217,7 +219,7 @@ pub inline fn cmdEndRenderPass(commandBuffer: c.VkCommandBuffer) void {
 }
 
 pub inline fn endCommandBuffer(commandBuffer: c.VkCommandBuffer) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkEndCommandBuffer(commandBuffer);
     } else {
         return c.vkEndCommandBuffer(commandBuffer);
@@ -225,7 +227,7 @@ pub inline fn endCommandBuffer(commandBuffer: c.VkCommandBuffer) c.VkResult {
 }
 
 pub inline fn createSemaphore(device: c.VkDevice, pCreateInfo: [*c]const c.VkSemaphoreCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pSemaphore: [*c]c.VkSemaphore) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateSemaphore(device, pCreateInfo, pAllocator, pSemaphore);
     } else {
         return c.vkCreateSemaphore(device, pCreateInfo, pAllocator, pSemaphore);
@@ -233,7 +235,7 @@ pub inline fn createSemaphore(device: c.VkDevice, pCreateInfo: [*c]const c.VkSem
 }
 
 pub inline fn createFence(device: c.VkDevice, pCreateInfo: [*c]const c.VkFenceCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pFence: [*c]c.VkFence) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateFence(device, pCreateInfo, pAllocator, pFence);
     } else {
         return c.vkCreateFence(device, pCreateInfo, pAllocator, pFence);
@@ -241,7 +243,7 @@ pub inline fn createFence(device: c.VkDevice, pCreateInfo: [*c]const c.VkFenceCr
 }
 
 pub inline fn enumerateInstanceLayerProperties(pPropertyCount: [*c]u32, pProperties: [*c]c.VkLayerProperties) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkEnumerateInstanceLayerProperties(pPropertyCount, pProperties);
     } else {
         return c.vkEnumerateInstanceLayerProperties(pPropertyCount, pProperties);
@@ -249,7 +251,7 @@ pub inline fn enumerateInstanceLayerProperties(pPropertyCount: [*c]u32, pPropert
 }
 
 pub inline fn mapMemory(device: c.VkDevice, memory: c.VkDeviceMemory, offset: c.VkDeviceSize, size: c.VkDeviceSize, flags: c.VkMemoryMapFlags, ppData: [*c]?*anyopaque) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkMapMemory(device, memory, offset, size, flags, ppData);
     } else {
         return c.vkMapMemory(device, memory, offset, size, flags, ppData);
@@ -257,7 +259,7 @@ pub inline fn mapMemory(device: c.VkDevice, memory: c.VkDeviceMemory, offset: c.
 }
 
 pub inline fn unmapMemory(device: c.VkDevice, memory: c.VkDeviceMemory) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkUnmapMemory(device, memory);
     } else {
         c.vkUnmapMemory(device, memory);
@@ -265,7 +267,7 @@ pub inline fn unmapMemory(device: c.VkDevice, memory: c.VkDeviceMemory) void {
 }
 
 pub inline fn createBuffer(device: c.VkDevice, pCreateInfo: [*c]const c.VkBufferCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pBuffer: [*c]c.VkBuffer) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateBuffer(device, pCreateInfo, pAllocator, pBuffer);
     } else {
         return c.vkCreateBuffer(device, pCreateInfo, pAllocator, pBuffer);
@@ -273,7 +275,7 @@ pub inline fn createBuffer(device: c.VkDevice, pCreateInfo: [*c]const c.VkBuffer
 }
 
 pub inline fn getBufferMemoryRequirements(device: c.VkDevice, buffer: c.VkBuffer, pMemoryRequirements: [*c]c.VkMemoryRequirements) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkGetBufferMemoryRequirements(device, buffer, pMemoryRequirements);
     } else {
         c.vkGetBufferMemoryRequirements(device, buffer, pMemoryRequirements);
@@ -281,7 +283,7 @@ pub inline fn getBufferMemoryRequirements(device: c.VkDevice, buffer: c.VkBuffer
 }
 
 pub inline fn allocateMemory(device: c.VkDevice, pAllocateInfo: [*c]const c.VkMemoryAllocateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pMemory: [*c]c.VkDeviceMemory) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkAllocateMemory(device, pAllocateInfo, pAllocator, pMemory);
     } else {
         return c.vkAllocateMemory(device, pAllocateInfo, pAllocator, pMemory);
@@ -289,7 +291,7 @@ pub inline fn allocateMemory(device: c.VkDevice, pAllocateInfo: [*c]const c.VkMe
 }
 
 pub inline fn bindBufferMemory(device: c.VkDevice, buffer: c.VkBuffer, memory: c.VkDeviceMemory, memoryOffset: c.VkDeviceSize) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkBindBufferMemory(device, buffer, memory, memoryOffset);
     } else {
         return c.vkBindBufferMemory(device, buffer, memory, memoryOffset);
@@ -297,7 +299,7 @@ pub inline fn bindBufferMemory(device: c.VkDevice, buffer: c.VkBuffer, memory: c
 }
 
 pub inline fn createImage(device: c.VkDevice, pCreateInfo: [*c]const c.VkImageCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pImage: [*c]c.VkImage) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateImage(device, pCreateInfo, pAllocator, pImage);
     } else {
         return c.vkCreateImage(device, pCreateInfo, pAllocator, pImage);
@@ -305,7 +307,7 @@ pub inline fn createImage(device: c.VkDevice, pCreateInfo: [*c]const c.VkImageCr
 }
 
 pub inline fn getImageMemoryRequirements(device: c.VkDevice, image: c.VkImage, pMemoryRequirements: [*c]c.VkMemoryRequirements) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkGetImageMemoryRequirements(device, image, pMemoryRequirements);
     } else {
         c.vkGetImageMemoryRequirements(device, image, pMemoryRequirements);
@@ -313,7 +315,7 @@ pub inline fn getImageMemoryRequirements(device: c.VkDevice, image: c.VkImage, p
 }
 
 pub inline fn bindImageMemory(device: c.VkDevice, image: c.VkImage, memory: c.VkDeviceMemory, memoryOffset: c.VkDeviceSize) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkBindImageMemory(device, image, memory, memoryOffset);
     } else {
         return c.vkBindImageMemory(device, image, memory, memoryOffset);
@@ -324,7 +326,7 @@ pub inline fn cmdPipelineBarrier(commandBuffer: c.VkCommandBuffer, srcStageMask:
     dependencyFlags: c.VkDependencyFlags, memoryBarrierCount: u32, pMemoryBarriers: [*c]const c.VkMemoryBarrier, bufferMemoryBarrierCount: u32,
     pBufferMemoryBarriers: [*c]const c.VkBufferMemoryBarrier, imageMemoryBarrierCount: u32, pImageMemoryBarriers: [*c]const c.VkImageMemoryBarrier
 ) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, dependencyFlags, memoryBarrierCount, pMemoryBarriers, bufferMemoryBarrierCount, pBufferMemoryBarriers, imageMemoryBarrierCount, pImageMemoryBarriers);
     } else {
         c.vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, dependencyFlags, memoryBarrierCount, pMemoryBarriers, bufferMemoryBarrierCount, pBufferMemoryBarriers, imageMemoryBarrierCount, pImageMemoryBarriers);
@@ -332,7 +334,7 @@ pub inline fn cmdPipelineBarrier(commandBuffer: c.VkCommandBuffer, srcStageMask:
 }
 
 pub inline fn cmdCopyBufferToImage(commandBuffer: c.VkCommandBuffer, srcBuffer: c.VkBuffer, dstImage: c.VkImage, dstImageLayout: c.VkImageLayout, regionCount: u32, pRegions: [*c]const c.VkBufferImageCopy) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage, dstImageLayout, regionCount, pRegions);
     } else {
         c.vkCmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage, dstImageLayout, regionCount, pRegions);
@@ -340,7 +342,7 @@ pub inline fn cmdCopyBufferToImage(commandBuffer: c.VkCommandBuffer, srcBuffer: 
 }
 
 pub inline fn getPhysicalDeviceMemoryProperties(physicalDevice: c.VkPhysicalDevice, pMemoryProperties: [*c]c.VkPhysicalDeviceMemoryProperties) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkGetPhysicalDeviceMemoryProperties(physicalDevice, pMemoryProperties);
     } else {
         c.vkGetPhysicalDeviceMemoryProperties(physicalDevice, pMemoryProperties);
@@ -348,7 +350,7 @@ pub inline fn getPhysicalDeviceMemoryProperties(physicalDevice: c.VkPhysicalDevi
 }
 
 pub inline fn queueSubmit(queue: c.VkQueue, submitCount: u32, pSubmits: [*c]const c.VkSubmitInfo, fence: c.VkFence) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkQueueSubmit(queue, submitCount, pSubmits, fence);
     } else {
         return c.vkQueueSubmit(queue, submitCount, pSubmits, fence);
@@ -356,7 +358,7 @@ pub inline fn queueSubmit(queue: c.VkQueue, submitCount: u32, pSubmits: [*c]cons
 }
 
 pub inline fn queueWaitIdle(queue: c.VkQueue) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkQueueWaitIdle(queue);
     } else {
         return c.vkQueueWaitIdle(queue);
@@ -364,7 +366,7 @@ pub inline fn queueWaitIdle(queue: c.VkQueue) c.VkResult {
 }
 
 pub inline fn freeCommandBuffers(device: c.VkDevice, commandPool: c.VkCommandPool, commandBufferCount: u32, pCommandBuffers: [*c]const c.VkCommandBuffer) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkFreeCommandBuffers(device, commandPool, commandBufferCount, pCommandBuffers);
     } else {
         return c.vkFreeCommandBuffers(device, commandPool, commandBufferCount, pCommandBuffers);
@@ -372,7 +374,7 @@ pub inline fn freeCommandBuffers(device: c.VkDevice, commandPool: c.VkCommandPoo
 }
 
 pub inline fn enumerateInstanceExtensionProperties(pLayerName: [*c]const u8, pPropertyCount: [*c]u32, pProperties: [*c]c.VkExtensionProperties) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkEnumerateInstanceExtensionProperties(pLayerName, pPropertyCount, pProperties);
     } else {
         return c.vkEnumerateInstanceExtensionProperties(pLayerName, pPropertyCount, pProperties);
@@ -380,7 +382,7 @@ pub inline fn enumerateInstanceExtensionProperties(pLayerName: [*c]const u8, pPr
 }
 
 pub inline fn destroyBuffer(device: c.VkDevice, buffer: c.VkBuffer, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyBuffer(device, buffer, pAllocator);
     } else {
         c.vkDestroyBuffer(device, buffer, pAllocator);
@@ -388,7 +390,7 @@ pub inline fn destroyBuffer(device: c.VkDevice, buffer: c.VkBuffer, pAllocator: 
 }
 
 pub inline fn freeMemory(device: c.VkDevice, memory: c.VkDeviceMemory, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkFreeMemory(device, memory, pAllocator);
     } else {
         c.vkFreeMemory(device, memory, pAllocator);
@@ -396,7 +398,7 @@ pub inline fn freeMemory(device: c.VkDevice, memory: c.VkDeviceMemory, pAllocato
 }
 
 pub inline fn destroyImage(device: c.VkDevice, image: c.VkImage, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyImage(device, image, pAllocator);
     } else {
         c.vkDestroyImage(device, image, pAllocator);
@@ -404,7 +406,7 @@ pub inline fn destroyImage(device: c.VkDevice, image: c.VkImage, pAllocator: [*c
 }
 
 pub inline fn destroyImageView(device: c.VkDevice, imageView: c.VkImageView, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyImageView(device, imageView, pAllocator);
     } else {
         c.vkDestroyImageView(device, imageView, pAllocator);
@@ -412,7 +414,7 @@ pub inline fn destroyImageView(device: c.VkDevice, imageView: c.VkImageView, pAl
 }
 
 pub inline fn createDescriptorSetLayout(device: c.VkDevice, pCreateInfo: [*c]const c.VkDescriptorSetLayoutCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pSetLayout: [*c]c.VkDescriptorSetLayout) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateDescriptorSetLayout(device, pCreateInfo, pAllocator, pSetLayout);
     } else {
         return c.vkCreateDescriptorSetLayout(device, pCreateInfo, pAllocator, pSetLayout);
@@ -420,7 +422,7 @@ pub inline fn createDescriptorSetLayout(device: c.VkDevice, pCreateInfo: [*c]con
 }
 
 pub inline fn createSampler(device: c.VkDevice, pCreateInfo: [*c]const c.VkSamplerCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pSampler: [*c]c.VkSampler) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateSampler(device, pCreateInfo, pAllocator, pSampler);
     } else {
         return c.vkCreateSampler(device, pCreateInfo, pAllocator, pSampler);
@@ -428,7 +430,7 @@ pub inline fn createSampler(device: c.VkDevice, pCreateInfo: [*c]const c.VkSampl
 }
 
 pub inline fn waitForFences(device: c.VkDevice, fenceCount: u32, pFences: [*c]const c.VkFence, waitAll: c.VkBool32, timeout: u64) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkWaitForFences(device, fenceCount, pFences, waitAll, timeout);
     } else {
         return c.vkWaitForFences(device, fenceCount, pFences, waitAll, timeout);
@@ -436,7 +438,7 @@ pub inline fn waitForFences(device: c.VkDevice, fenceCount: u32, pFences: [*c]co
 }
 
 pub inline fn resetFences(device: c.VkDevice, fenceCount: u32, pFences: [*c]const c.VkFence) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkResetFences(device, fenceCount, pFences);
     } else {
         return c.vkResetFences(device, fenceCount, pFences);
@@ -444,7 +446,7 @@ pub inline fn resetFences(device: c.VkDevice, fenceCount: u32, pFences: [*c]cons
 }
 
 pub inline fn acquireNextImageKHR(device: c.VkDevice, swapchain: c.VkSwapchainKHR, timeout: u64, semaphore: c.VkSemaphore, fence: c.VkFence, pImageIndex: [*c]u32) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
     } else {
         return c.vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
@@ -452,7 +454,7 @@ pub inline fn acquireNextImageKHR(device: c.VkDevice, swapchain: c.VkSwapchainKH
 }
 
 pub inline fn queuePresentKHR(queue: c.VkQueue, pPresentInfo: [*c]const c.VkPresentInfoKHR) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkQueuePresentKHR(queue, pPresentInfo);
     } else {
         return c.vkQueuePresentKHR(queue, pPresentInfo);
@@ -460,7 +462,7 @@ pub inline fn queuePresentKHR(queue: c.VkQueue, pPresentInfo: [*c]const c.VkPres
 }
 
 pub inline fn cmdBindVertexBuffers(commandBuffer: c.VkCommandBuffer, firstBinding: u32, bindingCount: u32, pBuffers: [*c]const c.VkBuffer, pOffsets: [*c]const c.VkDeviceSize) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdBindVertexBuffers(commandBuffer, firstBinding, bindingCount, pBuffers, pOffsets);
     } else {
         c.vkCmdBindVertexBuffers(commandBuffer, firstBinding, bindingCount, pBuffers, pOffsets);
@@ -468,7 +470,7 @@ pub inline fn cmdBindVertexBuffers(commandBuffer: c.VkCommandBuffer, firstBindin
 }
 
 pub inline fn cmdBindIndexBuffer(commandBuffer: c.VkCommandBuffer, buffer: c.VkBuffer, offset: c.VkDeviceSize, indexType: c.VkIndexType) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdBindIndexBuffer(commandBuffer, buffer, offset, indexType);
     } else {
         c.vkCmdBindIndexBuffer(commandBuffer, buffer, offset, indexType);
@@ -476,7 +478,7 @@ pub inline fn cmdBindIndexBuffer(commandBuffer: c.VkCommandBuffer, buffer: c.VkB
 }
 
 pub inline fn cmdDrawIndexed(commandBuffer: c.VkCommandBuffer, indexCount: u32, instanceCount: u32, firstIndex: u32, vertexOffset: i32, firstInstance: u32) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdDrawIndexed(commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
     } else {
         c.vkCmdDrawIndexed(commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
@@ -484,7 +486,7 @@ pub inline fn cmdDrawIndexed(commandBuffer: c.VkCommandBuffer, indexCount: u32, 
 }
 
 pub inline fn cmdPushConstants(commandBuffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, stageFlags: c.VkShaderStageFlags, offset: u32, size: u32, pValues: ?*const anyopaque) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdPushConstants(commandBuffer, layout, stageFlags, offset, size, pValues);
     } else {
         c.vkCmdPushConstants(commandBuffer, layout, stageFlags, offset, size, pValues);
@@ -492,7 +494,7 @@ pub inline fn cmdPushConstants(commandBuffer: c.VkCommandBuffer, layout: c.VkPip
 }
 
 pub inline fn cmdBindDescriptorSets(commandBuffer: c.VkCommandBuffer, pipelineBindPoint: c.VkPipelineBindPoint, layout: c.VkPipelineLayout, firstSet: u32, descriptorSetCount: u32, pDescriptorSets: [*c]const c.VkDescriptorSet, dynamicOffsetCount: u32, pDynamicOffsets: [*c]const u32) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdBindDescriptorSets(commandBuffer, pipelineBindPoint, layout, firstSet, descriptorSetCount, pDescriptorSets, dynamicOffsetCount, pDynamicOffsets);
     } else {
         c.vkCmdBindDescriptorSets(commandBuffer, pipelineBindPoint, layout, firstSet, descriptorSetCount, pDescriptorSets, dynamicOffsetCount, pDynamicOffsets);
@@ -500,7 +502,7 @@ pub inline fn cmdBindDescriptorSets(commandBuffer: c.VkCommandBuffer, pipelineBi
 }
 
 pub inline fn createDescriptorPool(device: c.VkDevice, pCreateInfo: [*c]const c.VkDescriptorPoolCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pDescriptorPool: [*c]c.VkDescriptorPool) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkCreateDescriptorPool(device, pCreateInfo, pAllocator, pDescriptorPool);
     } else {
         return c.vkCreateDescriptorPool(device, pCreateInfo, pAllocator, pDescriptorPool);
@@ -508,7 +510,7 @@ pub inline fn createDescriptorPool(device: c.VkDevice, pCreateInfo: [*c]const c.
 }
 
 pub inline fn allocateDescriptorSets(device: c.VkDevice, pAllocateInfo: [*c]const c.VkDescriptorSetAllocateInfo, pDescriptorSets: [*c]c.VkDescriptorSet) c.VkResult {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkAllocateDescriptorSets(device, pAllocateInfo, pDescriptorSets);
     } else {
         return c.vkAllocateDescriptorSets(device, pAllocateInfo, pDescriptorSets);
@@ -516,7 +518,7 @@ pub inline fn allocateDescriptorSets(device: c.VkDevice, pAllocateInfo: [*c]cons
 }
 
 pub inline fn updateDescriptorSets(device: c.VkDevice, descriptorWriteCount: u32, pDescriptorWrites: [*c]const c.VkWriteDescriptorSet, descriptorCopyCount: u32, pDescriptorCopies: [*c]const c.VkCopyDescriptorSet) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         return rtVkUpdateDescriptorSets(device, descriptorWriteCount, pDescriptorWrites, descriptorCopyCount, pDescriptorCopies);
     } else {
         return c.vkUpdateDescriptorSets(device, descriptorWriteCount, pDescriptorWrites, descriptorCopyCount, pDescriptorCopies);
@@ -524,7 +526,7 @@ pub inline fn updateDescriptorSets(device: c.VkDevice, descriptorWriteCount: u32
 }
 
 pub inline fn getPhysicalDeviceFeatures(physicalDevice: c.VkPhysicalDevice, pFeatures: [*c]c.VkPhysicalDeviceFeatures) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkGetPhysicalDeviceFeatures(physicalDevice, pFeatures);
     } else {
         c.vkGetPhysicalDeviceFeatures(physicalDevice, pFeatures);
@@ -532,7 +534,7 @@ pub inline fn getPhysicalDeviceFeatures(physicalDevice: c.VkPhysicalDevice, pFea
 }
 
 pub inline fn destroyInstance(instance: c.VkInstance, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyInstance(instance, pAllocator);
     } else {
         c.vkDestroyInstance(instance, pAllocator);
@@ -540,7 +542,7 @@ pub inline fn destroyInstance(instance: c.VkInstance, pAllocator: [*c]const c.Vk
 }
 
 pub inline fn destroyDevice(device: c.VkDevice, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyDevice(device, pAllocator);
     } else {
         c.vkDestroyDevice(device, pAllocator);
@@ -548,7 +550,7 @@ pub inline fn destroyDevice(device: c.VkDevice, pAllocator: [*c]const c.VkAlloca
 }
 
 pub inline fn destroySurfaceKHR(instance: c.VkInstance, surface: c.VkSurfaceKHR, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroySurfaceKHR(instance, surface, pAllocator);
     } else {
         c.vkDestroySurfaceKHR(instance, surface, pAllocator);
@@ -556,7 +558,7 @@ pub inline fn destroySurfaceKHR(instance: c.VkInstance, surface: c.VkSurfaceKHR,
 }
 
 pub inline fn destroySemaphore(device: c.VkDevice, semaphore: c.VkSemaphore, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroySemaphore(device, semaphore, pAllocator);
     } else {
         c.vkDestroySemaphore(device, semaphore, pAllocator);
@@ -564,7 +566,7 @@ pub inline fn destroySemaphore(device: c.VkDevice, semaphore: c.VkSemaphore, pAl
 }
 
 pub inline fn destroyFence(device: c.VkDevice, fence: c.VkFence, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyFence(device, fence, pAllocator);
     } else {
         c.vkDestroyFence(device, fence, pAllocator);
@@ -572,7 +574,7 @@ pub inline fn destroyFence(device: c.VkDevice, fence: c.VkFence, pAllocator: [*c
 }
 
 pub inline fn destroyPipeline(device: c.VkDevice, pipeline: c.VkPipeline, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyPipeline(device, pipeline, pAllocator);
     } else {
         c.vkDestroyPipeline(device, pipeline, pAllocator);
@@ -580,7 +582,7 @@ pub inline fn destroyPipeline(device: c.VkDevice, pipeline: c.VkPipeline, pAlloc
 }
 
 pub inline fn destroyPipelineLayout(device: c.VkDevice, pipelineLayout: c.VkPipelineLayout, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyPipelineLayout(device, pipelineLayout, pAllocator);
     } else {
         c.vkDestroyPipelineLayout(device, pipelineLayout, pAllocator);
@@ -588,7 +590,7 @@ pub inline fn destroyPipelineLayout(device: c.VkDevice, pipelineLayout: c.VkPipe
 }
 
 pub inline fn destroySwapchainKHR(device: c.VkDevice, swapchain: c.VkSwapchainKHR, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroySwapchainKHR(device, swapchain, pAllocator);
     } else {
         c.vkDestroySwapchainKHR(device, swapchain, pAllocator);
@@ -596,7 +598,7 @@ pub inline fn destroySwapchainKHR(device: c.VkDevice, swapchain: c.VkSwapchainKH
 }
 
 pub inline fn destroyFramebuffer(device: c.VkDevice, framebuffer: c.VkFramebuffer, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyFramebuffer(device, framebuffer, pAllocator);
     } else {
         c.vkDestroyFramebuffer(device, framebuffer, pAllocator);
@@ -604,7 +606,7 @@ pub inline fn destroyFramebuffer(device: c.VkDevice, framebuffer: c.VkFramebuffe
 }
 
 pub inline fn destroyDescriptorSetLayout(device: c.VkDevice, descriptorSetLayout: c.VkDescriptorSetLayout, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyDescriptorSetLayout(device, descriptorSetLayout, pAllocator);
     } else {
         c.vkDestroyDescriptorSetLayout(device, descriptorSetLayout, pAllocator);
@@ -612,7 +614,7 @@ pub inline fn destroyDescriptorSetLayout(device: c.VkDevice, descriptorSetLayout
 }
 
 pub inline fn destroyDescriptorPool(device: c.VkDevice, descriptorPool: c.VkDescriptorPool, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyDescriptorPool(device, descriptorPool, pAllocator);
     } else {
         c.vkDestroyDescriptorPool(device, descriptorPool, pAllocator);
@@ -620,7 +622,7 @@ pub inline fn destroyDescriptorPool(device: c.VkDevice, descriptorPool: c.VkDesc
 }
 
 pub inline fn destroySampler(device: c.VkDevice, sampler: c.VkSampler, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroySampler(device, sampler, pAllocator);
     } else {
         c.vkDestroySampler(device, sampler, pAllocator);
@@ -628,7 +630,7 @@ pub inline fn destroySampler(device: c.VkDevice, sampler: c.VkSampler, pAllocato
 }
 
 pub inline fn destroyRenderPass(device: c.VkDevice, renderPass: c.VkRenderPass, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyRenderPass(device, renderPass, pAllocator);
     } else {
         c.vkDestroyRenderPass(device, renderPass, pAllocator);
@@ -636,7 +638,7 @@ pub inline fn destroyRenderPass(device: c.VkDevice, renderPass: c.VkRenderPass, 
 }
 
 pub inline fn destroyCommandPool(device: c.VkDevice, commandPool: c.VkCommandPool, pAllocator: [*c]const c.VkAllocationCallbacks) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkDestroyCommandPool(device, commandPool, pAllocator);
     } else {
         c.vkDestroyCommandPool(device, commandPool, pAllocator);
@@ -644,7 +646,7 @@ pub inline fn destroyCommandPool(device: c.VkDevice, commandPool: c.VkCommandPoo
 }
 
 pub inline fn cmdSetScissor(commandBuffer: c.VkCommandBuffer, firstScissor: u32, scissorCount: u32, pScissors: [*c]const c.VkRect2D) void {
-    if (builtin.os.tag == .macos) {
+    if (use_rt_funcs) {
         rtVkCmdSetScissor(commandBuffer, firstScissor, scissorCount, pScissors);
     } else {
         c.vkCmdSetScissor(commandBuffer, firstScissor, scissorCount, pScissors);
