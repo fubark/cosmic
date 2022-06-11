@@ -24,6 +24,8 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 - [x] Transforms.
 - [x] Blending.
 - [x] Gradients.
+- [ ] Draw 3D meshes. (Basic support.)
+- [ ] Load 3D models from gltf. (Basic support.)
 - [ ] Custom Shaders.
 - [x] Cross platform.
 - [ ] Cross compilation. (Might work already, needs verification.)
@@ -31,17 +33,18 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 
 | Status | Platform | Backend | Size (demo.zig)* |
 | --- | --- | --- | --- |
-| ✅ | Linux x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | OpenGL | demo - 2.2 M |
+| ✅ | Linux x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | OpenGL, Vulkan** | demo - 2.2 M |
 | ✅ | Web [(Demo)](https://fubark.github.io/cosmic-site/demo) | Wasm/WebGL2 | demo.wasm - 461 KB |
 | ✅ | Windows x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | OpenGL | demo.exe - 2.7 M |
 | ✅ | macOS x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | OpenGL, Vulkan** | demo - 3.1 M |
-| ✅ | macOS arm64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | OpenGL | demo - 2.8 M |
+| ✅ | macOS arm64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | OpenGL, Vulkan** | demo - 2.8 M |
+| Planned | Windows Vulkan backend |
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
 \* Static binary size not including the demo assets. Compiled with -Drelease-safe.
 
-\** Vulkan backend does not currently support dynamic blending or drawing to offscreen images.
+\** Vulkan backend does not currently support dynamic blending or drawing to offscreen images. Note for macOS, you need to install MoltenVK. In a future release, the static lib will automatically be included. If you'd like to use OpenGL instead, enable it in cosmic/platform/backend.zig.
 
 ## Screenshot
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
