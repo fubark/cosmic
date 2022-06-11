@@ -2,12 +2,12 @@ const std = @import("std");
 
 pub const stbtt_pkg = std.build.Pkg{
     .name = "stbtt",
-    .path = .{ .path = srcPath() ++ "/stbtt.zig" },
+    .source = .{ .path = srcPath() ++ "/stbtt.zig" },
 };
 
 pub const stbi_pkg = std.build.Pkg{
     .name = "stbi",
-    .path = .{ .path = srcPath() ++ "/stbi.zig" },
+    .source = .{ .path = srcPath() ++ "/stbi.zig" },
 };
 
 pub fn addStbttPackage(step: *std.build.LibExeObjStep) void {

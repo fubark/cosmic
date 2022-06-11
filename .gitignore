@@ -1,5 +1,6 @@
 /zig-cache/
 /zig-out/
+/graphics/src/backend/vk/shaders/*.spv
 /lib/zig
 /lib/libtess2
 /lib/clyon/target/

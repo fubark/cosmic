@@ -4,7 +4,7 @@ const Duration = stdx.time.Duration;
 const platform = @import("platform");
 const KeyDownEvent = platform.KeyDownEvent;
 const graphics = @import("graphics");
-const FontGroupId = graphics.font.FontGroupId;
+const FontGroupId = graphics.FontGroupId;
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
@@ -33,7 +33,7 @@ pub const TextEditor = struct {
     // Current font group used.
     font_gid: FontGroupId,
     font_size: f32,
-    font_vmetrics: graphics.font.VMetrics,
+    font_vmetrics: graphics.VMetrics,
     font_line_height: u32,
     font_line_offset_y: f32, // y offset to first text line is drawn
 

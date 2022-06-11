@@ -1,15 +1,12 @@
 const std = @import("std");
 
-const graphics = @import("../../graphics.zig");
-const FontId = graphics.font.FontId;
-const font = @import("font.zig");
-const Font = font.Font;
-const FontDesc = font.FontDesc;
+const graphics = @import("graphics.zig");
+const FontId = graphics.FontId;
+const Font = graphics.Font;
+const FontDesc = graphics.FontDesc;
 
 // Currently keeps a seq of fonts to do fallback logic. Similar to css font-family.
 pub const FontGroup = struct {
-    const Self = @This();
-
     alloc: std.mem.Allocator,
 
     // Ordered by font fallback priority.
@@ -19,6 +16,8 @@ pub const FontGroup = struct {
 
     primary_font: FontId,
     primary_font_desc: FontDesc,
+
+    const Self = @This();
 
     pub fn init(self: *Self, alloc: std.mem.Allocator, font_ids_: []const FontId, fonts: []const Font) void {
         const font_ids = alloc.dupe(FontId, font_ids_) catch unreachable;

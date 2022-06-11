@@ -36,5 +36,11 @@ For TTF rasterization and image manipulation.
 For desktop font rasterization.
 - https://github.com/freetype/freetype.git (a4c4566b6d51a0bd60133e1e1a7fcc19e8fcba9e)
 
-### Mesa opengl headers
+### gl - Contains zig gl bindings and Mesa opengl headers
 - https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/include
+
+### vk - Contains zig vk bindings and headers.
+- https://github.com/KhronosGroup/Vulkan-Headers
+
+### cgltf - Load gltf models.
+- https://github.com/jkuhlmann/cgltf (be2ef0f351df3b8c9ef5bdfb7b587b1aebfb4acd)

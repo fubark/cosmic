@@ -1,16 +1,16 @@
 const std = @import("std");
 
 const sdl = @import("../sdl/lib.zig");
+const stdx = @import("../../stdx/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "gl",
-    .path = .{ .path = srcPath() ++ "/gl.zig" },
+    .source = .{ .path = srcPath() ++ "/gl.zig" },
+    .dependencies = &.{ sdl.pkg, stdx.pkg },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    new_pkg.dependencies = &.{ sdl.pkg };
-    step.addPackage(new_pkg);
+    step.addPackage(pkg);
     step.addIncludeDir(srcPath() ++ "/vendor");
     step.linkLibC();
 }

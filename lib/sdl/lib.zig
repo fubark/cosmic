@@ -5,13 +5,12 @@ const stdx = @import("../../stdx/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "sdl",
-    .path = .{ .path = srcPath() ++ "/sdl.zig" },
+    .source = .{ .path = srcPath() ++ "/sdl.zig" },
+    .dependencies = &.{ stdx.pkg },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    new_pkg.dependencies = &.{ stdx.pkg };
-    step.addPackage(new_pkg);
+    step.addPackage(pkg);
     step.linkLibC();
     step.addIncludeDir(srcPath() ++ "/vendor/include");
 }
@@ -37,6 +36,8 @@ pub fn create(
             "-Wno-deprecated-declarations",
             "-Wno-unguarded-availability",
         });
+    } else if (target.getOsTag() == .linux) {
+        try c_flags.append("-DSDL_VIDEO_VULKAN=1");
     }
 
     // Look at CMakeLists.txt.

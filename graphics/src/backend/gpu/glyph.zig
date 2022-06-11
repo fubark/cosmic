@@ -1,5 +1,3 @@
-const gl = @import("gl");
-
 const graphics = @import("graphics.zig");
 
 pub const Glyph = struct {
@@ -8,7 +6,7 @@ pub const Glyph = struct {
     // Glyph id used in the ttf file.
     glyph_id: u16,
 
-    image: graphics.ImageDesc,
+    image: graphics.ImageTex,
 
     // Top-left tex coords.
     u0: f32,
@@ -47,7 +45,7 @@ pub const Glyph = struct {
 
     is_color_bitmap: bool,
 
-    pub fn init(glyph_id: u16, image: graphics.ImageDesc) @This() {
+    pub fn init(glyph_id: u16, image: graphics.ImageTex) @This() {
         return .{
             .glyph_id = glyph_id,
             .image = image,

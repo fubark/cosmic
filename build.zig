@@ -24,10 +24,13 @@ const h2o = @import("lib/h2o/lib.zig");
 const stb = @import("lib/stb/lib.zig");
 const freetype = @import("lib/freetype2/lib.zig");
 const gl = @import("lib/gl/lib.zig");
+const vk = @import("lib/vk/lib.zig");
 const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
 const maudio = @import("lib/miniaudio/lib.zig");
 const mingw = @import("lib/mingw/lib.zig");
+const backend = @import("platform/backend.zig");
+const cgltf = @import("lib/cgltf/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -71,12 +74,6 @@ pub fn build(b: *Builder) !void {
     const link_lyon = b.option(bool, "lyon", "Link lyon graphics for testing.") orelse false;
     const link_tess2 = b.option(bool, "tess2", "Link libtess2 for testing.") orelse false;
 
-    const build_options = b.addOptions();
-    build_options.addOption(bool, "enable_tracy", tracy);
-    build_options.addOption([]const u8, "VersionName", getVersionString(is_official_build));
-    build_options.addOption(bool, "has_lyon", link_lyon);
-    build_options.addOption(bool, "has_tess2", link_tess2);
-
     b.verbose = PrintCommands;
 
     if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
@@ -116,7 +113,6 @@ pub fn build(b: *Builder) !void {
         .filter = filter,
         .mode = mode,
         .target = target,
-        .build_options = build_options,
         .wsl = wsl,
     };
 
@@ -168,6 +164,7 @@ pub fn build(b: *Builder) !void {
         }
         var ctx_ = ctx;
         ctx_.add_v8_pkg = true;
+        ctx_.add_runtime_pkg = true;
         const test_exe = ctx_.createTestExeStep();
         const run_test = test_exe.run();
         step.step.dependOn(&run_test.step);
@@ -180,26 +177,28 @@ pub fn build(b: *Builder) !void {
         ctx_.link_graphics = true;
         ctx_.link_audio = true;
         ctx_.link_v8 = true;
-        ctx_.path = "runtime/main.zig";
         const step = b.addLog("", .{});
         if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
             const gen_mac_libc = GenMacLibCStep.create(b, target);
             step.step.dependOn(&gen_mac_libc.step);
         }
         step.step.dependOn(&extras_repo.step);
-        const test_exe = ctx_.createTestFileStep("test/behavior_test.zig");
+
+        const build_options = ctx_.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", VersionName);
+        const test_exe = ctx_.createTestFileStep("test/behavior_test.zig", build_options);
         // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
         test_exe.setFilter("behavior:");
         step.step.dependOn(&test_exe.step);
         b.step("test-behavior", "Run behavior tests").dependOn(&step.step);
     }
 
-    const test_file = ctx.createTestFileStep(ctx.path);
+    const test_file = ctx.createTestFileStep(ctx.path, null);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
     {
         const step = b.addLog("", .{});
-        const build_exe = ctx.createBuildExeStep();
+        const build_exe = ctx.createBuildExeStep(null);
         step.step.dependOn(&build_exe.step);
         step.step.dependOn(&ctx.addInstallArtifact(build_exe).step);
         b.step("exe", "Build exe with main file at -Dpath").dependOn(&step.step);
@@ -207,7 +206,7 @@ pub fn build(b: *Builder) !void {
 
     {
         const step = b.addLog("", .{});
-        const build_exe = ctx.createBuildExeStep();
+        const build_exe = ctx.createBuildExeStep(null);
         step.step.dependOn(&build_exe.step);
         step.step.dependOn(&ctx.addInstallArtifact(build_exe).step);
         const run_exe = build_exe.run();
@@ -261,10 +260,6 @@ pub fn build(b: *Builder) !void {
     b.step("version", "Get the build version.").dependOn(&get_version.step);
 
     {
-        const build_options_ = b.addOptions();
-        build_options_.addOption([]const u8, "VersionName", VersionName);
-        build_options_.addOption([]const u8, "BuildRoot", b.build_root);
-        build_options_.addOption(bool, "enable_tracy", tracy);
         var ctx_ = ctx;
         ctx_.link_net = false;
         ctx_.link_graphics = false;
@@ -274,9 +269,12 @@ pub fn build(b: *Builder) !void {
         ctx_.link_v8 = false;
         ctx_.link_mock = true;
         ctx_.path = "tools/gen.zig";
-        ctx_.build_options = build_options_;
 
-        const exe = ctx_.createBuildExeStep();
+        const build_options = ctx.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", VersionName);
+        build_options.addOption([]const u8, "BuildRoot", b.build_root);
+
+        const exe = ctx_.createBuildExeStep(build_options);
         ctx_.buildLinkMock(exe);
         const run = exe.run();
         run.addArgs(args);
@@ -296,7 +294,10 @@ pub fn build(b: *Builder) !void {
             step.step.dependOn(&gen_mac_libc.step);
         }
         step.step.dependOn(&extras_repo.step);
-        const run = ctx_.createBuildExeStep().run();
+
+        const build_options = ctx_.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", VersionName);
+        const run = ctx_.createBuildExeStep(build_options).run();
         run.addArgs(&.{ "test", "test/js/test.js" });
         // run.addArgs(&.{ "test", "test/load-test/cs-https-request-test.js" });
         step.step.dependOn(&run.step);
@@ -306,6 +307,8 @@ pub fn build(b: *Builder) !void {
 
     var build_cosmic = b.addLog("", .{});
     {
+        const build_options = ctx.createDefaultBuildOptions();
+        build_options.addOption([]const u8, "VersionName", getVersionString(is_official_build));
         var ctx_ = ctx;
         ctx_.link_net = true;
         ctx_.link_graphics = true;
@@ -319,7 +322,7 @@ pub fn build(b: *Builder) !void {
             step.step.dependOn(&gen_mac_libc.step);
         }
         step.step.dependOn(&extras_repo.step);
-        const exe = ctx_.createBuildExeStep();
+        const exe = ctx_.createBuildExeStep(build_options);
         const exe_install = ctx_.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
         b.step("cosmic", "Build cosmic.").dependOn(&step.step);
@@ -339,7 +342,7 @@ pub fn build(b: *Builder) !void {
         }
         step.step.dependOn(&extras_repo.step);
 
-        const exe = ctx_.createBuildExeStep();
+        const exe = ctx_.createBuildExeStep(null);
         const exe_install = ctx_.addInstallArtifact(exe);
         step.step.dependOn(&exe_install.step);
 
@@ -378,7 +381,6 @@ const BuilderContext = struct {
     link_mock: bool,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
-    build_options: *std.build.OptionsStep,
     // This is only used to detect running a linux binary in WSL.
     wsl: bool = false,
 
@@ -498,7 +500,7 @@ const BuilderContext = struct {
         return self.builder.addInstallArtifact(artifact);
     }
 
-    fn createBuildExeStep(self: *Self) *LibExeObjStep {
+    fn createBuildExeStep(self: *Self, options_step: ?*std.build.OptionsStep) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
@@ -508,7 +510,13 @@ const BuilderContext = struct {
         self.setTarget(exe);
         exe.setMainPkgPath(".");
 
-        exe.addPackage(self.buildOptionsPkg());
+        const opts_step = options_step orelse self.createDefaultBuildOptions();
+        const pkg = opts_step.getPackage("build_options");
+        exe.addPackage(pkg);
+
+        const graphics_backend = backend.getGraphicsBackend(exe);
+        opts_step.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
+
         self.addDeps(exe) catch unreachable;
 
         if (self.enable_tracy) {
@@ -520,7 +528,7 @@ const BuilderContext = struct {
         return exe;
     }
 
-    fn createTestFileStep(self: *Self, path: []const u8) *std.build.LibExeObjStep {
+    fn createTestFileStep(self: *Self, path: []const u8, build_options: ?*std.build.OptionsStep) *std.build.LibExeObjStep {
         const step = self.builder.addTest(path);
         self.setBuildMode(step);
         self.setTarget(step);
@@ -528,7 +536,11 @@ const BuilderContext = struct {
 
         self.addDeps(step) catch unreachable;
 
-        step.addPackage(self.buildOptionsPkg());
+        const build_opts = build_options orelse self.createDefaultBuildOptions();
+        step.addPackage(build_opts.getPackage("build_options"));
+
+        build_opts.addOption(backend.GraphicsBackend, "GraphicsBackend", .Test);
+
         self.postStep(step);
         return step;
     }
@@ -544,7 +556,11 @@ const BuilderContext = struct {
         self.addDeps(step) catch unreachable;
         self.buildLinkMock(step);
 
-        step.addPackage(self.buildOptionsPkg());
+        // Add build_options at root since the main test file references src paths instead of package names.
+        const build_opts = self.createDefaultBuildOptions();
+        build_opts.addOption(backend.GraphicsBackend, "GraphicsBackend", .Test);
+        build_opts.addOption([]const u8, "VersionName", VersionName);
+        step.addPackage(build_opts.getPackage("build_options"));
         self.postStep(step);
         return step;
     }
@@ -563,10 +579,14 @@ const BuilderContext = struct {
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
+        const graphics_backend = backend.getGraphicsBackend(step);
         stdx.addPackage(step, .{
             .enable_tracy = self.enable_tracy,
         });
-        platform.addPackage(step, .{ .add_dep_pkgs = false });
+        platform.addPackage(step, .{
+            .graphics_backend = graphics_backend,
+            .add_dep_pkgs = false,
+        });
         curl.addPackage(step);
         uv.addPackage(step);
         h2o.addPackage(step);
@@ -585,6 +605,7 @@ const BuilderContext = struct {
         stb.addStbiPackage(step);
         freetype.addPackage(step);
         gl.addPackage(step);
+        vk.addPackage(step);
         maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
         tess2.addPackage(step, self.link_tess2);
@@ -597,16 +618,19 @@ const BuilderContext = struct {
             mingw.buildAndLinkWinPthreads(step);
         }
         ui.addPackage(step, .{
+            .graphics_backend = graphics_backend,
             .add_dep_pkgs = false,
         });
 
         const graphics_opts = graphics.Options{
+            .graphics_backend = graphics_backend,
             .enable_tracy = self.enable_tracy,
             .link_lyon = self.link_lyon,
             .link_tess2 = self.link_tess2,
             .sdl_lib_path = LibSdlPath,
             .add_dep_pkgs = false,
         };
+        cgltf.addPackage(step);
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
@@ -629,8 +653,10 @@ const BuilderContext = struct {
         }
         if (self.add_runtime_pkg) {
             runtime.addPackage(step, .{
+                .graphics_backend = graphics_backend,
                 .link_lyon = self.link_lyon,
                 .link_tess2 = self.link_tess2,
+                .add_dep_pkgs = false,
             });
         }
         if (self.link_v8) {
@@ -664,8 +690,12 @@ const BuilderContext = struct {
         step.setTarget(target);
     }
 
-    fn buildOptionsPkg(self: Self) std.build.Pkg {
-        return self.build_options.getPackage("build_options");
+    fn createDefaultBuildOptions(self: Self) *std.build.OptionsStep {
+        const build_options = self.builder.addOptions();
+        build_options.addOption(bool, "enable_tracy", self.enable_tracy);
+        build_options.addOption(bool, "has_lyon", self.link_lyon);
+        build_options.addOption(bool, "has_tess2", self.link_tess2);
+        return build_options;
     }
 
     fn linkTracy(self: *Self, step: *std.build.LibExeObjStep) void {
@@ -744,7 +774,7 @@ const BuilderContext = struct {
 
 pub const zig_v8_pkg = Pkg{
     .name = "v8",
-    .path = FileSource.relative("./lib/zig-v8/src/v8.zig"),
+    .source = FileSource.relative("./lib/zig-v8/src/v8.zig"),
 };
 
 fn addZigV8(step: *LibExeObjStep) void {

@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const stdx = @import("stdx");
 const t = stdx.testing;
-const log = stdx.log.scoped(.input);
+const log = stdx.log.scoped(.platform);
 const sdl = @import("sdl");
 
 const input_sdl = @import("input_sdl.zig");
@@ -30,10 +30,12 @@ pub const KeyCode = keyboard.KeyCode;
 
 const event_dispatcher = @import("event_dispatcher.zig");
 pub const EventDispatcher = event_dispatcher.EventDispatcher;
+pub const EventResult = event_dispatcher.EventResult;
 
 pub fn delay(us: u64) void {
     if (!builtin.target.isWasm()) {
         // TODO: How does this compare to std.time.sleep ?
+        // std.time.sleep(us * 1000);
         sdl.SDL_Delay(@intCast(u32, us / 1000));
     } else {
         // There isn't a good sleep mechanism in js since it's run on event loop.
@@ -47,6 +49,11 @@ pub fn captureMouse(capture: bool) void {
     } else {
     }
 }
+
+pub const window_sdl = @import("window_sdl.zig");
+const window = @import("window.zig");
+pub const Window = window.Window;
+pub const quit = window.quit;
 
 pub const WindowResizeEvent = struct {
     const Self = @This();

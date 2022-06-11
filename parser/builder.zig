@@ -421,7 +421,7 @@ fn BuildConfigContext(comptime Config: ParseConfig) type {
                 if (mb_eq_str) |eq_str| {
                     const str = self.ast.getChildStringValue(eq_str, 0);
                     _ = str;
-                    stdx.panic("unsupported");
+                    stdx.unsupported();
                 } else {
                     return matchTokenRule(rule_name);
                 }

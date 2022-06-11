@@ -81,10 +81,10 @@ pub const cs_window = struct {
             return dev_win.js_window.castToObject();
         }
 
-        var win: graphics.Window = undefined;
+        var win: platform.Window = undefined;
         if (rt.num_windows > 0) {
             // Create a new window using an existing open gl context.
-            win = graphics.Window.initWithSharedContext(rt.alloc, .{
+            win = platform.Window.initWithSharedContext(rt.alloc, .{
                 .width = width,
                 .height = height,
                 .title = title,
@@ -94,7 +94,7 @@ pub const cs_window = struct {
             }, rt.active_window.window) catch unreachable;
         } else {
             // Create a new window with a new open gl context.
-            win = graphics.Window.init(rt.alloc, .{
+            win = platform.Window.init(rt.alloc, .{
                 .width = width,
                 .height = height,
                 .title = title,
@@ -235,7 +235,7 @@ pub const cs_window = struct {
             // TODO: Make child windows behave different than creating a new window.
             const new_res = rt.createCsWindowResource();
 
-            const new_win = graphics.Window.initWithSharedContext(rt.alloc, .{
+            const new_win = platform.Window.initWithSharedContext(rt.alloc, .{
                 .width = width,
                 .height = height,
                 .title = title,

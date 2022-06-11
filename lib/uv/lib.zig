@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const pkg = std.build.Pkg{
     .name = "uv",
-    .path = .{ .path = srcPath() ++ "/uv.zig" },
+    .source = .{ .path = srcPath() ++ "/uv.zig" },
 };
 
 pub const Options = struct {
@@ -13,6 +13,7 @@ pub const Options = struct {
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
     step.addIncludeDir(srcPath() ++ "/vendor/include");
+    step.addIncludeDir(srcPath() ++ "/");
 }
 
 pub fn create(

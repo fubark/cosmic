@@ -32,3 +32,11 @@ pub const Callback = callback.Callback;
 // Common utils.
 pub const panic = debug.panic;
 pub const panicFmt = debug.panicFmt;
+
+pub inline fn unsupported() noreturn {
+    panic("unsupported");
+}
+
+pub inline fn fatal() noreturn {
+    panic("error");
+}

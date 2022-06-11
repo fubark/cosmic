@@ -37,6 +37,9 @@
 /* This is a minimal configuration just to get SDL running on new platforms. */
 #include "SDL_config_minimal.h"
 
+// SDL_config_minimal defines this automatically and ends up disabling SDL_VIDEO_VULKAN on linux.
+#undef SDL_LOADSO_DISABLED
+
 #define HAVE_LIBC 1
 #if HAVE_LIBC
 // Useful headers
@@ -183,8 +186,6 @@
 #define SDL_VIDEO_RENDER_OGL 1
 //#define SDL_VIDEO_RENDER_OGL_ES 1
 //#define SDL_VIDEO_RENDER_OGL_ES2 1
-
-//#define SDL_VIDEO_VULKAN 1
 
 #ifdef __LINUX__
     #define SDL_TIMER_UNIX 1

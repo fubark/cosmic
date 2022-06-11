@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const pkg = std.build.Pkg{
     .name = "curl",
-    .path = .{ .path = srcPath() ++ "/curl.zig" },
+    .source = .{ .path = srcPath() ++ "/curl.zig" },
 };
 
 const Options = struct {

@@ -1,5 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const build_options = @import("build_options");
+const Backend = build_options.GraphicsBackend;
 const t = stdx.testing;
 const Vec2 = stdx.math.Vec2;
 const ds = stdx.ds;
@@ -93,6 +95,10 @@ pub const RuntimeContext = struct {
     // Window that has keyboard focus and will receive swap buffer.
     // Note: This is only safe if the allocation doesn't change.
     active_window: *CsWindow,
+
+    /// Only one renderer exists for drawing to all windows and targets.
+    renderer: graphics.Renderer,
+    inited_renderer: bool,
 
     // Absolute path of the main script.
     main_script_path: ?[]const u8,
@@ -208,6 +214,9 @@ pub const RuntimeContext = struct {
             .cb_str_buf = std.ArrayList(u8).init(alloc),
             .cb_f32_buf = std.ArrayList(f32).init(alloc),
             .vec2_buf = std.ArrayList(Vec2).init(alloc),
+
+            .renderer = undefined,
+            .inited_renderer = false,
 
             .js_undefined = undefined,
             .js_null = undefined,
@@ -400,6 +409,10 @@ pub const RuntimeContext = struct {
             self.dev_ctx.deinit();
         }
 
+        if (self.inited_renderer) {
+            self.renderer.deinit(self.alloc);
+        }
+
         {
             var iter = self.weak_handles.iterator();
             while (iter.nextPtr()) |handle| {
@@ -499,6 +512,15 @@ pub const RuntimeContext = struct {
             defer self.alloc.free(src);
             return self.runModuleScript(abs_path, abs_path, src);
         }
+    }
+
+    fn getRenderer(self: *Self, win: *platform.Window) *graphics.Renderer {
+        if (self.inited_renderer) {
+            // Lazy load renderer.
+            self.renderer.init(self.alloc, win);
+            self.inited_renderer = true;
+        }
+        return &self.renderer;
     }
 
     /// origin_str is an identifier for this script and is what is displayed in stack traces.
@@ -1003,7 +1025,7 @@ pub const RuntimeContext = struct {
     }
 
     fn getCsWindowResourceBySdlId(self: *Self, sdl_win_id: u32) ?ResourceId {
-        if (graphics.Backend != .OpenGL) {
+        if (Backend != .OpenGL) {
             @panic("unsupported");
         }
         const S = struct {
@@ -1791,7 +1813,9 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
         const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
 
         win.window.makeCurrent();
-        win.window.beginFrame();
+        var cam: graphics.Camera = undefined;
+        cam.init2D(win.window.getWidth(), win.window.getHeight());
+        rt.renderer.beginFrame(cam);
 
         // Start frame timer after beginFrame since it could delay to sync with OpenGL pipeline.
         win.fps_limiter.beginFrame();
@@ -1806,15 +1830,11 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
             };
         }
 
-        win.window.endFrame();
+        rt.renderer.endFrame();
         const delay = win.fps_limiter.endFrame();
         if (delay < min_delay) {
             min_delay = delay;
         }
-
-        // swapBuffers will delay if vsync is on.
-        win.window.swapBuffers();
-
         cur_res = rt.resources.getNextIdNoCheck(cur_res);
     }
 
@@ -1825,7 +1845,9 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
 
 fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
     const ctx = rt.getContext();
-    rt.active_window.window.beginFrame();
+    var cam: graphics.Camera = undefined;
+    cam.init2D(rt.active_window.window.getWidth(), rt.active_window.window.getHeight());
+    rt.renderer.beginFrame(cam);
 
     // Start frame timer after beginFrame since it could delay to sync with OpenGL pipeline.
     rt.active_window.fps_limiter.beginFrame();
@@ -1853,7 +1875,7 @@ fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
             // Background.
             const Background = graphics.Color.init(30, 30, 30, 255);
             g.setFillColor(Background);
-            g.fillRect(0, 0, @intToFloat(f32, rt.active_window.window.inner.width), @intToFloat(f32, rt.active_window.window.inner.height));
+            g.fillRect(0, 0, @intToFloat(f32, rt.active_window.window.impl.width), @intToFloat(f32, rt.active_window.window.impl.height));
             devmode.renderDevHud(rt, rt.active_window);
         } else if (rt.active_window.show_dev_mode) {
             const g = rt.active_window.graphics;
@@ -1864,16 +1886,13 @@ fn updateSingleWindow(rt: *RuntimeContext, comptime DevMode: bool) void {
         }
     }
 
-    rt.active_window.window.endFrame();
+    rt.renderer.endFrame();
     const delay = rt.active_window.fps_limiter.endFrame();
     if (delay > 0) {
         platform.delay(delay);
     }
 
     // TODO: Run any queued micro tasks.
-
-    // swapBuffers will delay if vsync is on.
-    rt.active_window.window.swapBuffers();
 }
 
 const ResourceListId = u32;
@@ -1924,7 +1943,7 @@ fn CreatedResource(comptime T: type) type {
 pub const CsWindow = struct {
     const Self = @This();
 
-    window: graphics.Window,
+    window: platform.Window,
     on_update_cb: ?v8.Persistent(v8.Function),
     on_mouse_up_cb: ?v8.Persistent(v8.Function),
     on_mouse_down_cb: ?v8.Persistent(v8.Function),
@@ -1942,14 +1961,15 @@ pub const CsWindow = struct {
 
     show_dev_mode: bool,
 
-    pub fn init(self: *Self, rt: *RuntimeContext, window: graphics.Window, window_id: ResourceId) void {
+    pub fn init(self: *Self, rt: *RuntimeContext, window: platform.Window, window_id: ResourceId) void {
+        self.window = window;
         const iso = rt.isolate;
         const ctx = rt.getContext();
         const js_window = rt.window_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
         const js_window_id = iso.initIntegerU32(window_id);
         js_window.setInternalField(0, js_window_id);
 
-        const g = window.getGraphics();
+        const g = rt.getRenderer(&self.window).getGraphics();
         const js_graphics = rt.graphics_class.inner.getFunction(ctx).initInstance(ctx, &.{}).?;
         js_graphics.setInternalField(0, iso.initExternal(g));
 
@@ -2014,7 +2034,7 @@ pub const CsWindow = struct {
         const final_width = self.window.getWidth();
         const final_height = self.window.getHeight();
         if (final_width != width or final_height != height) {
-            if (graphics.Backend == .OpenGL) {
+            if (Backend == .OpenGL) {
                 var e = sdl.SDL_Event{
                     .window = sdl.SDL_WindowEvent{
                         .type = sdl.SDL_WINDOWEVENT,
@@ -2464,7 +2484,7 @@ pub fn runUserMain(alloc: std.mem.Allocator, src_path: []const u8, dev_mode: boo
 
         // Create the dev mode window.
         // The first window created by the user script will take over this window.
-        const win = graphics.Window.init(rt.alloc, .{
+        const win = platform.Window.init(rt.alloc, .{
             .width = 800,
             .height = 600,
             .title = "Dev Mode",

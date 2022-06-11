@@ -2,12 +2,12 @@ const std = @import("std");
 
 pub const pkg = std.build.Pkg{
     .name = "tess2",
-    .path = .{ .path = srcPath() ++ "/tess2.zig" },
+    .source = .{ .path = srcPath() ++ "/tess2.zig" },
 };
 
 pub const dummy_pkg = std.build.Pkg{
     .name = "tess2",
-    .path = .{ .path = srcPath() ++ "/tess2_dummy.zig" },
+    .source = .{ .path = srcPath() ++ "/tess2_dummy.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep, link_tess2: bool) void {

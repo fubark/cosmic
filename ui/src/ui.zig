@@ -37,6 +37,7 @@ pub const WidgetTypeId = widget.WidgetTypeId;
 pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
 pub const WidgetRef = widget.WidgetRef;
+pub const NodeRef = widget.NodeRef;
 pub const WidgetVTable = widget.WidgetVTable;
 pub const LayoutSize = widget.LayoutSize;
 
@@ -87,7 +88,7 @@ pub fn createDeclFn(comptime Widget: type) fn (*BuildContext, anytype) callconv(
 }
 
 pub const EventResult = enum(u1) {
-    /// Event will continue to propagate down to children. 
+    /// Allow event to propagate down to children.
     Continue = 0,
     /// Stop the event from propagating to children.
     Stop = 1,

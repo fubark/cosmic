@@ -6,22 +6,22 @@ const graphics = @import("../../graphics.zig");
 const Color = graphics.Color;
 const log = stdx.log.scoped(.mesh);
 
-const StartVertexBufferSize = 2048;
+const StartVertexBufferSize = 10000;
 const StartIndexBufferSize = StartVertexBufferSize * 4;
 
-const MaxVertexBufferSize = 2048 * 10;
+const MaxVertexBufferSize = 10000 * 3;
 const MaxIndexBufferSize = MaxVertexBufferSize * 4;
 
-// Vertex and index buffer.
+/// Vertex and index buffer.
 pub const Mesh = struct {
-    const Self = @This();
-
     index_buffer_type: gl.GLenum = gl.GL_UNSIGNED_SHORT,
     alloc: std.mem.Allocator,
     index_buf: []u16,
     cur_index_buf_size: u32,
     vert_buf: []TexShaderVertex,
     cur_vert_buf_size: u32,
+
+    const Self = @This();
 
     pub fn init(alloc: std.mem.Allocator) Self {
         const vertex_buf = alloc.alloc(TexShaderVertex, StartVertexBufferSize) catch unreachable;
@@ -39,6 +39,11 @@ pub const Mesh = struct {
     pub fn deinit(self: Self) void {
         self.alloc.free(self.vert_buf);
         self.alloc.free(self.index_buf);
+    }
+
+    pub fn reset(self: *Self) void {
+        self.cur_vert_buf_size = 0;
+        self.cur_index_buf_size = 0;
     }
 
     pub fn addVertex(self: *Self, vert: *TexShaderVertex) void {
@@ -73,31 +78,31 @@ pub const Mesh = struct {
         self.cur_index_buf_size += 1;
     }
 
-    fn addDeltaIndices(self: *Self, offset: u16, deltas: []const u16) void {
+    pub fn addDeltaIndices(self: *Self, offset: u16, deltas: []const u16) void {
         for (deltas) |it| {
             self.addIndex(offset + it);
         }
     }
 
-    // Adds ccw triangle with vertex indices.
+    /// Assumes triangle in cw order. Pushes as ccw triangle.
     pub fn addTriangle(self: *Self, v1: u16, v2: u16, v3: u16) void {
         self.index_buf[self.cur_index_buf_size] = v1;
-        self.index_buf[self.cur_index_buf_size + 1] = v2;
-        self.index_buf[self.cur_index_buf_size + 2] = v3;
+        self.index_buf[self.cur_index_buf_size + 1] = v3;
+        self.index_buf[self.cur_index_buf_size + 2] = v2;
         self.cur_index_buf_size += 3;
     }
 
-    // Assumes indices are ccw order.
+    /// Assumes clockwise order of verts but pushes ccw triangles.
     pub fn addQuad(self: *Self, idx1: u16, idx2: u16, idx3: u16, idx4: u16) void {
         // First triangle.
         self.index_buf[self.cur_index_buf_size] = idx1;
-        self.index_buf[self.cur_index_buf_size + 1] = idx2;
-        self.index_buf[self.cur_index_buf_size + 2] = idx3;
+        self.index_buf[self.cur_index_buf_size + 1] = idx4;
+        self.index_buf[self.cur_index_buf_size + 2] = idx2;
 
         // Second triangle.
-        self.index_buf[self.cur_index_buf_size + 3] = idx3;
+        self.index_buf[self.cur_index_buf_size + 3] = idx2;
         self.index_buf[self.cur_index_buf_size + 4] = idx4;
-        self.index_buf[self.cur_index_buf_size + 5] = idx1;
+        self.index_buf[self.cur_index_buf_size + 5] = idx3;
         self.cur_index_buf_size += 6;
     }
 
@@ -185,6 +190,13 @@ pub const TexShaderVertex = packed struct {
         self.pos_x = x;
         self.pos_y = y;
         self.pos_z = 0;
+        self.pos_w = 1;
+    }
+
+    pub fn setXYZ(self: *Self, x: f32, y: f32, z: f32) void {
+        self.pos_x = x;
+        self.pos_y = y;
+        self.pos_z = z;
         self.pos_w = 1;
     }
 

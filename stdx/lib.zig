@@ -5,7 +5,7 @@ const uv = @import("../lib/uv/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "stdx",
-    .path = .{ .path = srcPath() ++ "/stdx.zig" },
+    .source = .{ .path = srcPath() ++ "/stdx.zig" },
 };
 
 pub const Options = struct {

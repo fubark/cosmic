@@ -8,7 +8,7 @@ const std = @import("std");
 
 pub const pkg = std.build.Pkg{
     .name = "freetype",
-    .path = .{ .path = srcPath() ++ "/freetype.zig" },
+    .source = .{ .path = srcPath() ++ "/freetype.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {

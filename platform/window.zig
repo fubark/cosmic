@@ -1,53 +1,64 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const build_options = @import("build_options");
+const Backend = build_options.GraphicsBackend;
 
-const gl = @import("backend/gl/window.zig");
-const canvas = @import("backend/canvas/window.zig");
+const window_sdl = @import("window_sdl.zig");
+const WindowSdl = window_sdl.Window;
+const canvas = @import("window_canvas.zig");
 const log = stdx.log.scoped(.window);
-const graphics = @import("graphics.zig");
-const Graphics = graphics.Graphics;
-const Backend = graphics.Backend;
 
-const platform = @import("platform");
+const platform = @import("platform.zig");
 const WindowResizeEvent = platform.WindowResizeEvent;
 const EventDispatcher = platform.EventDispatcher;
 
-// TODO: Move Window to the platform package.
 pub const Window = struct {
-    const Self = @This();
-
-    inner: switch (Backend) {
-        .OpenGL => gl.Window,
+    impl: switch (Backend) {
+        .OpenGL => WindowSdl,
+        .Vulkan => WindowSdl,
         .WasmCanvas => canvas.Window,
         .Test => TestWindow,
+        else => @compileError("unsupported"),
     },
 
+    /// A hook for window resizes. 
+    on_resize: ?fn (ctx: ?*anyopaque, width: u32, height: u32) void,
+    on_resize_ctx: ?*anyopaque,
+
+    const Self = @This();
+
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
-        const inner = switch (Backend) {
-            .OpenGL => try gl.Window.init(alloc, config),
+        const impl = switch (Backend) {
+            .OpenGL => try WindowSdl.init(alloc, config),
+            .Vulkan => try WindowSdl.init(alloc, config),
             .WasmCanvas => try canvas.Window.init(alloc, config),
             .Test => TestWindow{ .width = config.width, .height = config.height },
+            else => stdx.unsupported(),
         };
         return Self{
-            .inner = inner,
+            .impl = impl,
+            .on_resize = null,
+            .on_resize_ctx = null,
         };
     }
 
     pub fn initWithSharedContext(alloc: std.mem.Allocator, config: Config, win: Window) !Self {
-        const inner = switch (Backend) {
-            .OpenGL => try gl.Window.initWithSharedContext(alloc, config, win.inner),
+        const impl = switch (Backend) {
+            .OpenGL => try WindowSdl.initWithSharedContext(alloc, config, win.impl),
             else => @panic("unsupported"),
         };
         return Self{
-            .inner = inner,
+            .impl = impl,
+            .on_resize = null,
+            .on_resize_ctx = null,
         };
     }
 
     pub fn deinit(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.deinit(self.inner),
-            .WasmCanvas => canvas.Window.deinit(&self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL, .Vulkan => WindowSdl.deinit(self.impl),
+            .WasmCanvas => canvas.Window.deinit(&self.impl),
+            else => stdx.unsupported(),
         }
     }
 
@@ -65,131 +76,117 @@ pub const Window = struct {
     /// If there is only one window, it only needs to be called once.
     pub fn makeCurrent(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.makeCurrent(self.inner),
-            else => stdx.panic("unsupported"),
-        }
-    }
-
-    /// Setup for the frame before any user draw calls.
-    /// In OpenGL, glClear can block if there there are too many commands in the queue.
-    pub fn beginFrame(self: Self) void {
-        switch (Backend) {
-            .OpenGL => gl.Window.beginFrame(self.inner),
-            .WasmCanvas => canvas.Window.beginFrame(self.inner),
-            else => stdx.panic("unsupported"),
-        }
-    }
-
-    // Post frame ops.
-    pub fn endFrame(self: Self) void {
-        switch (Backend) {
-            .OpenGL => gl.Window.endFrame(self.inner),
-            .WasmCanvas => canvas.Window.endFrame(self.inner),
-            else => stdx.panic("unsupported"),
-        }
-    }
-
-    pub fn getGraphics(self: Self) *graphics.Graphics {
-        switch (Backend) {
-            .OpenGL => return gl.Window.getGraphics(self.inner),
-            .WasmCanvas => return canvas.Window.getGraphics(self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.makeCurrent(self.impl),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn resize(self: *Self, width: u32, height: u32) void {
         switch (Backend) {
-            .OpenGL => gl.Window.resize(&self.inner, width, height),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.resize(&self.impl, width, height),
+            else => stdx.unsupported(),
         }
+    }
+
+    pub fn setUserResizeHook(self: *Self, ctx: ?*anyopaque, cb: fn (?*anyopaque, u32, u32) void) void {
+        self.on_resize = cb;
+        self.on_resize_ctx = ctx;
     }
 
     /// Internal function to update the buffer on a user resize or window manager resize.
     /// An explicit call to resize() should not need to call this.
     pub fn handleResize(self: *Self, width: u32, height: u32) void {
         switch (Backend) {
-            .OpenGL => return gl.Window.handleResize(&self.inner, width, height),
-            else => stdx.panic("unsupported"),
+            .OpenGL => return WindowSdl.handleResize(&self.impl, width, height),
+            else => stdx.unsupported(),
+        }
+        if (self.on_resize) |cb| {
+            cb(self.on_resize_ctx, width, height);
         }
     }
 
     pub fn getWidth(self: Self) u32 {
-        return self.inner.width;
+        return self.impl.width;
     }
 
     pub fn getHeight(self: Self) u32 {
-        return self.inner.height;
+        return self.impl.height;
+    }
+
+    pub fn getAspectRatio(self: Self) f32 {
+        return @intToFloat(f32, self.impl.width) / @intToFloat(f32, self.impl.height);
     }
 
     pub fn minimize(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.minimize(self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.minimize(self.impl),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn maximize(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.maximize(self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.maximize(self.impl),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn restore(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.restore(self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.restore(self.impl),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn setMode(self: Self, mode: Mode) void {
         switch (Backend) {
-            .OpenGL => gl.Window.setMode(self.inner, mode),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.setMode(self.impl, mode),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn setPosition(self: Self, x: i32, y: i32) void {
         switch (Backend) {
-            .OpenGL => gl.Window.setPosition(self.inner, x, y),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.setPosition(self.impl, x, y),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn center(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.center(self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.center(self.impl),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn focus(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.focus(self.inner),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.focus(self.impl),
+            else => stdx.unsupported(),
         }
     }
 
     /// In the OpenGL SDL backend, swapBuffers will also block the thread to achieve the target refresh rate if vsync is on.
     pub fn swapBuffers(self: Self) void {
         switch (Backend) {
-            .OpenGL => gl.Window.swapBuffers(self.inner),
+            .OpenGL => WindowSdl.swapBuffers(self.impl),
             .WasmCanvas => {},
             .Test => {},
+            else => stdx.unsupported(),
         }
     }
 
     pub fn setTitle(self: Self, title: []const u8) void {
         switch (Backend) {
-            .OpenGL => gl.Window.setTitle(self.inner, title),
-            else => stdx.panic("unsupported"),
+            .OpenGL => WindowSdl.setTitle(self.impl, title),
+            else => stdx.unsupported(),
         }
     }
 
     pub fn getTitle(self: Self, alloc: std.mem.Allocator) []const u8 {
         switch (Backend) {
-            .OpenGL => return gl.Window.getTitle(self.inner, alloc),
-            else => stdx.panic("unsupported"),
+            .OpenGL => return WindowSdl.getTitle(self.impl, alloc),
+            else => stdx.unsupported(),
         }
     }
 };
@@ -202,9 +199,9 @@ pub const Mode = enum {
 
 pub fn quit() void {
     switch (Backend) {
-        .OpenGL => gl.quit(),
+        .OpenGL => window_sdl.quit(),
         .WasmCanvas => {},
-        else => stdx.panic("unsupported"),
+        else => stdx.unsupported(),
     }
 }
 

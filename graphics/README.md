@@ -29,18 +29,19 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 - [ ] Cross compilation. (Might work already, needs verification.)
 - [ ] C bindings.
 
-| Status | Platform | Size (demo.zig)* |
-| --- | --- | --- |
-| ✅ | Linux x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | demo - 2.2 M |
-| ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/demo) | demo.wasm - 461 KB |
-| ✅ | Windows x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | demo.exe - 2.7 M |
-| ✅ | macOS x64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 3.1 M |
-| ✅ | macOS arm64 with OpenGL [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | demo - 2.8 M |
+| Status | Platform | Backend | Size (demo.zig)* |
+| --- | --- | --- | --- |
+| ✅ | Linux x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png) | OpenGL | demo - 2.2 M |
+| ✅ | Web [(Demo)](https://fubark.github.io/cosmic-site/demo) | Wasm/WebGL2 | demo.wasm - 461 KB |
+| ✅ | Windows x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-win11.png) | OpenGL | demo.exe - 2.7 M |
+| ✅ | macOS x64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | OpenGL, Vulkan** | demo - 3.1 M |
+| ✅ | macOS arm64 [(Screenshot)](https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-macos.png) | OpenGL | demo - 2.8 M |
 | Undecided | Android/iOS |
-| Soon   | Vulkan backend for Desktop |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
 \* Static binary size not including the demo assets. Compiled with -Drelease-safe.
+
+\** Vulkan backend does not currently support dynamic blending or drawing to offscreen images.
 
 ## Screenshot
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>

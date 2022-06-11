@@ -24,6 +24,8 @@ pub const Root = struct {
     build_buf: std.ArrayList(ui.FrameId),
     next_id: OverlayId,
 
+    user_root: ui.NodeRef,
+
     const Self = @This();
 
     pub fn init(self: *Self, c: *ui.InitContext) void {
@@ -42,6 +44,8 @@ pub const Root = struct {
         self.build_buf.ensureTotalCapacity(1 + self.overlays.items.len) catch @panic("error");
         self.build_buf.items.len = 0;
         self.build_buf.appendAssumeCapacity(self.props.user_root);
+
+        c.bindFrame(self.props.user_root, &self.user_root);
 
         const S = struct {
             fn popoverRequestClose(h: RootOverlayHandle) void {

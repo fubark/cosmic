@@ -3,27 +3,20 @@ const stdx = @import("stdx");
 const log = stdx.log.scoped(.graphics_test);
 
 const graphics = @import("../../graphics.zig");
-const _font = graphics.font;
-const Font = _font.Font;
-const FontGroup = _font.FontGroup;
-const FontCache = _font.FontCache;
-const FontId = _font.FontId;
-const Glyph = _font.Glyph;
-const VMetrics = _font.VMetrics;
-const FontGroupId = _font.FontGroupId;
+const Glyph = graphics.gpu.Glyph;
 const Tessellator = graphics.tessellator.Tessellator;
 
 pub const Graphics = struct {
     const Self = @This();
 
-    default_font_id: FontId,
-    default_font_gid: FontGroupId,
+    default_font_id: graphics.FontId,
+    default_font_gid: graphics.FontGroupId,
     default_font_size: f32,
     default_font_glyph_advance_width: f32,
-    default_font_metrics: VMetrics,
+    default_font_metrics: graphics.VMetrics,
     tessellator: Tessellator,
 
-    getOrLoadFontGlyphFn: fn (*Self, font: *Font, cp: u21) ?*Glyph,
+    getOrLoadFontGlyphFn: fn (*Self, font: *graphics.Font, cp: u21) ?*Glyph,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         _ = alloc;
@@ -43,11 +36,11 @@ pub const Graphics = struct {
         };
     }
 
-    fn getOrLoadFontGlyph(self: *Self, font: *Font, cp: u21) ?*Glyph {
+    fn getOrLoadFontGlyph(self: *Self, font: *graphics.Font, cp: u21) ?*Glyph {
         return self.getOrLoadFontGlyphFn(font, cp);
     }
 
-    pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
+    pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) graphics.FontGroupId {
         _ = name;
         return self.default_font_gid;
     }
