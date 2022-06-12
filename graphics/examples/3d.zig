@@ -19,6 +19,21 @@ const Sized = ui.widgets.Sized;
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
+var app: helper.App = undefined;
+var main_cam: graphics.Camera = undefined;
+var cam_mod: graphics.CameraModule = undefined;
+
+var ui_mod: ui.Module = undefined;
+var app_root: *App = undefined;
+
+const box = @embedFile("../../examples/assets/models/box.gltf");
+const box_bin = @embedFile("../../examples/assets/models/Box0.bin");
+var box_node: graphics.NodeGLTF = undefined;
+
+const duck = @embedFile("../../examples/assets/models/duck.gltf");
+const duck_bin = @embedFile("../../examples/assets/models/Duck0.bin");
+var duck_node: graphics.NodeGLTF = undefined;
+
 pub const App = struct {
     box_color: Color,
     duck_color: Color,
@@ -74,25 +89,14 @@ pub const App = struct {
     }
 };
 
-var app: helper.App = undefined;
-
-var main_cam: graphics.Camera = undefined;
-var cam_mod: graphics.CameraModule = undefined;
-
-const box = @embedFile("../../examples/assets/models/box.gltf");
-const box_bin = @embedFile("../../examples/assets/models/Box0.bin");
-var box_node: graphics.NodeGLTF = undefined;
-
-const duck = @embedFile("../../examples/assets/models/duck.gltf");
-const duck_bin = @embedFile("../../examples/assets/models/Duck0.bin");
-var duck_node: graphics.NodeGLTF = undefined;
-
-var app_root: *App = undefined;
-
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
     app.init("3d");
     defer app.deinit();
+
+    ui_mod.init(app.alloc, app.gctx);
+    ui_mod.addInputHandlers(&app.dispatcher);
+    defer ui_mod.deinit();
 
     // Setup model buffers.
     var buffers = std.StringHashMap([]const u8).init(app.alloc);
@@ -131,8 +135,8 @@ pub fn main() !void {
     // Update ui once to bind user root.
     const ui_width = @intToFloat(f32, app.win.getWidth());
     const ui_height = @intToFloat(f32, app.win.getHeight());
-    app.ui_mod.update(0, {}, buildRoot, ui_width, ui_height) catch unreachable;
-    app_root = app.ui_mod.getUserRoot(App).?;
+    ui_mod.update(0, {}, buildRoot, ui_width, ui_height) catch unreachable;
+    app_root = ui_mod.getUserRoot(App).?;
 
     app.runEventLoop(update);
 }
@@ -177,7 +181,7 @@ fn update(delta_ms: f32) void {
     gctx.fillTextFmt(10, 770, "right: ({d:.1},{d:.1},{d:.1})", .{main_cam.right_nvec.x, main_cam.right_nvec.y, main_cam.right_nvec.z});
     const ui_width = @intToFloat(f32, app.win.getWidth());
     const ui_height = @intToFloat(f32, app.win.getHeight());
-    app.ui_mod.updateAndRender(delta_ms, {}, buildRoot, ui_width, ui_height) catch unreachable;
+    ui_mod.updateAndRender(delta_ms, {}, buildRoot, ui_width, ui_height) catch unreachable;
 }
 
 pub usingnamespace if (IsWasm) struct {
