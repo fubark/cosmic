@@ -12,14 +12,10 @@ const Image = graphics.Image;
 const Color = graphics.Color;
 const platform = @import("platform");
 
+const helper = @import("helper.zig");
 const log = stdx.log.scoped(.demo);
 
-var dispatcher: platform.EventDispatcher = undefined;
-var win: platform.Window = undefined;
-var renderer: graphics.Renderer = undefined;
-var cam: graphics.Camera = undefined;
-var gctx: *graphics.Graphics = undefined;
-var quit = false;
+var app: helper.App = undefined;
 
 var zig_logo_svg: []const u8 = undefined;
 var tiger_head_image: graphics.ImageId = undefined;
@@ -28,58 +24,21 @@ var last_frame_time_ns: u64 = undefined;
 var font_id: FontId = undefined;
 
 pub fn main() !void {
-    const alloc = stdx.heap.getDefaultAllocator();
-    defer stdx.heap.deinitDefaultAllocator();
+    app.init("Demo");
+    defer app.deinit();
 
-    dispatcher = platform.EventDispatcher.init(alloc);
-    defer dispatcher.deinit();
+    try initAssets(app.alloc);
+    defer deinitAssets(app.alloc);
 
-    win = try platform.Window.init(alloc, .{
-        .title = "Demo",
-        .width = 1200,
-        .height = 720,
-        .resizable = true,
-        .high_dpi = true,
-        .anti_alias = true,
-    });
-    defer win.deinit();
-    win.addDefaultHandlers(&dispatcher);
-
-    const S = struct {
-        fn onQuit(_: ?*anyopaque) void {
-            quit = true;
-        }
-    };
-    dispatcher.addOnQuit(null, S.onQuit);
-
-    renderer.init(alloc, &win);
-    defer renderer.deinit(alloc);
-    gctx = renderer.getGraphics();
-
-    cam.init2D(win.getWidth(), win.getHeight());
-
-    try initAssets(alloc);
-    defer deinitAssets(alloc);
-
-    var timer = std.time.Timer.start() catch unreachable;
-    last_frame_time_ns = timer.read();
-    while (!quit) {
-        const diff_ms = @intToFloat(f32, timer.read() - last_frame_time_ns) / 1e6;
-        last_frame_time_ns = timer.read();
-
-        dispatcher.processEvents();
-        update(diff_ms);
-        std.time.sleep(15);
-    }
+    app.runEventLoop(update);
 }
 
 // Main loop shared by desktop and web.
 fn update(delta_ms: f32) void {
-    renderer.beginFrame(cam);
-    const g = gctx;
+    const g = app.gctx;
 
     g.setFillColor(Color.Black);
-    g.fillRect(0, 0, @intToFloat(f32, win.getWidth()), @intToFloat(f32, win.getHeight()));
+    g.fillRect(0, 0, @intToFloat(f32, app.win.getWidth()), @intToFloat(f32, app.win.getHeight()));
 
     // Shapes.
     g.setFillColor(Color.Red);
@@ -194,12 +153,12 @@ fn update(delta_ms: f32) void {
     const fps = 1000 / delta_ms;
     g.setFont(font_id, 26);
     g.fillTextFmt(1100, 10, "fps {d:.1}", .{fps});
-
-    renderer.endFrame();
 }
 
 fn initAssets(alloc: std.mem.Allocator) !void {
     const MaxFileSize = 20e6;
+
+    const gctx = app.gctx;
 
     font_id = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
     const emoji_font = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
@@ -230,6 +189,7 @@ fn deinitAssets(alloc: std.mem.Allocator) void {
 fn rasterizeTigerHead(tiger_head_svg: []const u8) void {
     // Renders the svg to an image and then the image is drawn.
     // The graphics context also supports drawing the svg directly to the main frame buffer, although it isn't recommended for large svgs like the tiger head.
+    const gctx = app.gctx;
     tiger_head_image = gctx.createImageFromBitmap(600, 600, null, true);
     gctx.bindImageBuffer(tiger_head_image);
     gctx.setFillColor(Color.Transparent);
@@ -251,44 +211,29 @@ var loaded_assets: u32 = 0;
 
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
-        const alloc = stdx.heap.getDefaultAllocator();
-        galloc = alloc;
-        stdx.wasm.init(alloc);
-
-        dispatcher = platform.EventDispatcher.init(alloc);
-        win = platform.Window.init(alloc, .{
-            .title = "Demo",
-            .width = 1200,
-            .height = 720,
-            .anti_alias = true,
-        }) catch unreachable;
-        win.addDefaultHandlers(&dispatcher);
-
-        renderer.init(alloc, &win);
-        gctx = renderer.getGraphics();
-
+        const ret = helper.wasmInit(&app, "Demo");
         const S = struct {
             fn onFetchResult(_: ?*anyopaque, e: platform.FetchResultEvent) void {
                 if (e.fetch_id == zig_logo_id) {
                     zig_logo_svg = galloc.dupe(u8, e.buf) catch unreachable;
                     loaded_assets += 1;
                 } else if (e.fetch_id == game_char_id) {
-                    game_char_image = gctx.createImage(e.buf) catch unreachable;
+                    game_char_image = app.gctx.createImage(e.buf) catch unreachable;
                     loaded_assets += 1;
                 } else if (e.fetch_id == nunito_font_id) {
-                    font_id = gctx.addFontTTF(e.buf);
+                    font_id = app.gctx.addFontTTF(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == tiger_head_id) {
                     rasterizeTigerHead(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == noto_emoji_id) {
-                    const emoji_font = gctx.addFontTTF(e.buf);
-                    gctx.addFallbackFont(emoji_font);
+                    const emoji_font = app.gctx.addFontTTF(e.buf);
+                    app.gctx.addFallbackFont(emoji_font);
                     loaded_assets += 1;
                 }
             }
         };
-        dispatcher.addOnFetchResult(null, S.onFetchResult);
+        app.dispatcher.addOnFetchResult(null, S.onFetchResult);
 
         // TODO: Should be able to create async resources. In the case of fonts, it would use the default font. In the case of images it would be blank.
         zig_logo_id = stdx.fs.readFileWasm("./zig-logo-dark.svg");
@@ -296,13 +241,12 @@ pub usingnamespace if (IsWasm) struct {
         nunito_font_id = stdx.fs.readFileWasm("./NunitoSans-Regular.ttf");
         noto_emoji_id = stdx.fs.readFileWasm("./NotoColorEmoji.ttf");
         tiger_head_id = stdx.fs.readFileWasm("./tiger-head.svg");
-
-        return stdx.wasm.js_buffer.writeResult();
+        return ret;
     }
 
     export fn wasmUpdate(cur_time_ms: f32, input_len: u32) *const u8 {
         stdx.wasm.js_buffer.input_buf.items.len = input_len;
-        dispatcher.processEvents();
+        app.dispatcher.processEvents();
 
         // Wait for assets to load in the browser before getting to main loop.
         if (loaded_assets < 5) {
