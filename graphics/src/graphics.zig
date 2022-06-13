@@ -92,7 +92,7 @@ pub const Graphics = struct {
 
     const Self = @This();
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.initCommon(alloc);
         switch (Backend) {
             .OpenGL => gpu.Graphics.initGL(&self.impl, alloc, dpr),
@@ -102,7 +102,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: u8, vk_ctx: vk.VkContext) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, vk_ctx: vk.VkContext) void {
         self.initCommon(alloc);
         gpu.Graphics.initVK(&self.impl, alloc, dpr, vk_ctx);
     }

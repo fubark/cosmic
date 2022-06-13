@@ -112,7 +112,8 @@ pub const Graphics = struct {
     // This is used to fetch a higher res font bitmap for high dpi displays.
     // eg. 18px user font size would normally use a 32px backed font bitmap but with dpr=2,
     // it would use a 64px bitmap font instead.
-    cur_dpr: u8,
+    cur_dpr: f32,
+    cur_dpr_ceil: u8,
 
     image_store: image.ImageStore,
 
@@ -133,7 +134,7 @@ pub const Graphics = struct {
 
     const Self = @This();
 
-    pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+    pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.initDefault(alloc, dpr);
         self.initCommon(alloc);
 
@@ -159,7 +160,7 @@ pub const Graphics = struct {
         gl.enable(gl.GL_BLEND);
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: u8, vk_ctx: VkContext) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, vk_ctx: VkContext) void {
         self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(vk_ctx.device);
@@ -183,7 +184,7 @@ pub const Graphics = struct {
         self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.pipelines, &self.image_store);
     }
     
-    fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+    fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
@@ -210,6 +211,7 @@ pub const Graphics = struct {
             .cur_text_align = .Left,
             .cur_text_baseline = .Top,
             .cur_dpr = dpr,
+            .cur_dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
             .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
@@ -447,9 +449,9 @@ pub const Graphics = struct {
     }
 
     pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
-        // Convert to screen coords on cpu.
-        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y));
-        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y));
+        // Convert to buffer coords on cpu.
+        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y)).mul(self.cur_dpr);
+        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y)).mul(self.cur_dpr);
         self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
     }
 
@@ -491,15 +493,15 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res, true);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr_ceil, str, res, true);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res, true);
+        text_renderer.measureText(self, group_id, size, self.cur_dpr_ceil, str, res, true);
     }
 
     pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
-        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr, str);
+        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr_ceil, str);
     }
 
     pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
@@ -529,7 +531,7 @@ pub const Graphics = struct {
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
+        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr_ceil, start_x, start_y, str);
 
         while (iter.nextCodepointQuad(true)) {
             self.setCurrentTexture(iter.quad.image);
