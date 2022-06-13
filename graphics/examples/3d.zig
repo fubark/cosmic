@@ -5,6 +5,7 @@ const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const platform = @import("platform");
 const graphics = @import("graphics");
+const Transform = graphics.Transform;
 const Color = graphics.Color;
 const ui = @import("ui");
 const Row = ui.widgets.Row;
@@ -27,12 +28,10 @@ var ui_mod: ui.Module = undefined;
 var app_root: *App = undefined;
 
 const box = @embedFile("../../examples/assets/models/box.gltf");
-const box_bin = @embedFile("../../examples/assets/models/Box0.bin");
-var box_node: graphics.NodeGLTF = undefined;
+var box_node: graphics.GLTFnode = undefined;
 
 const duck = @embedFile("../../examples/assets/models/duck.gltf");
-const duck_bin = @embedFile("../../examples/assets/models/Duck0.bin");
-var duck_node: graphics.NodeGLTF = undefined;
+var duck_node: graphics.GLTFnode = undefined;
 
 pub const App = struct {
     box_color: Color,
@@ -94,34 +93,20 @@ pub fn main() !void {
     app.init("3d");
     defer app.deinit();
 
-    ui_mod.init(app.alloc, app.gctx);
+    const alloc = app.alloc;
+
+    ui_mod.init(alloc, app.gctx);
     ui_mod.addInputHandlers(&app.dispatcher);
     defer ui_mod.deinit();
 
-    // Setup model buffers.
-    var buffers = std.StringHashMap([]const u8).init(app.alloc);
-    defer buffers.deinit();
-    var box_bin_aligned = try stdx.mem.dupeAlign(app.alloc, u8, 2, box_bin);
-    defer app.alloc.free(box_bin_aligned);
-    var duck_bin_aligned = try stdx.mem.dupeAlign(app.alloc, u8, 2, duck_bin);
-    defer app.alloc.free(duck_bin_aligned);
-    try buffers.put("Box0.bin", box_bin_aligned);
-    try buffers.put("Duck0.bin", duck_bin_aligned);
-
     // Load models.
-    var box_h = try app.gctx.loadGLTF(box);
-    defer box_h.deinit();
-    try box_h.loadBuffers(.{
-        .static_buffer_map = buffers,
-    });
-    box_node = try box_h.loadNode(app.alloc, 0);
+    var box_h = try app.gctx.loadGLTFandBuffers(alloc, box, .{});
+    defer box_h.deinit(alloc);
+    box_node = try box_h.loadNode(alloc, 0);
     defer box_node.deinit(app.alloc);
 
-    var duck_h = try app.gctx.loadGLTF(duck);
-    defer duck_h.deinit();
-    try duck_h.loadBuffers(.{
-        .static_buffer_map = buffers,
-    });
+    var duck_h = try app.gctx.loadGLTFandBuffers(alloc, duck, .{});
+    defer duck_h.deinit(alloc);
     duck_node = try duck_h.loadNode(app.alloc, 0);
     defer duck_node.deinit(app.alloc);
 
@@ -157,7 +142,7 @@ fn update(delta_ms: f32) void {
     gctx.setFillColor(Color.Red);
     gctx.fillTriangle3D(0, 0, 0, 20, 0, 0, 0, 20, 0);
 
-    var box_xform = graphics.Transform.initIdentity();
+    var box_xform = Transform.initIdentity();
     box_xform.translate3D(-1, 1, 0);
     box_xform.scale3D(20, 20, 20);
     gctx.setFillColor(app_root.box_color);
@@ -165,7 +150,7 @@ fn update(delta_ms: f32) void {
     gctx.setStrokeColor(Color.Black);
     gctx.strokeMesh3D(box_xform, box_node.verts, box_node.indexes);
 
-    var duck_xform = graphics.Transform.initIdentity();
+    var duck_xform = Transform.initIdentity();
     duck_xform.translate3D(-150, 0, 0);
     gctx.setFillColor(app_root.duck_color);
     gctx.fillMesh3D(duck_xform, duck_node.verts, duck_node.indexes);

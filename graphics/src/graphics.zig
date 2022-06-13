@@ -1051,19 +1051,14 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn loadGLTF(self: Self, buf: []const u8) !HandleGLTF {
-        _ = self;
-        var opts = std.mem.zeroInit(cgltf.cgltf_options, .{});
-        var data: *cgltf.cgltf_data = undefined;
-        const res = cgltf.parse(&opts, buf.ptr, buf.len, &data);
-        if (res == cgltf.cgltf_result_success) {
-            return HandleGLTF{
-                .data = data,
-                .loaded_buffers = false,
-            };
-        } else {
-            return error.FailedToLoad;
-        }
+    pub fn loadGLTF(_: Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
+        return GLTFhandle.init(alloc, buf, opts);
+    }
+
+    pub fn loadGLTFandBuffers(_: Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
+        var ret = try GLTFhandle.init(alloc, buf, opts);
+        try ret.loadBuffers();
+        return ret;
     }
 
     /// Pushes the mesh without modifying the vertex data.
@@ -1091,19 +1086,65 @@ pub const Graphics = struct {
     }
 };
 
-pub const LoadBuffersOptionsGLTF = struct {
-    static_buffer_map: ?std.StringHashMap([]const u8) = null,
+const GLTFstaticBufferEntry = struct {
+    name: []const u8,
+    buf: []const u8,
+    realign: bool = false,
+};
+
+pub const GLTFloadOptions = struct {
+    static_buffers: ?[]const GLTFstaticBufferEntry = null,
     root_path: [:0]const u8 = "",
 };
 
-pub const HandleGLTF = struct {
+pub const GLTFhandle = struct {
     data: *cgltf.cgltf_data,
     loaded_buffers: bool,
+    static_buffer_map: std.StringHashMap(GLTFstaticBufferEntry),
 
     const Self = @This();
 
-    pub fn deinit(self: Self) void {
+    pub fn init(alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !Self {
+        var gltf_opts = std.mem.zeroInit(cgltf.cgltf_options, .{});
+        var data: *cgltf.cgltf_data = undefined;
+        const res = cgltf.parse(&gltf_opts, buf.ptr, buf.len, &data);
+        if (res == cgltf.cgltf_result_success) {
+            var static_buffer_map = std.StringHashMap(GLTFstaticBufferEntry).init(alloc);
+            if (opts.static_buffers) |buffers| {
+                for (buffers) |entry| {
+                    const name = alloc.dupe(u8, entry.name) catch fatal();
+                    var dupe = GLTFstaticBufferEntry{
+                        .name = name,
+                        .buf = entry.buf,
+                        .realign = entry.realign,
+                    };
+                    if (entry.realign) {
+                        dupe.buf = stdx.mem.dupeAlign(alloc, u8, 2, entry.buf) catch fatal();
+                    }
+                    static_buffer_map.put(name, dupe) catch fatal();
+                }
+            }
+            return Self{
+                .data = data,
+                .loaded_buffers = false,
+                .static_buffer_map = static_buffer_map,
+            };
+        } else {
+            return error.FailedToLoad;
+        }
+    }
+
+    pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
         cgltf.cgltf_free(self.data);
+
+        var iter = self.static_buffer_map.valueIterator();
+        while (iter.next()) |entry| {
+            alloc.free(entry.name);
+            if (entry.realign) {
+                alloc.free(entry.buf);
+            }
+        }
+        self.static_buffer_map.deinit();
     }
 
     // pub fn loadBuffers(self: *Self) void {
@@ -1115,22 +1156,32 @@ pub const HandleGLTF = struct {
     //     }
     // }
 
-    /// Custom loadBuffers since cgltf.cgltf_load_buffers makes it inconvenient to use adhoc embedded buffers.
-    pub fn loadBuffers(self: *Self, opts: LoadBuffersOptionsGLTF) !void {
-        // var copts = std.mem.zeroInit(cgltf.cgltf_options, .{});
+    /// Custom loadBuffers since cgltf.cgltf_load_buffers makes it inconvenient to embed static buffers at runtime.
+    pub fn loadBuffers(self: *Self) !void {
+        var copts = std.mem.zeroInit(cgltf.cgltf_options, .{});
         if (!self.loaded_buffers) {
             var i: u32 = 0;
             while (i < self.data.buffers_count) : (i += 1) {
                 if (self.data.buffers[i].data == null) {
                     const uri = self.data.buffers[i].uri;
-                    if (opts.static_buffer_map) |map| {
-                        const uri_slice = std.mem.span(uri);
-                        if (map.get(uri_slice)) |buf| {
-                            self.data.buffers[i].data = @intToPtr([*c]u8, @ptrToInt(buf.ptr));
-                            // Don't auto free for static buffers.
-                            self.data.buffers[i].data_free_method = cgltf.cgltf_data_free_method_none;
-                            continue;
+                    const uri_slice = std.mem.span(uri);
+
+                    if (std.mem.startsWith(u8, uri_slice, "data:")) {
+                        const comma_idx = std.mem.indexOf(u8, uri_slice, ",") orelse return error.UnknownFormat;
+                        if (comma_idx >= 7 and std.mem.eql(u8, uri_slice[comma_idx-7..comma_idx], ";base64")) {
+                            const res = cgltf.cgltf_load_buffer_base64(&copts, self.data.buffers[i].size, &uri_slice[comma_idx + 1], &self.data.buffers[i].data);
+                            self.data.buffers[i].data_free_method = cgltf.cgltf_data_free_method_memory_free;
+                            if (res != cgltf.cgltf_result_success) {
+                                return error.InvalidData;
+                            }
+                        } else {
+                            return error.UnknownFormat;
                         }
+                    } else if (self.static_buffer_map.get(uri_slice)) |entry| {
+                        self.data.buffers[i].data = @intToPtr([*c]u8, @ptrToInt(entry.buf.ptr));
+                        // Don't auto free for static buffers.
+                        self.data.buffers[i].data_free_method = cgltf.cgltf_data_free_method_none;
+                        continue;
                     }
                     // Use default loader.
                     // const res = cgltf.cgltf_load_buffer_file(copts, self.data.buffers[i].size, uri, opts.root_path, &self.data.buffers[i].data);
@@ -1144,109 +1195,193 @@ pub const HandleGLTF = struct {
         }
     }
 
-    pub fn loadNode(self: *Self, alloc: std.mem.Allocator, idx: u32) !NodeGLTF {
+    pub fn loadNode(self: *Self, alloc: std.mem.Allocator, idx: u32) !GLTFnode {
         if (idx >= self.data.nodes_count) {
             return error.NoSuchElement;
         }
         if (!self.loaded_buffers) {
             return error.BuffersNotLoaded;
         }
-        _ = alloc;
-        const node = self.data.nodes[idx];
+        const nodes = self.data.nodes[0..self.data.nodes_count];
+        const node = &nodes[idx];
         // For now just look for the first node with a mesh.
         if (node.mesh != null) {
-            unreachable;
+            return self.loadNodeFromMesh(alloc, node);
         } else {
-            if (node.children_count > 0) {
-                var i: u32 = 0;
-                while (i < node.children_count) : (i += 1) {
-                    const child = node.children[i][0];
-                    if (child.mesh != null) {
-                        const mesh = @ptrCast(*cgltf.cgltf_mesh, child.mesh);
-                        if (mesh.primitives_count > 0) {
-                            const primitive = mesh.primitives[0];
-                            const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
-                            var ii: u32 = 0;
-
-                            const indexes = alloc.alloc(u16, indices.count) catch fatal();
-                            while (ii < indices.count) : (ii += 1) {
-                                indexes[ii] = @intCast(u16, cgltf.cgltf_accessor_read_index(indices, ii));
-                            }
-
-                            // Determine number of verts by looking at the first attribute.
-                            var verts: []gpu.TexShaderVertex = undefined;
-                            if (primitive.attributes_count > 0) {
-                                const count = primitive.attributes[0].data[0].count;
-                                verts = alloc.alloc(gpu.TexShaderVertex, count) catch fatal();
-                            } else return error.NoNumVerts;
-
-                            var ai: u32 = 0;
-                            while (ai < primitive.attributes_count) : (ai += 1) {
-                                const attr = primitive.attributes[ai];
-                                const accessor = @ptrCast(*cgltf.cgltf_accessor, attr.data);
-                                const component_type = accessor.component_type;
-                                if (accessor.count != verts.len) {
-                                    return error.NumVertsMismatch;
-                                }
-                                const byte_offset = accessor.offset;
-                                const stride = accessor.stride;
-                                _ = byte_offset;
-                                _ = stride;
-                                switch (attr.@"type") {
-                                    cgltf.cgltf_attribute_type_normal => {
-                                        const buf_view = accessor.buffer_view[0];
-                                        const buf = buf_view.buffer[0];
-                                        // Skip for now.
-                                        _ = buf_view;
-                                        _ = buf;
-                                    },
-                                    cgltf.cgltf_attribute_type_position => {
-                                        if (component_type == cgltf.cgltf_component_type_r_32f) {
-                                            const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
-                                            const num_floats = num_component_vals * accessor.count;
-                                            const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
-                                            defer alloc.free(val_buf);
-                                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
-
-                                            var vi: u32 = 0;
-                                            while (vi < verts.len) : (vi += 1) {
-                                                verts[vi].setXYZ(
-                                                    val_buf[vi * num_component_vals],
-                                                    val_buf[vi * num_component_vals + 1],
-                                                    val_buf[vi * num_component_vals + 2],
-                                                );
-                                                verts[vi].setColor(Color.White);
-                                            }
-                                        } else {
-                                            return error.UnsupportedComponentType;
-                                        }
-                                    },
-                                    else => {},
-                                }
-                            }
-
-                            return NodeGLTF{
-                                .verts = verts,
-                                .indexes = indexes,
-                            };
-                        }
-                        log.debug("{s}", .{mesh.name});
-                        unreachable;
-                    }
+            const children = node.children[0..node.children_count];
+            for (children) |c_child| {
+                const child = @ptrCast(*cgltf.cgltf_node, c_child);
+                if (child.mesh != null) {
+                    return self.loadNodeFromMesh(alloc, child);
                 }
             }
         }
         return error.NoMesh;
     }
+
+    fn loadNodeFromMesh(self: *Self, alloc: std.mem.Allocator, node: *cgltf.cgltf_node) !GLTFnode {
+        const mesh = @ptrCast(*cgltf.cgltf_mesh, node.mesh);
+        if (mesh.primitives_count > 0) {
+            const primitive = mesh.primitives[0];
+            const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
+            var ii: u32 = 0;
+
+            const indexes = alloc.alloc(u16, indices.count) catch fatal();
+            while (ii < indices.count) : (ii += 1) {
+                indexes[ii] = @intCast(u16, cgltf.cgltf_accessor_read_index(indices, ii));
+            }
+
+            // Determine number of verts by looking at the first attribute.
+            var verts: []gpu.TexShaderVertex = undefined;
+            if (primitive.attributes_count > 0) {
+                const count = primitive.attributes[0].data[0].count;
+                verts = alloc.alloc(gpu.TexShaderVertex, count) catch fatal();
+            } else return error.NoNumVerts;
+
+            var ai: u32 = 0;
+            while (ai < primitive.attributes_count) : (ai += 1) {
+                const attr = primitive.attributes[ai];
+                const accessor = @ptrCast(*cgltf.cgltf_accessor, attr.data);
+                const component_type = accessor.component_type;
+                if (accessor.count != verts.len) {
+                    return error.NumVertsMismatch;
+                }
+                const byte_offset = accessor.offset;
+                const stride = accessor.stride;
+                _ = byte_offset;
+                _ = stride;
+                switch (attr.@"type") {
+                    cgltf.cgltf_attribute_type_normal => {
+                        const buf_view = accessor.buffer_view[0];
+                        const buf = buf_view.buffer[0];
+                        // Skip for now.
+                        _ = buf_view;
+                        _ = buf;
+                    },
+                    cgltf.cgltf_attribute_type_position => {
+                        if (component_type == cgltf.cgltf_component_type_r_32f) {
+                            const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
+                            const num_floats = num_component_vals * accessor.count;
+                            const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
+                            defer alloc.free(val_buf);
+                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+
+                            var vi: u32 = 0;
+                            while (vi < verts.len) : (vi += 1) {
+                                verts[vi].setXYZ(
+                                    val_buf[vi * num_component_vals],
+                                    val_buf[vi * num_component_vals + 1],
+                                    val_buf[vi * num_component_vals + 2],
+                                );
+                                verts[vi].setColor(Color.White);
+                            }
+                        } else {
+                            return error.UnsupportedComponentType;
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            // Look for any animations for this node.
+            var animation: ?GLTFanimation = null;
+            if (self.data.animations_count > 0) {
+                const anims = self.data.animations[0..self.data.animations_count];
+                for (anims) |anim| {
+                    if (anim.channels_count > 0) {
+                        const channels = anim.channels[0..anim.channels_count];
+                        for (channels) |chan| {
+                            if (chan.target_node == node) {
+                                const path = chan.target_path;
+                                const sampler = @ptrCast(*cgltf.cgltf_animation_sampler, chan.sampler);
+                                const interpolation = sampler.interpolation;
+
+                                // Load time data.
+                                const time_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.input);
+                                if (time_accessor.@"type" != cgltf.cgltf_type_scalar) {
+                                    return error.UnexpectedDataType;
+                                }
+                                const times = alloc.alloc(f32, time_accessor.count) catch fatal();
+                                var i: u32 = 0;
+                                while (i < time_accessor.count) : (i += 1) {
+                                    _ = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
+                                }
+                                for (times) |_, j| {
+                                    // From secs to ms.
+                                    times[j] *= 1000;
+                                }
+
+                                // Load output data.
+                                const out_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.output);
+                                if (path == cgltf.cgltf_animation_path_type_rotation) {
+                                    if (out_accessor.@"type" != cgltf.cgltf_type_vec4) {
+                                        return error.UnexpectedDataType;
+                                    }
+                                    const num_floats = 4 * out_accessor.count;
+                                    const val_buf = alloc.alloc(stdx.math.Vec4, num_floats) catch fatal();
+                                    _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+
+                                    animation = GLTFanimation{
+                                        .times = times,
+                                        .rotations = val_buf,
+                                        .interpolation = fromGLTFinterpolation(interpolation),
+                                        .max_ms = time_accessor.max[0] * 1000,
+                                    };
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return GLTFnode{
+                .verts = verts,
+                .indexes = indexes,
+                .animation = animation,
+            };
+        }
+        return error.NoPrimitives;
+    }
 };
 
-pub const NodeGLTF = struct {
+fn fromGLTFinterpolation(from: cgltf.cgltf_interpolation_type) Interpolation {
+    switch (from) {
+        cgltf.cgltf_interpolation_type_linear => return .Linear,
+        else => fatal(),
+    }
+}
+
+const Interpolation = enum(u1) {
+    Linear = 0,
+};
+
+const GLTFanimation = struct {
+    times: []const f32,
+    rotations: ?[]const stdx.math.Vec4,
+    interpolation: Interpolation,
+    max_ms: f32,
+
+    fn deinit(self: GLTFanimation, alloc: std.mem.Allocator) void {
+        alloc.free(self.times);
+        if (self.rotations) |rotations| {
+            alloc.free(rotations);
+        }
+    }
+};
+
+pub const GLTFnode = struct {
     verts: []const gpu.TexShaderVertex,
     indexes: []const u16,
 
-    pub fn deinit(self: NodeGLTF, alloc: std.mem.Allocator) void {
+    animation: ?GLTFanimation,
+
+    pub fn deinit(self: GLTFnode, alloc: std.mem.Allocator) void {
         alloc.free(self.verts);
         alloc.free(self.indexes);
+        if (self.animation) |anim| {
+            anim.deinit(alloc);
+        }
     }
 };
 
