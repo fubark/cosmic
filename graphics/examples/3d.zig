@@ -24,6 +24,10 @@ var app: helper.App = undefined;
 var main_cam: graphics.Camera = undefined;
 var cam_mod: graphics.CameraModule = undefined;
 
+const animated_tri = @embedFile("../../examples/assets/models/animated_triangle.gltf");
+var animated_tri_node: graphics.GLTFnode = undefined;
+var animated_tri_mesh: graphics.AnimatedMesh = undefined;
+
 var ui_mod: ui.Module = undefined;
 var app_root: *App = undefined;
 
@@ -110,6 +114,12 @@ pub fn main() !void {
     duck_node = try duck_h.loadNode(app.alloc, 0);
     defer duck_node.deinit(app.alloc);
 
+    var animated_tri_h = try app.gctx.loadGLTFandBuffers(alloc, animated_tri, .{});
+    defer animated_tri_h.deinit(alloc);
+    animated_tri_node = try animated_tri_h.loadNode(app.alloc, 0);
+    defer animated_tri_node.deinit(app.alloc);
+    animated_tri_mesh = graphics.AnimatedMesh.init(animated_tri_node);
+
     const aspect = app.win.getAspectRatio();
     main_cam.initPerspective3D(60, aspect, 0.1, 1000);
     main_cam.moveForward(90);
@@ -156,6 +166,15 @@ fn update(delta_ms: f32) void {
     gctx.fillMesh3D(duck_xform, duck_node.verts, duck_node.indexes);
     gctx.setStrokeColor(Color.Black);
     gctx.strokeMesh3D(duck_xform, duck_node.verts, duck_node.indexes);
+
+    var animated_tri_xform = Transform.initIdentity();
+    animated_tri_xform.scale3D(20, 20, 20);
+    animated_tri_xform.rotateY(std.math.pi);
+    animated_tri_xform.translate3D(50, 50, 0);
+    gctx.setFillColor(Color.Gray);
+
+    animated_tri_mesh.update(delta_ms);
+    gctx.fillAnimatedMesh3D(animated_tri_xform, animated_tri_mesh);
 
     // Render ui.
     gctx.setCamera(app.cam);

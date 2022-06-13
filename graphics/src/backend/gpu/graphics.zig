@@ -26,7 +26,8 @@ const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const BlendMode = graphics.BlendMode;
-const Transform = graphics.transform.Transform;
+const Transform = graphics.Transform;
+const Quaternion = graphics.Quaternion;
 const VMetrics = graphics.font.VMetrics;
 const TextMetrics = graphics.TextMetrics;
 const Font = graphics.font.Font;
@@ -37,7 +38,6 @@ const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.FontId;
 const FontGroupId = graphics.FontGroupId;
-const log = stdx.log.scoped(.graphics_gl);
 const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
 pub const TexShaderVertex = mesh.TexShaderVertex;
@@ -57,6 +57,7 @@ const image = @import("image.zig");
 pub const ImageStore = image.ImageStore;
 pub const Image = image.Image;
 pub const ImageTex = image.ImageTex;
+const log = stdx.log.scoped(.gpu_graphics);
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
@@ -1726,6 +1727,39 @@ pub const Graphics = struct {
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
         self.batcher.pushMeshData(verts, indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh) void {
+        self.batcher.beginTex3D(self.white_tex);
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+
+        const tt = amesh.time_t;
+        const time_idx = amesh.time_idx;
+
+        var xform = model_xform;
+        if (amesh.anim.rotations != null) {
+            const from = Quaternion.init(amesh.anim.rotations.?[time_idx]);
+            const to = Quaternion.init(amesh.anim.rotations.?[time_idx+1]);
+            xform = Transform.initQuaternion(from.slerp(to, tt));
+            xform.applyTransform(model_xform);
+        }
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+
+        if (!self.batcher.ensureUnusedBuffer(amesh.node.verts.len, amesh.node.indexes.len)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        for (amesh.node.verts) |vert| {
+            var new_vert = vert;
+            new_vert.setColor(self.cur_fill_color);
+            self.batcher.mesh.addVertex(&new_vert);
+        }
+        self.batcher.mesh.addDeltaIndices(vert_start, amesh.node.indexes);
+
         self.batcher.beginMvp(cur_mvp);
     }
 

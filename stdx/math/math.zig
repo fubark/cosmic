@@ -145,6 +145,20 @@ pub const Vec4 = struct {
         return .{ .x = x, .y = y, .z = z, .w = w };
     }
 
+    pub fn dot(self: Vec4, v: Vec4) f32 {
+        return self.x * v.x + self.y * v.y + self.z * v.z + self.w * v.w;
+    }
+
+    /// Component addition.
+    pub fn add(self: Vec4, v: Vec4) Vec4 {
+        return Vec4.init(self.x + v.x, self.y + v.y, self.z + v.z, self.w + v.w);
+    }
+
+    /// Component multiplication.
+    pub fn mul(self: Vec4, s: f32) Vec4 {
+        return Vec4.init(self.x * s, self.y * s, self.z * s, self.w * s);
+    }
+
     /// Component division.
     pub fn div(self: Vec4, s: f32) Vec4 {
         return Vec4.init(self.x / s, self.y / s, self.z / s, self.w / s);

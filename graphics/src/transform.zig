@@ -27,6 +27,27 @@ pub const Transform = struct {
         };
     }
 
+    /// To RHS.
+    pub fn initQuaternion(q: Quaternion) Self {
+        const x2 = q.vec.x*q.vec.x;
+        const y2 = q.vec.y*q.vec.y;
+        const z2 = q.vec.z*q.vec.z;
+        const xy = q.vec.x*q.vec.y;
+        const yz = q.vec.y*q.vec.z;
+        const xz = q.vec.x*q.vec.z;
+        const wx = q.vec.w*q.vec.x;
+        const wy = q.vec.w*q.vec.y;
+        const wz = q.vec.w*q.vec.z;
+        return .{
+            .mat = .{
+                1 - 2 * (y2 + z2), 2 * (xy - wz), 2 * (xz + wy), 0,
+                2 * (xy + wz), 1 - 2 * (x2 + z2), 2 * (yz - wx), 0,
+                2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (x2 + y2), 0,
+                0, 0, 0, 1,
+            },
+        };
+    }
+
     pub fn getAppliedTransform(self: Transform, transform: Transform) Self {
         return .{
             .mat = math.mul4x4_4x4(transform.mat, self.mat),
@@ -200,3 +221,58 @@ test "Interpolate" {
     try t.eq(transform.interpolateVec4(Vec4.init(0, 0, 0, 1)), Vec4.init(10, 10, 0, 1));
     try t.eq(transform.interpolateVec4(Vec4.init(10, 10, 0, 1)), Vec4.init(20, 20, 0, 1));
 }
+
+pub const Quaternion = struct {
+    /// Unit quaternion.
+    vec: Vec4,
+
+    pub fn init(vec: Vec4) Quaternion {
+        return .{
+            .vec = vec,
+        };
+    }
+
+    pub fn rotate(self: Quaternion, v: Vec3) Vec3 {
+        const q = Vec3.init(self.vec.x, self.vec.y, self.vec.z);
+        const qdotq = q.dot(q);
+        const qdotv = q.dot(v);
+        const cross = q.cross(v);
+        const ww = self.w * self.w;
+        const w2 = self.w * 2;
+        return .{
+            .x = v.x * (ww - qdotq.x) + self.x * qdotv.x * 2 + cross.x * w2,
+            .y = v.y * (ww - qdotq.y) + self.y * qdotv.y * 2 + cross.y * w2,
+            .z = v.z * (ww - qdotq.z) + self.z * qdotv.z * 2 + cross.z * w2,
+        };
+    }
+
+    /// Spherical Linear Interpolation
+    /// https://www.khronos.org/registry/glTF/specs/2.0/glTF-2.0.html#interpolation-slerp
+    pub fn slerp(self: Quaternion, to: Quaternion, tt: f32) Quaternion {
+        const d = self.dot(to);
+        const adot = std.math.fabs(d);
+        const a = std.math.acos(adot);
+        const s = d/adot;
+
+        const from_vec = self.vec.mul(std.math.sin(a * (1-tt))/std.math.sin(a));
+        const to_vec = to.vec.mul(s * std.math.sin(a * tt)/std.math.sin(a));
+        return .{
+            .vec = from_vec.add(to_vec),
+        };
+    }
+
+    pub fn dot(self: Quaternion, q: Quaternion) f32 {
+        return self.vec.dot(q.vec);
+    }
+
+    pub fn mul(self: Quaternion, q: Quaternion) Quaternion {
+        return Quaternion{
+            .vec = .{
+                .x = self.vec.w * q.vec.x + self.vec.x * q.vec.w + self.vec.y * q.vec.z - self.vec.z * q.vec.y,
+                .y = self.vec.w * q.vec.y - self.vec.x * q.vec.z + self.vec.y * q.vec.w + self.vec.z * q.vec.x,
+                .z = self.vec.w * q.vec.z + self.vec.x * q.vec.y - self.vec.y * q.vec.x + self.vec.z * q.vec.w,
+                .w = self.vec.w * q.vec.w - self.vec.x * q.vec.x - self.vec.y * q.vec.y - self.vec.z * q.vec.z,
+            },
+        };
+    }
+};

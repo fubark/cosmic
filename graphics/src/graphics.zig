@@ -14,6 +14,7 @@ const cgltf = @import("cgltf");
 
 pub const transform = @import("transform.zig");
 pub const Transform = transform.Transform;
+pub const Quaternion = transform.Quaternion;
 pub const svg = @import("svg.zig");
 const SvgPath = svg.SvgPath;
 const draw_cmd = @import("draw_cmd.zig");
@@ -1077,6 +1078,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillAnimatedMesh3D(&self.impl, model_xform, mesh),
+            else => unsupported(),
+        }
+    }
+
     /// Draws a wireframe around the mesh with the current stroke color.
     pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
@@ -1461,4 +1469,47 @@ pub const FontFamily = union(enum) {
     FontGroup: FontGroupId,
     Font: FontId,
     Default: void,
+};
+
+pub const AnimatedMesh = struct {
+    cur_time_ms: f32,
+    node: GLTFnode,
+    anim: GLTFanimation,
+
+    time_idx: u32,
+    time_t: f32,
+    loop: bool,
+
+    pub fn init(node: GLTFnode) AnimatedMesh {
+        return .{
+            .cur_time_ms = 0,
+            .node = node,
+            .anim = node.animation.?,
+            .time_idx = 0,
+            .time_t = 0,
+            .loop = true,
+        };
+    }
+
+    pub fn update(self: *AnimatedMesh, delta_ms: f32) void {
+        self.cur_time_ms += delta_ms;
+        if (self.cur_time_ms > self.anim.max_ms) {
+            if (self.loop) {
+                self.cur_time_ms = @mod(self.cur_time_ms, self.anim.max_ms);
+            } else {
+                self.cur_time_ms = self.anim.max_ms;
+            }
+        }
+        for (self.anim.times) |time, idx| {
+            if (self.cur_time_ms <= time) {
+                self.time_idx = @intCast(u32, idx-1);
+                const prev = self.anim.times[self.time_idx];
+                self.time_t = (self.cur_time_ms - prev) / (time - prev);
+                return;
+            }
+        }
+        self.time_idx = @intCast(u32, self.anim.times.len-2);
+        const time = self.anim.times[self.time_idx];
+        self.time_t = (self.cur_time_ms - time) / (self.anim.times[self.time_idx+1] - time);
+    }
 };
