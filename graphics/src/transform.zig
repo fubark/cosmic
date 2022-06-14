@@ -3,6 +3,7 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
+const eqApproxVec4 = stdx.math.eqApproxVec4;
 
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
@@ -252,6 +253,10 @@ pub const Quaternion = struct {
         const d = self.dot(to);
         const adot = std.math.fabs(d);
         const a = std.math.acos(adot);
+        if (adot >= 1) {
+            // Prevent divide by 0 from sin(a).
+            return self;
+        }
         const s = d/adot;
 
         const from_vec = self.vec.mul(std.math.sin(a * (1-tt))/std.math.sin(a));
@@ -276,3 +281,8 @@ pub const Quaternion = struct {
         };
     }
 };
+
+test "Quaternion.slerp" {
+    // slerp with self.
+    try eqApproxVec4(Quaternion.init(Vec4.init(0, 0, 0, 1)).slerp(Quaternion.init(Vec4.init(0, 0, 0, 1)), 0).vec, Vec4.init(0, 0, 0, 1));
+}
