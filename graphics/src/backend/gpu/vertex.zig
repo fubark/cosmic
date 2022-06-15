@@ -4,8 +4,6 @@ const t = stdx.testing;
 const graphics = @import("../../graphics.zig");
 
 pub const TexShaderVertex = packed struct {
-    const Self = @This();
-
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
@@ -17,12 +15,27 @@ pub const TexShaderVertex = packed struct {
     color_b: f32,
     color_a: f32,
 
-    // Animation.
-    joint_0: u32,
-    joint_1: u32,
-    joint_2: u32,
-    joint_3: u32,
+    /// Animation joints. 
+    joints: packed union {
+        // Split up into components for cpu manipulation.
+        components: packed struct {
+            joint_0: u16,
+            joint_1: u16,
+            joint_2: u16,
+            joint_3: u16,
+        },
+        // Sent over to gpu with custom endian encoding that matches shader decoder.
+        // Indexes to dynamic joint matrices.
+        compact: packed struct {
+            joint_0: u32,
+            joint_1: u32,
+        },
+    },
+
+    /// Animation weights.
     weights: u32, // First weight is least significant byte.
+
+    const Self = @This();
 
     pub fn setXY(self: *Self, x: f32, y: f32) void {
         self.pos_x = x;
@@ -52,10 +65,10 @@ pub const TexShaderVertex = packed struct {
 };
 
 test "TexShaderVertex" {
-    try t.eq(@sizeOf(TexShaderVertex), 4*4 + 4*2 + 4*4 + 4*4 + 4);
+    try t.eq(@sizeOf(TexShaderVertex), 4*4 + 4*2 + 4*4 + 2*4 + 4);
     try t.eq(@offsetOf(TexShaderVertex, "pos_x"), 0);
     try t.eq(@offsetOf(TexShaderVertex, "uv_x"), 4*4);
     try t.eq(@offsetOf(TexShaderVertex, "color_r"), 4*4 + 4*2);
-    try t.eq(@offsetOf(TexShaderVertex, "joint_0"), 4*4 + 4*2 + 4*4);
-    try t.eq(@offsetOf(TexShaderVertex, "weights"), 4*4 + 4*2 + 4*4 + 4*4);
+    try t.eq(@offsetOf(TexShaderVertex, "joints"), 4*4 + 4*2 + 4*4);
+    try t.eq(@offsetOf(TexShaderVertex, "weights"), 4*4 + 4*2 + 4*4 + 2*4);
 }

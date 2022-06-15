@@ -1532,12 +1532,10 @@ pub const GLTFnode = struct {
                             while (i < accessor.count) : (i += 1) {
                                 var joints: [4]u32 = undefined;
                                 _ = cgltf.cgltf_accessor_read_uint(accessor, i, &joints, 4);
-                                // const joints_u32 = joints[0] | (joints[1] << 8) | (joints[2] << 16) | (joints[3] << 24);
-                                // verts[i].joints = joints_u32;
-                                verts[i].joint_0 = joints[0];
-                                verts[i].joint_1 = joints[1];
-                                verts[i].joint_2 = joints[2];
-                                verts[i].joint_3 = joints[3];
+                                verts[i].joints.components.joint_0 = @intCast(u16, joints[0]);
+                                verts[i].joints.components.joint_1 = @intCast(u16, joints[1]);
+                                verts[i].joints.components.joint_2 = @intCast(u16, joints[2]);
+                                verts[i].joints.components.joint_3 = @intCast(u16, joints[3]);
                             }
                         } else {
                             return error.UnsupportedComponentType;

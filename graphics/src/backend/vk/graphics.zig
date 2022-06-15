@@ -452,9 +452,10 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
         vk.VkVertexInputAttributeDescription{
             .binding = 0,
             .location = 3,
-            // .format = vk.VK_FORMAT_R32_UINT,
-            .format = vk.VK_FORMAT_R32G32B32A32_UINT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "joint_0"),
+            .format = vk.VK_FORMAT_R32_UINT,
+            // .format = vk.VK_FORMAT_R32G32B32A32_UINT,
+            // .format = vk.VK_FORMAT_R16G16_UINT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "joints"),
         },
         // Joint weights.
         vk.VkVertexInputAttributeDescription{

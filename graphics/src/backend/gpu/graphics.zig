@@ -1796,11 +1796,9 @@ pub const Graphics = struct {
                 for (node.verts) |vert| {
                     var new_vert = vert;
                     new_vert.setColor(self.cur_fill_color);
-                    // Update joint idx to point to dynamic joint buffer.
-                    new_vert.joint_0 = self.tmp_joint_idxes[new_vert.joint_0];
-                    new_vert.joint_1 = self.tmp_joint_idxes[new_vert.joint_1];
-                    new_vert.joint_2 = self.tmp_joint_idxes[new_vert.joint_2];
-                    new_vert.joint_3 = self.tmp_joint_idxes[new_vert.joint_3];
+                    // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
+                    new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
+                    new_vert.joints.compact.joint_1 = self.tmp_joint_idxes[new_vert.joints.components.joint_2] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_3]) << 16);
                     self.batcher.mesh.addVertex(&new_vert);
                 }
             } else {
