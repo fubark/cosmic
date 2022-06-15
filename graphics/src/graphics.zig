@@ -1186,14 +1186,26 @@ pub const GLTFhandle = struct {
     pub fn loadBuffers(self: *Self) !void {
         var copts = std.mem.zeroInit(cgltf.cgltf_options, .{});
         if (!self.loaded_buffers) {
+
+            // For a single glb buffer bin.
+            if (self.data.buffers_count > 0 and self.data.buffers[0].data == null and self.data.buffers[0].uri == null and self.data.bin != null) {
+                if (self.data.bin_size < self.data.buffers[0].size) {
+                    return error.BinTooSmall;
+                }
+                self.data.buffers[0].data = @intToPtr([*c]u8, @ptrToInt(self.data.bin));
+                self.data.buffers[0].data_free_method = cgltf.cgltf_data_free_method_none;
+            }
+
             var i: u32 = 0;
             while (i < self.data.buffers_count) : (i += 1) {
                 if (self.data.buffers[i].data == null) {
                     const uri = self.data.buffers[i].uri;
+                    if (uri == null) {
+                        continue;
+                    }
                     const uri_slice = std.mem.span(uri);
-
                     if (std.mem.startsWith(u8, uri_slice, "data:")) {
-                        const comma_idx = std.mem.indexOf(u8, uri_slice, ",") orelse return error.UnknownFormat;
+                        const comma_idx = std.mem.indexOfScalar(u8, uri_slice, ',') orelse return error.UnknownFormat;
                         if (comma_idx >= 7 and std.mem.eql(u8, uri_slice[comma_idx-7..comma_idx], ";base64")) {
                             const res = cgltf.cgltf_load_buffer_base64(&copts, self.data.buffers[i].size, &uri_slice[comma_idx + 1], &self.data.buffers[i].data);
                             self.data.buffers[i].data_free_method = cgltf.cgltf_data_free_method_memory_free;
