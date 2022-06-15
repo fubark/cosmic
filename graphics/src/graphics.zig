@@ -5,12 +5,16 @@ const fatal = stdx.fatal;
 const unsupported = stdx.unsupported;
 const math = stdx.math;
 const Vec2 = math.Vec2;
+const Vec3 = math.Vec3;
+const Vec4 = math.Vec4;
+const Mat4 = math.Mat4;
 const builtin = @import("builtin");
 const t = stdx.testing;
 const sdl = @import("sdl");
 const ft = @import("freetype");
 const platform = @import("platform");
 const cgltf = @import("cgltf");
+const NullId = std.math.maxInt(u32);
 
 pub const transform = @import("transform.zig");
 pub const Transform = transform.Transform;
@@ -1078,6 +1082,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn fillScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillScene3D(&self.impl, xform, scene),
+            else => unsupported(),
+        }
+    }
+
     pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillAnimatedMesh3D(&self.impl, model_xform, mesh),
@@ -1089,6 +1100,13 @@ pub const Graphics = struct {
     pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.strokeMesh3D(&self.impl, xform, verts, indexes),
+            else => unsupported(),
+        }
+    }
+
+    pub fn strokeScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.strokeScene3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }
@@ -1203,31 +1221,255 @@ pub const GLTFhandle = struct {
         }
     }
 
-    pub fn loadNode(self: *Self, alloc: std.mem.Allocator, idx: u32) !GLTFnode {
-        if (idx >= self.data.nodes_count) {
-            return error.NoSuchElement;
-        }
+    pub fn loadDefaultScene(self: *Self, alloc: std.mem.Allocator) !GLTFscene {
         if (!self.loaded_buffers) {
             return error.BuffersNotLoaded;
         }
-        const nodes = self.data.nodes[0..self.data.nodes_count];
-        const node = &nodes[idx];
-        // For now just look for the first node with a mesh.
-        if (node.mesh != null) {
-            return self.loadNodeFromMesh(alloc, node);
-        } else {
-            const children = node.children[0..node.children_count];
-            for (children) |c_child| {
-                const child = @ptrCast(*cgltf.cgltf_node, c_child);
-                if (child.mesh != null) {
-                    return self.loadNodeFromMesh(alloc, child);
+        const scene = @ptrCast(*cgltf.cgltf_scene, self.data.scene);
+        return GLTFscene.init(alloc, self.data, scene);
+    }
+};
+
+fn fromGLTFinterpolation(from: cgltf.cgltf_interpolation_type) Interpolation {
+    switch (from) {
+        cgltf.cgltf_interpolation_type_linear => return .Linear,
+        else => fatal(),
+    }
+}
+
+const Interpolation = enum(u1) {
+    Linear = 0,
+};
+
+const GLTFanimation = struct {
+    times: []const f32,
+    rotations: ?[]const Vec4,
+    node_id: u32,
+    interpolation: Interpolation,
+    max_ms: f32,
+
+    fn deinit(self: GLTFanimation, alloc: std.mem.Allocator) void {
+        alloc.free(self.times);
+        if (self.rotations) |rotations| {
+            alloc.free(rotations);
+        }
+    }
+};
+
+/// Checks whether a node is in an array or is a recursive child.
+fn isInOrRecursiveChild(arr: [][*c]cgltf.cgltf_node, node: *cgltf.cgltf_node) bool {
+    var cur_node: ?*cgltf.cgltf_node = node;
+    while (cur_node != null) {
+        if (std.mem.indexOfScalar([*c]cgltf.cgltf_node, arr, cur_node)) |_| return true;
+        cur_node = cur_node.?.parent;
+    }
+    return false;
+}
+
+pub const GLTFscene = struct {
+    /// Since animations target specific nodes, nodes is writable to allow storing the current temporary transform value.
+    nodes: []GLTFnode,
+    root_nodes: []const u32,
+    mesh_nodes: []const u32,
+
+    animation: ?GLTFanimation,
+
+    pub fn init(alloc: std.mem.Allocator, data: *cgltf.cgltf_data, scene: *cgltf.cgltf_scene) !GLTFscene {
+        var nodes = std.ArrayList(GLTFnode).init(alloc);
+        var mesh_nodes = std.ArrayList(u32).init(alloc);
+
+        const S = struct {
+            fn dupeNode(nodes_: *std.ArrayList(GLTFnode), map_: *std.AutoHashMap(*cgltf.cgltf_node, u32), node: *cgltf.cgltf_node) void {
+                const next_id = @intCast(u32, nodes_.items.len);
+                nodes_.append(undefined) catch fatal();
+                map_.put(node, next_id) catch fatal();
+                if (node.children_count > 0) {
+                    const children = node.children[0..node.children_count];
+                    for (children) |child| {
+                        dupeNode(nodes_, map_, child);
+                    }
+                }
+            }
+            fn initNode(alloc_: std.mem.Allocator, mesh_nodes_: *std.ArrayList(u32), nodes_: []GLTFnode, map_: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) anyerror!void {
+                const id = map_.get(node).?;
+                nodes_[id] = try GLTFnode.init(alloc_, map_, parent, node);
+                if (nodes_[id].has_mesh) {
+                    mesh_nodes_.append(id) catch fatal();
+                }
+                if (node.children_count > 0) {
+                    const children = node.children[0..node.children_count];
+                    for (children) |child| {
+                        try initNode(alloc_, mesh_nodes_, nodes_, map_, id, child);
+                    }
+                }
+            }
+        };
+
+        // First dupe nodes and create map from cgltf pointers to the node ids.
+        var map = std.AutoHashMap(*cgltf.cgltf_node, u32).init(alloc);
+        defer map.deinit();
+        const cnodes = scene.nodes[0..scene.nodes_count];
+        // Spec says scene.nodes should be root nodes.
+        const root_nodes = alloc.alloc(u32, scene.nodes_count) catch fatal();
+        for (cnodes) |node, i| {
+            S.dupeNode(&nodes, &map, node);
+            const id = map.get(node).?;
+            root_nodes[i] = id;
+        }
+
+        // Load each node.
+        for (cnodes) |node| {
+            try S.initNode(alloc, &mesh_nodes, nodes.items, map, NullId, node);
+        }
+
+        if (mesh_nodes.items.len == 0) {
+            return error.NoMesh;
+        }
+
+        // Look for any animations for this scene.
+        var animation: ?GLTFanimation = null;
+        if (data.animations_count > 0) {
+            const anims = data.animations[0..data.animations_count];
+            for (anims) |anim| {
+                if (anim.channels_count > 0) {
+                    const channels = anim.channels[0..anim.channels_count];
+                    for (channels) |chan| {
+                        if (!isInOrRecursiveChild(cnodes, chan.target_node)) {
+                            continue;
+                        }
+                        const path = chan.target_path;
+                        const sampler = @ptrCast(*cgltf.cgltf_animation_sampler, chan.sampler);
+                        const interpolation = sampler.interpolation;
+
+                        // Load time data.
+                        const time_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.input);
+                        if (time_accessor.@"type" != cgltf.cgltf_type_scalar) {
+                            return error.UnexpectedDataType;
+                        }
+                        const times = alloc.alloc(f32, time_accessor.count) catch fatal();
+                        var i: u32 = 0;
+                        while (i < time_accessor.count) : (i += 1) {
+                            _ = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
+                        }
+                        for (times) |_, j| {
+                            // From secs to ms.
+                            times[j] *= 1000;
+                        }
+
+                        // Load output data.
+                        const out_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.output);
+                        if (path == cgltf.cgltf_animation_path_type_rotation) {
+                            if (out_accessor.@"type" != cgltf.cgltf_type_vec4) {
+                                return error.UnexpectedDataType;
+                            }
+                            const num_floats = 4 * out_accessor.count;
+                            const val_buf = alloc.alloc(stdx.math.Vec4, num_floats) catch fatal();
+                            _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+
+                            // for (times) |time, idx| {
+                            //     log.debug("{}: {},{}", .{idx, time, val_buf[idx]});
+                            // }
+
+                            animation = GLTFanimation{
+                                .times = times,
+                                .rotations = val_buf,
+                                .interpolation = fromGLTFinterpolation(interpolation),
+                                .max_ms = time_accessor.max[0] * 1000,
+                                .node_id = map.get(chan.target_node).?,
+                            };
+                        }
+                        break;
+                    }
                 }
             }
         }
-        return error.NoMesh;
+
+        return GLTFscene{
+            .nodes = nodes.toOwnedSlice(),
+            .root_nodes = root_nodes,
+            .mesh_nodes = mesh_nodes.toOwnedSlice(),
+            .animation = animation,
+        };
     }
 
-    fn loadNodeFromMesh(self: *Self, alloc: std.mem.Allocator, node: *cgltf.cgltf_node) !GLTFnode {
+    pub fn deinit(self: GLTFscene, alloc: std.mem.Allocator) void {
+        for (self.nodes) |node| {
+            node.deinit(alloc);
+        }
+        alloc.free(self.nodes);
+        alloc.free(self.root_nodes);
+        alloc.free(self.mesh_nodes);
+        if (self.animation) |anim| {
+            anim.deinit(alloc);
+        }
+    }
+};
+
+pub const GLTFnode = struct {
+    verts: []const gpu.TexShaderVertex,
+    indexes: []const u16,
+    skin: []const MeshJoint,
+
+    scale: Vec3,
+    rotate: Quaternion,
+    translate: Vec3,
+
+    parent: u32,
+    children: []const u32,
+
+    has_mesh: bool,
+    has_scale: bool,
+    has_rotate: bool,
+    has_translate: bool,
+
+    pub fn init(alloc: std.mem.Allocator, map: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) !GLTFnode {
+        var ret: GLTFnode = .{
+            .verts = &.{},
+            .indexes = &.{},
+            .skin = &.{},
+
+            .scale = undefined,
+            .rotate = undefined,
+            .translate = undefined,
+
+            .parent = parent,
+            .children = &.{},
+            .has_mesh = false,
+            .has_scale = false,
+            .has_rotate = false,
+            .has_translate = false,
+        };
+        if (node.mesh != null) {
+            // This node has mesh data.
+            try ret.loadMeshData(alloc, map, node);
+            ret.has_mesh = true;
+        }
+
+        if (node.children_count > 0) {
+            const children = alloc.alloc(u32, node.children_count) catch fatal();
+            const cchildren = node.children[0..node.children_count];
+            for (cchildren) |child, i| {
+                children[i] = map.get(child).?;
+            }
+            ret.children = children;
+        }
+
+        if (node.has_translation == 1) {
+            ret.has_translate = true;
+            ret.translate = Vec3.init(node.translation[0], node.translation[1], node.translation[2]);
+        }
+        if (node.has_scale == 1) {
+            ret.has_scale = true;
+            ret.scale = Vec3.init(node.scale[0], node.scale[1], node.scale[2]);
+        }
+        if (node.has_rotation == 1) {
+            ret.has_rotate = true;
+            ret.rotate = Quaternion.init(Vec4.init(node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]));
+        }
+        return ret;
+    }
+
+    fn loadMeshData(self: *GLTFnode, alloc: std.mem.Allocator, map: std.AutoHashMap(*cgltf.cgltf_node, u32), node: *cgltf.cgltf_node) !void {
         const mesh = @ptrCast(*cgltf.cgltf_mesh, node.mesh);
         if (mesh.primitives_count > 0) {
             const primitive = mesh.primitives[0];
@@ -1254,10 +1496,6 @@ pub const GLTFhandle = struct {
                 if (accessor.count != verts.len) {
                     return error.NumVertsMismatch;
                 }
-                const byte_offset = accessor.offset;
-                const stride = accessor.stride;
-                _ = byte_offset;
-                _ = stride;
                 switch (attr.@"type") {
                     cgltf.cgltf_attribute_type_normal => {
                         const buf_view = accessor.buffer_view[0];
@@ -1287,110 +1525,99 @@ pub const GLTFhandle = struct {
                             return error.UnsupportedComponentType;
                         }
                     },
+                    cgltf.cgltf_attribute_type_joints => {
+                        const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
+                        if (component_type == cgltf.cgltf_component_type_r_16u and num_component_vals == 4) {
+                            var i: u32 = 0;
+                            while (i < accessor.count) : (i += 1) {
+                                var joints: [4]u32 = undefined;
+                                _ = cgltf.cgltf_accessor_read_uint(accessor, i, &joints, 4);
+                                // const joints_u32 = joints[0] | (joints[1] << 8) | (joints[2] << 16) | (joints[3] << 24);
+                                // verts[i].joints = joints_u32;
+                                verts[i].joint_0 = joints[0];
+                                verts[i].joint_1 = joints[1];
+                                verts[i].joint_2 = joints[2];
+                                verts[i].joint_3 = joints[3];
+                            }
+                        } else {
+                            return error.UnsupportedComponentType;
+                        }
+                    },
+                    cgltf.cgltf_attribute_type_weights => {
+                        const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
+                        if (component_type == cgltf.cgltf_component_type_r_32f and num_component_vals == 4) {
+                            var i: u32 = 0;
+                            while (i < accessor.count) : (i += 1) {
+                                var weights: [4]f32 = undefined;
+                                _ = cgltf.cgltf_accessor_read_float(accessor, i, &weights, 4);
+                                const weight0 = @floatToInt(u8, std.math.floor(weights[0] * 255));
+                                const weight1 = @floatToInt(u8, std.math.floor(weights[1] * 255));
+                                const weight2 = @floatToInt(u8, std.math.floor(weights[2] * 255));
+                                const weight3 = @floatToInt(u8, std.math.floor(weights[3] * 255));
+                                const weights_u32 = weight0 | (@as(u32, weight1) << 8) | (@as(u32, weight2) << 16) | (@as(u32, weight3) << 24);
+                                verts[i].weights = weights_u32;
+                            }
+                        } else {
+                            return error.UnsupportedComponentType;
+                        }
+                    },
                     else => {},
                 }
             }
 
-            // Look for any animations for this node.
-            var animation: ?GLTFanimation = null;
-            if (self.data.animations_count > 0) {
-                const anims = self.data.animations[0..self.data.animations_count];
-                for (anims) |anim| {
-                    if (anim.channels_count > 0) {
-                        const channels = anim.channels[0..anim.channels_count];
-                        for (channels) |chan| {
-                            if (chan.target_node == node) {
-                                const path = chan.target_path;
-                                const sampler = @ptrCast(*cgltf.cgltf_animation_sampler, chan.sampler);
-                                const interpolation = sampler.interpolation;
-
-                                // Load time data.
-                                const time_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.input);
-                                if (time_accessor.@"type" != cgltf.cgltf_type_scalar) {
-                                    return error.UnexpectedDataType;
-                                }
-                                const times = alloc.alloc(f32, time_accessor.count) catch fatal();
-                                var i: u32 = 0;
-                                while (i < time_accessor.count) : (i += 1) {
-                                    _ = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
-                                }
-                                for (times) |_, j| {
-                                    // From secs to ms.
-                                    times[j] *= 1000;
-                                }
-
-                                // Load output data.
-                                const out_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.output);
-                                if (path == cgltf.cgltf_animation_path_type_rotation) {
-                                    if (out_accessor.@"type" != cgltf.cgltf_type_vec4) {
-                                        return error.UnexpectedDataType;
-                                    }
-                                    const num_floats = 4 * out_accessor.count;
-                                    const val_buf = alloc.alloc(stdx.math.Vec4, num_floats) catch fatal();
-                                    _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
-
-                                    animation = GLTFanimation{
-                                        .times = times,
-                                        .rotations = val_buf,
-                                        .interpolation = fromGLTFinterpolation(interpolation),
-                                        .max_ms = time_accessor.max[0] * 1000,
-                                    };
-                                }
-                                break;
-                            }
+            if (node.skin != null) {
+                const skin = @ptrCast(*cgltf.cgltf_skin, node.skin);
+                if (skin.joints_count > 0) {
+                    const inv_mat_accessor = @ptrCast(*cgltf.cgltf_accessor, skin.inverse_bind_matrices);
+                    if (inv_mat_accessor.@"type" == cgltf.cgltf_type_mat4 and inv_mat_accessor.component_type == cgltf.cgltf_component_type_r_32f) {
+                        const mesh_joints = alloc.alloc(MeshJoint, skin.joints_count) catch fatal();
+                        const joints = skin.joints[0..skin.joints_count];
+                        for (joints) |joint_node, i| {
+                            var mat: [16]f32 = undefined;
+                            _ = cgltf.cgltf_accessor_read_float(skin.inverse_bind_matrices, i, &mat, 16);
+                            mesh_joints[i] = .{
+                                // Convert from col major to row major.
+                                .inv_bind_mat = stdx.math.transpose4x4(mat),
+                                .node_id = map.get(joint_node).?,
+                            };
                         }
-                    }
+                        self.skin = mesh_joints;
+                    } else return error.UnsupportedType;
                 }
             }
 
-            return GLTFnode{
-                .verts = verts,
-                .indexes = indexes,
-                .animation = animation,
-            };
+            self.verts = verts;
+            self.indexes = indexes;
+            return;
         }
         return error.NoPrimitives;
     }
-};
 
-fn fromGLTFinterpolation(from: cgltf.cgltf_interpolation_type) Interpolation {
-    switch (from) {
-        cgltf.cgltf_interpolation_type_linear => return .Linear,
-        else => fatal(),
-    }
-}
-
-const Interpolation = enum(u1) {
-    Linear = 0,
-};
-
-const GLTFanimation = struct {
-    times: []const f32,
-    rotations: ?[]const stdx.math.Vec4,
-    interpolation: Interpolation,
-    max_ms: f32,
-
-    fn deinit(self: GLTFanimation, alloc: std.mem.Allocator) void {
-        alloc.free(self.times);
-        if (self.rotations) |rotations| {
-            alloc.free(rotations);
+    pub fn toTransform(self: GLTFnode) Transform {
+        var xform = Transform.initIdentity();
+        if (self.has_scale) {
+            xform.scale3D(self.scale.x, self.scale.y, self.scale.z);
         }
+        if (self.has_rotate) {
+            xform.applyTransform(Transform.initQuaternion(self.rotate));
+        }
+        if (self.has_translate) {
+            xform.translate3D(self.translate.x, self.translate.y, self.translate.z);
+        }
+        return xform;
     }
-};
-
-pub const GLTFnode = struct {
-    verts: []const gpu.TexShaderVertex,
-    indexes: []const u16,
-
-    animation: ?GLTFanimation,
 
     pub fn deinit(self: GLTFnode, alloc: std.mem.Allocator) void {
         alloc.free(self.verts);
         alloc.free(self.indexes);
-        if (self.animation) |anim| {
-            anim.deinit(alloc);
-        }
+        alloc.free(self.skin);
+        alloc.free(self.children);
     }
+};
+
+pub const MeshJoint = struct {
+    inv_bind_mat: Mat4,
+    node_id: u32,
 };
 
 // TOOL: https://www.andersriggelsen.dk/glblendfunc.php
@@ -1473,18 +1700,18 @@ pub const FontFamily = union(enum) {
 
 pub const AnimatedMesh = struct {
     cur_time_ms: f32,
-    node: GLTFnode,
+    scene: GLTFscene,
     anim: GLTFanimation,
 
     time_idx: u32,
     time_t: f32,
     loop: bool,
 
-    pub fn init(node: GLTFnode) AnimatedMesh {
+    pub fn init(scene: GLTFscene) AnimatedMesh {
         return .{
             .cur_time_ms = 0,
-            .node = node,
-            .anim = node.animation.?,
+            .scene = scene,
+            .anim = scene.animation.?,
             .time_idx = 0,
             .time_t = 0,
             .loop = true,

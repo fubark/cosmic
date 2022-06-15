@@ -101,19 +101,16 @@ pub const VkContext = struct {
             .remove = false,
         };
 
-        var staging_buf: vk.VkBuffer = undefined;
-        var staging_buf_mem: vk.VkDeviceMemory = undefined;
-
         const size = width * height * 4;
-        buffer.createBuffer(self.physical, self.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_buf, &staging_buf_mem);
+        const staging_buf = buffer.createBuffer(self.physical, self.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         // Copy to gpu.
         if (mb_data) |data| {
             var gpu_data: ?*anyopaque = null;
-            var res = vk.mapMemory(self.device, staging_buf_mem, 0, size, 0, &gpu_data);
+            var res = vk.mapMemory(self.device, staging_buf.mem, 0, size, 0, &gpu_data);
             vk.assertSuccess(res);
             std.mem.copy(u8, @ptrCast([*]u8, gpu_data)[0..size], data);
-            vk.unmapMemory(self.device, staging_buf_mem);
+            vk.unmapMemory(self.device, staging_buf.mem);
         }
 
         var tex_image: vk.VkImage = undefined;
@@ -126,13 +123,13 @@ pub const VkContext = struct {
 
         // Transition to transfer dst layout.
         self.transitionImageLayout(tex_image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_UNDEFINED, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        self.copyBufferToImage(staging_buf, tex_image, width, height);
+        self.copyBufferToImage(staging_buf.buf, tex_image, width, height);
         // Transition to shader access layout.
         self.transitionImageLayout(tex_image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         // Cleanup.
-        vk.destroyBuffer(self.device, staging_buf, null);
-        vk.freeMemory(self.device, staging_buf_mem, null);
+        vk.destroyBuffer(self.device, staging_buf.buf, null);
+        vk.freeMemory(self.device, staging_buf.mem, null);
 
         const tex_image_view = image.createDefaultTextureImageView(self.device, tex_image);
 
@@ -370,7 +367,7 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
-            .stride = 40,
+            .stride = @sizeOf(gpu.TexShaderVertex),
             .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
         },
     };
@@ -421,11 +418,98 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     });
 }
 
+pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, joints_desc_set_layout: vk.VkDescriptorSetLayout, tex_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        // Pos.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 0,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
+        },
+        // Uv.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 1,
+            .format = vk.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "uv_x"),
+        },
+        // Color.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 2,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
+        },
+        // Joints.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 3,
+            // .format = vk.VK_FORMAT_R32_UINT,
+            .format = vk.VK_FORMAT_R32G32B32A32_UINT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "joint_0"),
+        },
+        // Joint weights.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 4,
+            .format = vk.VK_FORMAT_R32_UINT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "weights")
+        },
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = 16 * 4,
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+
+    const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
+        tex_desc_set_layout,
+        joints_desc_set_layout,
+    };
+
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = desc_set_layouts.len,
+        .pSetLayouts = &desc_set_layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.anim_vert_spv;
+    const frag_src align(4) = shaders.anim_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
+        .depth_test = true,
+        .line_mode = false,
+    });
+}
+
 pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout, depth_test: bool, wireframe: bool) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
-            .stride = 40,
+            .stride = @sizeOf(gpu.TexShaderVertex),
             .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
         },
     };
@@ -434,19 +518,19 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
             .binding = 0,
             .location = 0,
             .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = 0,
+            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
         },
         vk.VkVertexInputAttributeDescription{
             .binding = 0,
             .location = 1,
             .format = vk.VK_FORMAT_R32G32_SFLOAT,
-            .offset = 16,
+            .offset = @offsetOf(gpu.TexShaderVertex, "uv_x"),
         },
         vk.VkVertexInputAttributeDescription{
             .binding = 0,
             .location = 2,
             .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = 24,
+            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
         },
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
@@ -486,11 +570,17 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
 
 // TODO: Implement a list of pools. Once a pool runs out of space a new one is created.
 /// Currently a fixed max of 100 textures.
-pub fn createTexDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
+pub fn createDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
     const pool_sizes = [_]vk.VkDescriptorPoolSize{
+        // For textures.
         vk.VkDescriptorPoolSize{
             .@"type" = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 100,
+        },
+        // For joints.
+        vk.VkDescriptorPoolSize{
+            .@"type" = vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
         },
     };
 
@@ -510,46 +600,14 @@ pub fn createTexDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
 }
 
 pub fn createTexDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayout {
-    // mvp uniform.
-    // const mvp_layout_binding = vk.VkDescriptorSetLayoutBinding{
-    //     .binding = 0,
-    //     .descriptorType = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-    //     .descriptorCount = 1,
-    //     .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
-    //     .pImmutableSamplers = null,
-    // };
-
-    const sampler_layout_binding = vk.VkDescriptorSetLayoutBinding{
-        .binding = 0,
-        .descriptorCount = 1,
-        .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImmutableSamplers = null,
-        .stageFlags = vk.VK_SHADER_STAGE_FRAGMENT_BIT,
-    };
-
-    const bindings = [_]vk.VkDescriptorSetLayoutBinding{
-        //mvp_layout_binding,
-        sampler_layout_binding,
-    };
-
-    const create_info = vk.VkDescriptorSetLayoutCreateInfo{
-        .sType = vk.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = bindings.len,
-        .pBindings = &bindings,
-        .pNext = null,
-        .flags = 0,
-    };
-
-    var set_layout: vk.VkDescriptorSetLayout = undefined;
-    const res = vk.createDescriptorSetLayout(device, &create_info, null, &set_layout);
-    vk.assertSuccess(res);
-    return set_layout;
+    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, false, true);
 }
 
 pub const Pipelines = struct {
     wireframe_pipeline: Pipeline,
     tex_pipeline: Pipeline,
     tex_pipeline_2d: Pipeline,
+    anim_pipeline: Pipeline,
     gradient_pipeline_2d: Pipeline,
     plane_pipeline: Pipeline,
 
@@ -557,7 +615,10 @@ pub const Pipelines = struct {
         self.wireframe_pipeline.deinit(device);
         self.tex_pipeline.deinit(device);
         self.tex_pipeline_2d.deinit(device);
+        self.anim_pipeline.deinit(device);
         self.gradient_pipeline_2d.deinit(device);
         self.plane_pipeline.deinit(device);
     }
 };
+
+pub const Buffer = buffer.Buffer;

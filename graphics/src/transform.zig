@@ -16,6 +16,12 @@ pub const Transform = struct {
 
     const Self = @This();
 
+    pub fn initZero() Self {
+        return .{
+            .mat = std.mem.zeroes(Mat4),
+        };
+    }
+
     pub fn initIdentity() Self {
         return .{
             .mat = identity(),

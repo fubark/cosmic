@@ -10,6 +10,7 @@ const Vec4 = stdx.math.Vec4;
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
+const TexShaderVertex = gpu.TexShaderVertex;
 const gvk = graphics.vk;
 const ImageId = graphics.ImageId;
 const ImageTex = graphics.gpu.ImageTex;
@@ -18,7 +19,6 @@ const Color = graphics.Color;
 const Transform = graphics.transform.Transform;
 const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
-const TexShaderVertex = mesh.TexShaderVertex;
 const Mesh = mesh.Mesh;
 const log = stdx.log.scoped(.batcher);
 
@@ -31,6 +31,7 @@ const ShaderType = enum(u3) {
     Plane = 3,
     Wireframe = 4,
     Custom = 5,
+    Anim3D = 6,
 };
 
 const PreFlushTask = struct {
@@ -70,13 +71,14 @@ pub const Batcher = struct {
             ctx: gvk.VkContext,
             cur_cmd_buf: vk.VkCommandBuffer,
             pipelines: gvk.Pipelines,
-            vert_buf: vk.VkBuffer,
-            vert_buf_mem: vk.VkDeviceMemory,
-            index_buf: vk.VkBuffer,
-            index_buf_mem: vk.VkDeviceMemory,
+            vert_buf: gvk.Buffer,
+            index_buf: gvk.Buffer,
+            joints_buf: gvk.Buffer,
             cur_tex_desc_set: vk.VkDescriptorSet,
-            host_vert_buf: [*]TexShaderVertex,
-            host_index_buf: [*]u16,
+            joints_desc_set: vk.VkDescriptorSet,
+            host_vert_buf: []TexShaderVertex,
+            host_index_buf: []u16,
+            host_joints_buf: []stdx.math.Mat4,
         },
         else => @compileError("unsupported"),
     },
@@ -93,7 +95,7 @@ pub const Batcher = struct {
     /// Batcher owns vert_buf_id afterwards.
     pub fn initGL(alloc: std.mem.Allocator, vert_buf_id: gl.GLuint, pipelines: graphics.gl.Pipelines, image_store: *graphics.gpu.ImageStore) Self {
         var new = Self{
-            .mesh = Mesh.init(alloc),
+            .mesh = Mesh.init(alloc, &.{}),
             .cmds = std.ArrayList(DrawCmd).init(alloc),
             .cmd_vert_start_idx = 0,
             .cmd_index_start_idx = 0,
@@ -124,13 +126,16 @@ pub const Batcher = struct {
     }
 
     pub fn initVK(alloc: std.mem.Allocator,
-        vert_buf: vk.VkBuffer, vert_buf_mem: vk.VkDeviceMemory, index_buf: vk.VkBuffer, index_buf_mem: vk.VkDeviceMemory,
+        vert_buf: gvk.Buffer,
+        index_buf: gvk.Buffer,
+        joints_buf: gvk.Buffer,
+        joints_desc_set: vk.VkDescriptorSet,
         vk_ctx: gvk.VkContext,
         pipelines: gvk.Pipelines,
         image_store: *graphics.gpu.ImageStore
     ) Self {
         var new = Self{
-            .mesh = Mesh.init(alloc),
+            .mesh = undefined,
             .cmds = std.ArrayList(DrawCmd).init(alloc),
             .cmd_vert_start_idx = 0,
             .cmd_index_start_idx = 0,
@@ -150,19 +155,34 @@ pub const Batcher = struct {
                 .cur_cmd_buf = undefined,
                 .pipelines = pipelines,
                 .vert_buf = vert_buf,
-                .vert_buf_mem = vert_buf_mem,
                 .index_buf = index_buf,
-                .index_buf_mem = index_buf_mem,
+                .joints_buf = joints_buf,
+                .joints_desc_set = joints_desc_set,
                 .cur_tex_desc_set = undefined,
                 .host_vert_buf = undefined,
                 .host_index_buf = undefined,
+                .host_joints_buf = undefined,
             },
             .image_store = image_store,
         };
-        var res = vk.mapMemory(new.inner.ctx.device, new.inner.vert_buf_mem, 0, 40 * 10000, 0, @ptrCast([*c]?*anyopaque, &new.inner.host_vert_buf));
+
+        var host_vert_buf: [*]TexShaderVertex = undefined;
+        var res = vk.mapMemory(new.inner.ctx.device, new.inner.vert_buf.mem, 0, new.inner.vert_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_vert_buf));
         vk.assertSuccess(res);
-        res = vk.mapMemory(new.inner.ctx.device, new.inner.index_buf_mem, 0, 2 * 10000 * 3, 0, @ptrCast([*c]?*anyopaque, &new.inner.host_index_buf));
+        new.inner.host_vert_buf = host_vert_buf[0..new.inner.vert_buf.size/@sizeOf(TexShaderVertex)];
+
+        var host_index_buf: [*]u16 = undefined;
+        res = vk.mapMemory(new.inner.ctx.device, new.inner.index_buf.mem, 0, new.inner.index_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_index_buf));
         vk.assertSuccess(res);
+        new.inner.host_index_buf = host_index_buf[0..new.inner.index_buf.size/@sizeOf(u16)];
+
+        var host_joints_buf: [*]stdx.math.Mat4 = undefined;
+        res = vk.mapMemory(new.inner.ctx.device, new.inner.joints_buf.mem, 0, new.inner.joints_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_joints_buf));
+        vk.assertSuccess(res);
+        new.inner.host_joints_buf = host_joints_buf[0..new.inner.joints_buf.size/@sizeOf(stdx.math.Mat4)];
+
+        new.mesh = Mesh.init(alloc, new.inner.host_joints_buf);
+
         return new;
     }
 
@@ -178,10 +198,9 @@ pub const Batcher = struct {
             },
             .Vulkan => {
                 const device = self.inner.ctx.device;
-                vk.destroyBuffer(device, self.inner.vert_buf, null);
-                vk.freeMemory(device, self.inner.vert_buf_mem, null);
-                vk.destroyBuffer(device, self.inner.index_buf, null);
-                vk.freeMemory(device, self.inner.index_buf_mem, null);
+                self.inner.vert_buf.deinit(device);
+                self.inner.index_buf.deinit(device);
+                self.inner.joints_buf.deinit(device);
             },
             else => {},
         }
@@ -210,6 +229,16 @@ pub const Batcher = struct {
         if (self.cur_shader_type != .Tex3D) {
             self.endCmd();
             self.cur_shader_type = .Tex3D;
+            self.setTexture(image);
+            return;
+        }
+        self.setTexture(image);
+    }
+
+    pub fn beginAnim3D(self: *Self, image: ImageTex) void {
+        if (self.cur_shader_type != .Anim3D) {
+            self.endCmd();
+            self.cur_shader_type = .Anim3D;
             self.setTexture(image);
             return;
         }
@@ -280,8 +309,8 @@ pub const Batcher = struct {
         gvk.command.beginRenderPass(cmd_buf, self.inner.ctx.pass, self.inner.ctx.framebuffers[image_idx], self.inner.ctx.framebuffer_size, clear_color);
 
         var offset: vk.VkDeviceSize = 0;
-        vk.cmdBindVertexBuffers(cmd_buf, 0, 1, &self.inner.vert_buf, &offset);
-        vk.cmdBindIndexBuffer(cmd_buf, self.inner.index_buf, 0, vk.VK_INDEX_TYPE_UINT16);
+        vk.cmdBindVertexBuffers(cmd_buf, 0, 1, &self.inner.vert_buf.buf, &offset);
+        vk.cmdBindIndexBuffer(cmd_buf, self.inner.index_buf.buf, 0, vk.VK_INDEX_TYPE_UINT16);
     }
 
     pub fn endFrameVK(self: *Self) void {
@@ -426,6 +455,16 @@ pub const Batcher = struct {
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
 
                         // It's expensive to update a uniform buffer all the time so use push constants.
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                    },
+                    .Anim3D => {
+                        const pipeline = self.inner.pipelines.anim_pipeline;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+                        const desc_sets = [_]vk.VkDescriptorSet{
+                            self.inner.cur_tex_desc_set,
+                            self.inner.joints_desc_set,
+                        };
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 2, &desc_sets, 0, null);
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     .Wireframe => {

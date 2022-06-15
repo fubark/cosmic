@@ -1,0 +1,61 @@
+const stdx = @import("stdx");
+const t = stdx.testing;
+
+const graphics = @import("../../graphics.zig");
+
+pub const TexShaderVertex = packed struct {
+    const Self = @This();
+
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    pos_w: f32,
+    uv_x: f32,
+    uv_y: f32,
+    color_r: f32,
+    color_g: f32,
+    color_b: f32,
+    color_a: f32,
+
+    // Animation.
+    joint_0: u32,
+    joint_1: u32,
+    joint_2: u32,
+    joint_3: u32,
+    weights: u32, // First weight is least significant byte.
+
+    pub fn setXY(self: *Self, x: f32, y: f32) void {
+        self.pos_x = x;
+        self.pos_y = y;
+        self.pos_z = 0;
+        self.pos_w = 1;
+    }
+
+    pub fn setXYZ(self: *Self, x: f32, y: f32, z: f32) void {
+        self.pos_x = x;
+        self.pos_y = y;
+        self.pos_z = z;
+        self.pos_w = 1;
+    }
+
+    pub fn setColor(self: *Self, color: graphics.Color) void {
+        self.color_r = @intToFloat(f32, color.channels.r) / 255;
+        self.color_g = @intToFloat(f32, color.channels.g) / 255;
+        self.color_b = @intToFloat(f32, color.channels.b) / 255;
+        self.color_a = @intToFloat(f32, color.channels.a) / 255;
+    }
+
+    pub fn setUV(self: *Self, u: f32, v: f32) void {
+        self.uv_x = u;
+        self.uv_y = v;
+    }
+};
+
+test "TexShaderVertex" {
+    try t.eq(@sizeOf(TexShaderVertex), 4*4 + 4*2 + 4*4 + 4*4 + 4);
+    try t.eq(@offsetOf(TexShaderVertex, "pos_x"), 0);
+    try t.eq(@offsetOf(TexShaderVertex, "uv_x"), 4*4);
+    try t.eq(@offsetOf(TexShaderVertex, "color_r"), 4*4 + 4*2);
+    try t.eq(@offsetOf(TexShaderVertex, "joint_0"), 4*4 + 4*2 + 4*4);
+    try t.eq(@offsetOf(TexShaderVertex, "weights"), 4*4 + 4*2 + 4*4 + 4*4);
+}

@@ -116,7 +116,7 @@ pub const ImageStore = struct {
 
         if (Backend == .Vulkan) {
             const device = self.gctx.inner.ctx.device;
-            const desc_pool = self.gctx.inner.tex_desc_pool;
+            const desc_pool = self.gctx.inner.desc_pool;
             const layout = self.gctx.inner.tex_desc_set_layout;
             const desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, layout);
             const image_infos: []vk.VkDescriptorImageInfo = &[_]vk.VkDescriptorImageInfo{
@@ -126,7 +126,7 @@ pub const ImageStore = struct {
                     .sampler = image.inner.sampler,
                 },
             };
-            gvk.descriptor.updateDescriptorSet(device, desc_set, image_infos);
+            gvk.descriptor.updateImageDescriptorSet(device, desc_set, image_infos);
 
             // Currently each image allocates a new texture.
             const tex_id = self.textures.add(.{

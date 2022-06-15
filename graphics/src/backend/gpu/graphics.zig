@@ -40,7 +40,8 @@ const FontId = graphics.FontId;
 const FontGroupId = graphics.FontGroupId;
 const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
-pub const TexShaderVertex = mesh.TexShaderVertex;
+const vertex = @import("vertex.zig");
+pub const TexShaderVertex = vertex.TexShaderVertex;
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
 pub const TextGlyphIterator = text_renderer.TextGlyphIterator;
@@ -62,6 +63,7 @@ const log = stdx.log.scoped(.gpu_graphics);
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
 const IsWasm = builtin.target.isWasm();
+const NullId = std.math.maxInt(u32);
 
 /// Having 2 frames "in flight" to draw on allows the cpu and gpu to work in parallel. More than 2 is not recommended right now.
 /// This doesn't have to match the number of swap chain images/framebuffers. This indicates the max number of frames that can be active at any moment.
@@ -81,8 +83,9 @@ pub const Graphics = struct {
         .Vulkan => struct {
             ctx: VkContext,
             pipelines: gvk.Pipelines,
-            tex_desc_pool: vk.VkDescriptorPool,
+            desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
+            joints_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_cmd_buf: vk.VkCommandBuffer,
         },
         else => @compileError("unsupported"),
@@ -106,6 +109,8 @@ pub const Graphics = struct {
     cur_stroke_color: Color,
     cur_line_width: f32,
     cur_line_width_half: f32,
+
+    tmp_joint_idxes: [50]u16,
 
     clear_color: Color,
 
@@ -165,24 +170,25 @@ pub const Graphics = struct {
         self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(vk_ctx.device);
-        self.inner.tex_desc_pool = gvk.createTexDescriptorPool(vk_ctx.device);
+        self.inner.desc_pool = gvk.createDescriptorPool(vk_ctx.device);
         self.initCommon(alloc);
 
-        var vert_buf: vk.VkBuffer = undefined;
-        var vert_buf_mem: vk.VkDeviceMemory = undefined;
-        gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 20000, &vert_buf, &vert_buf_mem);
+        const vert_buf = gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 20000);
+        const index_buf = gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 20000 * 3);
+        const storage_buf = gvk.buffer.createStorageBuffer(vk_ctx.physical, vk_ctx.device, 4*16 * 1000);
 
-        var index_buf: vk.VkBuffer = undefined;
-        var index_buf_mem: vk.VkDeviceMemory = undefined;
-        gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 20000 * 3, &index_buf, &index_buf_mem);
+        self.inner.joints_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(vk_ctx.device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
+        const joints_desc_set = gvk.descriptor.createDescriptorSet(vk_ctx.device, self.inner.desc_pool, self.inner.joints_desc_set_layout);
+        gvk.descriptor.updateStorageBufferDescriptorSet(vk_ctx.device, joints_desc_set, storage_buf.buf, 1, 0, 4*16 * 1000);
 
         self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, false);
         self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false, false);
+        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.joints_desc_set_layout, self.inner.tex_desc_set_layout);
         self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.pipelines, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, joints_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
     }
     
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
@@ -204,6 +210,7 @@ pub const Graphics = struct {
             .cur_line_width = undefined,
             .cur_line_width_half = undefined,
             .cur_proj_transform = undefined,
+            .tmp_joint_idxes = undefined,
             .view_transform = undefined,
             .image_store = image.ImageStore.init(alloc, self),
             .state_stack = std.ArrayList(DrawState).init(alloc),
@@ -267,7 +274,8 @@ pub const Graphics = struct {
                 self.inner.pipelines.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
-                vk.destroyDescriptorPool(device, self.inner.tex_desc_pool, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.joints_desc_set_layout, null);
+                vk.destroyDescriptorPool(device, self.inner.desc_pool, null);
             },
             else => {},
         }
@@ -1731,7 +1739,6 @@ pub const Graphics = struct {
     }
 
     pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh) void {
-        self.batcher.beginTex3D(self.white_tex);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
@@ -1739,28 +1746,81 @@ pub const Graphics = struct {
         const tt = amesh.time_t;
         const time_idx = amesh.time_idx;
 
-        var xform = model_xform;
+        // Apply animation.
         if (amesh.anim.rotations != null) {
             const from = Quaternion.init(amesh.anim.rotations.?[time_idx]);
             const to = Quaternion.init(amesh.anim.rotations.?[time_idx+1]);
-            xform = Transform.initQuaternion(from.slerp(to, tt));
-            xform.applyTransform(model_xform);
+            amesh.scene.nodes[amesh.anim.node_id].rotate = from.slerp(to, tt);
         }
-        const mvp = xform.getAppliedTransform(vp);
+
+        var root_xform = model_xform;
+        var mvp = root_xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
 
-        if (!self.batcher.ensureUnusedBuffer(amesh.node.verts.len, amesh.node.indexes.len)) {
-            self.batcher.endCmd();
+        for (amesh.scene.mesh_nodes) |id| {
+            const node = &amesh.scene.nodes[id];
+
+            // Derive final joint matrices and non skin transform. 
+            if (node.skin.len > 0) {
+                self.batcher.beginAnim3D(self.white_tex);
+                const joint_idx = self.batcher.mesh.cur_joints_buf_size;
+                for (node.skin) |joint, i| {
+                    var xform = Transform.initRowMajor(joint.inv_bind_mat);
+                    var cur_id = joint.node_id;
+                    while (cur_id != NullId) {
+                        const joint_node = amesh.scene.nodes[cur_id];
+                        var joint_mat = joint_node.toTransform();
+                        xform.applyTransform(joint_mat);
+                        cur_id = joint_node.parent;
+                    }
+                    self.batcher.mesh.addJoint(xform.mat);
+                    self.tmp_joint_idxes[i] = @intCast(u16, joint_idx + i);
+                }
+            } else {
+                self.batcher.beginTex3D(self.white_tex);
+                var cur_id = id;
+                while (cur_id != NullId) {
+                    const cur_node = amesh.scene.nodes[cur_id];
+                    var node_mat = cur_node.toTransform();
+                    mvp = node_mat.getAppliedTransform(mvp);
+                    cur_id = cur_node.parent;
+                }
+                self.batcher.beginMvp(mvp);
+            }
+
+            if (!self.batcher.ensureUnusedBuffer(node.verts.len, node.indexes.len)) {
+                self.batcher.endCmd();
+            }
+            const vert_start = self.batcher.mesh.getNextIndexId();
+            if (node.skin.len > 0) {
+                for (node.verts) |vert| {
+                    var new_vert = vert;
+                    new_vert.setColor(self.cur_fill_color);
+                    // Update joint idx to point to dynamic joint buffer.
+                    new_vert.joint_0 = self.tmp_joint_idxes[new_vert.joint_0];
+                    new_vert.joint_1 = self.tmp_joint_idxes[new_vert.joint_1];
+                    new_vert.joint_2 = self.tmp_joint_idxes[new_vert.joint_2];
+                    new_vert.joint_3 = self.tmp_joint_idxes[new_vert.joint_3];
+                    self.batcher.mesh.addVertex(&new_vert);
+                }
+            } else {
+                for (node.verts) |vert| {
+                    var new_vert = vert;
+                    new_vert.setColor(self.cur_fill_color);
+                    self.batcher.mesh.addVertex(&new_vert);
+                }
+            }
+            self.batcher.mesh.addDeltaIndices(vert_start, node.indexes);
         }
-        const vert_start = self.batcher.mesh.getNextIndexId();
-        for (amesh.node.verts) |vert| {
-            var new_vert = vert;
-            new_vert.setColor(self.cur_fill_color);
-            self.batcher.mesh.addVertex(&new_vert);
-        }
-        self.batcher.mesh.addDeltaIndices(vert_start, amesh.node.indexes);
 
         self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn fillScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.fillMesh3D(xform, node.verts, node.indexes);
+        }
     }
 
     pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
@@ -1783,6 +1843,13 @@ pub const Graphics = struct {
         self.batcher.mesh.addDeltaIndices(vert_start, indexes);
 
         self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn strokeScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.strokeMesh3D(xform, node.verts, node.indexes);
+        }
     }
 
     pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
@@ -2135,29 +2202,24 @@ pub const Graphics = struct {
             },
             .Vulkan => {
                 const ctx = self.inner.ctx;
-
-                var staging_buf: vk.VkBuffer = undefined;
-                var staging_buf_mem: vk.VkDeviceMemory = undefined;
-
                 const size = @intCast(u32, buf.len);
-                gvk.buffer.createBuffer(ctx.physical, ctx.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_buf, &staging_buf_mem);
+                const staging_buf = gvk.buffer.createBuffer(ctx.physical, ctx.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
                 // Copy to gpu.
                 var gpu_data: ?*anyopaque = null;
-                var res = vk.mapMemory(ctx.device, staging_buf_mem, 0, size, 0, &gpu_data);
+                var res = vk.mapMemory(ctx.device, staging_buf.mem, 0, size, 0, &gpu_data);
                 vk.assertSuccess(res);
                 std.mem.copy(u8, @ptrCast([*]u8, gpu_data)[0..size], buf);
-                vk.unmapMemory(ctx.device, staging_buf_mem);
+                vk.unmapMemory(ctx.device, staging_buf.mem);
 
                 // Transition to transfer dst layout.
                 ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                ctx.copyBufferToImage(staging_buf, img.inner.image, img.width, img.height);
+                ctx.copyBufferToImage(staging_buf.buf, img.inner.image, img.width, img.height);
                 // Transition to shader access layout.
                 ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
                 // Cleanup.
-                vk.destroyBuffer(ctx.device, staging_buf, null);
-                vk.freeMemory(ctx.device, staging_buf_mem, null);
+                staging_buf.deinit(ctx.device);
             },
             else => {},
         }
