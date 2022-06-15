@@ -59,6 +59,15 @@ pub const Vec3 = struct {
         );
     }
 
+    /// Linear interpolation for t: [0,1]
+    pub fn lerp(self: Vec3, v: Vec3, tt: f32) Vec3 {
+        return .{
+            .x = self.x + (v.x - self.x) * tt,
+            .y = self.y + (v.y - self.y) * tt,
+            .z = self.z + (v.z - self.z) * tt,
+        };
+    }
+
     pub fn dot(self: Vec3, v: Vec3) f32 {
         return self.x * v.x + self.y * v.y + self.z * v.z;
     }

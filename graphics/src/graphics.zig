@@ -1255,6 +1255,8 @@ const Interpolation = enum(u1) {
 
 const TransitionData = union(enum) {
     rotations: []const Vec4,
+    scales: []const Vec3,
+    translations: []const Vec3,
 };
 
 const GLTFtransitionProperty = struct {
@@ -1266,7 +1268,13 @@ const GLTFtransitionProperty = struct {
         switch (self.data) {
             .rotations => |rotation| {
                 alloc.free(rotation);
-            }
+            },
+            .scales => |scales| {
+                alloc.free(scales);
+            },
+            .translations => |translations| {
+                alloc.free(translations);
+            },
         }
     }
 };
@@ -1434,27 +1442,63 @@ pub const GLTFscene = struct {
 
                         // Load output data.
                         const out_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.output);
-                        if (path == cgltf.cgltf_animation_path_type_rotation) {
-                            if (out_accessor.@"type" != cgltf.cgltf_type_vec4) {
-                                return error.UnexpectedDataType;
-                            }
-                            const num_floats = 4 * out_accessor.count;
-                            const val_buf = alloc.alloc(stdx.math.Vec4, num_floats) catch fatal();
-                            _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                        switch (path) {
+                            cgltf.cgltf_animation_path_type_rotation => {
+                                if (out_accessor.@"type" != cgltf.cgltf_type_vec4 or out_accessor.component_type != cgltf.cgltf_component_type_r_32f) {
+                                    return error.UnexpectedDataType;
+                                }
+                                const num_floats = 4 * out_accessor.count;
+                                const val_buf = alloc.alloc(stdx.math.Vec4, num_floats) catch fatal();
+                                _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
 
-                            // for (times) |time, idx| {
-                            //     log.debug("{}: {},{}", .{idx, time, val_buf[idx]});
-                            // }
+                                // for (times) |time, idx| {
+                                //     log.debug("{}: {},{}", .{idx, time, val_buf[idx]});
+                                // }
 
-                            transition.properties.append(.{
-                                .data = TransitionData{
-                                    .rotations = val_buf,
-                                },
-                                .interpolation = fromGLTFinterpolation(interpolation),
-                                .node_id = map.get(chan.target_node).?,
-                            }) catch fatal();
-                        } else {
-                            return error.Unsupported;
+                                transition.properties.append(.{
+                                    .data = TransitionData{
+                                        .rotations = val_buf,
+                                    },
+                                    .interpolation = fromGLTFinterpolation(interpolation),
+                                    .node_id = map.get(chan.target_node).?,
+                                }) catch fatal();
+                            },
+                            cgltf.cgltf_animation_path_type_scale => {
+                                if (out_accessor.@"type" != cgltf.cgltf_type_vec3 or out_accessor.component_type != cgltf.cgltf_component_type_r_32f) {
+                                    return error.UnexpectedDataType;
+                                }
+                                const num_floats = 3 * out_accessor.count;
+                                const val_buf = alloc.alloc(stdx.math.Vec3, num_floats) catch fatal();
+                                _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+
+                                transition.properties.append(.{
+                                    .data = TransitionData{
+                                        .scales = val_buf,
+                                    },
+                                    .interpolation = fromGLTFinterpolation(interpolation),
+                                    .node_id = map.get(chan.target_node).?,
+                                }) catch fatal();
+                            },
+                            cgltf.cgltf_animation_path_type_translation => {
+                                if (out_accessor.@"type" != cgltf.cgltf_type_vec3 or out_accessor.component_type != cgltf.cgltf_component_type_r_32f) {
+                                    return error.UnexpectedDataType;
+                                }
+                                const num_floats = 3 * out_accessor.count;
+                                const val_buf = alloc.alloc(stdx.math.Vec3, num_floats) catch fatal();
+                                _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+
+                                transition.properties.append(.{
+                                    .data = TransitionData{
+                                        .translations = val_buf,
+                                    },
+                                    .interpolation = fromGLTFinterpolation(interpolation),
+                                    .node_id = map.get(chan.target_node).?,
+                                }) catch fatal();
+                            },
+                            else => {
+                                log.debug("unsupported {}", .{path});
+                                return error.Unsupported;
+                            },
                         }
                     }
 

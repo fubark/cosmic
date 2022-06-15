@@ -1755,6 +1755,16 @@ pub const Graphics = struct {
                         const to = Quaternion.init(rotations[time_idx+1]);
                         amesh.scene.nodes[prop.node_id].rotate = from.slerp(to, tt);
                     },
+                    .scales => |scales| {
+                        const from = scales[time_idx];
+                        const to = scales[time_idx+1];
+                        amesh.scene.nodes[prop.node_id].scale = from.lerp(to, tt);
+                    },
+                    .translations => |translations| {
+                        const from = translations[time_idx];
+                        const to = translations[time_idx+1];
+                        amesh.scene.nodes[prop.node_id].translate = from.lerp(to, tt);
+                    },
                 }
             }
         }
