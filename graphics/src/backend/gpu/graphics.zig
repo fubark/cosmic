@@ -1743,14 +1743,20 @@ pub const Graphics = struct {
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
 
-        const tt = amesh.time_t;
-        const time_idx = amesh.time_idx;
-
         // Apply animation.
-        if (amesh.anim.rotations != null) {
-            const from = Quaternion.init(amesh.anim.rotations.?[time_idx]);
-            const to = Quaternion.init(amesh.anim.rotations.?[time_idx+1]);
-            amesh.scene.nodes[amesh.anim.node_id].rotate = from.slerp(to, tt);
+        for (amesh.transition_markers) |marker, i| {
+            const tt = marker.time_t;
+            const time_idx = marker.time_idx;
+            const transition = amesh.anim.transitions[i];
+            for (transition.properties.items) |prop| {
+                switch (prop.data) {
+                    .rotations => |rotations| {
+                        const from = Quaternion.init(rotations[time_idx]);
+                        const to = Quaternion.init(rotations[time_idx+1]);
+                        amesh.scene.nodes[prop.node_id].rotate = from.slerp(to, tt);
+                    },
+                }
+            }
         }
 
         var root_xform = model_xform;

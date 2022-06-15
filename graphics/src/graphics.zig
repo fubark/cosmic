@@ -1253,18 +1253,46 @@ const Interpolation = enum(u1) {
     Linear = 0,
 };
 
-const GLTFanimation = struct {
-    times: []const f32,
-    rotations: ?[]const Vec4,
+const TransitionData = union(enum) {
+    rotations: []const Vec4,
+};
+
+const GLTFtransitionProperty = struct {
+    data: TransitionData,
     node_id: u32,
     interpolation: Interpolation,
-    max_ms: f32,
+
+    fn deinit(self: GLTFtransitionProperty, alloc: std.mem.Allocator) void {
+        switch (self.data) {
+            .rotations => |rotation| {
+                alloc.free(rotation);
+            }
+        }
+    }
+};
+
+const GLTFanimation = struct {
+    transitions: []const GLTFtransition,
 
     fn deinit(self: GLTFanimation, alloc: std.mem.Allocator) void {
-        alloc.free(self.times);
-        if (self.rotations) |rotations| {
-            alloc.free(rotations);
+        for (self.transitions) |transition| {
+            transition.deinit(alloc);
         }
+        alloc.free(self.transitions);
+    }
+};
+
+const GLTFtransition = struct {
+    times: []const f32,
+    properties: std.ArrayList(GLTFtransitionProperty),
+    max_ms: f32,
+
+    fn deinit(self: GLTFtransition, alloc: std.mem.Allocator) void {
+        alloc.free(self.times);
+        for (self.properties.items) |property| {
+            property.deinit(alloc);
+        }
+        self.properties.deinit();
     }
 };
 
@@ -1289,6 +1317,13 @@ pub const GLTFscene = struct {
     pub fn init(alloc: std.mem.Allocator, data: *cgltf.cgltf_data, scene: *cgltf.cgltf_scene) !GLTFscene {
         var nodes = std.ArrayList(GLTFnode).init(alloc);
         var mesh_nodes = std.ArrayList(u32).init(alloc);
+        errdefer {
+            for (nodes.items) |it| {
+                it.deinit(alloc);
+            }
+            nodes.deinit();
+            mesh_nodes.deinit();
+        }
 
         const S = struct {
             fn dupeNode(nodes_: *std.ArrayList(GLTFnode), map_: *std.AutoHashMap(*cgltf.cgltf_node, u32), node: *cgltf.cgltf_node) void {
@@ -1323,6 +1358,7 @@ pub const GLTFscene = struct {
         const cnodes = scene.nodes[0..scene.nodes_count];
         // Spec says scene.nodes should be root nodes.
         const root_nodes = alloc.alloc(u32, scene.nodes_count) catch fatal();
+        errdefer alloc.free(root_nodes);
         for (cnodes) |node, i| {
             S.dupeNode(&nodes, &map, node);
             const id = map.get(node).?;
@@ -1338,12 +1374,26 @@ pub const GLTFscene = struct {
             return error.NoMesh;
         }
 
+        // Track the same time sampler to group multiple channels together.
+        var time_accessor_map = std.AutoHashMap(*cgltf.cgltf_accessor, u32).init(alloc);
+        defer time_accessor_map.deinit();
+
         // Look for any animations for this scene.
         var animation: ?GLTFanimation = null;
         if (data.animations_count > 0) {
             const anims = data.animations[0..data.animations_count];
             for (anims) |anim| {
                 if (anim.channels_count > 0) {
+                    time_accessor_map.clearRetainingCapacity();
+
+                    var transitions = std.ArrayList(GLTFtransition).init(alloc);
+                    errdefer {
+                        for (transitions.items) |it| {
+                            it.deinit(alloc);
+                        }
+                        transitions.deinit();
+                    }
+
                     const channels = anim.channels[0..anim.channels_count];
                     for (channels) |chan| {
                         if (!isInOrRecursiveChild(cnodes, chan.target_node)) {
@@ -1353,19 +1403,33 @@ pub const GLTFscene = struct {
                         const sampler = @ptrCast(*cgltf.cgltf_animation_sampler, chan.sampler);
                         const interpolation = sampler.interpolation;
 
-                        // Load time data.
+                        var transition: *GLTFtransition = undefined;
                         const time_accessor = @ptrCast(*cgltf.cgltf_accessor, sampler.input);
-                        if (time_accessor.@"type" != cgltf.cgltf_type_scalar) {
-                            return error.UnexpectedDataType;
-                        }
-                        const times = alloc.alloc(f32, time_accessor.count) catch fatal();
-                        var i: u32 = 0;
-                        while (i < time_accessor.count) : (i += 1) {
-                            _ = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
-                        }
-                        for (times) |_, j| {
-                            // From secs to ms.
-                            times[j] *= 1000;
+                        if (time_accessor_map.get(time_accessor)) |transition_idx| {
+                            // Matches existing transition.
+                            transition = &transitions.items[transition_idx];
+                        } else {
+                            // Load time data.
+                            if (time_accessor.@"type" != cgltf.cgltf_type_scalar) {
+                                return error.UnexpectedDataType;
+                            }
+                            const times = alloc.alloc(f32, time_accessor.count) catch fatal();
+                            var i: u32 = 0;
+                            while (i < time_accessor.count) : (i += 1) {
+                                _ = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
+                            }
+                            for (times) |_, j| {
+                                // From secs to ms.
+                                times[j] *= 1000;
+                            }
+                            const new_idx = @intCast(u32, transitions.items.len);
+                            transitions.append(.{
+                                .times = times,
+                                .max_ms = time_accessor.max[0] * 1000,
+                                .properties = std.ArrayList(GLTFtransitionProperty).init(alloc),
+                            }) catch fatal();
+                            transition = &transitions.items[new_idx];
+                            time_accessor_map.put(time_accessor, new_idx) catch fatal();
                         }
 
                         // Load output data.
@@ -1382,16 +1446,22 @@ pub const GLTFscene = struct {
                             //     log.debug("{}: {},{}", .{idx, time, val_buf[idx]});
                             // }
 
-                            animation = GLTFanimation{
-                                .times = times,
-                                .rotations = val_buf,
+                            transition.properties.append(.{
+                                .data = TransitionData{
+                                    .rotations = val_buf,
+                                },
                                 .interpolation = fromGLTFinterpolation(interpolation),
-                                .max_ms = time_accessor.max[0] * 1000,
                                 .node_id = map.get(chan.target_node).?,
-                            };
+                            }) catch fatal();
+                        } else {
+                            return error.Unsupported;
                         }
-                        break;
                     }
+
+                    animation = GLTFanimation{
+                        .transitions = transitions.toOwnedSlice(),
+                    };
+                    break;
                 }
             }
         }
@@ -1718,45 +1788,65 @@ pub const FontFamily = union(enum) {
     Default: void,
 };
 
-pub const AnimatedMesh = struct {
+const TransitionMarker = struct {
     cur_time_ms: f32,
+    time_idx: u32,
+    time_t: f32,
+};
+
+pub const AnimatedMesh = struct {
     scene: GLTFscene,
     anim: GLTFanimation,
 
-    time_idx: u32,
-    time_t: f32,
+    /// One per transition.
+    transition_markers: []TransitionMarker,
     loop: bool,
 
-    pub fn init(scene: GLTFscene) AnimatedMesh {
-        return .{
-            .cur_time_ms = 0,
+    pub fn init(alloc: std.mem.Allocator, scene: GLTFscene) AnimatedMesh {
+        const ret = AnimatedMesh{
             .scene = scene,
             .anim = scene.animation.?,
-            .time_idx = 0,
-            .time_t = 0,
+            .transition_markers = alloc.alloc(TransitionMarker, scene.animation.?.transitions.len) catch fatal(),
             .loop = true,
         };
+        for (ret.transition_markers) |*marker| {
+            marker.* = .{
+                .cur_time_ms = 0,
+                .time_idx = 0,
+                .time_t = 0,
+            };
+        }
+        return ret;
+    }
+
+    pub fn deinit(self: AnimatedMesh, alloc: std.mem.Allocator) void {
+        alloc.free(self.transition_markers);
     }
 
     pub fn update(self: *AnimatedMesh, delta_ms: f32) void {
-        self.cur_time_ms += delta_ms;
-        if (self.cur_time_ms > self.anim.max_ms) {
-            if (self.loop) {
-                self.cur_time_ms = @mod(self.cur_time_ms, self.anim.max_ms);
-            } else {
-                self.cur_time_ms = self.anim.max_ms;
+        for (self.transition_markers) |*marker, i| outer: {
+            const transition = self.anim.transitions[i];
+
+            marker.cur_time_ms += delta_ms;
+            if (marker.cur_time_ms > transition.max_ms) {
+                if (self.loop) {
+                    marker.cur_time_ms = @mod(marker.cur_time_ms, transition.max_ms);
+                } else {
+                    marker.cur_time_ms = transition.max_ms;
+                }
             }
-        }
-        for (self.anim.times) |time, idx| {
-            if (self.cur_time_ms <= time) {
-                self.time_idx = @intCast(u32, idx-1);
-                const prev = self.anim.times[self.time_idx];
-                self.time_t = (self.cur_time_ms - prev) / (time - prev);
-                return;
+
+            for (transition.times) |time, idx| {
+                if (marker.cur_time_ms <= time) {
+                    marker.time_idx = @intCast(u32, idx-1);
+                    const prev = transition.times[marker.time_idx];
+                    marker.time_t = (marker.cur_time_ms - prev) / (time - prev);
+                    break :outer;
+                }
             }
+            marker.time_idx = @intCast(u32, transition.times.len-2);
+            const time = transition.times[marker.time_idx];
+            marker.time_t = (marker.cur_time_ms - time) / (transition.times[marker.time_idx+1] - time);
         }
-        self.time_idx = @intCast(u32, self.anim.times.len-2);
-        const time = self.anim.times[self.time_idx];
-        self.time_t = (self.cur_time_ms - time) / (self.anim.times[self.time_idx+1] - time);
     }
 };
