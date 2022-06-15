@@ -1485,13 +1485,6 @@ pub const GLTFnode = struct {
         const mesh = @ptrCast(*cgltf.cgltf_mesh, node.mesh);
         if (mesh.primitives_count > 0) {
             const primitive = mesh.primitives[0];
-            const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
-            var ii: u32 = 0;
-
-            const indexes = alloc.alloc(u16, indices.count) catch fatal();
-            while (ii < indices.count) : (ii += 1) {
-                indexes[ii] = @intCast(u16, cgltf.cgltf_accessor_read_index(indices, ii));
-            }
 
             // Determine number of verts by looking at the first attribute.
             var verts: []gpu.TexShaderVertex = undefined;
@@ -1572,6 +1565,23 @@ pub const GLTFnode = struct {
                         }
                     },
                     else => {},
+                }
+            }
+
+            var indexes: []u16 = undefined;
+            if (primitive.indices != null) {
+                const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
+                var i: u32 = 0;
+                indexes = alloc.alloc(u16, indices.count) catch fatal();
+                while (i < indices.count) : (i += 1) {
+                    indexes[i] = @intCast(u16, cgltf.cgltf_accessor_read_index(indices, i));
+                }
+            }  else {
+                // No index data. Generate them from verts.
+                indexes = alloc.alloc(u16, verts.len) catch fatal();
+                var i: u32 = 0;
+                while (i < indexes.len) : (i += 1) {
+                    indexes[i] = @intCast(u16, i);
                 }
             }
 
