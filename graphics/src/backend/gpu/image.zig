@@ -92,8 +92,10 @@ pub const ImageStore = struct {
     pub fn createImageFromData(self: *Self, data: []const u8) !graphics.Image {
         var src_width: c_int = undefined;
         var src_height: c_int = undefined;
+        // This records the original number of channels in the source input.
         var channels: c_int = undefined;
-        const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
+        // Request 4 channels to pass rgba to gpu. If image only has rgb channels, alpha is generated.
+        const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 4);
         defer stbi.stbi_image_free(bitmap);
         if (bitmap == null) {
             log.debug("{s}", .{stbi.stbi_failure_reason()});
@@ -101,7 +103,7 @@ pub const ImageStore = struct {
         }
         // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
 
-        const bitmap_len = @intCast(usize, src_width * src_height * channels);
+        const bitmap_len = @intCast(usize, src_width * src_height * 4);
         const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true);
         return graphics.Image{
             .id = desc.image_id,
@@ -111,6 +113,7 @@ pub const ImageStore = struct {
     }
 
     // TODO: Each texture resource should be an atlas of images since the number of textures is limited on the gpu.
+    /// Assumes rgba data.
     pub fn createImageFromBitmapInto(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         self.initImage(image, width, height, data, linear_filter);
 
@@ -153,6 +156,7 @@ pub const ImageStore = struct {
     }
 
     // TODO: Rename to initTexture.
+    /// Assumes rgba data.
     pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) void {
         switch (Backend) {
             .OpenGL => {

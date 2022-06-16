@@ -92,6 +92,7 @@ pub const VkContext = struct {
         vk.destroyRenderPass(self.device, self.pass, null);
     }
 
+    /// Assumes rgba mb_data.
     pub fn initImage(self: Self, img: *gpu.Image, width: usize, height: usize, mb_data: ?[]const u8, linear_filter: bool) void {
         img.* = .{
             .tex_id = undefined,

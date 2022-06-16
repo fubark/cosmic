@@ -10,7 +10,7 @@ const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const Mesh = @import("mesh.zig").Mesh;
-const TexShaderVertex = @import("mesh.zig").TexShaderVertex;
+const TexShaderVertex = @import("vertex.zig").TexShaderVertex;
 const Graphics = @import("graphics.zig").Graphics;
 
 const log = std.log.scoped(.stroke);

@@ -15,6 +15,7 @@ const ft = @import("freetype");
 const platform = @import("platform");
 const cgltf = @import("cgltf");
 const NullId = std.math.maxInt(u32);
+const stbi = @import("stbi");
 
 pub const transform = @import("transform.zig");
 pub const Transform = transform.Transform;
@@ -663,9 +664,25 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn dumpImageAsBMP(_: Self, data: []const u8, path: [:0]const u8) void {
+        var src_width: c_int = undefined;
+        var src_height: c_int = undefined;
+        var channels: c_int = undefined;
+        const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
+        defer stbi.stbi_image_free(bitmap);
+        _ = stbi.stbi_write_bmp(path, src_width, src_height, channels, &bitmap[0]);
+    }
+
     pub inline fn bindImageBuffer(self: *Self, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL => gpu.Graphics.bindImageBuffer(&self.impl, image_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub inline fn removeImage(self: *Self, image_id: ImageId) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.ImageStore.markForRemoval(&self.impl.image_store, image_id),
             else => stdx.unsupported(),
         }
     }
