@@ -38,8 +38,8 @@ const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.FontId;
 const FontGroupId = graphics.FontGroupId;
-const mesh = @import("mesh.zig");
-const VertexData = mesh.VertexData;
+const mesh_ = @import("mesh.zig");
+const VertexData = mesh_.VertexData;
 const vertex = @import("vertex.zig");
 pub const TexShaderVertex = vertex.TexShaderVertex;
 const Batcher = @import("batcher.zig").Batcher;
@@ -1727,18 +1727,62 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
-        self.batcher.beginTex3D(self.white_tex);
+    pub fn drawTintedScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, color: Color) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawTintedMesh3D(xform, node.mesh, color);
+        }
+    }
+
+    pub fn drawScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMesh3D(xform, node.mesh);
+        }
+    }
+
+    pub fn drawTintedMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, color: Color) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTex3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
+        } else {
+            self.batcher.beginTex3D(self.white_tex);
+        }
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
-        self.batcher.pushMeshData(verts, indexes);
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        for (mesh.verts) |vert| {
+            var new_vert = vert;
+            new_vert.setColor(color);
+            self.batcher.mesh.addVertex(&new_vert);
+        }
+        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh) void {
+    pub fn drawMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTex3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
+        } else {
+            self.batcher.beginTex3D(self.white_tex);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh, comptime fill: bool) void {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
@@ -1776,9 +1820,18 @@ pub const Graphics = struct {
         for (amesh.scene.mesh_nodes) |id| {
             const node = &amesh.scene.nodes[id];
 
+            const tex = if (fill) self.white_tex else b: {
+                if (node.mesh.image_id) |image_id| {
+                    const img = self.image_store.images.getNoCheck(image_id);
+                    break :b image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id };
+                } else {
+                    break :b self.white_tex;
+                }
+            };
+
             // Derive final joint matrices and non skin transform. 
             if (node.skin.len > 0) {
-                self.batcher.beginAnim3D(self.white_tex);
+                self.batcher.beginAnim3D(tex);
                 const joint_idx = self.batcher.mesh.cur_joints_buf_size;
                 for (node.skin) |joint, i| {
                     var xform = Transform.initRowMajor(joint.inv_bind_mat);
@@ -1793,7 +1846,7 @@ pub const Graphics = struct {
                     self.tmp_joint_idxes[i] = @intCast(u16, joint_idx + i);
                 }
             } else {
-                self.batcher.beginTex3D(self.white_tex);
+                self.batcher.beginTex3D(tex);
                 var cur_id = id;
                 while (cur_id != NullId) {
                     const cur_node = amesh.scene.nodes[cur_id];
@@ -1804,12 +1857,12 @@ pub const Graphics = struct {
                 self.batcher.beginMvp(mvp);
             }
 
-            if (!self.batcher.ensureUnusedBuffer(node.verts.len, node.indexes.len)) {
+            if (!self.batcher.ensureUnusedBuffer(node.mesh.verts.len, node.mesh.indexes.len)) {
                 self.batcher.endCmd();
             }
             const vert_start = self.batcher.mesh.getNextIndexId();
             if (node.skin.len > 0) {
-                for (node.verts) |vert| {
+                for (node.mesh.verts) |vert| {
                     var new_vert = vert;
                     new_vert.setColor(self.cur_fill_color);
                     // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
@@ -1818,13 +1871,13 @@ pub const Graphics = struct {
                     self.batcher.mesh.addVertex(&new_vert);
                 }
             } else {
-                for (node.verts) |vert| {
+                for (node.mesh.verts) |vert| {
                     var new_vert = vert;
                     new_vert.setColor(self.cur_fill_color);
                     self.batcher.mesh.addVertex(&new_vert);
                 }
             }
-            self.batcher.mesh.addDeltaIndices(vert_start, node.indexes);
+            self.batcher.mesh.addDeltaIndices(vert_start, node.mesh.indexes);
         }
 
         self.batcher.beginMvp(cur_mvp);
@@ -1833,11 +1886,11 @@ pub const Graphics = struct {
     pub fn fillScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
-            self.fillMesh3D(xform, node.verts, node.indexes);
+            self.fillMesh3D(xform, node.mesh);
         }
     }
 
-    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+    pub fn fillMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
         self.batcher.beginTex3D(self.white_tex);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
@@ -1845,16 +1898,16 @@ pub const Graphics = struct {
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
 
-        if (!self.batcher.ensureUnusedBuffer(verts.len, indexes.len)) {
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
             self.batcher.endCmd();
         }
         const vert_start = self.batcher.mesh.getNextIndexId();
-        for (verts) |vert| {
+        for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(self.cur_fill_color);
             self.batcher.mesh.addVertex(&new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, indexes);
+        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
 
         self.batcher.beginMvp(cur_mvp);
     }
@@ -1862,11 +1915,11 @@ pub const Graphics = struct {
     pub fn strokeScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
-            self.strokeMesh3D(xform, node.verts, node.indexes);
+            self.strokeMesh3D(xform, node.mesh);
         }
     }
 
-    pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+    pub fn strokeMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
         self.batcher.beginWireframe();
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
@@ -1875,16 +1928,16 @@ pub const Graphics = struct {
         self.batcher.beginMvp(mvp);
 
         // TODO: stroke color should pushed as a constant.
-        if (!self.batcher.ensureUnusedBuffer(verts.len, indexes.len)) {
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
             self.batcher.endCmd();
         }
         const vert_start = self.batcher.mesh.getNextIndexId();
-        for (verts) |vert| {
+        for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(self.cur_stroke_color);
             self.batcher.mesh.addVertex(&new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, indexes);
+        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
 
         self.batcher.beginMvp(cur_mvp);
     }

@@ -1079,7 +1079,7 @@ pub const Graphics = struct {
 
     pub fn loadGLTFandBuffers(_: Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
         var ret = try GLTFhandle.init(alloc, buf, opts);
-        try ret.loadBuffers();
+        try ret.loadBuffers(alloc);
         return ret;
     }
 
@@ -1087,6 +1087,20 @@ pub const Graphics = struct {
     pub fn drawMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawMesh3D(&self.impl, xform, verts, indexes),
+            else => unsupported(),
+        }
+    }
+
+    pub fn drawScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawScene3D(&self.impl, xform, scene),
+            else => unsupported(),
+        }
+    }
+
+    pub fn drawTintedScene3D(self: *Self, xform: Transform, scene: GLTFscene, color: Color) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawTintedScene3D(&self.impl, xform, scene, color),
             else => unsupported(),
         }
     }
@@ -1108,7 +1122,14 @@ pub const Graphics = struct {
 
     pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillAnimatedMesh3D(&self.impl, model_xform, mesh),
+            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, true),
+            else => unsupported(),
+        }
+    }
+
+    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, false),
             else => unsupported(),
         }
     }
@@ -1144,6 +1165,7 @@ pub const GLTFhandle = struct {
     data: *cgltf.cgltf_data,
     loaded_buffers: bool,
     static_buffer_map: std.StringHashMap(GLTFstaticBufferEntry),
+    image_buffers: std.AutoHashMap(*cgltf.cgltf_image, []const u8),
 
     const Self = @This();
 
@@ -1171,6 +1193,7 @@ pub const GLTFhandle = struct {
                 .data = data,
                 .loaded_buffers = false,
                 .static_buffer_map = static_buffer_map,
+                .image_buffers = std.AutoHashMap(*cgltf.cgltf_image, []const u8).init(alloc),
             };
         } else {
             return error.FailedToLoad;
@@ -1188,19 +1211,19 @@ pub const GLTFhandle = struct {
             }
         }
         self.static_buffer_map.deinit();
+
+        var image_iter = self.image_buffers.valueIterator();
+        while (image_iter.next()) |data| {
+            // Owned by cgltf malloc.
+            std.c.free(@intToPtr(?*anyopaque, @ptrToInt(data.ptr)));
+        }
+        self.image_buffers.deinit();
     }
 
-    // pub fn loadBuffers(self: *Self) void {
-    //     if (!self.loaded_buffers) {
-    //         var opts = std.mem.zeroInit(cgltf.cgltf_options, .{});
-    //         const res = cgltf.cgltf_load_buffers(&opts, self.data,);
-    //         //  * const char* gltf_path)` can be optionally called to open and read buffer
-    //         self.loaded_buffers = true;
-    //     }
-    // }
-
     /// Custom loadBuffers since cgltf.cgltf_load_buffers makes it inconvenient to embed static buffers at runtime.
-    pub fn loadBuffers(self: *Self) !void {
+    /// Also loads image buffers which aren't loaded by default.
+    pub fn loadBuffers(self: *Self, alloc: std.mem.Allocator) !void {
+        _ = alloc;
         var copts = std.mem.zeroInit(cgltf.cgltf_options, .{});
         if (!self.loaded_buffers) {
 
@@ -1246,16 +1269,45 @@ pub const GLTFhandle = struct {
                     // }
                 }
             }
+
+            if (self.data.images_count > 0) {
+                const images = self.data.images[0..self.data.images_count];
+                for (images) |*image| {
+                    if (!self.image_buffers.contains(image)) {
+                        if (image.uri == null) {
+                            continue;
+                        }
+                        const uri_slice = std.mem.span(image.uri);
+                        if (std.mem.startsWith(u8, uri_slice, "data:")) {
+                            const comma_idx = std.mem.indexOfScalar(u8, uri_slice, ',') orelse return error.UnknownFormat;
+                            if (comma_idx >= 7 and std.mem.eql(u8, uri_slice[comma_idx-7..comma_idx], ";base64")) {
+                                const uri_data = uri_slice[comma_idx + 1..];
+                                // Determine bytes with padding.
+                                const byte_len = (uri_data.len-1)*3/4 + 1;
+                                var data: [*c]u8 = undefined;
+                                const res = cgltf.cgltf_load_buffer_base64(&copts, byte_len, uri_data.ptr, @ptrCast([*c]?*anyopaque, &data));
+                                if (res != cgltf.cgltf_result_success) {
+                                    return error.InvalidData;
+                                }
+                                self.image_buffers.put(image, data[0..byte_len]) catch fatal();
+                            }
+                        } else {
+                            return error.UnknownFormat;
+                        }
+                    }
+                }
+            }
+
             self.loaded_buffers = true;
         }
     }
 
-    pub fn loadDefaultScene(self: *Self, alloc: std.mem.Allocator) !GLTFscene {
+    pub fn loadDefaultScene(self: *Self, alloc: std.mem.Allocator, gctx: *Graphics) !GLTFscene {
         if (!self.loaded_buffers) {
             return error.BuffersNotLoaded;
         }
         const scene = @ptrCast(*cgltf.cgltf_scene, self.data.scene);
-        return GLTFscene.init(alloc, self.data, scene);
+        return GLTFscene.init(alloc, self.*, gctx, scene);
     }
 };
 
@@ -1339,7 +1391,8 @@ pub const GLTFscene = struct {
 
     animation: ?GLTFanimation,
 
-    pub fn init(alloc: std.mem.Allocator, data: *cgltf.cgltf_data, scene: *cgltf.cgltf_scene) !GLTFscene {
+    pub fn init(alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, scene: *cgltf.cgltf_scene) !GLTFscene {
+        const data = handle.data;
         var nodes = std.ArrayList(GLTFnode).init(alloc);
         var mesh_nodes = std.ArrayList(u32).init(alloc);
         errdefer {
@@ -1362,16 +1415,16 @@ pub const GLTFscene = struct {
                     }
                 }
             }
-            fn initNode(alloc_: std.mem.Allocator, mesh_nodes_: *std.ArrayList(u32), nodes_: []GLTFnode, map_: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) anyerror!void {
+            fn initNode(alloc_: std.mem.Allocator, handle_: GLTFhandle, gctx_: *Graphics, mesh_nodes_: *std.ArrayList(u32), nodes_: []GLTFnode, map_: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) anyerror!void {
                 const id = map_.get(node).?;
-                nodes_[id] = try GLTFnode.init(alloc_, map_, parent, node);
+                nodes_[id] = try GLTFnode.init(alloc_, handle_, gctx_, map_, parent, node);
                 if (nodes_[id].has_mesh) {
                     mesh_nodes_.append(id) catch fatal();
                 }
                 if (node.children_count > 0) {
                     const children = node.children[0..node.children_count];
                     for (children) |child| {
-                        try initNode(alloc_, mesh_nodes_, nodes_, map_, id, child);
+                        try initNode(alloc_, handle_, gctx_, mesh_nodes_, nodes_, map_, id, child);
                     }
                 }
             }
@@ -1392,7 +1445,7 @@ pub const GLTFscene = struct {
 
         // Load each node.
         for (cnodes) |node| {
-            try S.initNode(alloc, &mesh_nodes, nodes.items, map, NullId, node);
+            try S.initNode(alloc, handle, gctx, &mesh_nodes, nodes.items, map, NullId, node);
         }
 
         if (mesh_nodes.items.len == 0) {
@@ -1549,8 +1602,7 @@ pub const GLTFscene = struct {
 };
 
 pub const GLTFnode = struct {
-    verts: []const gpu.TexShaderVertex,
-    indexes: []const u16,
+    mesh: Mesh3D,
     skin: []const MeshJoint,
 
     scale: Vec3,
@@ -1565,10 +1617,9 @@ pub const GLTFnode = struct {
     has_rotate: bool,
     has_translate: bool,
 
-    pub fn init(alloc: std.mem.Allocator, map: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) !GLTFnode {
+    pub fn init(alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, map: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) !GLTFnode {
         var ret: GLTFnode = .{
-            .verts = &.{},
-            .indexes = &.{},
+            .mesh = .{},
             .skin = &.{},
 
             .scale = undefined,
@@ -1584,7 +1635,7 @@ pub const GLTFnode = struct {
         };
         if (node.mesh != null) {
             // This node has mesh data.
-            try ret.loadMeshData(alloc, map, node);
+            try ret.loadMeshData(alloc, handle, gctx, map, node);
             ret.has_mesh = true;
         }
 
@@ -1612,10 +1663,36 @@ pub const GLTFnode = struct {
         return ret;
     }
 
-    fn loadMeshData(self: *GLTFnode, alloc: std.mem.Allocator, map: std.AutoHashMap(*cgltf.cgltf_node, u32), node: *cgltf.cgltf_node) !void {
+    fn loadMeshData(self: *GLTFnode, alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, map: std.AutoHashMap(*cgltf.cgltf_node, u32), node: *cgltf.cgltf_node) !void {
         const mesh = @ptrCast(*cgltf.cgltf_mesh, node.mesh);
         if (mesh.primitives_count > 0) {
             const primitive = mesh.primitives[0];
+
+            if (primitive.material != null) {
+                const material = @ptrCast(*cgltf.cgltf_material, primitive.material);
+                // Load texture.
+                if (material.has_pbr_metallic_roughness == 1) {
+                    if (material.pbr_metallic_roughness.base_color_texture.texture != null) {
+                        const texture = @ptrCast(*cgltf.cgltf_texture, material.pbr_metallic_roughness.base_color_texture.texture);
+                        const cimage = @ptrCast(*cgltf.cgltf_image, texture.image);
+                        if (handle.image_buffers.get(cimage)) |data| {
+                            const image = try gctx.createImage(data);
+                            self.mesh.image_id = image.id;
+                            self.mesh.gctx = gctx;
+                        } else {
+                            // Image data is already loaded from glb.
+                            const buffer_view = @ptrCast(*cgltf.cgltf_buffer_view, cimage.buffer_view);
+                            const buf = @ptrCast(*cgltf.cgltf_buffer, buffer_view.buffer);
+                            const offset = buffer_view.offset;
+                            const size = buffer_view.size;
+                            const data = @ptrCast([*c]u8, buf.data);
+                            const image = try gctx.createImage(data[offset..offset+size]);
+                            self.mesh.image_id = image.id;
+                            self.mesh.gctx = gctx;
+                        }
+                    }
+                }
+            }
 
             // Determine number of verts by looking at the first attribute.
             var verts: []gpu.TexShaderVertex = undefined;
@@ -1656,6 +1733,25 @@ pub const GLTFnode = struct {
                                     val_buf[vi * num_component_vals + 2],
                                 );
                                 verts[vi].setColor(Color.White);
+                            }
+                        } else {
+                            return error.UnsupportedComponentType;
+                        }
+                    },
+                    cgltf.cgltf_attribute_type_texcoord => {
+                        if (accessor.@"type" == cgltf.cgltf_type_vec2 and component_type == cgltf.cgltf_component_type_r_32f) {
+                            const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
+                            const num_floats = num_component_vals * accessor.count;
+                            const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
+                            defer alloc.free(val_buf);
+                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+
+                            var vi: u32 = 0;
+                            while (vi < verts.len) : (vi += 1) {
+                                verts[vi].setUV(
+                                    val_buf[vi * num_component_vals],
+                                    val_buf[vi * num_component_vals + 1],
+                                );
                             }
                         } else {
                             return error.UnsupportedComponentType;
@@ -1737,8 +1833,8 @@ pub const GLTFnode = struct {
                 }
             }
 
-            self.verts = verts;
-            self.indexes = indexes;
+            self.mesh.verts = verts;
+            self.mesh.indexes = indexes;
             return;
         }
         return error.NoPrimitives;
@@ -1759,8 +1855,7 @@ pub const GLTFnode = struct {
     }
 
     pub fn deinit(self: GLTFnode, alloc: std.mem.Allocator) void {
-        alloc.free(self.verts);
-        alloc.free(self.indexes);
+        self.mesh.deinit(alloc);
         alloc.free(self.skin);
         alloc.free(self.children);
     }
@@ -1908,6 +2003,21 @@ pub const AnimatedMesh = struct {
             marker.time_idx = @intCast(u32, transition.times.len-2);
             const time = transition.times[marker.time_idx];
             marker.time_t = (marker.cur_time_ms - time) / (transition.times[marker.time_idx+1] - time);
+        }
+    }
+};
+
+pub const Mesh3D = struct {
+    verts: []const gpu.TexShaderVertex = &.{},
+    indexes: []const u16 = &.{},
+    image_id: ?ImageId = null,
+    gctx: *Graphics = undefined,
+
+    fn deinit(self: Mesh3D, alloc: std.mem.Allocator) void {
+        alloc.free(self.verts);
+        alloc.free(self.indexes);
+        if (self.image_id) |image_id| {
+            self.gctx.removeImage(image_id);
         }
     }
 };
