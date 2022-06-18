@@ -1379,9 +1379,11 @@ const GLTFtransitionProperty = struct {
 };
 
 const GLTFanimation = struct {
+    name: []const u8,
     transitions: []const GLTFtransition,
 
     fn deinit(self: GLTFanimation, alloc: std.mem.Allocator) void {
+        alloc.free(self.name);
         for (self.transitions) |transition| {
             transition.deinit(alloc);
         }
@@ -1419,7 +1421,7 @@ pub const GLTFscene = struct {
     root_nodes: []const u32,
     mesh_nodes: []const u32,
 
-    animation: ?GLTFanimation,
+    animations: []const GLTFanimation,
 
     pub fn init(alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, scene: *cgltf.cgltf_scene) !GLTFscene {
         const data = handle.data;
@@ -1486,8 +1488,15 @@ pub const GLTFscene = struct {
         var time_accessor_map = std.AutoHashMap(*cgltf.cgltf_accessor, u32).init(alloc);
         defer time_accessor_map.deinit();
 
-        // Look for any animations for this scene.
-        var animation: ?GLTFanimation = null;
+        // Look for animations for this scene.
+        var animations = std.ArrayList(GLTFanimation).init(alloc);
+        errdefer {
+            for (animations.items) |anim| {
+                anim.deinit(alloc);
+            }
+            animations.deinit();
+        }
+
         if (data.animations_count > 0) {
             const anims = data.animations[0..data.animations_count];
             for (anims) |anim| {
@@ -1602,10 +1611,16 @@ pub const GLTFscene = struct {
                         }
                     }
 
-                    animation = GLTFanimation{
+                    var name: []const u8 = "";
+                    if (anim.name != null) {
+                        const cname = std.mem.span(anim.name);
+                        name = alloc.dupe(u8, cname) catch fatal();
+                    }
+
+                    animations.append(.{
+                        .name = name,
                         .transitions = transitions.toOwnedSlice(),
-                    };
-                    break;
+                    }) catch fatal();
                 }
             }
         }
@@ -1614,7 +1629,7 @@ pub const GLTFscene = struct {
             .nodes = nodes.toOwnedSlice(),
             .root_nodes = root_nodes,
             .mesh_nodes = mesh_nodes.toOwnedSlice(),
-            .animation = animation,
+            .animations = animations.toOwnedSlice(),
         };
     }
 
@@ -1625,9 +1640,10 @@ pub const GLTFscene = struct {
         alloc.free(self.nodes);
         alloc.free(self.root_nodes);
         alloc.free(self.mesh_nodes);
-        if (self.animation) |anim| {
+        for (self.animations) |anim| {
             anim.deinit(alloc);
         }
+        alloc.free(self.animations);
     }
 };
 
@@ -2008,11 +2024,11 @@ pub const AnimatedMesh = struct {
     transition_markers: []TransitionMarker,
     loop: bool,
 
-    pub fn init(alloc: std.mem.Allocator, scene: GLTFscene) AnimatedMesh {
+    pub fn init(alloc: std.mem.Allocator, scene: GLTFscene, anim_idx: u32) AnimatedMesh {
         const ret = AnimatedMesh{
             .scene = scene,
-            .anim = scene.animation.?,
-            .transition_markers = alloc.alloc(TransitionMarker, scene.animation.?.transitions.len) catch fatal(),
+            .anim = scene.animations[anim_idx],
+            .transition_markers = alloc.alloc(TransitionMarker, scene.animations[anim_idx].transitions.len) catch fatal(),
             .loop = true,
         };
         for (ret.transition_markers) |*marker| {
