@@ -19,6 +19,27 @@ pub fn updateImageDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSe
     vk.updateDescriptorSets(device, 1, &write, 0, null);
 }
 
+pub fn updateUniformBufferDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSet, buffer: vk.VkBuffer, binding: u32, comptime Uniform: type) void {
+    const buffer_info = vk.VkDescriptorBufferInfo{
+        .buffer = buffer,
+        .offset = 0,
+        .range = @sizeOf(Uniform),
+    };
+    const write = vk.VkWriteDescriptorSet{
+        .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = desc_set,
+        .dstBinding = binding,
+        .dstArrayElement = 0,
+        .descriptorType = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .pImageInfo = null,
+        .pNext = null,
+        .pBufferInfo = &buffer_info,
+        .pTexelBufferView = null,
+    };
+    vk.updateDescriptorSets(device, 1, &write, 0, null);
+}
+
 pub fn updateStorageBufferDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSet, buffer: vk.VkBuffer, binding: u32, offset: u32, size: u32) void {
     const buffer_info = vk.VkDescriptorBufferInfo{
         .buffer = buffer,

@@ -4,6 +4,7 @@ const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
 const eqApproxVec4 = stdx.math.eqApproxVec4;
+const eqApproxVec3 = stdx.math.eqApproxVec3;
 
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
@@ -132,6 +133,15 @@ pub const Transform = struct {
     pub fn interpolateVec4(self: Self, vec: Vec4) Vec4 {
         const res = math.mul4x4_4x1(self.mat, .{ vec.x, vec.y, vec.z, vec.w });
         return .{ .x = res[0], .y = res[1], .z = res[2], .w = res[3] };
+    }
+
+    /// Useful for getting the normal matrix.
+    pub fn toRotationUniformScaleMat(self: Self) stdx.math.Mat3 {
+        return .{
+            self.mat[0], self.mat[1], self.mat[2],
+            self.mat[4], self.mat[5], self.mat[6],
+            self.mat[8], self.mat[9], self.mat[10],
+        };
     }
 };
 
@@ -291,4 +301,16 @@ pub const Quaternion = struct {
 test "Quaternion.slerp" {
     // slerp with self.
     try eqApproxVec4(Quaternion.init(Vec4.init(0, 0, 0, 1)).slerp(Quaternion.init(Vec4.init(0, 0, 0, 1)), 0).vec, Vec4.init(0, 0, 0, 1));
+}
+
+test "Extracting rotate + uniform scale matrix from transform matrix." {
+    var xform = Transform.initIdentity();
+    xform.rotateY(std.math.pi/2.0);
+
+    const pos = Vec3.init(1, 0, 0);
+    try eqApproxVec3(xform.interpolateVec3(pos), Vec3.init(0, 0, 1));
+
+    const mat = xform.toRotationUniformScaleMat();
+    const res = stdx.math.mul3x3_3x1(mat, .{pos.x, pos.y, pos.z});
+    try eqApproxVec3(Vec3.init(res[0], res[1], res[2]), Vec3.init(0, 0, 1));
 }

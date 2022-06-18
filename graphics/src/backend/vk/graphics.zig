@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const t = stdx.testing;
 const fatal = stdx.fatal;
 const vk = @import("vk");
 const platform = @import("platform");
@@ -425,6 +426,104 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     });
 }
 
+pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        // Pos.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 0,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
+        },
+        // Normal.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 1,
+            .format = vk.VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "norm_x"),
+        },
+        // Uv.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 2,
+            .format = vk.VK_FORMAT_R32G32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "uv_x"),
+        },
+        // Color.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 3,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
+        },
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = @sizeOf(TexLightingVertexConstant),
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+
+    const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
+        tex_desc_set_layout,
+        cam_desc_set_layout,
+        materials_desc_set_layout,
+    };
+
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = desc_set_layouts.len,
+        .pSetLayouts = &desc_set_layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.tex_pbr_vert_spv;
+    const frag_src align(4) = shaders.tex_pbr_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
+        .depth_test = true,
+        .line_mode = false,
+    });
+}
+
+pub const TexLightingVertexConstant = struct {
+    mvp: stdx.math.Mat4,
+    // 3x3 mat is layed out with padding in glsl.
+    normal_0: [3]f32,
+    padding_0: f32 = 0,
+    normal_1: [3]f32,
+    padding_1: f32 = 0,
+    normal_2: [3]f32,
+    padding_2: f32 = 0,
+    material_idx: u32,
+};
+
+test "TexLightingVertexConstant" {
+    try t.eq(@sizeOf(TexLightingVertexConstant), 16*4 + 9*4 + 4);
+}
+
 pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, joints_desc_set_layout: vk.VkDescriptorSetLayout, tex_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
@@ -680,10 +779,15 @@ pub fn createTexDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayou
     return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, false, true);
 }
 
+pub fn createCameraDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayout {
+    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, false, true);
+}
+
 pub const Pipelines = struct {
     wireframe_pipeline: Pipeline,
     tex_pipeline: Pipeline,
     tex_pipeline_2d: Pipeline,
+    tex_pbr_pipeline: Pipeline,
     anim_pipeline: Pipeline,
     gradient_pipeline_2d: Pipeline,
     plane_pipeline: Pipeline,
@@ -693,6 +797,7 @@ pub const Pipelines = struct {
         self.wireframe_pipeline.deinit(device);
         self.tex_pipeline.deinit(device);
         self.tex_pipeline_2d.deinit(device);
+        self.tex_pbr_pipeline.deinit(device);
         self.anim_pipeline.deinit(device);
         self.gradient_pipeline_2d.deinit(device);
         self.plane_pipeline.deinit(device);

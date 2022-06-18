@@ -1,6 +1,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
@@ -330,7 +331,7 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
 
     if (builtin.os.tag == .macos) {
         // Macos needs VK_KHR_get_physical_device_properties2 for device extension: VK_KHR_portability_subset.
-        enabled_extensions.append("VK_KHR_get_physical_device_properties2") catch stdx.fatal();
+        enabled_extensions.append("VK_KHR_get_physical_device_properties2") catch fatal();
     }
 
     var instance: vk.VkInstance = undefined;

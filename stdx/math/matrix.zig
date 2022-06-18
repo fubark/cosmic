@@ -4,12 +4,39 @@ const math = @import("math.zig");
 const log = stdx.log.scoped(.matrix);
 
 const Vec4 = [4]f32;
+const Vec3 = [3]f32;
 
-// Row-major order.
+/// Row-major order.
+pub const Mat3 = [9]f32;
+
+pub fn mul3x3_3x1(a: Mat3, b: Vec3) Vec3 {
+    const stride = 3;
+    const r0 = 0 * stride;
+    const r1 = 1 * stride;
+    const r2 = 2 * stride;
+    const a00 = a[r0 + 0];
+    const a01 = a[r0 + 1];
+    const a02 = a[r0 + 2];
+    const a10 = a[r1 + 0];
+    const a11 = a[r1 + 1];
+    const a12 = a[r1 + 2];
+    const a20 = a[r2 + 0];
+    const a21 = a[r2 + 1];
+    const a22 = a[r2 + 2];
+    const b00 = b[0];
+    const b10 = b[1];
+    const b20 = b[2];
+    return .{
+        a00 * b00 + a01 * b10 + a02 * b20,
+        a10 * b00 + a11 * b10 + a12 * b20,
+        a20 * b00 + a21 * b10 + a22 * b20,
+    };
+}
+
+/// Row-major order.
 pub const Mat4 = [16]f32;
 
-// Because we're using row major order, we prefer to do mat * vec where vec is on the right side.
-// In theory it should be faster since more contiguous memory is accessed in order from the bigger matrix on the left.
+// TODO: Is (4x4)(4x1) faster than (1x4)(4x4) for row major order?
 pub fn mul4x4_4x1(a: Mat4, b: Vec4) Vec4 {
     const stride = 4;
     const r0 = 0 * stride;

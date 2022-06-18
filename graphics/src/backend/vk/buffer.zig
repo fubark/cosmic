@@ -4,6 +4,13 @@ const vk = @import("vk");
 const gvk = @import("graphics.zig");
 const log = stdx.log.scoped(.buffer);
 
+pub fn createUniformBuffer(physical: vk.VkPhysicalDevice, device: vk.VkDevice, comptime Uniform: type) Buffer {
+    return createBuffer(physical, device, @sizeOf(Uniform),
+        vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    );
+}
+
 pub fn createStorageBuffer(physical: vk.VkPhysicalDevice, device: vk.VkDevice, size: vk.VkDeviceSize) Buffer {
     return createBuffer(physical, device, size,
         vk.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,

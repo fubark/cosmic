@@ -25,10 +25,12 @@ pub const Mesh = struct {
     /// Zero copy view.
     joints_buf: []stdx.math.Mat4,
     cur_joints_buf_size: u32,
+    materials_buf: []graphics.Material,
+    cur_materials_buf_size: u32,
 
     const Self = @This();
 
-    pub fn init(alloc: std.mem.Allocator, joints_buf: []stdx.math.Mat4) Self {
+    pub fn init(alloc: std.mem.Allocator, joints_buf: []stdx.math.Mat4, materials_buf: []graphics.Material) Self {
         const vertex_buf = alloc.alloc(TexShaderVertex, StartVertexBufferSize) catch unreachable;
         const index_buf = alloc.alloc(u16, StartIndexBufferSize) catch unreachable;
         return Mesh{
@@ -37,9 +39,11 @@ pub const Mesh = struct {
             .vert_buf = vertex_buf,
             .index_buf = index_buf,
             .joints_buf = joints_buf,
+            .materials_buf = materials_buf,
             .cur_vert_buf_size = 0,
             .cur_index_buf_size = 0,
             .cur_joints_buf_size = 0,
+            .cur_materials_buf_size = 0,
         };
     }
 
@@ -52,11 +56,17 @@ pub const Mesh = struct {
         self.cur_vert_buf_size = 0;
         self.cur_index_buf_size = 0;
         self.cur_joints_buf_size = 0;
+        self.cur_materials_buf_size = 0;
     }
 
     pub fn addJoint(self: *Self, mat: stdx.math.Mat4) void {
         self.joints_buf[self.cur_joints_buf_size] = mat;
         self.cur_joints_buf_size += 1;
+    }
+
+    pub fn addMaterial(self: *Self, material: graphics.Material) void {
+        self.materials_buf[self.cur_materials_buf_size] = material;
+        self.cur_materials_buf_size += 1;
     }
 
     pub fn addVertex(self: *Self, vert: *TexShaderVertex) void {

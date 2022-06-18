@@ -1107,6 +1107,20 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn drawScenePbr3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawScenePbr3D(&self.impl, xform, scene),
+            else => unsupported(),
+        }
+    }
+
+    pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: GLTFscene, mat: Material) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawScenePbrCustom3D(&self.impl, xform, scene, mat),
+            else => unsupported(),
+        }
+    }
+
     pub fn drawTintedScene3D(self: *Self, xform: Transform, scene: GLTFscene, color: Color) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawTintedScene3D(&self.impl, xform, scene, color),
@@ -1635,7 +1649,14 @@ pub const GLTFnode = struct {
 
     pub fn init(alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, map: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) !GLTFnode {
         var ret: GLTFnode = .{
-            .mesh = .{},
+            .mesh = .{
+                .material = .{
+                    .roughness = 0,
+                    .reflectivity = 0,
+                    .emissivity = 0,
+                    .metallic = 0,
+                },
+            },
             .skin = &.{},
 
             .scale = undefined,
@@ -2040,6 +2061,7 @@ pub const Mesh3D = struct {
     verts: []const gpu.TexShaderVertex = &.{},
     indexes: []const u16 = &.{},
     image_id: ?ImageId = null,
+    material: Material,
     gctx: *Graphics = undefined,
 
     fn deinit(self: Mesh3D, alloc: std.mem.Allocator) void {
@@ -2049,4 +2071,11 @@ pub const Mesh3D = struct {
             self.gctx.removeImage(image_id);
         }
     }
+};
+
+pub const Material = struct {
+    emissivity: f32,
+    roughness: f32,
+    reflectivity: f32,
+    metallic: f32,
 };

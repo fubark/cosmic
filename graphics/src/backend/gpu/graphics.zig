@@ -87,6 +87,8 @@ pub const Graphics = struct {
             desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
             joints_desc_set_layout: vk.VkDescriptorSetLayout,
+            materials_desc_set_layout: vk.VkDescriptorSetLayout,
+            cam_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_cmd_buf: vk.VkCommandBuffer,
         },
         else => @compileError("unsupported"),
@@ -98,6 +100,8 @@ pub const Graphics = struct {
     view_transform: Transform,
     cur_buf_width: u32,
     cur_buf_height: u32,
+    /// Feed the camera location to pbr shader.
+    cur_cam_world_pos: Vec3,
 
     default_font_id: FontId,
     default_font_gid: FontGroupId,
@@ -179,13 +183,23 @@ pub const Graphics = struct {
         self.inner.desc_pool = gvk.createDescriptorPool(device);
         self.initCommon(alloc);
 
-        const vert_buf = gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 20000);
-        const index_buf = gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 20000 * 3);
-        const storage_buf = gvk.buffer.createStorageBuffer(vk_ctx.physical, vk_ctx.device, 4*16 * 1000);
+        const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 20000);
+        const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 20000 * 3);
+        const storage_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 1000);
+        const materials_buf = gvk.buffer.createStorageBuffer(physical, device, @sizeOf(graphics.Material) * 100);
 
-        self.inner.joints_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(vk_ctx.device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
-        const joints_desc_set = gvk.descriptor.createDescriptorSet(vk_ctx.device, self.inner.desc_pool, self.inner.joints_desc_set_layout);
-        gvk.descriptor.updateStorageBufferDescriptorSet(vk_ctx.device, joints_desc_set, storage_buf.buf, 1, 0, 4*16 * 1000);
+        const u_cam_buf = gvk.buffer.createUniformBuffer(physical, device, ShaderCamera);
+        self.inner.cam_desc_set_layout = gvk.createCameraDescriptorSetLayout(device);
+        const cam_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.cam_desc_set_layout);
+        gvk.descriptor.updateUniformBufferDescriptorSet(device, cam_desc_set, u_cam_buf.buf, 1, ShaderCamera);
+
+        self.inner.joints_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
+        const joints_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.joints_desc_set_layout);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, joints_desc_set, storage_buf.buf, 1, 0, 4*16 * 1000);
+
+        self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, true, false);
+        const materials_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.materials_desc_set_layout);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 2, 0, @sizeOf(graphics.Material) * 100);
 
         self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, false);
         self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, false, false);
@@ -194,8 +208,9 @@ pub const Graphics = struct {
         self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
+        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, joints_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, joints_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
     }
     
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
@@ -217,6 +232,7 @@ pub const Graphics = struct {
             .cur_line_width = undefined,
             .cur_line_width_half = undefined,
             .cur_proj_transform = undefined,
+            .cur_cam_world_pos = undefined,
             .tmp_joint_idxes = undefined,
             .view_transform = undefined,
             .image_store = image.ImageStore.init(alloc, self),
@@ -282,6 +298,8 @@ pub const Graphics = struct {
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.joints_desc_set_layout, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.materials_desc_set_layout, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.cam_desc_set_layout, null);
                 vk.destroyDescriptorPool(device, self.inner.desc_pool, null);
             },
             else => {},
@@ -1755,6 +1773,20 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn drawScenePbr3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMeshPbr3D(xform, node.mesh);
+        }
+    }
+
+    pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, mat: graphics.Material) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMeshPbrCustom3D(xform, node.mesh, mat);
+        }
+    }
+
     pub fn drawTintedMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, color: Color) void {
         if (mesh.image_id) |image_id| {
             const img = self.image_store.images.getNoCheck(image_id);
@@ -1826,6 +1858,52 @@ pub const Graphics = struct {
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
+        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawMeshPbrCustom3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, mat: graphics.Material) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTexPbr3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id }, self.cur_cam_world_pos);
+        } else {
+            self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+
+        // Compute normal matrix for lighting.
+        self.batcher.normal = xform.toRotationUniformScaleMat();
+
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(mat);
+
+        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawMeshPbr3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTexPbr3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id }, self.cur_cam_world_pos);
+        } else {
+            self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+
+        // Compute normal matrix for lighting.
+        self.batcher.normal = xform.toRotationUniformScaleMat();
+
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(mesh.material);
+
         self.batcher.pushMeshData(mesh.verts, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
     }
@@ -2221,6 +2299,7 @@ pub const Graphics = struct {
         self.cur_proj_transform = cam.proj_transform;
         self.view_transform = cam.view_transform;
         self.batcher.mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.cur_cam_world_pos = cam.world_pos;
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
@@ -2372,3 +2451,13 @@ fn getTess2Handle() *tess2.TESStesselator {
     }
     return tess_.?;
 }
+
+/// Currently holds the camera pos and the global directional light. Eventually the light params will be decoupled once multiple lights are supported.
+pub const ShaderCamera = struct {
+    cam_pos: Vec3,
+    pad_0: f32 = 0,
+    light_vec: Vec3,
+    pad_1: f32 = 0,
+    light_color: Vec3,
+    pad_2: f32 = 0,
+};
