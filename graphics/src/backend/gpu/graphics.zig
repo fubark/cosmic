@@ -6,6 +6,7 @@ const cgltf = @import("cgltf");
 const stbi = @import("stbi");
 const math = stdx.math;
 const Vec2 = math.Vec2;
+const Vec3 = math.Vec3;
 const vec2 = math.Vec2.init;
 const Mat4 = math.Mat4;
 const geom = math.geom;
@@ -513,7 +514,14 @@ pub const Graphics = struct {
         return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr_ceil, str);
     }
 
-    pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
+    pub inline fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
+        self.fillTextExt(x, y, str, .{
+            .@"align" = self.cur_text_align,
+            .baseline = self.cur_text_baseline,
+        });
+    }
+
+    pub fn fillTextExt(self: *Self, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
 
@@ -522,18 +530,18 @@ pub const Graphics = struct {
         var start_x = x;
         var start_y = y;
 
-        if (self.cur_text_align != .Left) {
+        if (opts.@"align" != .Left) {
             var metrics: TextMetrics = undefined;
             self.measureText(str, &metrics);
-            switch (self.cur_text_align) {
+            switch (opts.@"align") {
                 .Left => {},
                 .Right => start_x = x-metrics.width,
                 .Center => start_x = x-metrics.width/2,
             }
         }
-        if (self.cur_text_baseline != .Top) {
+        if (opts.baseline != .Top) {
             const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.cur_font_gid, self.cur_font_size);
-            switch (self.cur_text_baseline) {
+            switch (opts.baseline) {
                 .Top => {},
                 .Middle => start_y = y - vmetrics.height / 2,
                 .Alphabetic => start_y = y - vmetrics.ascender,

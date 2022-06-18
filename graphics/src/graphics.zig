@@ -823,6 +823,15 @@ pub const Graphics = struct {
         self.fillText(x, y, self.text_buf.items);
     }
 
+    pub fn fillTextExt(self: *Self, x: f32, y: f32, comptime format: []const u8, args: anytype, opts: TextOptions) void {
+        self.text_buf.clearRetainingCapacity();
+        std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillTextExt(&self.impl, x, y, self.text_buf.items, opts),
+            else => stdx.unsupported(),
+        }
+    }
+
     /// Measure many text at once.
     pub fn measureTextBatch(self: *Self, arr: []*TextMeasure) void {
         switch (Backend) {
@@ -1930,6 +1939,11 @@ pub const TextBaseline = enum {
     Middle,
     Alphabetic,
     Bottom,
+};
+
+pub const TextOptions = struct {
+    @"align": TextAlign = .Left,
+    baseline: TextBaseline = .Top,
 };
 
 pub const BitmapFontData = struct {
