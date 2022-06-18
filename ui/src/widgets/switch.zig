@@ -12,50 +12,6 @@ const Sized = widgets.Sized;
 const Text = widgets.Text;
 const log = stdx.log.scoped(.switch_);
 
-pub const SwitchOption = struct {
-    props: struct {
-        label: []const u8 = "Switch",
-        init_val: bool = false,
-        onChange: ?stdx.Function(fn (bool) void) = null,
-    },
-
-    inner: ui.WidgetRef(Switch),
-
-    const Self = @This();
-
-    pub fn isSet(self: *Self) bool {
-        return self.inner.getWidget().isSet();
-    }
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        const S = struct {
-            fn onClick(self_: *Self, _: platform.MouseUpEvent) void {
-                self_.inner.getWidget().toggle();
-            }
-        };
-        const d = c.decl;
-        return d(MouseArea, .{
-            .onClick = c.funcExt(self, S.onClick),
-            .child = d(Row, .{
-                .valign = .Center,
-                .children = c.list(.{
-                    d(Flex, .{
-                        .child = d(Text, .{
-                            .text = self.props.label,
-                            .color = Color.White,
-                        }),
-                    }),
-                    d(Switch, .{
-                        .bind = &self.inner,
-                        .init_val = self.props.init_val,
-                        .onChange = self.props.onChange,
-                    }),
-                }),
-            }),
-        });
-    }
-};
-
 pub const Switch = struct {
     props: struct {
         label: ?[]const u8 = null,
