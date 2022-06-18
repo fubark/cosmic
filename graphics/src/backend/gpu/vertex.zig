@@ -7,7 +7,12 @@ pub const TexShaderVertex = packed struct {
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
+    // TODO: Might be able to remove w and set to 1 in shader.
     pos_w: f32,
+    /// Used for lighting.
+    norm_x: f32,
+    norm_y: f32,
+    norm_z: f32,
     uv_x: f32,
     uv_y: f32,
     color_r: f32,
@@ -65,10 +70,11 @@ pub const TexShaderVertex = packed struct {
 };
 
 test "TexShaderVertex" {
-    try t.eq(@sizeOf(TexShaderVertex), 4*4 + 4*2 + 4*4 + 2*4 + 4);
+    try t.eq(@sizeOf(TexShaderVertex), 4*4 + 4*3 + 4*2 + 4*4 + 2*4 + 4);
     try t.eq(@offsetOf(TexShaderVertex, "pos_x"), 0);
-    try t.eq(@offsetOf(TexShaderVertex, "uv_x"), 4*4);
-    try t.eq(@offsetOf(TexShaderVertex, "color_r"), 4*4 + 4*2);
-    try t.eq(@offsetOf(TexShaderVertex, "joints"), 4*4 + 4*2 + 4*4);
-    try t.eq(@offsetOf(TexShaderVertex, "weights"), 4*4 + 4*2 + 4*4 + 2*4);
+    try t.eq(@offsetOf(TexShaderVertex, "norm_x"), 4*4);
+    try t.eq(@offsetOf(TexShaderVertex, "uv_x"), 4*4 + 4*3);
+    try t.eq(@offsetOf(TexShaderVertex, "color_r"), 4*4 + 4*3 + 4*2);
+    try t.eq(@offsetOf(TexShaderVertex, "joints"), 4*4 + 4*3 + 4*2 + 4*4);
+    try t.eq(@offsetOf(TexShaderVertex, "weights"), 4*4 + 4*3 + 4*2 + 4*4 + 2*4);
 }

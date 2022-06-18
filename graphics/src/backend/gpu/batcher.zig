@@ -32,6 +32,7 @@ const ShaderType = enum(u3) {
     Wireframe = 4,
     Custom = 5,
     Anim3D = 6,
+    Normal = 7,
 };
 
 const PreFlushTask = struct {
@@ -223,6 +224,14 @@ pub const Batcher = struct {
             return;
         }
         self.setTexture(image);
+    }
+
+    pub fn beginNormal(self: *Self, cam_loc: stdx.math.Vec3) void {
+        if (self.cur_shader_type != .Normal) {
+            self.endCmd();
+            self.cur_shader_type = .Normal;
+            return;
+        }
     }
 
     pub fn beginTex3D(self: *Self, image: ImageTex) void {
@@ -464,11 +473,18 @@ pub const Batcher = struct {
                             self.inner.cur_tex_desc_set,
                             self.inner.joints_desc_set,
                         };
-                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 2, &desc_sets, 0, null);
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     .Wireframe => {
                         const pipeline = self.inner.pipelines.wireframe_pipeline;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+                        // Must bind even though it does not use the texture since the pipeline was created with the descriptor layout.
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                    },
+                    .Normal => {
+                        const pipeline = self.inner.pipelines.norm_pipeline;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },

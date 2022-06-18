@@ -168,10 +168,15 @@ pub const Graphics = struct {
     }
 
     pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, vk_ctx: VkContext) void {
+        const physical = vk_ctx.physical;
+        const device = vk_ctx.device;
+        const fb_size = vk_ctx.framebuffer_size;
+        const pass = vk_ctx.pass;
+
         self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
-        self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(vk_ctx.device);
-        self.inner.desc_pool = gvk.createDescriptorPool(vk_ctx.device);
+        self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
+        self.inner.desc_pool = gvk.createDescriptorPool(device);
         self.initCommon(alloc);
 
         const vert_buf = gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 20000);
@@ -182,12 +187,13 @@ pub const Graphics = struct {
         const joints_desc_set = gvk.descriptor.createDescriptorSet(vk_ctx.device, self.inner.desc_pool, self.inner.joints_desc_set_layout);
         gvk.descriptor.updateStorageBufferDescriptorSet(vk_ctx.device, joints_desc_set, storage_buf.buf, 1, 0, 4*16 * 1000);
 
-        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, false);
-        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false, false);
-        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.joints_desc_set_layout, self.inner.tex_desc_set_layout);
-        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, true);
-        self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
-        self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
+        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, false);
+        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, false, false);
+        self.inner.pipelines.norm_pipeline = gvk.createNormPipeline(device, pass, fb_size);
+        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.joints_desc_set_layout, self.inner.tex_desc_set_layout);
+        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, true);
+        self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
+        self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
 
         self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, joints_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
     }
@@ -1771,6 +1777,40 @@ pub const Graphics = struct {
             self.batcher.mesh.addVertex(&new_vert);
         }
         self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawSceneNormals3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMeshNormals3D(xform, node.mesh);
+        }
+    }
+
+    pub fn drawMeshNormals3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        self.batcher.beginNormal(self.cur_cam_world_pos);
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len*2, mesh.verts.len*2)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        const norm_len = 1;
+        for (mesh.verts) |vert, i| {
+            var new_vert = vert;
+            new_vert.setColor(Color.Blue);
+            self.batcher.mesh.addVertex(&new_vert);
+            new_vert.setColor(Color.Red);
+            new_vert.setXYZ(new_vert.pos_x + new_vert.norm_x * norm_len, new_vert.pos_y + new_vert.norm_y * norm_len, new_vert.pos_z + new_vert.norm_z * norm_len);
+            self.batcher.mesh.addVertex(&new_vert);
+            self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i));
+            self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i) + 1);
+        }
+
         self.batcher.beginMvp(cur_mvp);
     }
 

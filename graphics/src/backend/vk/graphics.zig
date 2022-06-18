@@ -361,7 +361,11 @@ pub fn createPlanePipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim:
 
     const vert_src align(4) = shaders.plane_vert_spv;
     const frag_src align(4) = shaders.plane_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{ .depth_test = true });
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
+        .depth_test = true,
+    });
 }
 
 pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
@@ -414,7 +418,9 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
 
     const vert_src align(4) = shaders.gradient_vert_spv;
     const frag_src align(4) = shaders.gradient_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
         .depth_test = false,
     });
 }
@@ -501,7 +507,9 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
 
     const vert_src align(4) = shaders.anim_vert_spv;
     const frag_src align(4) = shaders.anim_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
         .depth_test = true,
         .line_mode = false,
     });
@@ -564,9 +572,71 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
 
     const vert_src align(4) = shaders.tex_vert_spv;
     const frag_src align(4) = shaders.tex_frag_spv;
-    return pipeline.createDefaultPipeline(device, pass, view_dim, &vert_src, &frag_src, pvis_info, pl_info, .{
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
         .depth_test = depth_test,
         .line_mode = wireframe,
+    });
+}
+
+pub fn createNormPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 0,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
+        },
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 1,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
+        },
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = bind_descriptors.len,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = @sizeOf(stdx.math.Mat4),
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+        .pSetLayouts = null,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.norm_vert_spv;
+    const frag_src align(4) = shaders.norm_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .topology = vk.VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
+        .depth_test = false,
+        .line_mode = false,
     });
 }
 
@@ -579,9 +649,14 @@ pub fn createDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
             .@"type" = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 100,
         },
-        // For joints.
+        // Joints + materials buffer.
         vk.VkDescriptorPoolSize{
             .@"type" = vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 2,
+        },
+        // For Camera struct.
+        vk.VkDescriptorPoolSize{
+            .@"type" = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .descriptorCount = 1,
         },
     };
@@ -612,6 +687,7 @@ pub const Pipelines = struct {
     anim_pipeline: Pipeline,
     gradient_pipeline_2d: Pipeline,
     plane_pipeline: Pipeline,
+    norm_pipeline: Pipeline,
 
     pub fn deinit(self: Pipelines, device: vk.VkDevice) void {
         self.wireframe_pipeline.deinit(device);
@@ -620,6 +696,7 @@ pub const Pipelines = struct {
         self.anim_pipeline.deinit(device);
         self.gradient_pipeline_2d.deinit(device);
         self.plane_pipeline.deinit(device);
+        self.norm_pipeline.deinit(device);
     }
 };
 

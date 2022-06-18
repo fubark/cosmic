@@ -1114,6 +1114,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn drawSceneNormals3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawSceneNormals3D(&self.impl, xform, scene),
+            else => unsupported(),
+        }
+    }
+
     /// Draws the mesh with the current fill color.
     pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
@@ -1720,11 +1727,19 @@ pub const GLTFnode = struct {
                 }
                 switch (attr.@"type") {
                     cgltf.cgltf_attribute_type_normal => {
-                        const buf_view = accessor.buffer_view[0];
-                        const buf = buf_view.buffer[0];
-                        // Skip for now.
-                        _ = buf_view;
-                        _ = buf;
+                        if (accessor.@"type" == cgltf.cgltf_type_vec3 and component_type == cgltf.cgltf_component_type_r_32f) {
+                            const val_buf = alloc.alloc(cgltf.cgltf_float, 3 * accessor.count) catch fatal();
+                            defer alloc.free(val_buf);
+                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, val_buf.len);
+                            var vi: u32 = 0;
+                            while (vi < verts.len) : (vi += 1) {
+                                verts[vi].norm_x = val_buf[vi * 3];
+                                verts[vi].norm_y = val_buf[vi * 3 + 1];
+                                verts[vi].norm_z = val_buf[vi * 3 + 2];
+                            }
+                        } else {
+                            return error.UnsupportedFormat;
+                        }
                     },
                     cgltf.cgltf_attribute_type_position => {
                         if (component_type == cgltf.cgltf_component_type_r_32f) {
