@@ -2,7 +2,7 @@
 #pragma shader_stage(fragment)
 
 layout(set = 0, binding = 0) uniform sampler2D u_tex;
-layout(set = 1, binding = 1) uniform Camera {
+layout(set = 2, binding = 2) uniform Camera {
     vec3 pos;
     // Directional light, assume normalized.
     vec3 light_vec;

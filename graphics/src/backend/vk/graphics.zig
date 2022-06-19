@@ -426,7 +426,8 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     });
 }
 
-pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout,
+    mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -484,6 +485,7 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
 
     const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
         tex_desc_set_layout,
+        mats_desc_set_layout,
         cam_desc_set_layout,
         materials_desc_set_layout,
     };
@@ -517,6 +519,7 @@ pub const TexLightingVertexConstant = struct {
     padding_1: f32 = 0,
     normal_2: [3]f32,
     padding_2: f32 = 0,
+    model_idx: u32,
     material_idx: u32,
 };
 
@@ -780,7 +783,7 @@ pub fn createTexDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayou
 }
 
 pub fn createCameraDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayout {
-    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, false, true);
+    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2, false, true);
 }
 
 pub const Pipelines = struct {

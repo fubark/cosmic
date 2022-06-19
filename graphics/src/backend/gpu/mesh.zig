@@ -13,7 +13,7 @@ const StartIndexBufferSize = StartVertexBufferSize * 4;
 const MaxVertexBufferSize = 10000 * 3;
 const MaxIndexBufferSize = MaxVertexBufferSize * 4;
 
-/// Vertex, index, and joints buffer.
+/// Vertex, index, mats, materials buffer.
 pub const Mesh = struct {
     index_buffer_type: gl.GLenum = gl.GL_UNSIGNED_SHORT,
     alloc: std.mem.Allocator,
@@ -23,14 +23,14 @@ pub const Mesh = struct {
     cur_vert_buf_size: u32,
 
     /// Zero copy view.
-    joints_buf: []stdx.math.Mat4,
-    cur_joints_buf_size: u32,
+    mats_buf: []stdx.math.Mat4,
+    cur_mats_buf_size: u32,
     materials_buf: []graphics.Material,
     cur_materials_buf_size: u32,
 
     const Self = @This();
 
-    pub fn init(alloc: std.mem.Allocator, joints_buf: []stdx.math.Mat4, materials_buf: []graphics.Material) Self {
+    pub fn init(alloc: std.mem.Allocator, mats_buf: []stdx.math.Mat4, materials_buf: []graphics.Material) Self {
         const vertex_buf = alloc.alloc(TexShaderVertex, StartVertexBufferSize) catch unreachable;
         const index_buf = alloc.alloc(u16, StartIndexBufferSize) catch unreachable;
         return Mesh{
@@ -38,11 +38,11 @@ pub const Mesh = struct {
             .index_buffer_type = gl.GL_UNSIGNED_SHORT,
             .vert_buf = vertex_buf,
             .index_buf = index_buf,
-            .joints_buf = joints_buf,
+            .mats_buf = mats_buf,
             .materials_buf = materials_buf,
             .cur_vert_buf_size = 0,
             .cur_index_buf_size = 0,
-            .cur_joints_buf_size = 0,
+            .cur_mats_buf_size = 0,
             .cur_materials_buf_size = 0,
         };
     }
@@ -55,13 +55,13 @@ pub const Mesh = struct {
     pub fn reset(self: *Self) void {
         self.cur_vert_buf_size = 0;
         self.cur_index_buf_size = 0;
-        self.cur_joints_buf_size = 0;
+        self.cur_mats_buf_size = 0;
         self.cur_materials_buf_size = 0;
     }
 
-    pub fn addJoint(self: *Self, mat: stdx.math.Mat4) void {
-        self.joints_buf[self.cur_joints_buf_size] = mat;
-        self.cur_joints_buf_size += 1;
+    pub fn addMatrix(self: *Self, mat: stdx.math.Mat4) void {
+        self.mats_buf[self.cur_mats_buf_size] = mat;
+        self.cur_mats_buf_size += 1;
     }
 
     pub fn addMaterial(self: *Self, material: graphics.Material) void {

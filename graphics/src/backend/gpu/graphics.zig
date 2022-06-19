@@ -86,7 +86,7 @@ pub const Graphics = struct {
             pipelines: gvk.Pipelines,
             desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
-            joints_desc_set_layout: vk.VkDescriptorSetLayout,
+            mats_desc_set_layout: vk.VkDescriptorSetLayout,
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
             cam_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_cmd_buf: vk.VkCommandBuffer,
@@ -191,26 +191,26 @@ pub const Graphics = struct {
         const u_cam_buf = gvk.buffer.createUniformBuffer(physical, device, ShaderCamera);
         self.inner.cam_desc_set_layout = gvk.createCameraDescriptorSetLayout(device);
         const cam_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.cam_desc_set_layout);
-        gvk.descriptor.updateUniformBufferDescriptorSet(device, cam_desc_set, u_cam_buf.buf, 1, ShaderCamera);
+        gvk.descriptor.updateUniformBufferDescriptorSet(device, cam_desc_set, u_cam_buf.buf, 2, ShaderCamera);
 
-        self.inner.joints_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
-        const joints_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.joints_desc_set_layout);
-        gvk.descriptor.updateStorageBufferDescriptorSet(device, joints_desc_set, storage_buf.buf, 1, 0, 4*16 * 1000);
+        self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
+        const mats_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.mats_desc_set_layout);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, mats_desc_set, storage_buf.buf, 1, 0, storage_buf.size);
 
-        self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, true, false);
+        self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, true, false);
         const materials_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.materials_desc_set_layout);
-        gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 2, 0, @sizeOf(graphics.Material) * 100);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, @sizeOf(graphics.Material) * 100);
 
         self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, false);
         self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, false, false);
         self.inner.pipelines.norm_pipeline = gvk.createNormPipeline(device, pass, fb_size);
-        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.joints_desc_set_layout, self.inner.tex_desc_set_layout);
+        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.mats_desc_set_layout, self.inner.tex_desc_set_layout);
         self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
-        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, joints_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
     }
     
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
@@ -297,7 +297,7 @@ pub const Graphics = struct {
                 self.inner.pipelines.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
-                vk.destroyDescriptorSetLayout(device, self.inner.joints_desc_set_layout, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.mats_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.materials_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.cam_desc_set_layout, null);
                 vk.destroyDescriptorPool(device, self.inner.desc_pool, null);
@@ -1820,7 +1820,7 @@ pub const Graphics = struct {
     }
 
     pub fn drawMeshNormals3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
-        self.batcher.beginNormal(self.cur_cam_world_pos);
+        self.batcher.beginNormal();
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
@@ -1872,11 +1872,13 @@ pub const Graphics = struct {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        const mvp = xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
+        self.batcher.beginMvp(vp);
 
         // Compute normal matrix for lighting.
         self.batcher.normal = xform.toRotationUniformScaleMat();
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
 
         self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
         self.batcher.mesh.addMaterial(mat);
@@ -1958,7 +1960,7 @@ pub const Graphics = struct {
             // Derive final joint matrices and non skin transform. 
             if (node.skin.len > 0) {
                 self.batcher.beginAnim3D(tex);
-                const joint_idx = self.batcher.mesh.cur_joints_buf_size;
+                const mat_idx = self.batcher.mesh.cur_mats_buf_size;
                 for (node.skin) |joint, i| {
                     var xform = Transform.initRowMajor(joint.inv_bind_mat);
                     var cur_id = joint.node_id;
@@ -1968,8 +1970,8 @@ pub const Graphics = struct {
                         xform.applyTransform(joint_mat);
                         cur_id = joint_node.parent;
                     }
-                    self.batcher.mesh.addJoint(xform.mat);
-                    self.tmp_joint_idxes[i] = @intCast(u16, joint_idx + i);
+                    self.batcher.mesh.addMatrix(xform.mat);
+                    self.tmp_joint_idxes[i] = @intCast(u16, mat_idx + i);
                 }
             } else {
                 self.batcher.beginTex3D(tex);

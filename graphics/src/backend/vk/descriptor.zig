@@ -40,7 +40,7 @@ pub fn updateUniformBufferDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDesc
     vk.updateDescriptorSets(device, 1, &write, 0, null);
 }
 
-pub fn updateStorageBufferDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSet, buffer: vk.VkBuffer, binding: u32, offset: u32, size: u32) void {
+pub fn updateStorageBufferDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSet, buffer: vk.VkBuffer, binding: u32, offset: u32, size: usize) void {
     const buffer_info = vk.VkDescriptorBufferInfo{
         .buffer = buffer,
         .offset = offset,

@@ -59,6 +59,7 @@ pub const Batcher = struct {
     /// Normal matrix for lighting.
     normal: stdx.math.Mat3,
     material_idx: u32,
+    model_idx: u32,
 
     /// It's useful to store the current texture associated with the current buffer data, 
     /// so a resize op can know whether to trigger a force flush.
@@ -80,16 +81,16 @@ pub const Batcher = struct {
             pipelines: gvk.Pipelines,
             vert_buf: gvk.Buffer,
             index_buf: gvk.Buffer,
-            joints_buf: gvk.Buffer,
+            mats_buf: gvk.Buffer,
             materials_buf: gvk.Buffer,
             u_cam_buf: gvk.Buffer,
             cur_tex_desc_set: vk.VkDescriptorSet,
             materials_desc_set: vk.VkDescriptorSet,
-            joints_desc_set: vk.VkDescriptorSet,
+            mats_desc_set: vk.VkDescriptorSet,
             cam_desc_set: vk.VkDescriptorSet,
             host_vert_buf: []TexShaderVertex,
             host_index_buf: []u16,
-            host_joints_buf: []stdx.math.Mat4,
+            host_mats_buf: []stdx.math.Mat4,
             host_materials_buf: []graphics.Material,
             host_cam_buf: *graphics.gpu.ShaderCamera,
         },
@@ -143,8 +144,8 @@ pub const Batcher = struct {
     pub fn initVK(alloc: std.mem.Allocator,
         vert_buf: gvk.Buffer,
         index_buf: gvk.Buffer,
-        joints_buf: gvk.Buffer,
-        joints_desc_set: vk.VkDescriptorSet,
+        mats_buf: gvk.Buffer,
+        mats_desc_set: vk.VkDescriptorSet,
         materials_buf: gvk.Buffer,
         materials_desc_set: vk.VkDescriptorSet,
         u_cam_buf: gvk.Buffer,
@@ -162,6 +163,7 @@ pub const Batcher = struct {
             .mvp = undefined,
             .normal = undefined,
             .material_idx = undefined,
+            .model_idx = undefined,
             .cur_image_tex = .{
                 .image_id = NullId,
                 .tex_id = NullId,
@@ -177,8 +179,8 @@ pub const Batcher = struct {
                 .pipelines = pipelines,
                 .vert_buf = vert_buf,
                 .index_buf = index_buf,
-                .joints_buf = joints_buf,
-                .joints_desc_set = joints_desc_set,
+                .mats_buf = mats_buf,
+                .mats_desc_set = mats_desc_set,
                 .materials_buf = materials_buf,
                 .materials_desc_set = materials_desc_set,
                 .u_cam_buf = u_cam_buf,
@@ -186,7 +188,7 @@ pub const Batcher = struct {
                 .cur_tex_desc_set = undefined,
                 .host_vert_buf = undefined,
                 .host_index_buf = undefined,
-                .host_joints_buf = undefined,
+                .host_mats_buf = undefined,
                 .host_materials_buf = undefined,
                 .host_cam_buf = undefined,
             },
@@ -203,10 +205,10 @@ pub const Batcher = struct {
         vk.assertSuccess(res);
         new.inner.host_index_buf = host_index_buf[0..new.inner.index_buf.size/@sizeOf(u16)];
 
-        var host_joints_buf: [*]stdx.math.Mat4 = undefined;
-        res = vk.mapMemory(new.inner.ctx.device, new.inner.joints_buf.mem, 0, new.inner.joints_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_joints_buf));
+        var host_mats_buf: [*]stdx.math.Mat4 = undefined;
+        res = vk.mapMemory(new.inner.ctx.device, new.inner.mats_buf.mem, 0, new.inner.mats_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_mats_buf));
         vk.assertSuccess(res);
-        new.inner.host_joints_buf = host_joints_buf[0..new.inner.joints_buf.size/@sizeOf(stdx.math.Mat4)];
+        new.inner.host_mats_buf = host_mats_buf[0..new.inner.mats_buf.size/@sizeOf(stdx.math.Mat4)];
 
         var host_materials_buf: [*]graphics.Material = undefined;
         res = vk.mapMemory(new.inner.ctx.device, new.inner.materials_buf.mem, 0, new.inner.materials_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_materials_buf));
@@ -221,7 +223,7 @@ pub const Batcher = struct {
         new.inner.host_cam_buf.light_color = Vec3.init(5, 5, 5);
         new.inner.host_cam_buf.light_vec = Vec3.init(-1, -1, 0).normalize();
 
-        new.mesh = Mesh.init(alloc, new.inner.host_joints_buf, new.inner.host_materials_buf);
+        new.mesh = Mesh.init(alloc, new.inner.host_mats_buf, new.inner.host_materials_buf);
 
         return new;
     }
@@ -240,7 +242,7 @@ pub const Batcher = struct {
                 const device = self.inner.ctx.device;
                 self.inner.vert_buf.deinit(device);
                 self.inner.index_buf.deinit(device);
-                self.inner.joints_buf.deinit(device);
+                self.inner.mats_buf.deinit(device);
                 self.inner.materials_buf.deinit(device);
                 self.inner.u_cam_buf.deinit(device);
             },
@@ -267,7 +269,7 @@ pub const Batcher = struct {
         self.setTexture(image);
     }
 
-    pub fn beginNormal(self: *Self, cam_loc: stdx.math.Vec3) void {
+    pub fn beginNormal(self: *Self) void {
         if (self.cur_shader_type != .Normal) {
             self.endCmd();
             self.cur_shader_type = .Normal;
@@ -528,6 +530,7 @@ pub const Batcher = struct {
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
                         const desc_sets = [_]vk.VkDescriptorSet{
                             self.inner.cur_tex_desc_set,
+                            self.inner.mats_desc_set,
                             self.inner.cam_desc_set,
                             self.inner.materials_desc_set,
                         };
@@ -537,6 +540,7 @@ pub const Batcher = struct {
                             .normal_0 = self.normal[0..3].*,
                             .normal_1 = self.normal[3..6].*,
                             .normal_2 = self.normal[6..9].*,
+                            .model_idx = self.model_idx,
                             .material_idx = self.material_idx,
                         };
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.TexLightingVertexConstant), &push_const);
@@ -546,7 +550,7 @@ pub const Batcher = struct {
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
                         const desc_sets = [_]vk.VkDescriptorSet{
                             self.inner.cur_tex_desc_set,
-                            self.inner.joints_desc_set,
+                            self.inner.mats_desc_set,
                         };
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
