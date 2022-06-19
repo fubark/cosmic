@@ -1668,7 +1668,6 @@ pub const GLTFnode = struct {
             .mesh = .{
                 .material = .{
                     .roughness = 0,
-                    .reflectivity = 0,
                     .emissivity = 0,
                     .metallic = 0,
                 },
@@ -2092,6 +2091,5 @@ pub const Mesh3D = struct {
 pub const Material = struct {
     emissivity: f32,
     roughness: f32,
-    reflectivity: f32,
     metallic: f32,
 };

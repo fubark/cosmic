@@ -17,8 +17,7 @@ layout(location = 2) in vec3 in_normal;
 layout(location = 3) in vec3 in_pos;
 layout(location = 4) in float in_emissivity;
 layout(location = 5) in float in_roughness;
-layout(location = 6) in float in_reflectivity;
-layout(location = 7) in float in_metallic;
+layout(location = 6) in float in_metallic;
 
 layout(location = 0) out vec4 f_color;
 
@@ -30,8 +29,8 @@ vec3 fs(vec3 f0, vec3 view_vec, vec3 half_vec) {
 // GGX/Trowbridge-Reitz Normal Distribution function.
 float nd(float alpha, vec3 norm_v, vec3 half_v) {
     float num = pow(alpha, 2);
-    float n_dot_h = max(dot(norm_v, half_v), 0);
-    float denom = pi * pow(pow(n_dot_h, 2) * (pow(alpha, 2) - 1) + 1, 2);
+    float ndoth = max(dot(norm_v, half_v), 0);
+    float denom = pi * pow(pow(ndoth, 2) * (num - 1) + 1, 2);
     denom = max(denom, 0.000001);
     return num/denom;
 }
@@ -54,7 +53,12 @@ void main() {
     // Interpolation should be normalized.
     vec3 norm_vec = normalize(in_normal);
     float roughness2 = in_roughness * in_roughness;
-    vec3 base_reflectance = vec3(in_reflectivity);
+
+    vec3 albedo = texture(u_tex, in_uv).xyz * in_color.xyz;
+    vec3 lambert = albedo / pi;
+
+    // Base reflectivity is lerped from dielectic surface to metallic surface approximated by albedo.
+    vec3 f0 = mix(vec3(0.04), albedo, in_metallic);
 
     // Directional light.
     vec3 l_vec = -u_cam.light_vec;
@@ -62,17 +66,18 @@ void main() {
     vec3 view_vec = normalize(u_cam.pos - in_pos);
     vec3 half_vec = normalize(view_vec + l_vec);
 
-    vec3 ks = fs(base_reflectance, view_vec, half_vec);
+    vec3 ks = fs(f0, view_vec, half_vec);
     vec3 kd = (vec3(1) - ks) * (1 - in_metallic);
-    vec3 albedo = texture(u_tex, in_uv).xyz * in_color.xyz;
-    vec3 lambert = albedo / pi;
+
+    float ndotl = dot(norm_vec, l_vec);
 
     // Cook Torrance.
     vec3 ctn = nd(roughness2, norm_vec, half_vec) * sm(roughness2, norm_vec, view_vec, l_vec) * ks;
-    float ctd = 4 * max(dot(view_vec, norm_vec), 0) * max(dot(l_vec, norm_vec), 0) + 0.000001;
-    vec3 ct = ctn / ctd;
+    float ctd = 4 * max(dot(view_vec, norm_vec), 0) * max(ndotl, 0) + 0.000001;
+    vec3 specular = ctn / ctd;
+    vec3 diffuse = kd * lambert;
+    vec3 brdf = diffuse + specular;
+    vec3 pbr = albedo * in_emissivity + brdf * u_cam.light_color * max(ndotl, 0);
 
-    vec3 brdf = kd * lambert * ct;
-    vec3 pbr = albedo * in_emissivity + brdf * u_cam.light_color * max(dot(l_vec, norm_vec), 0);
     f_color = vec4(pbr, 1);
 }
