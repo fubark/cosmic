@@ -79,5 +79,11 @@ void main() {
     vec3 brdf = diffuse + specular;
     vec3 pbr = albedo * in_emissivity + brdf * u_cam.light_color * max(ndotl, 0);
 
+    // From HDR back to LDR.
+    pbr = pbr / (pbr + 1);
+
+    // Gamma correction.
+    pbr = pow(pbr, vec3(1.0/2.2));
+
     f_color = vec4(pbr, 1);
 }

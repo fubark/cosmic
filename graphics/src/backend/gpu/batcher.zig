@@ -217,7 +217,8 @@ pub const Batcher = struct {
         res = vk.mapMemory(new.inner.ctx.device, new.inner.u_cam_buf.mem, 0, new.inner.u_cam_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_cam_buf));
         vk.assertSuccess(res);
         new.inner.host_cam_buf = host_cam_buf;
-        new.inner.host_cam_buf.light_color = Vec3.init(1, 1, 1);
+        // HDR light intensity.
+        new.inner.host_cam_buf.light_color = Vec3.init(5, 5, 5);
         new.inner.host_cam_buf.light_vec = Vec3.init(-1, -1, 0).normalize();
 
         new.mesh = Mesh.init(alloc, new.inner.host_joints_buf, new.inner.host_materials_buf);
