@@ -125,6 +125,11 @@ pub const Transform = struct {
         return Vec4{ .x = res[0], .y = res[1], .z = res[2], .w = res[3] };
     }
 
+    pub fn interpolate3(self: Self, x: f32, y: f32, z: f32) Vec3 {
+        const res = math.mul4x4_4x1(self.mat, [4]f32{x, y, z, 1 });
+        return Vec3{ .x = res[0], .y = res[1], .z = res[2] };
+    }
+
     pub fn interpolateVec3(self: Self, vec: Vec3) Vec3 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{vec.x, vec.y, vec.z, 1 });
         return Vec3{ .x = res[0], .y = res[1], .z = res[2] };

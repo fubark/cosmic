@@ -145,6 +145,58 @@ pub fn initTextureProjection(width: f32, height: f32) Transform {
     return res;
 }
 
+/// Transformed points will have:
+/// -x to the left, +x to the right
+/// +y upwards, -y downwards,
+/// -z in front, +z behind.
+pub fn initLookAt(from: Vec3, to: Vec3, up_ref: Vec3) Transform {
+    const forward = to.add3(-from.x, -from.y, -from.z).normalize();
+    const right = forward.cross(up_ref).normalize();
+    const up = right.cross(forward);
+    return Transform.initRowMajor(.{
+        right.x, right.y, right.z, -right.dot(from),
+        up.x, up.y, up.z, -up.dot(from),
+        -forward.x, -forward.y, -forward.z, forward.dot(from),
+        0, 0, 0, 1,
+    });
+}
+
+test "initLookAt" {
+    // Look toward origin on x axis.
+    const xform = initLookAt(Vec3.init(3, 0, 0), Vec3.init(2, 0, 0), Vec3.init(0, 1, 0));
+    try eqApproxVec3(xform.interpolate3(2, 0, 0), Vec3.init(0, 0, -1));
+    try eqApproxVec3(xform.interpolate3(3, 0, 1), Vec3.init(-1, 0, 0));
+    try eqApproxVec3(xform.interpolate3(3, 0, -1), Vec3.init(1, 0, 0));
+    try eqApproxVec3(xform.interpolate3(3, 1, 0), Vec3.init(0, 1, 0));
+    try eqApproxVec3(xform.interpolate3(3, -1, 0), Vec3.init(0, -1, 0));
+}
+
+pub fn initOrthographicProjection(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) Transform {
+    const dx = right - left;
+    const dy = bottom - top;
+    const dz = near - far;
+    return Transform.initRowMajor(.{
+        2.0 / dx, 0, 0, -(right + left) / dx,
+        0, 2.0 / dy, 0, -(bottom + top) / dy,
+        0, 0, 1.0 / dz, near / dz,
+        0, 0, 0, 1,
+    });
+}
+
+test "initOrthographicProjection" {
+    const xform = initOrthographicProjection(-10, 10, 10, -10, 10, -10);
+    // far top left.
+    try eqApproxVec3(xform.interpolate3(-10, 10, -10), Vec3.init(-1, -1, 0));
+    // far bottom right.
+    try eqApproxVec3(xform.interpolate3(10, -10, -10), Vec3.init(1, 1, 0));
+    // near top left.
+    try eqApproxVec3(xform.interpolate3(-10, 10, 10), Vec3.init(-1, -1, 1));
+    // near bottom right.
+    try eqApproxVec3(xform.interpolate3(10, -10, 10), Vec3.init(1, 1, 1));
+    // center.
+    try eqApproxVec3(xform.interpolate3(0, 0, 0), Vec3.init(0, 0, 0.5));
+}
+
 /// https://vincent-p.github.io/posts/vulkan_perspective_matrix/
 pub fn initPerspectiveProjection(vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) Transform {
     const fov_rad = vert_fov_deg * 2 * std.math.pi / 360;
@@ -217,7 +269,6 @@ pub fn initFrustumProjection(near: f32, far: f32, left: f32, right: f32, top: f3
         0, 0, -1, 0,
     });
 }
-
 
 /// Binds to the event dispatcher and allows camera movement with mouse and keyboard events.
 pub const CameraModule = struct {

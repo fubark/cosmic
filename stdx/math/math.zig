@@ -94,6 +94,11 @@ pub const Vec3 = struct {
         return Vec3.init(self.x + v.x, self.y + v.y, self.z + v.z);
     }
 
+    /// Component addition.
+    pub fn add3(self: Vec3, x: f32, y: f32, z: f32) Vec3 {
+        return Vec3.init(self.x + x, self.y + y, self.z + z);
+    }
+
     pub fn length(self: Vec3) f32 {
         return std.math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z);
     }
