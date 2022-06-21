@@ -77,7 +77,8 @@ pub const Batcher = struct {
         },
         .Vulkan => struct {
             ctx: gvk.VkContext,
-            cur_cmd_buf: vk.VkCommandBuffer,
+            renderer: *gvk.Renderer,
+            cur_frame: gvk.Frame,
             pipelines: gvk.Pipelines,
             vert_buf: gvk.Buffer,
             index_buf: gvk.Buffer,
@@ -151,6 +152,7 @@ pub const Batcher = struct {
         u_cam_buf: gvk.Buffer,
         cam_desc_set: vk.VkDescriptorSet,
         vk_ctx: gvk.VkContext,
+        renderer: *gvk.Renderer,
         pipelines: gvk.Pipelines,
         image_store: *graphics.gpu.ImageStore
     ) Self {
@@ -175,7 +177,8 @@ pub const Batcher = struct {
             .end_color = undefined,
             .inner = .{
                 .ctx = vk_ctx,
-                .cur_cmd_buf = undefined,
+                .renderer = renderer,
+                .cur_frame = undefined,
                 .pipelines = pipelines,
                 .vert_buf = vert_buf,
                 .index_buf = index_buf,
@@ -361,9 +364,8 @@ pub const Batcher = struct {
         self.mesh.reset();
     }
 
-    pub fn resetStateVK(self: *Self, image_tex: ImageTex, image_idx: u32, frame_idx: u32, clear_color: Color) void {
-        _ = frame_idx;
-        self.inner.cur_cmd_buf = self.inner.ctx.cmd_bufs[image_idx];
+    pub fn resetStateVK(self: *Self, image_tex: ImageTex, frame: gvk.Frame, clear_color: Color) void {
+        self.inner.cur_frame = frame;
         self.inner.cur_tex_desc_set = self.image_store.getTexture(image_tex.tex_id).inner.desc_set;
 
         self.cur_image_tex = image_tex;
@@ -372,9 +374,9 @@ pub const Batcher = struct {
         self.cmd_index_start_idx = 0;
         self.mesh.reset();
 
-        const cmd_buf = self.inner.cur_cmd_buf;
+        const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.beginCommandBuffer(cmd_buf);
-        gvk.command.beginRenderPass(cmd_buf, self.inner.ctx.pass, self.inner.ctx.framebuffers[image_idx], self.inner.ctx.framebuffer_size, clear_color);
+        gvk.command.beginRenderPass(cmd_buf, self.inner.renderer.main_pass, self.inner.cur_frame.framebuffer, self.inner.renderer.fb_size, clear_color);
 
         var offset: vk.VkDeviceSize = 0;
         vk.cmdBindVertexBuffers(cmd_buf, 0, 1, &self.inner.vert_buf.buf, &offset);
@@ -382,7 +384,7 @@ pub const Batcher = struct {
     }
 
     pub fn endFrameVK(self: *Self) void {
-        const cmd_buf = self.inner.cur_cmd_buf;
+        const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.endRenderPass(cmd_buf);
         gvk.command.endCommandBuffer(cmd_buf);
 
@@ -515,7 +517,7 @@ pub const Batcher = struct {
                 gl.bindVertexArray(0);
             },
             .Vulkan => {
-                const cmd_buf = self.inner.cur_cmd_buf;
+                const cmd_buf = self.inner.cur_frame.main_cmd_buf;
                 switch (self.cur_shader_type) {
                     .Tex3D => {
                         const pipeline = self.inner.pipelines.tex_pipeline;

@@ -108,9 +108,9 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, vk_ctx: vk.VkContext) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *vk.Renderer, vk_ctx: vk.VkContext) void {
         self.initCommon(alloc);
-        gpu.Graphics.initVK(&self.impl, alloc, dpr, vk_ctx);
+        gpu.Graphics.initVK(&self.impl, alloc, dpr, renderer, vk_ctx);
     }
 
     fn initCommon(self: *Self, alloc: std.mem.Allocator) void {

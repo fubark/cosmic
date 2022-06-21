@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const ds = stdx.ds;
 const platform = @import("platform");
 const cgltf = @import("cgltf");
@@ -83,13 +84,14 @@ pub const Graphics = struct {
         },
         .Vulkan => struct {
             ctx: VkContext,
+            renderer: *gvk.Renderer,
             pipelines: gvk.Pipelines,
             desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
             mats_desc_set_layout: vk.VkDescriptorSetLayout,
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
             cam_desc_set_layout: vk.VkDescriptorSetLayout,
-            cur_cmd_buf: vk.VkCommandBuffer,
+            cur_frame: gvk.Frame,
         },
         else => @compileError("unsupported"),
     },
@@ -171,14 +173,15 @@ pub const Graphics = struct {
         gl.enable(gl.GL_BLEND);
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, vk_ctx: VkContext) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) void {
         const physical = vk_ctx.physical;
         const device = vk_ctx.device;
-        const fb_size = vk_ctx.framebuffer_size;
-        const pass = vk_ctx.pass;
+        const fb_size = renderer.fb_size;
+        const pass = renderer.main_pass;
 
         self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
+        self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
         self.inner.desc_pool = gvk.createDescriptorPool(device);
         self.initCommon(alloc);
@@ -210,7 +213,7 @@ pub const Graphics = struct {
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
         self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, vk_ctx, self.inner.pipelines, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
     }
     
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
@@ -381,7 +384,7 @@ pub const Graphics = struct {
                         .height = @floatToInt(u32, rect.height),
                     },
                 };
-                vk.cmdSetScissor(self.inner.cur_cmd_buf, 0, 1, &vk_rect);
+                vk.cmdSetScissor(self.inner.cur_frame.main_cmd_buf, 0, 1, &vk_rect);
             },
             else => {},
         }
@@ -2223,11 +2226,11 @@ pub const Graphics = struct {
         return fbo_id;
     }
 
-    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, image_idx: u32, frame_idx: u32) void {
+    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, frame: gvk.Frame) void {
         self.cur_buf_width = buf_width;
         self.cur_buf_height = buf_height;
-        self.inner.cur_cmd_buf = self.inner.ctx.cmd_bufs[image_idx];
-        self.batcher.resetStateVK(self.white_tex, image_idx, frame_idx, self.clear_color);
+        self.inner.cur_frame = frame;
+        self.batcher.resetStateVK(self.white_tex, frame, self.clear_color);
 
         self.cur_clip_rect = .{
             .x = 0,
@@ -2397,6 +2400,7 @@ pub const Graphics = struct {
                 gl.bindTexture(gl.GL_TEXTURE_2D, 0);
             },
             .Vulkan => {
+                const renderer = self.inner.renderer;
                 const ctx = self.inner.ctx;
                 const size = @intCast(u32, buf.len);
                 const staging_buf = gvk.buffer.createBuffer(ctx.physical, ctx.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -2409,10 +2413,10 @@ pub const Graphics = struct {
                 vk.unmapMemory(ctx.device, staging_buf.mem);
 
                 // Transition to transfer dst layout.
-                ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                ctx.copyBufferToImage(staging_buf.buf, img.inner.image, img.width, img.height);
+                gvk.transitionImageLayout(renderer, img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                gvk.copyBufferToImage(renderer, staging_buf.buf, img.inner.image, img.width, img.height);
                 // Transition to shader access layout.
-                ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                gvk.transitionImageLayout(renderer, img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
                 // Cleanup.
                 staging_buf.deinit(ctx.device);

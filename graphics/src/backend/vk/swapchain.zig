@@ -119,8 +119,10 @@ pub const SwapChain = struct {
         self.depth_images_mem = alloc.alloc(vk.VkDeviceMemory, image_count) catch fatal();
         self.depth_image_views = alloc.alloc(vk.VkImageView, image_count) catch fatal();
         for (self.depth_images) |_, i| {
-            gvk.image.createDefaultImage(physical, device, self.buf_dim.width, self.buf_dim.height, vk.VK_FORMAT_D32_SFLOAT, vk.VK_IMAGE_TILING_OPTIMAL,
-                vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &self.depth_images[i], &self.depth_images_mem[i]);
+            const image = gvk.image.createDefaultImage(physical, device, self.buf_dim.width, self.buf_dim.height, vk.VK_FORMAT_D32_SFLOAT, vk.VK_IMAGE_TILING_OPTIMAL,
+                vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            self.depth_images[i] = image.image;
+            self.depth_images_mem[i] = image.mem;
             self.depth_image_views[i] = gvk.image.createDefaultImageView(device, self.depth_images[i], vk.VK_FORMAT_D32_SFLOAT);
         }
 

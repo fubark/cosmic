@@ -163,7 +163,7 @@ pub const ImageStore = struct {
                 graphics.gl.initImage(image, width, height, data, linear_filter);
             },
             .Vulkan => {
-                graphics.vk.VkContext.initImage(self.gctx.inner.ctx, image, width, height, data, linear_filter);
+                graphics.vk.initImage(self.gctx.inner.renderer, image, width, height, data, linear_filter);
             },
             else => stdx.panicUnsupported(),
         }
