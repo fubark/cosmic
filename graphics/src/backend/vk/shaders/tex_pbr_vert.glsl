@@ -18,6 +18,7 @@ struct Material {
     float emissivity;
     float roughness;
     float metallic;
+    vec4 albedo_color;
 };
 
 layout(set = 3, binding = 3) readonly buffer Materials {
@@ -48,12 +49,12 @@ layout(location = 7) out vec4 v_light_pos;
 void main()
 {
     v_uv = a_uv;
-    v_color = a_color;
     v_normal = normalize(a_normal * u_const.normal);
     vec4 world_pos = a_pos * mats[u_const.model_idx];
     v_pos = world_pos.xyz;
     v_light_pos = vec4(world_pos.xyz, 1.0) * u_cam.light_vp;
     Material mat = materials[u_const.material_idx];
+    v_color = mat.albedo_color;
     v_emissivity = mat.emissivity;
     v_roughness = mat.roughness;
     v_metallic = mat.metallic;

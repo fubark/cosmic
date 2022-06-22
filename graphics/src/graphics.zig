@@ -1686,6 +1686,7 @@ pub const GLTFnode = struct {
                     .roughness = 0,
                     .emissivity = 0,
                     .metallic = 0,
+                    .albedo_color = Color.White.toFloatArray(),
                 },
             },
             .skin = &.{},
@@ -2108,12 +2109,24 @@ pub const Material = struct {
     emissivity: f32,
     roughness: f32,
     metallic: f32,
+    padding: f32 = 0,
+    albedo_color: [4]f32,
 
     pub fn initDefault() Material {
         return .{
-            .emissivity = 0,
+            .emissivity = 0.1,
             .metallic = 0,
             .roughness = 0,
+            .albedo_color = Color.White.toFloatArray(),
+        };
+    }
+
+    pub fn initAlbedoColor(color: Color) Material {
+        return .{
+            .emissivity = 0.1,
+            .metallic = 0,
+            .roughness = 0,
+            .albedo_color = color.toFloatArray(),
         };
     }
 };
