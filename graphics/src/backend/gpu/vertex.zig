@@ -63,6 +63,12 @@ pub const TexShaderVertex = packed struct {
         self.color_a = @intToFloat(f32, color.channels.a) / 255;
     }
 
+    pub fn setNormal(self: *Self, normal: stdx.math.Vec3) void {
+        self.norm_x = normal.x;
+        self.norm_y = normal.y;
+        self.norm_z = normal.z;
+    }
+
     pub fn setUV(self: *Self, u: f32, v: f32) void {
         self.uv_x = u;
         self.uv_y = v;

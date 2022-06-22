@@ -1109,6 +1109,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: Material) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawCuboidPbr3D(&self.impl, xform, material),
+            else => unsupported(),
+        }
+    }
+
     pub fn drawScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawScene3D(&self.impl, xform, scene),
@@ -2101,4 +2108,12 @@ pub const Material = struct {
     emissivity: f32,
     roughness: f32,
     metallic: f32,
+
+    pub fn initDefault() Material {
+        return .{
+            .emissivity = 0,
+            .metallic = 0,
+            .roughness = 0,
+        };
+    }
 };

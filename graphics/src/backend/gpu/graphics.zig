@@ -1792,6 +1792,111 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
+        self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(vp);
+
+        // Compute normal matrix for lighting.
+        self.batcher.normal = xform.toRotationMat();
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
+
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(material);
+
+        self.ensureUnusedBatchCapacity(8, 36);
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        var vert: TexShaderVertex = undefined;
+        vert.setColor(Color.White);
+        vert.setUV(0, 0);
+        // far top-left
+        vert.setXYZ(-0.5, 0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(-1, 1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // far top-right
+        vert.setXYZ(0.5, 0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(1, 1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // far bottom-right
+        vert.setXYZ(0.5, -0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(1, -1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // far bottom-left
+        vert.setXYZ(-0.5, -0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(-1, -1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near top-left
+        vert.setXYZ(-0.5, 0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(-1, 1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near top-right
+        vert.setXYZ(0.5, 0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(1, 1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near bottom-right
+        vert.setXYZ(0.5, -0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(1, -1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near bottom-left
+        vert.setXYZ(-0.5, -0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(-1, -1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+
+        // far face
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+3);
+
+        // left face
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+3);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+3);
+        self.batcher.mesh.addIndex(vert_start+7);
+
+        // right face
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+6);
+        self.batcher.mesh.addIndex(vert_start+2);
+
+        // near face
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+7);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+7);
+        self.batcher.mesh.addIndex(vert_start+6);
+
+        // bottom face
+        self.batcher.mesh.addIndex(vert_start+7);
+        self.batcher.mesh.addIndex(vert_start+3);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+6);
+        self.batcher.mesh.addIndex(vert_start+7);
+
+        // top face
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+5);
+
+        self.batcher.beginMvp(cur_mvp);
+    }
+
     pub fn drawScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
@@ -1923,11 +2028,13 @@ pub const Graphics = struct {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        const mvp = xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
+        self.batcher.beginMvp(vp);
 
         // Compute normal matrix for lighting.
         self.batcher.normal = xform.toRotationUniformScaleMat();
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
 
         self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
         self.batcher.mesh.addMaterial(mesh.material);
