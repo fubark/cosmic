@@ -208,7 +208,7 @@ pub const Graphics = struct {
             vk.VkDescriptorImageInfo{
                 .imageLayout = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                 .imageView = renderer.shadow_image_view,
-                .sampler = renderer.linear_sampler,
+                .sampler = renderer.shadow_sampler,
             },
         };
         gvk.descriptor.updateImageDescriptorSet(device, shadowmap_desc_set, 4, &image_infos);
@@ -2437,28 +2437,9 @@ pub const Graphics = struct {
         self.cur_cam_world_pos = cam.world_pos;
     }
 
-    pub fn prepareShadows(self: *Self) void {
+    pub fn prepareShadows(self: *Self, cam: graphics.Camera) void {
         // Setup shadow mapping view point from directional light.
-        var inv_vp = self.batcher.mvp;
-        if (!inv_vp.invert()) fatal();
-
-        var corners: [8]Vec4 = undefined;
-        // near top-left.
-        corners[0] = inv_vp.interpolate4div(-1, -1, 1, 1);
-        // near top-right.
-        corners[1] = inv_vp.interpolate4div(1, -1, 1, 1);
-        // near bottom-right.
-        corners[2] = inv_vp.interpolate4div(1, 1, 1, 1);
-        // near bottom-left.
-        corners[3] = inv_vp.interpolate4div(-1, 1, 1, 1);
-        // far top-left.
-        corners[4] = inv_vp.interpolate4div(-1, -1, 0, 1);
-        // far top-right.
-        corners[5] = inv_vp.interpolate4div(1, -1, 0, 1);
-        // far bottom-right.
-        corners[6] = inv_vp.interpolate4div(1, 1, 0, 1);
-        // far bottom-left.
-        corners[7] = inv_vp.interpolate4div(-1, 1, 0, 1);
+        const corners = cam.computePartitionCorners(cam.near, (cam.near + cam.far) * 0.3);
 
         var center = Vec3.init(0, 0, 0);
         for (corners) |corner| {

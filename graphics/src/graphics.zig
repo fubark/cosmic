@@ -150,10 +150,10 @@ pub const Graphics = struct {
         }
     }
 
-    /// Should be called after camera has been set for a 3D scene.
-    pub fn prepareShadows(self: *Self) void {
+    /// Should be called before any meshes that need to be drawn with shadows.
+    pub fn prepareShadows(self: *Self, cam: Camera) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.prepareShadows(&self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.prepareShadows(&self.impl, cam),
             else => stdx.unsupported(),
         }
     }

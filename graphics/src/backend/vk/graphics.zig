@@ -64,7 +64,7 @@ pub fn copyImageToBuffer(renderer: *Renderer, img: vk.VkImage, buf: vk.VkBuffer,
     const cmd = renderer.beginSingleTimeCommands();
 
     var aspect_mask: u32 = vk.VK_IMAGE_ASPECT_COLOR_BIT;
-    if (format == vk.VK_FORMAT_D16_UNORM) {
+    if (format == vk.VK_FORMAT_D16_UNORM or format == vk.VK_FORMAT_D32_SFLOAT) {
         aspect_mask = vk.VK_IMAGE_ASPECT_DEPTH_BIT;
     }
     const copy = vk.VkBufferImageCopy{
@@ -175,7 +175,7 @@ pub fn transitionImageLayout(renderer: *Renderer, img: vk.VkImage, format: vk.Vk
     const cmd_buf = renderer.beginSingleTimeCommands();
 
     var aspect_mask: u32 = vk.VK_IMAGE_ASPECT_COLOR_BIT;
-    if (format == vk.VK_FORMAT_D16_UNORM) {
+    if (format == vk.VK_FORMAT_D16_UNORM or format == vk.VK_FORMAT_D32_SFLOAT) {
         aspect_mask = vk.VK_IMAGE_ASPECT_DEPTH_BIT;
     }
 
@@ -809,7 +809,7 @@ pub const Buffer = buffer.Buffer;
 
 pub fn getImageData(alloc: std.mem.Allocator, renderer: *Renderer, img: vk.VkImage, width: usize, height: usize, format: vk.VkFormat) []const u8 {
     var pixel_size: u32 = 4 * 3;
-    if (format == vk.VK_FORMAT_D16_UNORM) {
+    if (format == vk.VK_FORMAT_D16_UNORM or format == vk.VK_FORMAT_D32_SFLOAT) {
         pixel_size = 2;
     }
     const size = width * height * pixel_size;

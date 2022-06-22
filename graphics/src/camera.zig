@@ -33,6 +33,12 @@ pub const Camera = struct {
     rotate_x: f32,
     rotate_y: f32,
 
+    /// For perspective view. Used to compute partitions quickly.
+    aspect_ratio: f32,
+    vert_fov_rad: f32,
+    near: f32,
+    far: f32,
+
     /// Logical width and height.
     pub fn init2D(self: *Camera, width: u32, height: u32) void {
         self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
@@ -40,6 +46,10 @@ pub const Camera = struct {
     }
 
     pub fn initPerspective3D(self: *Camera, vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) void {
+        self.vert_fov_rad = vert_fov_deg * 2 * std.math.pi / 360;
+        self.aspect_ratio = aspect_ratio;
+        self.near = near;
+        self.far = far;
         self.proj_transform = initPerspectiveProjection(vert_fov_deg, aspect_ratio, near, far);
         self.world_pos = stdx.math.Vec3.init(0, 0, 0);
         self.setRotation(0, -std.math.pi);
@@ -77,6 +87,40 @@ pub const Camera = struct {
         self.rotate_x = rotate_x;
         self.rotate_y = rotate_y;
         self.computeViewTransform();
+    }
+
+    /// Useful for partitioning the camera's frustum for shadow maps.
+    pub fn computePartitionCorners(self: Camera, near: f32, far: f32) [8]Vec3 {
+        const tan_v = std.math.tan(self.vert_fov_rad/2);
+        const near_dy = tan_v * near;
+        const far_dy = tan_v * far;
+        const near_dx = near_dy * self.aspect_ratio;
+        const far_dx = far_dy * self.aspect_ratio;
+
+        const near_forward = self.forward_nvec.mul(near);
+        const near_up = self.up_nvec.mul(near_dy);
+        const near_right = self.right_nvec.mul(near_dx);
+        const far_forward = self.forward_nvec.mul(far);
+        const far_up = self.up_nvec.mul(far_dy);
+        const far_right = self.right_nvec.mul(far_dx);
+        return .{
+            // near top-left.
+            self.world_pos.add3(near_forward.x + near_up.x - near_right.x, near_forward.y + near_up.y - near_right.y, near_forward.z + near_up.z - near_right.z),
+            // near top-right.
+            self.world_pos.add3(near_forward.x + near_up.x + near_right.x, near_forward.y + near_up.y + near_right.y, near_forward.z + near_up.z + near_right.z),
+            // near bottom-right.
+            self.world_pos.add3(near_forward.x - near_up.x + near_right.x, near_forward.y - near_up.y + near_right.y, near_forward.z - near_up.z + near_right.z),
+            // near bottom-left.
+            self.world_pos.add3(near_forward.x - near_up.x - near_right.x, near_forward.y - near_up.y - near_right.y, near_forward.z - near_up.z - near_right.z),
+            // far top-left.
+            self.world_pos.add3(far_forward.x + far_up.x - far_right.x, far_forward.y + far_up.y - far_right.y, far_forward.z + far_up.z - far_right.z),
+            // far top-right.
+            self.world_pos.add3(far_forward.x + far_up.x + far_right.x, far_forward.y + far_up.y + far_right.y, far_forward.z + far_up.z + far_right.z),
+            // far bottom-right.
+            self.world_pos.add3(far_forward.x - far_up.x + far_right.x, far_forward.y - far_up.y + far_right.y, far_forward.z - far_up.z + far_right.z),
+            // far bottom-left.
+            self.world_pos.add3(far_forward.x - far_up.x - far_right.x, far_forward.y - far_up.y - far_right.y, far_forward.z - far_up.z - far_right.z),
+        };
     }
 
     // TODO: Convert to rotate_x, rotate_y.

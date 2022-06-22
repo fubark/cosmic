@@ -108,14 +108,20 @@ pub fn createDefaultImageView(device: vk.VkDevice, image: vk.VkImage, format: vk
     return ret;
 }
 
-pub fn createDefaultTextureSampler(device: vk.VkDevice, linear_filter: bool) vk.VkSampler {
+const SamplerOptions = struct {
+    linear_filter: bool,
+    address_mode: vk.VkSamplerAddressMode = vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+};
+
+pub fn createTextureSampler(device: vk.VkDevice, opts: SamplerOptions) vk.VkSampler {
+    const filter: c_uint = if (opts.linear_filter) vk.VK_FILTER_LINEAR else vk.VK_FILTER_NEAREST;
     const create_info = vk.VkSamplerCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = if (linear_filter) vk.VK_FILTER_LINEAR else vk.VK_FILTER_NEAREST,
-        .minFilter = if (linear_filter) vk.VK_FILTER_LINEAR else vk.VK_FILTER_NEAREST,
-        .addressModeU = vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeV = vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .addressModeW = vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .magFilter = filter,
+        .minFilter = filter,
+        .addressModeU = opts.address_mode,
+        .addressModeV = opts.address_mode,
+        .addressModeW = opts.address_mode,
         .anisotropyEnable = vk.VK_FALSE,
         .maxAnisotropy = 0,
         .borderColor = vk.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
