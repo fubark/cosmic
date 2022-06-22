@@ -33,6 +33,45 @@ pub fn mul3x3_3x1(a: Mat3, b: Vec3) Vec3 {
     };
 }
 
+pub fn mul3x3_3x3(a: Mat3, b: Mat3) Mat3 {
+    const stride = 3;
+    const r0 = 0 * stride;
+    const r1 = 1 * stride;
+    const r2 = 2 * stride;
+    const a00 = a[r0 + 0];
+    const a01 = a[r0 + 1];
+    const a02 = a[r0 + 2];
+    const a10 = a[r1 + 0];
+    const a11 = a[r1 + 1];
+    const a12 = a[r1 + 2];
+    const a20 = a[r2 + 0];
+    const a21 = a[r2 + 1];
+    const a22 = a[r2 + 2];
+    const b00 = b[r0 + 0];
+    const b01 = b[r0 + 1];
+    const b02 = b[r0 + 2];
+    const b10 = b[r1 + 0];
+    const b11 = b[r1 + 1];
+    const b12 = b[r1 + 2];
+    const b20 = b[r2 + 0];
+    const b21 = b[r2 + 1];
+    const b22 = b[r2 + 2];
+    return .{
+        // First row.
+        a00 * b00 + a01 * b10 + a02 * b20,
+        a00 * b01 + a01 * b11 + a02 * b21,
+        a00 * b02 + a01 * b12 + a02 * b22,
+
+        a10 * b00 + a11 * b10 + a12 * b20,
+        a10 * b01 + a11 * b11 + a12 * b21,
+        a10 * b02 + a11 * b12 + a12 * b22,
+
+        a20 * b00 + a21 * b10 + a22 * b20,
+        a20 * b01 + a21 * b11 + a22 * b21,
+        a20 * b02 + a21 * b12 + a22 * b22,
+    };
+}
+
 /// Row-major order.
 pub const Mat4 = [16]f32;
 
@@ -133,6 +172,30 @@ pub fn mul4x4_4x4(a: Mat4, b: Mat4) Mat4 {
     };
 }
 
+pub fn transpose3x3(m: Mat3) Mat3 {
+    return .{
+        m[0], m[3], m[6],
+        m[1], m[4], m[7],
+        m[2], m[5], m[8],
+    };
+}
+
+test "transpose3x3" {
+    const m = Mat3{
+        0, 1, 2,
+        3, 4, 5,
+        6, 7, 8,
+    };
+    const mt = transpose3x3(m);
+    try t.eq(mt, .{
+        0, 3, 6, 
+        1, 4, 7,
+        2, 5, 8,
+    });
+    const mtt = transpose3x3(mt);
+    try t.eq(mtt, m);
+}
+
 pub fn transpose4x4(m: Mat4) Mat4 {
     return .{
         m[0], m[4], m[8], m[12],
@@ -158,6 +221,52 @@ test "transpose4x4" {
     });
     const mtt = transpose4x4(mt);
     try t.eq(mtt, m);
+}
+
+pub fn invert3x3(m: Mat3, out: *Mat3) bool {
+    var inv: [9]f32 = undefined;
+
+    inv[0] = m[4]*m[8] - m[5]*m[7];
+    inv[1] = m[2]*m[7] - m[1]*m[8];
+    inv[2] = m[1]*m[5] - m[2]*m[4];
+    inv[3] = m[5]*m[6] - m[3]*m[8];
+    inv[4] = m[0]*m[8] - m[2]*m[6];
+    inv[5] = m[2]*m[3] - m[0]*m[5];
+    inv[6] = m[3]*m[7] - m[4]*m[6];
+    inv[7] = m[1]*m[6] - m[0]*m[7];
+    inv[8] = m[0]*m[4] - m[1]*m[3];
+
+    var det = m[0]*inv[0] + m[1]*inv[3] + m[2]*inv[6];
+    if (det == 0) {
+        return false;
+    }
+    det = 1.0 / det;
+
+    var i: u32 = 0;
+    while (i < 9) : (i += 1) {
+        out.*[i] = inv[i] * det;
+    }
+    return true;
+}
+
+test "invert3x3" {
+    const a = Mat3{
+        0, -3, -2,
+        1, -4, -2,
+        -3, 4, 1,
+    };
+    var inv: Mat3 = undefined;
+    try t.eq(invert3x3(a, &inv), true);
+
+    const exp = Mat3{
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1,
+    };
+    const act = mul3x3_3x3(inv, a);
+    for (act) |it, i| {
+        try t.eqApproxEps(it, exp[i]);
+    }
 }
 
 /// From Mesa's implementation of GLU.
@@ -299,7 +408,6 @@ test "invert4x4" {
         8, 8, 8, 7,
     };
     var inv: Mat4 = undefined;
-    t.setLogLevel(.debug);
     try t.eq(invert4x4(a, &inv), true);
 
     const exp = Mat4{

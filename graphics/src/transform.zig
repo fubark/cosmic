@@ -125,6 +125,12 @@ pub const Transform = struct {
         return Vec4{ .x = res[0], .y = res[1], .z = res[2], .w = res[3] };
     }
 
+    /// Convenience for perspective divide. Performs interpolate and divides result by the last component.
+    pub fn interpolate4div(self: Self, x: f32, y: f32, z: f32, w: f32) Vec4 {
+        const res = math.mul4x4_4x1(self.mat, [4]f32{x, y, z, w });
+        return Vec4{ .x = res[0] / res[3], .y = res[1] / res[3], .z = res[2] / res[3], .w = res[3] / res[3] };
+    }
+
     pub fn interpolate3(self: Self, x: f32, y: f32, z: f32) Vec3 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{x, y, z, 1 });
         return Vec3{ .x = res[0], .y = res[1], .z = res[2] };
@@ -140,13 +146,20 @@ pub const Transform = struct {
         return .{ .x = res[0], .y = res[1], .z = res[2], .w = res[3] };
     }
 
-    /// Useful for getting the normal matrix.
+    /// Useful for getting the normal matrix when the scale is known to be uniform.
     pub fn toRotationUniformScaleMat(self: Self) stdx.math.Mat3 {
         return .{
             self.mat[0], self.mat[1], self.mat[2],
             self.mat[4], self.mat[5], self.mat[6],
             self.mat[8], self.mat[9], self.mat[10],
         };
+    }
+
+    pub fn toRotationMat(self: Self) stdx.math.Mat3 {
+        const mat = self.toRotationUniformScaleMat();
+        var inverted: stdx.math.Mat3 = undefined;
+        _ = stdx.math.invert3x3(mat, &inverted);
+        return stdx.math.transpose3x3(inverted);
     }
 };
 
