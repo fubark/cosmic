@@ -1,10 +1,6 @@
 #version 450
 #pragma shader_stage(vertex)
 
-// layout(binding = 0) uniform ModelViewProj {
-//     mat4 mat;
-// } u_mvp;
-
 layout(push_constant) uniform VertConstants {
     mat4 mat;
 } u_const;

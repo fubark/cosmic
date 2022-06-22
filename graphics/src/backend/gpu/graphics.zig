@@ -89,6 +89,7 @@ pub const Graphics = struct {
             pipelines: gvk.Pipelines,
             desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
+            shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
             mats_desc_set_layout: vk.VkDescriptorSetLayout,
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
             cam_desc_set_layout: vk.VkDescriptorSetLayout,
@@ -146,6 +147,10 @@ pub const Graphics = struct {
     /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
     raster_glyph_buffer: std.ArrayList(u8),
 
+    /// Currently one directional light. HDR light intensity.
+    light_color: Vec3 = Vec3.init(5, 5, 5),
+    light_vec: Vec3 = Vec3.init(-1, -1, 0).normalize(),
+
     const Self = @This();
 
     pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
@@ -184,6 +189,7 @@ pub const Graphics = struct {
         self.inner.ctx = vk_ctx;
         self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
+        self.inner.shadowmap_desc_set_layout = gvk.createShadowMapDescriptorSetLayout(device);
         self.inner.desc_pool = gvk.createDescriptorPool(device);
         self.initCommon(alloc);
 
@@ -196,6 +202,16 @@ pub const Graphics = struct {
         self.inner.cam_desc_set_layout = gvk.createCameraDescriptorSetLayout(device);
         const cam_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.cam_desc_set_layout);
         gvk.descriptor.updateUniformBufferDescriptorSet(device, cam_desc_set, u_cam_buf.buf, 2, ShaderCamera);
+
+        const shadowmap_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.shadowmap_desc_set_layout);
+        var image_infos = [_]vk.VkDescriptorImageInfo{
+            vk.VkDescriptorImageInfo{
+                .imageLayout = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                .imageView = renderer.shadow_image_view,
+                .sampler = renderer.linear_sampler,
+            },
+        };
+        gvk.descriptor.updateImageDescriptorSet(device, shadowmap_desc_set, 4, &image_infos);
 
         self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
         const mats_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.mats_desc_set_layout);
@@ -212,11 +228,16 @@ pub const Graphics = struct {
         self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
-        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        const shadow_pass = renderer.shadow_pass;
+        const shadow_dim = vk.VkExtent2D{ .width = gvk.Renderer.ShadowMapSize, .height = gvk.Renderer.ShadowMapSize };
+        self.inner.pipelines.shadow_pipeline = gvk.createShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, shadowmap_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
+        self.batcher.inner.host_cam_buf.light_color = self.light_color;
+        self.batcher.inner.host_cam_buf.light_vec = self.light_vec;
     }
-    
+
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.* = .{
             .alloc = alloc,
@@ -301,6 +322,7 @@ pub const Graphics = struct {
                 self.inner.pipelines.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.shadowmap_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.mats_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.materials_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.cam_desc_set_layout, null);
@@ -2282,10 +2304,10 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
-    pub fn endFrameVK(self: *Self) void {
+    pub fn endFrameVK(self: *Self) graphics.FrameResultVK {
         self.endCmd();
-        self.batcher.endFrameVK();
         self.image_store.processRemovals();
+        return self.batcher.endFrameVK();
     }
 
     pub fn endFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
@@ -2306,6 +2328,65 @@ pub const Graphics = struct {
         self.view_transform = cam.view_transform;
         self.batcher.mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         self.cur_cam_world_pos = cam.world_pos;
+    }
+
+    pub fn prepareShadows(self: *Self) void {
+        // Setup shadow mapping view point from directional light.
+        var inv_vp = self.batcher.mvp;
+        if (!inv_vp.invert()) fatal();
+
+        var corners: [8]Vec4 = undefined;
+        // near top-left.
+        corners[0] = inv_vp.interpolate4div(-1, -1, 1, 1);
+        // near top-right.
+        corners[1] = inv_vp.interpolate4div(1, -1, 1, 1);
+        // near bottom-right.
+        corners[2] = inv_vp.interpolate4div(1, 1, 1, 1);
+        // near bottom-left.
+        corners[3] = inv_vp.interpolate4div(-1, 1, 1, 1);
+        // far top-left.
+        corners[4] = inv_vp.interpolate4div(-1, -1, 0, 1);
+        // far top-right.
+        corners[5] = inv_vp.interpolate4div(1, -1, 0, 1);
+        // far bottom-right.
+        corners[6] = inv_vp.interpolate4div(1, 1, 0, 1);
+        // far bottom-left.
+        corners[7] = inv_vp.interpolate4div(-1, 1, 0, 1);
+
+        var center = Vec3.init(0, 0, 0);
+        for (corners) |corner| {
+            center = center.add3(corner.x, corner.y, corner.z);
+        }
+        center = center.mul(@as(f32, 1)/@as(f32, 8));
+
+        // Compute ortho projection for directional light.
+        const light_view = graphics.camera.initLookAt(center.add3(-self.light_vec.x, -self.light_vec.y, -self.light_vec.z), center, Vec3.init(0, 1, 0));
+        var min_x: f32 = std.math.f32_max;
+        var min_y: f32 = std.math.f32_max;
+        var min_z: f32 = std.math.f32_max;
+        var max_x: f32 = std.math.f32_min;
+        var max_y: f32 = std.math.f32_min;
+        var max_z: f32 = std.math.f32_min;
+        for (corners) |corner| {
+            const view_pos = light_view.interpolate3(corner.x, corner.y, corner.z);
+            min_x = std.math.min(min_x, view_pos.x);
+            max_x = std.math.max(max_x, view_pos.x);
+            min_y = std.math.min(min_y, view_pos.y);
+            max_y = std.math.max(max_y, view_pos.y);
+            min_z = std.math.min(min_z, view_pos.z);
+            max_z = std.math.max(max_z, view_pos.z);
+        }
+        const z_scale = 10.0;
+        if (min_z < 0) {
+            min_z *= z_scale;
+        }
+        if (max_z > 0) {
+            max_z *= z_scale;
+        }
+
+        const proj = graphics.camera.initOrthographicProjection(min_x, max_x, max_y, min_y, max_z, min_z);
+        const light_vp = light_view.getAppliedTransform(proj);
+        self.batcher.prepareShadowPass(light_vp);
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
@@ -2467,4 +2548,5 @@ pub const ShaderCamera = struct {
     pad_1: f32 = 0,
     light_color: Vec3,
     pad_2: f32 = 0,
+    light_vp: Mat4,
 };

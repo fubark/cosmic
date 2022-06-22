@@ -86,7 +86,7 @@ pub const Renderer = struct {
     pub inline fn endFrame(self: *Self) void {
         switch (Backend) {
             .Vulkan => {
-                gpu.Graphics.endFrameVK(&self.gctx.impl);
+                const frame_res = gpu.Graphics.endFrameVK(&self.gctx.impl);
 
                 const cur_image_idx = self.swapchain.impl.cur_image_idx;
                 const cur_frame_idx = self.swapchain.impl.cur_frame_idx;
@@ -96,7 +96,7 @@ pub const Renderer = struct {
                 const frame = self.inner.vk.frames[cur_image_idx];
 
                 // Only submit shadow command if work was recorded.
-                const cmd_bufs: []const vk.VkCommandBuffer = if (frame.submit_shadow_cmd) &[_]vk.VkCommandBuffer{
+                const cmd_bufs: []const vk.VkCommandBuffer = if (frame_res.submit_shadow_cmd) &[_]vk.VkCommandBuffer{
                     frame.shadow_cmd_buf,
                     frame.main_cmd_buf,
                 } else &[_]vk.VkCommandBuffer{
@@ -123,4 +123,8 @@ pub const Renderer = struct {
         }
         self.swapchain.endFrame();
     }
+};
+
+pub const FrameResultVK = struct {
+    submit_shadow_cmd: bool,
 };

@@ -351,7 +351,67 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     });
 }
 
-pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout,
+pub fn createShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        // Pos.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 0,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
+        },
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = @sizeOf(ShadowVertexConstant),
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+
+    const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
+        tex_desc_set_layout,
+        mats_desc_set_layout,
+    };
+
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = desc_set_layouts.len,
+        .pSetLayouts = &desc_set_layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.shadow_vert_spv;
+    const frag_src align(4) = shaders.shadow_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
+        .depth_test = true,
+        .line_mode = false,
+    });
+}
+
+pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
     mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
@@ -413,6 +473,7 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         mats_desc_set_layout,
         cam_desc_set_layout,
         materials_desc_set_layout,
+        shadowmap_desc_set_layout,
     };
 
     const pl_info = vk.VkPipelineLayoutCreateInfo{
@@ -434,6 +495,11 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         .line_mode = false,
     });
 }
+
+pub const ShadowVertexConstant = struct {
+    mvp: stdx.math.Mat4,
+    model_idx: u32,
+};
 
 pub const TexLightingVertexConstant = struct {
     mvp: stdx.math.Mat4,
@@ -707,8 +773,12 @@ pub fn createTexDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayou
     return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, false, true);
 }
 
+pub fn createShadowMapDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayout {
+    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4, false, true);
+}
+
 pub fn createCameraDescriptorSetLayout(device: vk.VkDevice) vk.VkDescriptorSetLayout {
-    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2, false, true);
+    return descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2, true, true);
 }
 
 pub const Pipelines = struct {
@@ -720,6 +790,7 @@ pub const Pipelines = struct {
     gradient_pipeline_2d: Pipeline,
     plane_pipeline: Pipeline,
     norm_pipeline: Pipeline,
+    shadow_pipeline: Pipeline,
 
     pub fn deinit(self: Pipelines, device: vk.VkDevice) void {
         self.wireframe_pipeline.deinit(device);

@@ -34,7 +34,7 @@ const text_renderer = @import("backend/gpu/text_renderer.zig");
 const FontCache = gpu.FontCache;
 const log = stdx.log.scoped(.graphics);
 pub const curve = @import("curve.zig");
-const camera = @import("camera.zig");
+pub const camera = @import("camera.zig");
 pub const Camera = camera.Camera;
 pub const CameraModule = camera.CameraModule;
 pub const initTextureProjection = camera.initTextureProjection;
@@ -44,6 +44,7 @@ pub const tessellator = @import("tessellator.zig");
 pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
 pub const Renderer = @import("renderer.zig").Renderer;
+pub const FrameResultVK = @import("renderer.zig").FrameResultVK;
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
@@ -145,6 +146,14 @@ pub const Graphics = struct {
     pub fn setCamera(self: *Self, cam: Camera) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setCamera(&self.impl, cam),
+            else => stdx.unsupported(),
+        }
+    }
+
+    /// Should be called after camera has been set for a 3D scene.
+    pub fn prepareShadows(self: *Self) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.prepareShadows(&self.impl),
             else => stdx.unsupported(),
         }
     }

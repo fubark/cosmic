@@ -5,6 +5,14 @@ layout(set = 1, binding = 1) readonly buffer Matrices {
 	mat4 mats[];
 };
 
+layout(set = 2, binding = 2) uniform Camera {
+    vec3 pos;
+    // Directional light, assume normalized.
+    vec3 light_vec;
+    vec3 light_color;
+    mat4 light_vp;
+} u_cam;
+
 struct Material {
     float emissivity;
     float roughness;
@@ -34,6 +42,7 @@ layout(location = 3) out vec3 v_pos;
 layout(location = 4) out float v_emissivity;
 layout(location = 5) out float v_roughness;
 layout(location = 6) out float v_metallic;
+layout(location = 7) out vec4 v_light_pos;
 
 void main()
 {
@@ -42,6 +51,7 @@ void main()
     v_normal = normalize(a_normal * u_const.normal);
     vec4 world_pos = a_pos * mats[u_const.model_idx];
     v_pos = world_pos.xyz;
+    v_light_pos = vec4(world_pos.xyz, 1.0) * u_cam.light_vp;
     Material mat = materials[u_const.material_idx];
     v_emissivity = mat.emissivity;
     v_roughness = mat.roughness;

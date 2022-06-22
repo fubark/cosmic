@@ -89,11 +89,15 @@ pub const Batcher = struct {
             materials_desc_set: vk.VkDescriptorSet,
             mats_desc_set: vk.VkDescriptorSet,
             cam_desc_set: vk.VkDescriptorSet,
+            shadowmap_desc_set: vk.VkDescriptorSet,
             host_vert_buf: []TexShaderVertex,
             host_index_buf: []u16,
             host_mats_buf: []stdx.math.Mat4,
             host_materials_buf: []graphics.Material,
             host_cam_buf: *graphics.gpu.ShaderCamera,
+            do_shadow_pass: bool,
+            // Directional light shadow cast view * proj.
+            light_cast_vp: Transform,
         },
         else => @compileError("unsupported"),
     },
@@ -151,6 +155,7 @@ pub const Batcher = struct {
         materials_desc_set: vk.VkDescriptorSet,
         u_cam_buf: gvk.Buffer,
         cam_desc_set: vk.VkDescriptorSet,
+        shadowmap_desc_set: vk.VkDescriptorSet,
         vk_ctx: gvk.VkContext,
         renderer: *gvk.Renderer,
         pipelines: gvk.Pipelines,
@@ -186,6 +191,7 @@ pub const Batcher = struct {
                 .mats_desc_set = mats_desc_set,
                 .materials_buf = materials_buf,
                 .materials_desc_set = materials_desc_set,
+                .shadowmap_desc_set = shadowmap_desc_set,
                 .u_cam_buf = u_cam_buf,
                 .cam_desc_set = cam_desc_set,
                 .cur_tex_desc_set = undefined,
@@ -194,6 +200,8 @@ pub const Batcher = struct {
                 .host_mats_buf = undefined,
                 .host_materials_buf = undefined,
                 .host_cam_buf = undefined,
+                .do_shadow_pass = false,
+                .light_cast_vp = undefined,
             },
             .image_store = image_store,
         };
@@ -367,6 +375,7 @@ pub const Batcher = struct {
     pub fn resetStateVK(self: *Self, image_tex: ImageTex, frame: gvk.Frame, clear_color: Color) void {
         self.inner.cur_frame = frame;
         self.inner.cur_tex_desc_set = self.image_store.getTexture(image_tex.tex_id).inner.desc_set;
+        self.inner.do_shadow_pass = false;
 
         self.cur_image_tex = image_tex;
         self.cur_shader_type = .Tex;
@@ -376,17 +385,58 @@ pub const Batcher = struct {
 
         const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.beginCommandBuffer(cmd_buf);
-        gvk.command.beginRenderPass(cmd_buf, self.inner.renderer.main_pass, self.inner.cur_frame.framebuffer, self.inner.renderer.fb_size, clear_color);
+        gvk.command.beginRenderPass(cmd_buf, self.inner.renderer.main_pass, self.inner.cur_frame.framebuffer, self.inner.renderer.fb_size.width, self.inner.renderer.fb_size.height, clear_color);
 
         var offset: vk.VkDeviceSize = 0;
         vk.cmdBindVertexBuffers(cmd_buf, 0, 1, &self.inner.vert_buf.buf, &offset);
         vk.cmdBindIndexBuffer(cmd_buf, self.inner.index_buf.buf, 0, vk.VK_INDEX_TYPE_UINT16);
     }
 
-    pub fn endFrameVK(self: *Self) void {
+    /// Must be called before draw calls are recorded for the shadow pass.
+    pub fn prepareShadowPass(self: *Self, light_vp: Transform) void {
+        if (Backend == .Vulkan) {
+            if (!self.inner.do_shadow_pass) {
+                self.inner.do_shadow_pass = true;
+                self.inner.light_cast_vp = light_vp;
+                self.inner.host_cam_buf.light_vp = light_vp.mat;
+
+                const shadow_cmd = self.inner.cur_frame.shadow_cmd_buf;
+                gvk.command.beginCommandBuffer(shadow_cmd);
+                gvk.command.beginRenderPass(shadow_cmd, self.inner.renderer.shadow_pass, self.inner.renderer.shadow_framebuffer, gvk.Renderer.ShadowMapSize, gvk.Renderer.ShadowMapSize, null);
+
+                var offset: vk.VkDeviceSize = 0;
+                vk.cmdBindVertexBuffers(shadow_cmd, 0, 1, &self.inner.vert_buf.buf, &offset);
+                vk.cmdBindIndexBuffer(shadow_cmd, self.inner.index_buf.buf, 0, vk.VK_INDEX_TYPE_UINT16);
+
+                const vk_rect = vk.VkRect2D{
+                    .offset = .{
+                        .x = 0,
+                        .y = 0,
+                    },
+                    .extent = .{
+                        .width = gvk.Renderer.ShadowMapSize,
+                        .height = gvk.Renderer.ShadowMapSize,
+                    },
+                };
+                vk.cmdSetScissor(shadow_cmd, 0, 1, &vk_rect);
+            }
+        }
+    }
+
+    pub fn endFrameVK(self: *Self) graphics.FrameResultVK {
         const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.endRenderPass(cmd_buf);
         gvk.command.endCommandBuffer(cmd_buf);
+
+        var res = graphics.FrameResultVK{
+            .submit_shadow_cmd = false,
+        };
+        if (self.inner.do_shadow_pass) {
+            const shadow_cmd = self.inner.cur_frame.shadow_cmd_buf;
+            gvk.command.endRenderPass(shadow_cmd);
+            gvk.command.endCommandBuffer(shadow_cmd);
+            res.submit_shadow_cmd = true;
+        }
 
         // Send all the mesh data at once.
 
@@ -398,6 +448,8 @@ pub const Batcher = struct {
 
         // Copy index buffer.
         std.mem.copy(u16, self.inner.host_index_buf[0..self.mesh.cur_index_buf_size], self.mesh.index_buf[0..self.mesh.cur_index_buf_size]);
+
+        return res;
     }
 
     pub fn beginMvp(self: *Self, mvp: Transform) void {
@@ -518,6 +570,7 @@ pub const Batcher = struct {
             },
             .Vulkan => {
                 const cmd_buf = self.inner.cur_frame.main_cmd_buf;
+                const num_indexes = self.mesh.cur_index_buf_size - self.cmd_index_start_idx;
                 switch (self.cur_shader_type) {
                     .Tex3D => {
                         const pipeline = self.inner.pipelines.tex_pipeline;
@@ -528,6 +581,22 @@ pub const Batcher = struct {
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     .TexPbr3D => {
+                        if (self.inner.do_shadow_pass) {
+                            const shadow_p = self.inner.pipelines.shadow_pipeline;
+                            const shadow_cmd = self.inner.cur_frame.shadow_cmd_buf;
+                            vk.cmdBindPipeline(shadow_cmd, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_p.pipeline);
+                            const desc_sets = [_]vk.VkDescriptorSet{
+                                self.inner.cur_tex_desc_set,
+                                self.inner.mats_desc_set,
+                            };
+                            vk.cmdBindDescriptorSets(shadow_cmd, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_p.layout, 0, desc_sets.len, &desc_sets, 0, null);
+                            var push_const = gvk.ShadowVertexConstant{
+                                .mvp = self.inner.light_cast_vp.mat,
+                                .model_idx = self.model_idx,
+                            };
+                            vk.cmdPushConstants(shadow_cmd, shadow_p.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.ShadowVertexConstant), &push_const);
+                            vk.cmdDrawIndexed(shadow_cmd, num_indexes, 1, self.cmd_index_start_idx, 0, 0);
+                        }
                         const pipeline = self.inner.pipelines.tex_pbr_pipeline;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
                         const desc_sets = [_]vk.VkDescriptorSet{
@@ -535,6 +604,7 @@ pub const Batcher = struct {
                             self.inner.mats_desc_set,
                             self.inner.cam_desc_set,
                             self.inner.materials_desc_set,
+                            self.inner.shadowmap_desc_set,
                         };
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
                         var push_const = gvk.TexLightingVertexConstant{
@@ -594,7 +664,6 @@ pub const Batcher = struct {
                     },
                     else => stdx.unsupported(),
                 }
-                const num_indexes = self.mesh.cur_index_buf_size - self.cmd_index_start_idx;
                 vk.cmdDrawIndexed(cmd_buf, num_indexes, 1, self.cmd_index_start_idx, 0, 0);
             },
             else => stdx.unsupported(),

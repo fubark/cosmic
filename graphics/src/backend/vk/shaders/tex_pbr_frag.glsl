@@ -7,7 +7,10 @@ layout(set = 2, binding = 2) uniform Camera {
     // Directional light, assume normalized.
     vec3 light_vec;
     vec3 light_color;
+    mat4 light_vp;
 } u_cam;
+
+layout(set = 4, binding = 4) uniform sampler2D u_shadow_map;
 
 const float pi = 3.14159265358979323846264338327950288;
 
@@ -18,6 +21,7 @@ layout(location = 3) in vec3 in_pos;
 layout(location = 4) in float in_emissivity;
 layout(location = 5) in float in_roughness;
 layout(location = 6) in float in_metallic;
+layout(location = 7) in vec4 in_light_pos;
 
 layout(location = 0) out vec4 f_color;
 
@@ -49,6 +53,19 @@ float sm(float alpha, vec3 normal_v, vec3 view_v, vec3 light_v) {
     return gs(alpha, normal_v, view_v) * gs(alpha, normal_v, light_v);
 }
 
+float computeShadow(vec4 light_space_pos) {
+    // Perspective divide and convert to texture coords.
+    float z = light_space_pos.z / light_space_pos.w;
+    vec2 map_uv = (light_space_pos.xy / light_space_pos.w) * 0.5 + 0.5;
+    float nearest_depth = texture(u_shadow_map, map_uv).r;   
+    float bias = 0.0005;
+    if (z + bias < nearest_depth) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 void main() {
     // Interpolation should be normalized.
     vec3 norm_vec = normalize(in_normal);
@@ -76,7 +93,8 @@ void main() {
     float ctd = 4 * max(dot(view_vec, norm_vec), 0) * max(ndotl, 0) + 0.000001;
     vec3 specular = ctn / ctd;
     vec3 diffuse = kd * lambert;
-    vec3 brdf = diffuse + specular;
+    float shadow = computeShadow(in_light_pos);  
+    vec3 brdf = (1 - shadow) * (diffuse + specular);
     vec3 pbr = albedo * in_emissivity + brdf * u_cam.light_color * max(ndotl, 0);
 
     // From HDR back to LDR.
