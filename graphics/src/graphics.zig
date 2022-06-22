@@ -1786,9 +1786,9 @@ pub const GLTFnode = struct {
                             _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, val_buf.len);
                             var vi: u32 = 0;
                             while (vi < verts.len) : (vi += 1) {
-                                verts[vi].norm_x = val_buf[vi * 3];
-                                verts[vi].norm_y = val_buf[vi * 3 + 1];
-                                verts[vi].norm_z = val_buf[vi * 3 + 2];
+                                verts[vi].normal.x = val_buf[vi * 3];
+                                verts[vi].normal.y = val_buf[vi * 3 + 1];
+                                verts[vi].normal.z = val_buf[vi * 3 + 2];
                             }
                         } else {
                             return error.UnsupportedFormat;
