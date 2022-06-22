@@ -5,8 +5,8 @@ layout(push_constant) uniform VertConstants {
     mat4 mvp;
 } u_const;
 
-layout(set = 1, binding = 1) readonly buffer JointMatrices {
-	mat4 joint_mats[];
+layout(set = 1, binding = 1) readonly buffer Matrices {
+	mat4 mats[];
 };
 
 layout(location = 0) in vec4 a_pos;
@@ -45,10 +45,10 @@ void main()
     uvec4 joints = decodeUintComponents4(a_joints);
     vec4 weights = decodeFloatComponents4(a_weights);
     mat4 skin = 
-		weights.x * joint_mats[joints.x] +
-		weights.y * joint_mats[joints.y] + 
-		weights.z * joint_mats[joints.z] + 
-		weights.w * joint_mats[joints.w];
+		weights.x * mats[joints.x] +
+		weights.y * mats[joints.y] + 
+		weights.z * mats[joints.z] + 
+		weights.w * mats[joints.w];
 
     gl_Position = a_pos * skin * u_const.mvp;
 }

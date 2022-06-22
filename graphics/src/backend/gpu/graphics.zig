@@ -1968,7 +1968,7 @@ pub const Graphics = struct {
             new_vert.setColor(Color.Blue);
             self.batcher.mesh.addVertex(&new_vert);
             new_vert.setColor(Color.Red);
-            new_vert.setXYZ(new_vert.pos_x + new_vert.norm_x * norm_len, new_vert.pos_y + new_vert.norm_y * norm_len, new_vert.pos_z + new_vert.norm_z * norm_len);
+            new_vert.setXYZ(new_vert.pos_x + new_vert.normal.x * norm_len, new_vert.pos_y + new_vert.normal.y * norm_len, new_vert.pos_z + new_vert.normal.z * norm_len);
             self.batcher.mesh.addVertex(&new_vert);
             self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i));
             self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i) + 1);
@@ -2125,7 +2125,9 @@ pub const Graphics = struct {
             if (node.skin.len > 0) {
                 for (node.mesh.verts) |vert| {
                     var new_vert = vert;
-                    new_vert.setColor(self.cur_fill_color);
+                    if (fill) {
+                        new_vert.setColor(self.cur_fill_color);
+                    }
                     // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
                     new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
                     new_vert.joints.compact.joint_1 = self.tmp_joint_idxes[new_vert.joints.components.joint_2] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_3]) << 16);
@@ -2134,7 +2136,9 @@ pub const Graphics = struct {
             } else {
                 for (node.mesh.verts) |vert| {
                     var new_vert = vert;
-                    new_vert.setColor(self.cur_fill_color);
+                    if (fill) {
+                        new_vert.setColor(self.cur_fill_color);
+                    }
                     self.batcher.mesh.addVertex(&new_vert);
                 }
             }

@@ -360,13 +360,7 @@ pub fn createShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         },
     };
     const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
-        // Pos.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 0,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
-        },
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -421,34 +415,10 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         },
     };
     const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
-        // Pos.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 0,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
-        },
-        // Normal.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 1,
-            .format = vk.VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "norm_x"),
-        },
-        // Uv.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 2,
-            .format = vk.VK_FORMAT_R32G32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "uv_x"),
-        },
-        // Color.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 3,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
-        },
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
+        initAttrDesc(gpu.TexShaderVertex, "normal", vk.VK_FORMAT_R32G32B32_SFLOAT, 1),
+        initAttrDesc(gpu.TexShaderVertex, "uv", vk.VK_FORMAT_R32G32_SFLOAT, 2),
+        initAttrDesc(gpu.TexShaderVertex, "color", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 3),
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -518,7 +488,29 @@ test "TexLightingVertexConstant" {
     try t.eq(@sizeOf(TexLightingVertexConstant), 16*4 + 12*4 + 4 + 4);
 }
 
-pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, joints_desc_set_layout: vk.VkDescriptorSetLayout, tex_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+fn initAttrDesc(comptime Vertex: type, comptime field_name: []const u8, comptime format: vk.VkFormat, location: u32) vk.VkVertexInputAttributeDescription {
+    // Check format size matches the field.
+    const format_size = switch (format) {
+        vk.VK_FORMAT_R32_UINT => 4,
+        vk.VK_FORMAT_R32G32_UINT => 8,
+        vk.VK_FORMAT_R32G32_SFLOAT => 8,
+        vk.VK_FORMAT_R32G32B32_SFLOAT => 12,
+        vk.VK_FORMAT_R32G32B32A32_SFLOAT => 16,
+        else => @compileError("unsupported: " ++ format),
+    };
+    const FieldEnum = comptime std.meta.stringToEnum(std.meta.FieldEnum(Vertex), field_name).?;
+    if (format_size != @sizeOf(stdx.meta.FieldType(Vertex, FieldEnum))) {
+        @compileError("Attribute size mismatch.");
+    }
+    return .{
+        .binding = 0,
+        .location = location,
+        .format = format,
+        .offset = @offsetOf(Vertex, field_name),
+    };
+}
+
+pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, mats_desc_set_layout: vk.VkDescriptorSetLayout, tex_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -527,43 +519,11 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
         },
     };
     const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
-        // Pos.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 0,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
-        },
-        // Uv.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 1,
-            .format = vk.VK_FORMAT_R32G32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "uv_x"),
-        },
-        // Color.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 2,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
-        },
-        // Joints.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 3,
-            .format = vk.VK_FORMAT_R32_UINT,
-            // .format = vk.VK_FORMAT_R32G32B32A32_UINT,
-            // .format = vk.VK_FORMAT_R16G16_UINT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "joints"),
-        },
-        // Joint weights.
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 4,
-            .format = vk.VK_FORMAT_R32_UINT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "weights")
-        },
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
+        initAttrDesc(gpu.TexShaderVertex, "uv", vk.VK_FORMAT_R32G32_SFLOAT, 1),
+        initAttrDesc(gpu.TexShaderVertex, "color", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 2),
+        initAttrDesc(gpu.TexShaderVertex, "joints", vk.VK_FORMAT_R32G32_UINT, 3),
+        initAttrDesc(gpu.TexShaderVertex, "weights", vk.VK_FORMAT_R32_UINT, 4),
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -585,7 +545,7 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
 
     const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
         tex_desc_set_layout,
-        joints_desc_set_layout,
+        mats_desc_set_layout,
     };
 
     const pl_info = vk.VkPipelineLayoutCreateInfo{
@@ -617,24 +577,9 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
         },
     };
     const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 0,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
-        },
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 1,
-            .format = vk.VK_FORMAT_R32G32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "uv_x"),
-        },
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 2,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
-        },
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
+        initAttrDesc(gpu.TexShaderVertex, "uv", vk.VK_FORMAT_R32G32_SFLOAT, 1),
+        initAttrDesc(gpu.TexShaderVertex, "color", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 2),
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -682,18 +627,8 @@ pub fn createNormPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
         },
     };
     const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 0,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "pos_x"),
-        },
-        vk.VkVertexInputAttributeDescription{
-            .binding = 0,
-            .location = 1,
-            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-            .offset = @offsetOf(gpu.TexShaderVertex, "color_r"),
-        },
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
+        initAttrDesc(gpu.TexShaderVertex, "color", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 1),
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -742,7 +677,7 @@ pub fn createDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
             .@"type" = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 100,
         },
-        // Joints + materials buffer.
+        // Matrix + materials buffer.
         vk.VkDescriptorPoolSize{
             .@"type" = vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = 2,

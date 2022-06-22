@@ -224,7 +224,7 @@ pub const Batcher = struct {
         var host_materials_buf: [*]graphics.Material = undefined;
         res = vk.mapMemory(new.inner.ctx.device, new.inner.materials_buf.mem, 0, new.inner.materials_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_materials_buf));
         vk.assertSuccess(res);
-        new.inner.host_materials_buf = host_materials_buf[0..new.inner.materials_buf.size/@sizeOf(stdx.math.Mat4)];
+        new.inner.host_materials_buf = host_materials_buf[0..new.inner.materials_buf.size/@sizeOf(graphics.Material)];
 
         var host_cam_buf: *graphics.gpu.ShaderCamera = undefined;
         res = vk.mapMemory(new.inner.ctx.device, new.inner.u_cam_buf.mem, 0, new.inner.u_cam_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_cam_buf));
