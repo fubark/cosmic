@@ -8,6 +8,7 @@ const stbi = @import("stbi");
 const math = stdx.math;
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
+const Vec4 = math.Vec4;
 const vec2 = math.Vec2.init;
 const Mat4 = math.Mat4;
 const geom = math.geom;

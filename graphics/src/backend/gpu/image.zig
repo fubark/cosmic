@@ -129,7 +129,7 @@ pub const ImageStore = struct {
                     .sampler = image.inner.sampler,
                 },
             };
-            gvk.descriptor.updateImageDescriptorSet(device, desc_set, image_infos);
+            gvk.descriptor.updateImageDescriptorSet(device, desc_set, 0, image_infos);
 
             // Currently each image allocates a new texture.
             const tex_id = self.textures.add(.{

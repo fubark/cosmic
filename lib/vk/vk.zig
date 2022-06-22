@@ -653,6 +653,14 @@ pub inline fn cmdSetScissor(commandBuffer: c.VkCommandBuffer, firstScissor: u32,
     }
 }
 
+pub inline fn cmdCopyImageToBuffer(commandBuffer: c.VkCommandBuffer, srcImage: c.VkImage, srcImageLayout: c.VkImageLayout, dstBuffer: c.VkBuffer, regionCount: u32, pRegions: [*c]const c.VkBufferImageCopy) void {
+    if (use_rt_funcs) {
+        rtVkCmdCopyImageToBuffer(commandBuffer, srcImage, srcImageLayout, dstBuffer, regionCount, pRegions);
+    } else {
+        c.vkCmdCopyImageToBuffer(commandBuffer, srcImage, srcImageLayout, dstBuffer, regionCount, pRegions);
+    }
+}
+
 var rtVkGetInstanceProcAddr: fn (instance: c.VkInstance, pName: [*c]const u8) c.PFN_vkVoidFunction = undefined;
 var rtVkCreateInstance: fn (pCreateInfo: [*c]const c.VkInstanceCreateInfo, pAllocator: [*c]const c.VkAllocationCallbacks, pInstance: [*c]c.VkInstance) c.VkResult = undefined;
 var rtVkEnumeratePhysicalDevices: fn (instance: c.VkInstance, pPhysicalDeviceCount: [*c]u32, pPhysicalDevices: [*c]c.VkPhysicalDevice) c.VkResult = undefined;
@@ -734,6 +742,7 @@ var rtVkDestroySampler: fn (device: c.VkDevice, sampler: c.VkSampler, pAllocator
 var rtVkDestroyRenderPass: fn (device: c.VkDevice, renderPass: c.VkRenderPass, pAllocator: [*c]const c.VkAllocationCallbacks) void = undefined;
 var rtVkDestroyCommandPool: fn (device: c.VkDevice, commandPool: c.VkCommandPool, pAllocator: [*c]const c.VkAllocationCallbacks) void = undefined;
 var rtVkCmdSetScissor: fn (commandBuffer: c.VkCommandBuffer, firstScissor: u32, scissorCount: u32, pScissors: [*c]const c.VkRect2D) void = undefined;
+var rtVkCmdCopyImageToBuffer: fn (commandBuffer: c.VkCommandBuffer, srcImage: c.VkImage, srcImageLayout: c.VkImageLayout, dstBuffer: c.VkBuffer, regionCount: u32, pRegions: [*c]const c.VkBufferImageCopy) void = undefined;
 
 /// Vulkan is translated to Metal on macOS through MoltenVK. After SDL_Vulkan_LoadLibrary or creating a sdl window with SDL_WINDOW_VULKAN,
 /// this should be invoked to bind the vk functions at runtime.
@@ -822,6 +831,7 @@ pub fn initMacVkFunctions(instance: c.VkInstance) void {
     loadVkFunc(&rtVkDestroyRenderPass, instance, "vkDestroyRenderPass");
     loadVkFunc(&rtVkDestroyCommandPool, instance, "vkDestroyCommandPool");
     loadVkFunc(&rtVkCmdSetScissor, instance, "vkCmdSetScissor");
+    loadVkFunc(&rtVkCmdCopyImageToBuffer, instance, "vkCmdCopyImageToBuffer");
 }
 
 fn loadVkFunc(ptr_to_fn: anytype, instance: c.VkInstance, name: [:0]const u8) void {

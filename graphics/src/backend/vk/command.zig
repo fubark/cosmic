@@ -44,11 +44,9 @@ pub fn beginCommandBuffer(cmd_buf: vk.VkCommandBuffer) void {
     vk.assertSuccess(res);
 }
 
-pub fn beginRenderPass(cmd_buf: vk.VkCommandBuffer, pass: vk.VkRenderPass, framebuffer: vk.VkFramebuffer, extent: vk.VkExtent2D, clear_color: graphics.Color) void {
-    const clear_vals = [_]vk.VkClearValue{
-        vk.VkClearValue{
-            .color = vk.VkClearColorValue{ .float32 = clear_color.toFloatArray() },
-        },
+pub fn beginRenderPass(cmd_buf: vk.VkCommandBuffer, pass: vk.VkRenderPass, framebuffer: vk.VkFramebuffer, width: usize, height: usize, clear_color: ?graphics.Color) void {
+    var clear_vals_buf: [2]vk.VkClearValue = .{
+        undefined,
         vk.VkClearValue{
             .depthStencil = vk.VkClearDepthStencilValue{
                 .depth = 0,
@@ -56,16 +54,27 @@ pub fn beginRenderPass(cmd_buf: vk.VkCommandBuffer, pass: vk.VkRenderPass, frame
             },
         },
     };
+    // Assumes clear vals have the same index as the framebuffer attachments.
+    var clear_vals: []const vk.VkClearValue = clear_vals_buf[1..2];
+    if (clear_color) |color| {
+        clear_vals_buf[0] = vk.VkClearValue{
+            .color = vk.VkClearColorValue{ .float32 = color.toFloatArray() },
+        };
+        clear_vals = clear_vals_buf[0..2];
+    }
     const begin_info = vk.VkRenderPassBeginInfo{
         .sType = vk.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass = pass,
         .framebuffer = framebuffer,
         .renderArea = vk.VkRect2D{
             .offset = vk.VkOffset2D{ .x = 0, .y = 0 },
-            .extent = extent,
+            .extent = vk.VkExtent2D{
+                .width = @intCast(u32, width),
+                .height = @intCast(u32, height),
+            },
         },
-        .clearValueCount = clear_vals.len,
-        .pClearValues = &clear_vals,
+        .clearValueCount = @intCast(u32, clear_vals.len),
+        .pClearValues = clear_vals.ptr,
         .pNext = null,
     };
     vk.cmdBeginRenderPass(cmd_buf, &begin_info, vk.VK_SUBPASS_CONTENTS_INLINE);

@@ -3,8 +3,8 @@ const memory = @import("memory.zig");
 
 pub fn createDepthImage(physical: vk.VkPhysicalDevice, device: vk.VkDevice, width: usize, height: usize, format: vk.VkFormat) Image {
     return createDefaultImage(physical, device, width, height, format, vk.VK_IMAGE_TILING_OPTIMAL,
-        // For sampling.
-        vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk.VK_IMAGE_USAGE_SAMPLED_BIT,
+        // For sampling. TRANSFER_SRC for debugging.
+        vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | vk.VK_IMAGE_USAGE_SAMPLED_BIT | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
         vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     );
 }

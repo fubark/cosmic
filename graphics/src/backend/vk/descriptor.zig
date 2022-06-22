@@ -3,11 +3,11 @@ const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const vk = @import("vk");
 
-pub fn updateImageDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSet, image_infos: []vk.VkDescriptorImageInfo) void {
+pub fn updateImageDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDescriptorSet, binding: u32, image_infos: []vk.VkDescriptorImageInfo) void {
     const write = vk.VkWriteDescriptorSet{
         .sType = vk.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = desc_set,
-        .dstBinding = 0,
+        .dstBinding = binding,
         .dstArrayElement = 0,
         .descriptorType = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = @intCast(u32, image_infos.len),

@@ -4,6 +4,7 @@ const t = stdx.testing;
 const fatal = stdx.fatal;
 const vk = @import("vk");
 const platform = @import("platform");
+const stbi = @import("stbi");
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
@@ -57,6 +58,39 @@ fn copyBuffer(renderer: *Renderer, src: vk.VkBuffer, dst: vk.VkBuffer, size: vk.
     };
     vk.cmdCopyBuffer(cmd_buf, src, dst, 1, &copy);
     renderer.endSingleTimeCommands(cmd_buf);
+}
+
+pub fn copyImageToBuffer(renderer: *Renderer, img: vk.VkImage, buf: vk.VkBuffer, width: usize, height: usize, format: vk.VkFormat) void {
+    const cmd = renderer.beginSingleTimeCommands();
+
+    var aspect_mask: u32 = vk.VK_IMAGE_ASPECT_COLOR_BIT;
+    if (format == vk.VK_FORMAT_D16_UNORM) {
+        aspect_mask = vk.VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+    const copy = vk.VkBufferImageCopy{
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+
+        .imageSubresource = .{
+            .aspectMask = aspect_mask,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .imageOffset = .{
+            .x = 0,
+            .y = 0,
+            .z = 0
+        },
+        .imageExtent = .{
+            .width = @intCast(u32, width),
+            .height = @intCast(u32, height),
+            .depth = 1,
+        },
+    };
+    vk.cmdCopyImageToBuffer(cmd, img, vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buf, 1, &copy);
+    renderer.endSingleTimeCommands(cmd);
 }
 
 pub fn copyBufferToImage(renderer: *Renderer, buf: vk.VkBuffer, img: vk.VkImage, width: usize, height: usize) void {
@@ -140,7 +174,10 @@ pub fn initImage(renderer: *Renderer, img: *gpu.Image, width: usize, height: usi
 pub fn transitionImageLayout(renderer: *Renderer, img: vk.VkImage, format: vk.VkFormat, old_layout: vk.VkImageLayout, new_layout: vk.VkImageLayout) void {
     const cmd_buf = renderer.beginSingleTimeCommands();
 
-    _ = format;
+    var aspect_mask: u32 = vk.VK_IMAGE_ASPECT_COLOR_BIT;
+    if (format == vk.VK_FORMAT_D16_UNORM) {
+        aspect_mask = vk.VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
 
     var barrier = vk.VkImageMemoryBarrier{
         .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -150,7 +187,7 @@ pub fn transitionImageLayout(renderer: *Renderer, img: vk.VkImage, format: vk.Vk
         .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
         .image = img,
         .subresourceRange = .{
-            .aspectMask = vk.VK_IMAGE_ASPECT_COLOR_BIT,
+            .aspectMask = aspect_mask,
             .baseMipLevel = 0,
             .levelCount = 1,
             .baseArrayLayer = 0,
@@ -179,6 +216,16 @@ pub fn transitionImageLayout(renderer: *Renderer, img: vk.VkImage, format: vk.Vk
         barrier.dstAccessMask = vk.VK_ACCESS_TRANSFER_WRITE_BIT;
         src_stage = vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         dst_stage = vk.VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (old_layout == vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL and new_layout == vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        barrier.srcAccessMask = vk.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        barrier.dstAccessMask = vk.VK_ACCESS_TRANSFER_READ_BIT;
+        src_stage = vk.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        dst_stage = vk.VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (old_layout == vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL and new_layout == vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = vk.VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = vk.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        src_stage = vk.VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dst_stage = vk.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | vk.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     } else {
         stdx.fatal();
     }
@@ -683,7 +730,44 @@ pub const Pipelines = struct {
         self.gradient_pipeline_2d.deinit(device);
         self.plane_pipeline.deinit(device);
         self.norm_pipeline.deinit(device);
+        self.shadow_pipeline.deinit(device);
     }
 };
 
 pub const Buffer = buffer.Buffer;
+
+pub fn getImageData(alloc: std.mem.Allocator, renderer: *Renderer, img: vk.VkImage, width: usize, height: usize, format: vk.VkFormat) []const u8 {
+    var pixel_size: u32 = 4 * 3;
+    if (format == vk.VK_FORMAT_D16_UNORM) {
+        pixel_size = 2;
+    }
+    const size = width * height * pixel_size;
+    const buf = buffer.createBuffer(renderer.physical, renderer.device, size, vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    defer buf.deinit(renderer.device);
+
+    // Transition to transfer dst layout.
+    transitionImageLayout(renderer, img, format, vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    copyImageToBuffer(renderer, img, buf.buf, width, height, format);
+    // Transition to shader access layout.
+    transitionImageLayout(renderer, img, format, vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+
+    var data: [*]u8 = undefined;
+    const res = vk.mapMemory(renderer.device, buf.mem, 0, size, 0, @ptrCast([*c]?*anyopaque, &data));
+    vk.assertSuccess(res);
+    defer vk.unmapMemory(renderer.device, buf.mem);
+
+    return alloc.dupe(u8, data[0..size]) catch fatal();
+}
+
+pub fn dumpImageBmp(alloc: std.mem.Allocator, renderer: *Renderer, img: vk.VkImage, width: usize, height: usize, format: vk.VkFormat, filename: [:0]const u8) void {
+    const data = getImageData(alloc, renderer, img, width, height, format);
+    defer alloc.free(data);
+    const bmp_data = alloc.alloc(u8, width * height) catch fatal();
+    defer alloc.free(bmp_data);
+    var i: u32 = 0;
+    while (i < width * height) : (i += 1) {
+        const val = std.mem.readIntNative(u16, data[i*2..i*2+2][0..2]);
+        bmp_data[i] = @floatToInt(u8, (@intToFloat(f32, val) / @intToFloat(f32, std.math.maxInt(u16))) * 255);
+    }
+    _ = stbi.stbi_write_bmp(filename, @intCast(c_int, width), @intCast(c_int, height), 1, bmp_data.ptr);
+}
