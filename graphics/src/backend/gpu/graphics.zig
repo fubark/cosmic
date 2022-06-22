@@ -2637,4 +2637,5 @@ pub const ShaderCamera = struct {
     light_color: Vec3,
     pad_2: f32 = 0,
     light_vp: Mat4,
+    enable_shadows: bool,
 };

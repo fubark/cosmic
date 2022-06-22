@@ -11,6 +11,7 @@ layout(set = 2, binding = 2) uniform Camera {
     vec3 light_vec;
     vec3 light_color;
     mat4 light_vp;
+    bool enable_shadows;
 } u_cam;
 
 struct Material {

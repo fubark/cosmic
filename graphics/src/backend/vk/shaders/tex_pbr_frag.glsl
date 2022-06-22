@@ -8,6 +8,7 @@ layout(set = 2, binding = 2) uniform Camera {
     vec3 light_vec;
     vec3 light_color;
     mat4 light_vp;
+    bool enable_shadows;
 } u_cam;
 
 layout(set = 4, binding = 4) uniform sampler2D u_shadow_map;
@@ -106,7 +107,7 @@ void main() {
     float ctd = 4 * max(dot(view_vec, norm_vec), 0) * max(ndotl, 0) + 0.000001;
     vec3 specular = ctn / ctd;
     vec3 diffuse = kd * lambert;
-    float shadow = computeShadow(in_light_pos, l_vec);  
+    float shadow = u_cam.enable_shadows ? computeShadow(in_light_pos, l_vec) : 0;
     vec3 brdf = (1 - shadow) * (diffuse + specular);
     vec3 pbr = albedo * in_emissivity + brdf * u_cam.light_color * max(ndotl, 0);
 

@@ -436,6 +436,9 @@ pub const Batcher = struct {
             gvk.command.endRenderPass(shadow_cmd);
             gvk.command.endCommandBuffer(shadow_cmd);
             res.submit_shadow_cmd = true;
+            self.inner.host_cam_buf.enable_shadows = true;
+        } else {
+            self.inner.host_cam_buf.enable_shadows = false;
         }
 
         // Send all the mesh data at once.
