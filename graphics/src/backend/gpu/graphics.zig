@@ -362,8 +362,6 @@ pub const Graphics = struct {
     }
 
     pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
-        // log.debug("clipRect {} {} {} {}", .{x, y, width, height});
-
         switch (Backend) {
             .OpenGL => {
                 self.cur_clip_rect = .{
@@ -376,10 +374,10 @@ pub const Graphics = struct {
             },
             .Vulkan => {
                 self.cur_clip_rect = .{
-                    .x = x,
-                    .y = y,
-                    .width = width,
-                    .height = height,
+                    .x = x * self.cur_dpr,
+                    .y = y * self.cur_dpr,
+                    .width = width * self.cur_dpr,
+                    .height = height * self.cur_dpr,
                 };
             },
             else => {},
