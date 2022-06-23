@@ -1586,7 +1586,8 @@ pub const GLTFscene = struct {
                             const times = alloc.alloc(f32, time_accessor.count) catch fatal();
                             var i: u32 = 0;
                             while (i < time_accessor.count) : (i += 1) {
-                                _ = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
+                                const res = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
+                                try cgltf.checkTrue(res);
                             }
                             for (times) |_, j| {
                                 // From secs to ms.
@@ -1611,7 +1612,10 @@ pub const GLTFscene = struct {
                                 }
                                 const num_floats = 4 * out_accessor.count;
                                 const val_buf = alloc.alloc(stdx.math.Vec4, num_floats) catch fatal();
-                                _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                                const res = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                                if (res == 0) {
+                                    return error.NoData;
+                                }
 
                                 // for (times) |time, idx| {
                                 //     log.debug("{}: {},{}", .{idx, time, val_buf[idx]});
@@ -1631,7 +1635,10 @@ pub const GLTFscene = struct {
                                 }
                                 const num_floats = 3 * out_accessor.count;
                                 const val_buf = alloc.alloc(stdx.math.Vec3, num_floats) catch fatal();
-                                _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                                const res = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                                if (res == 0) {
+                                    return error.NoData;
+                                }
 
                                 transition.properties.append(.{
                                     .data = TransitionData{
@@ -1647,7 +1654,10 @@ pub const GLTFscene = struct {
                                 }
                                 const num_floats = 3 * out_accessor.count;
                                 const val_buf = alloc.alloc(stdx.math.Vec3, num_floats) catch fatal();
-                                _ = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                                const res = cgltf.cgltf_accessor_unpack_floats(out_accessor, @ptrCast([*c]f32, val_buf.ptr), num_floats);
+                                if (res == 0) {
+                                    return error.NoData;
+                                }
 
                                 transition.properties.append(.{
                                     .data = TransitionData{
@@ -1844,7 +1854,10 @@ pub const GLTFnode = struct {
                             if (accessor.@"type" == cgltf.cgltf_type_vec3 and component_type == cgltf.cgltf_component_type_r_32f) {
                                 const val_buf = alloc.alloc(cgltf.cgltf_float, 3 * accessor.count) catch fatal();
                                 defer alloc.free(val_buf);
-                                _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, val_buf.len);
+                                const res = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, val_buf.len);
+                                if (res == 0) {
+                                    return error.NoData;
+                                }
                                 var vi: u32 = 0;
                                 while (vi < verts.len) : (vi += 1) {
                                     verts[vi].normal.x = val_buf[vi * 3];
@@ -1862,7 +1875,10 @@ pub const GLTFnode = struct {
                                 const num_floats = num_component_vals * accessor.count;
                                 const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
                                 defer alloc.free(val_buf);
-                                _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+                                const res = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+                                if (res == 0) {
+                                    return error.NoData;
+                                }
 
                                 var vi: u32 = 0;
                                 while (vi < verts.len) : (vi += 1) {
@@ -1883,7 +1899,10 @@ pub const GLTFnode = struct {
                                 const num_floats = num_component_vals * accessor.count;
                                 const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
                                 defer alloc.free(val_buf);
-                                _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+                                const res = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+                                if (res == 0) {
+                                    return error.NoData;
+                                }
 
                                 var vi: u32 = 0;
                                 while (vi < verts.len) : (vi += 1) {
@@ -1902,7 +1921,10 @@ pub const GLTFnode = struct {
                                 var i: u32 = 0;
                                 while (i < accessor.count) : (i += 1) {
                                     var joints: [4]u32 = undefined;
-                                    _ = cgltf.cgltf_accessor_read_uint(accessor, i, &joints, 4);
+                                    const res = cgltf.cgltf_accessor_read_uint(accessor, i, &joints, 4);
+                                    if (res == 0) {
+                                        return error.NoData;
+                                    }
                                     verts[i].joints.components.joint_0 = @intCast(u16, joints[0]);
                                     verts[i].joints.components.joint_1 = @intCast(u16, joints[1]);
                                     verts[i].joints.components.joint_2 = @intCast(u16, joints[2]);
@@ -1918,7 +1940,10 @@ pub const GLTFnode = struct {
                                 var i: u32 = 0;
                                 while (i < accessor.count) : (i += 1) {
                                     var weights: [4]f32 = undefined;
-                                    _ = cgltf.cgltf_accessor_read_float(accessor, i, &weights, 4);
+                                    const res = cgltf.cgltf_accessor_read_float(accessor, i, &weights, 4);
+                                    if (res == 0) {
+                                        return error.NoData;
+                                    }
                                     const weight0 = @floatToInt(u8, std.math.floor(weights[0] * 255));
                                     const weight1 = @floatToInt(u8, std.math.floor(weights[1] * 255));
                                     const weight2 = @floatToInt(u8, std.math.floor(weights[2] * 255));
@@ -1986,7 +2011,10 @@ pub const GLTFnode = struct {
                     const joints = skin.joints[0..skin.joints_count];
                     for (joints) |joint_node, i| {
                         var mat: [16]f32 = undefined;
-                        _ = cgltf.cgltf_accessor_read_float(skin.inverse_bind_matrices, i, &mat, 16);
+                        const res = cgltf.cgltf_accessor_read_float(skin.inverse_bind_matrices, i, &mat, 16);
+                        if (res == 0) {
+                            return error.NoData;
+                        }
                         mesh_joints[i] = .{
                             // Convert from col major to row major.
                             .inv_bind_mat = stdx.math.transpose4x4(mat),
