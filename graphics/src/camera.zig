@@ -321,6 +321,8 @@ pub const CameraModule = struct {
     move_backward: bool,
     move_left: bool,
     move_right: bool,
+    move_up: bool,
+    move_down: bool,
 
     dragging: bool,
     drag_start_rotate_x: f32,
@@ -339,6 +341,8 @@ pub const CameraModule = struct {
                     .S => self.move_backward = true,
                     .A => self.move_left = true,
                     .D => self.move_right = true,
+                    .R => self.move_up = true,
+                    .F => self.move_down = true,
                     else => {},
                 }
             }
@@ -349,6 +353,8 @@ pub const CameraModule = struct {
                     .S => self.move_backward = false,
                     .A => self.move_left = false,
                     .D => self.move_right = false,
+                    .R => self.move_up = false,
+                    .F => self.move_down = false,
                     else => {},
                 }
             }
@@ -375,8 +381,8 @@ pub const CameraModule = struct {
                     const delta_x = @intToFloat(f32, me.x) - self.drag_start_x;
                     const delta_y = -(@intToFloat(f32, me.y) - self.drag_start_y);
 
-                    const delta_pitch = delta_y * 0.01;
-                    const delta_yaw = delta_x * 0.01;
+                    const delta_pitch = delta_y * 0.005;
+                    const delta_yaw = delta_x * 0.005;
                     self.cam.setRotation(self.drag_start_rotate_x + delta_pitch, self.drag_start_rotate_y - delta_yaw);
                 }
             }
@@ -392,6 +398,8 @@ pub const CameraModule = struct {
             .move_backward = false,
             .move_left = false,
             .move_right = false,
+            .move_up = false,
+            .move_down = false,
             .dragging = false,
             .drag_start_rotate_x = undefined,
             .drag_start_rotate_y = undefined,
@@ -412,6 +420,12 @@ pub const CameraModule = struct {
         }
         if (self.move_right) {
             self.cam.moveRight(0.05 * delta_ms);
+        }
+        if (self.move_up) {
+            self.cam.moveUp(0.05 * delta_ms);
+        }
+        if (self.move_down) {
+            self.cam.moveUp(-0.05 * delta_ms);
         }
     }
 };
