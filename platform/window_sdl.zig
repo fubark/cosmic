@@ -512,17 +512,27 @@ const SwapChainInfo = struct {
         return self.formats[0];
     }
 
-    pub fn getDefaultPresentMode(self: SwapChainInfo) vk.VkPresentModeKHR {
-        var best: vk.VkPresentModeKHR = vk.VK_PRESENT_MODE_FIFO_KHR;
-        for (self.present_modes) |mode| {
-            if (mode == vk.VK_PRESENT_MODE_MAILBOX_KHR) {
-                return mode;
-            } else if (mode == vk.VK_PRESENT_MODE_IMMEDIATE_KHR) {
-                best = mode;
+    /// Returns null if present mode is not supported.
+    pub fn getPresentMode(self: SwapChainInfo, mode: PresentMode) ?vk.VkPresentModeKHR {
+        const target = switch (mode) {
+            .Immediate => vk.VK_PRESENT_MODE_IMMEDIATE_KHR,
+            .Vsync => vk.VK_PRESENT_MODE_FIFO_KHR,
+            .Mailbox => vk.VK_PRESENT_MODE_MAILBOX_KHR,
+        };
+        for (self.present_modes) |vk_mode| {
+            if (vk_mode == target) {
+                return vk_mode;
             }
         }
-        return best;
+        return null;
     }
+};
+
+const PresentMode = enum(u2) {
+    Immediate = 0,
+    Vsync = 1,
+    // Like vsync but the queue size is 1.
+    Mailbox = 2,
 };
 
 /// Currently in the platform module to find a suitable physical device.

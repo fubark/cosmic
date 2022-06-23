@@ -44,7 +44,7 @@ pub const App = struct {
         self.cam.init2D(self.win.getWidth(), self.win.getHeight());
 
         // Create an fps limiter in case vsync is off or not supported.
-        self.fps_limiter = graphics.DefaultFpsLimiter.init(30);
+        self.fps_limiter = graphics.DefaultFpsLimiter.init(60);
         self.quit = false;
 
         const S = struct {

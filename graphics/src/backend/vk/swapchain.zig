@@ -67,7 +67,11 @@ pub const SwapChain = struct {
 
         const surface_format = swapc_info.getDefaultSurfaceFormat();
         self.buf_format = surface_format.format;
-        const present_mode = swapc_info.getDefaultPresentMode();
+
+        var present_mode = swapc_info.getPresentMode(.Mailbox) orelse
+            swapc_info.getPresentMode(.Vsync) orelse
+            swapc_info.getPresentMode(.Immediate) orelse fatal();
+
         self.buf_dim = swapc_info.getDefaultExtent();
 
         var image_count: u32 = swapc_info.capabilities.minImageCount + 1;
