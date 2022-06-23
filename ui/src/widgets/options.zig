@@ -91,6 +91,7 @@ pub const SwitchOption = struct {
                     d(Flex, .{
                         .child = d(Text, .{
                             .text = self.props.label,
+                            .font_size = 14,
                             .color = Color.White,
                         }),
                     }),
