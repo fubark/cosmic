@@ -87,12 +87,9 @@ pub const Graphics = struct {
             ctx: VkContext,
             renderer: *gvk.Renderer,
             pipelines: gvk.Pipelines,
-            desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
-            shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
             mats_desc_set_layout: vk.VkDescriptorSetLayout,
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
-            cam_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_frame: gvk.Frame,
         },
         else => @compileError("unsupported"),
@@ -189,8 +186,7 @@ pub const Graphics = struct {
         self.inner.ctx = vk_ctx;
         self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
-        self.inner.shadowmap_desc_set_layout = gvk.createShadowMapDescriptorSetLayout(device);
-        self.inner.desc_pool = gvk.createDescriptorPool(device);
+        const desc_pool = renderer.desc_pool;
         self.initCommon(alloc);
 
         const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
@@ -198,46 +194,33 @@ pub const Graphics = struct {
         const mats_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 2000);
         const materials_buf = gvk.buffer.createStorageBuffer(physical, device, @sizeOf(graphics.Material) * 100);
 
-        const u_cam_buf = gvk.buffer.createUniformBuffer(physical, device, ShaderCamera);
-        self.inner.cam_desc_set_layout = gvk.createCameraDescriptorSetLayout(device);
-        const cam_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.cam_desc_set_layout);
-        gvk.descriptor.updateUniformBufferDescriptorSet(device, cam_desc_set, u_cam_buf.buf, 2, ShaderCamera);
-
-        const shadowmap_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.shadowmap_desc_set_layout);
-        var image_infos = [_]vk.VkDescriptorImageInfo{
-            vk.VkDescriptorImageInfo{
-                .imageLayout = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                .imageView = renderer.shadow_image_view,
-                .sampler = renderer.shadow_sampler,
-            },
-        };
-        gvk.descriptor.updateImageDescriptorSet(device, shadowmap_desc_set, 4, &image_infos);
-
         self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
-        const mats_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.mats_desc_set_layout);
+        const mats_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.mats_desc_set_layout);
         gvk.descriptor.updateStorageBufferDescriptorSet(device, mats_desc_set, mats_buf.buf, 1, 0, mats_buf.size);
 
         self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, true, false);
-        const materials_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.materials_desc_set_layout);
+        const materials_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.materials_desc_set_layout);
         gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, @sizeOf(graphics.Material) * 100);
 
         self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, false);
         self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, false, false);
         self.inner.pipelines.norm_pipeline = gvk.createNormPipeline(device, pass, fb_size);
         self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.mats_desc_set_layout, self.inner.tex_desc_set_layout);
-        self.inner.pipelines.anim_pbr_pipeline = gvk.createAnimPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.anim_pbr_pipeline = gvk.createAnimPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
         self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
-        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
         const shadow_pass = renderer.shadow_pass;
         const shadow_dim = vk.VkExtent2D{ .width = gvk.Renderer.ShadowMapSize, .height = gvk.Renderer.ShadowMapSize };
         self.inner.pipelines.shadow_pipeline = gvk.createShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
         self.inner.pipelines.anim_shadow_pipeline = gvk.createAnimShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, shadowmap_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
-        self.batcher.inner.host_cam_buf.light_color = self.light_color;
-        self.batcher.inner.host_cam_buf.light_vec = self.light_vec;
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
+        for (self.batcher.inner.batcher_frames) |frame| {
+            frame.host_cam_buf.light_color = self.light_color;
+            frame.host_cam_buf.light_vec = self.light_vec;
+        }
     }
 
     fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
@@ -324,15 +307,12 @@ pub const Graphics = struct {
                 self.inner.pipelines.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
-                vk.destroyDescriptorSetLayout(device, self.inner.shadowmap_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.mats_desc_set_layout, null);
                 vk.destroyDescriptorSetLayout(device, self.inner.materials_desc_set_layout, null);
-                vk.destroyDescriptorSetLayout(device, self.inner.cam_desc_set_layout, null);
-                vk.destroyDescriptorPool(device, self.inner.desc_pool, null);
             },
             else => {},
         }
-        self.batcher.deinit();
+        self.batcher.deinit(self.alloc);
         self.font_cache.deinit();
         self.state_stack.deinit();
 
@@ -2394,11 +2374,11 @@ pub const Graphics = struct {
         return fbo_id;
     }
 
-    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, frame: gvk.Frame) void {
+    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, frame_idx: u8, framebuffer: vk.VkFramebuffer) void {
         self.cur_buf_width = buf_width;
         self.cur_buf_height = buf_height;
-        self.inner.cur_frame = frame;
-        self.batcher.resetStateVK(self.white_tex, frame, self.clear_color);
+        self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
+        self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.clear_color);
 
         self.cur_clip_rect = .{
             .x = 0,

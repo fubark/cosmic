@@ -1,6 +1,7 @@
 const std = @import("std");
 const Backend = @import("build_options").GraphicsBackend;
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const ds = stdx.ds;
 const gl = @import("gl");
 const vk = @import("vk");
@@ -41,6 +42,10 @@ const ShaderType = enum(u4) {
 const PreFlushTask = struct {
     cb: fn (ctx: ?*anyopaque) void,
     ctx: ?*anyopaque,
+};
+
+const VkFrame = struct {
+    host_cam_buf: *graphics.gpu.ShaderCamera,
 };
 
 /// The batcher should be the primary way for consumer to push draw data/calls. It is responsible for:
@@ -85,17 +90,15 @@ pub const Batcher = struct {
             index_buf: gvk.Buffer,
             mats_buf: gvk.Buffer,
             materials_buf: gvk.Buffer,
-            u_cam_buf: gvk.Buffer,
             cur_tex_desc_set: vk.VkDescriptorSet,
             materials_desc_set: vk.VkDescriptorSet,
             mats_desc_set: vk.VkDescriptorSet,
-            cam_desc_set: vk.VkDescriptorSet,
-            shadowmap_desc_set: vk.VkDescriptorSet,
+            batcher_frames: []VkFrame,
+            cur_batcher_frame: VkFrame,
             host_vert_buf: []TexShaderVertex,
             host_index_buf: []u16,
             host_mats_buf: []stdx.math.Mat4,
             host_materials_buf: []graphics.Material,
-            host_cam_buf: *graphics.gpu.ShaderCamera,
             do_shadow_pass: bool,
             // Directional light shadow cast view * proj.
             light_cast_vp: Transform,
@@ -154,9 +157,6 @@ pub const Batcher = struct {
         mats_desc_set: vk.VkDescriptorSet,
         materials_buf: gvk.Buffer,
         materials_desc_set: vk.VkDescriptorSet,
-        u_cam_buf: gvk.Buffer,
-        cam_desc_set: vk.VkDescriptorSet,
-        shadowmap_desc_set: vk.VkDescriptorSet,
         vk_ctx: gvk.VkContext,
         renderer: *gvk.Renderer,
         pipelines: gvk.Pipelines,
@@ -185,6 +185,7 @@ pub const Batcher = struct {
                 .ctx = vk_ctx,
                 .renderer = renderer,
                 .cur_frame = undefined,
+                .cur_batcher_frame = undefined,
                 .pipelines = pipelines,
                 .vert_buf = vert_buf,
                 .index_buf = index_buf,
@@ -192,15 +193,12 @@ pub const Batcher = struct {
                 .mats_desc_set = mats_desc_set,
                 .materials_buf = materials_buf,
                 .materials_desc_set = materials_desc_set,
-                .shadowmap_desc_set = shadowmap_desc_set,
-                .u_cam_buf = u_cam_buf,
-                .cam_desc_set = cam_desc_set,
+                .batcher_frames = alloc.alloc(VkFrame, gpu.MaxActiveFrames) catch fatal(),
                 .cur_tex_desc_set = undefined,
                 .host_vert_buf = undefined,
                 .host_index_buf = undefined,
                 .host_mats_buf = undefined,
                 .host_materials_buf = undefined,
-                .host_cam_buf = undefined,
                 .do_shadow_pass = false,
                 .light_cast_vp = undefined,
             },
@@ -227,20 +225,20 @@ pub const Batcher = struct {
         vk.assertSuccess(res);
         new.inner.host_materials_buf = host_materials_buf[0..new.inner.materials_buf.size/@sizeOf(graphics.Material)];
 
-        var host_cam_buf: *graphics.gpu.ShaderCamera = undefined;
-        res = vk.mapMemory(new.inner.ctx.device, new.inner.u_cam_buf.mem, 0, new.inner.u_cam_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_cam_buf));
-        vk.assertSuccess(res);
-        new.inner.host_cam_buf = host_cam_buf;
-        // HDR light intensity.
-        new.inner.host_cam_buf.light_color = Vec3.init(5, 5, 5);
-        new.inner.host_cam_buf.light_vec = Vec3.init(-1, -1, 0).normalize();
+        for (new.inner.batcher_frames) |*frame, i| {
+            const renderer_frame = renderer.frames[i];
+            var host_cam_buf: *graphics.gpu.ShaderCamera = undefined;
+            res = vk.mapMemory(new.inner.ctx.device, renderer_frame.u_cam_buf.mem, 0, renderer_frame.u_cam_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_cam_buf));
+            vk.assertSuccess(res);
+            frame.host_cam_buf = host_cam_buf;
+        }
 
         new.mesh = Mesh.init(alloc, new.inner.host_mats_buf, new.inner.host_materials_buf);
 
         return new;
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
         self.pre_flush_tasks.deinit();
         self.mesh.deinit();
         self.cmds.deinit();
@@ -256,7 +254,8 @@ pub const Batcher = struct {
                 self.inner.index_buf.deinit(device);
                 self.inner.mats_buf.deinit(device);
                 self.inner.materials_buf.deinit(device);
-                self.inner.u_cam_buf.deinit(device);
+
+                alloc.free(self.inner.batcher_frames);
             },
             else => {},
         }
@@ -305,13 +304,13 @@ pub const Batcher = struct {
             self.cur_shader_type = .TexPbr3D;
             self.setTexture(image);
             if (Backend == .Vulkan) {
-                self.inner.host_cam_buf.cam_pos = cam_loc;
+                self.inner.cur_batcher_frame.host_cam_buf.cam_pos = cam_loc;
             }
             return;
         }
         self.setTexture(image);
         if (Backend == .Vulkan) {
-            self.inner.host_cam_buf.cam_pos = cam_loc;
+            self.inner.cur_batcher_frame.host_cam_buf.cam_pos = cam_loc;
         }
     }
 
@@ -321,13 +320,13 @@ pub const Batcher = struct {
             self.cur_shader_type = .AnimPbr3D;
             self.setTexture(image);
             if (Backend == .Vulkan) {
-                self.inner.host_cam_buf.cam_pos = cam_loc;
+                self.inner.cur_batcher_frame.host_cam_buf.cam_pos = cam_loc;
             }
             return;
         }
         self.setTexture(image);
         if (Backend == .Vulkan) {
-            self.inner.host_cam_buf.cam_pos = cam_loc;
+            self.inner.cur_batcher_frame.host_cam_buf.cam_pos = cam_loc;
         }
     }
 
@@ -389,8 +388,9 @@ pub const Batcher = struct {
         self.mesh.reset();
     }
 
-    pub fn resetStateVK(self: *Self, image_tex: ImageTex, frame: gvk.Frame, clear_color: Color) void {
-        self.inner.cur_frame = frame;
+    pub fn resetStateVK(self: *Self, image_tex: ImageTex, frame_idx: u8, framebuffer: vk.VkFramebuffer, clear_color: Color) void {
+        self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
+        self.inner.cur_batcher_frame = self.inner.batcher_frames[frame_idx];
         self.inner.cur_tex_desc_set = self.image_store.getTexture(image_tex.tex_id).inner.desc_set;
         self.inner.do_shadow_pass = false;
 
@@ -405,7 +405,31 @@ pub const Batcher = struct {
 
         const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.beginCommandBuffer(cmd_buf);
-        gvk.command.beginRenderPass(cmd_buf, self.inner.renderer.main_pass, self.inner.cur_frame.framebuffer, self.inner.renderer.fb_size.width, self.inner.renderer.fb_size.height, clear_color);
+
+        // Main renderpass depends on shadow pass. (Seems we don't need this atm.)
+        // const barrier = vk.VkImageMemoryBarrier{
+        //     .sType = vk.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        //     .oldLayout = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        //     .newLayout = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        //     .srcQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        //     .dstQueueFamilyIndex = vk.VK_QUEUE_FAMILY_IGNORED,
+        //     .image = self.inner.cur_frame.shadow_image.image,
+        //     .subresourceRange = .{
+        //         .aspectMask = vk.VK_IMAGE_ASPECT_DEPTH_BIT,
+        //         .baseMipLevel = 0,
+        //         .levelCount = 1,
+        //         .baseArrayLayer = 0,
+        //         .layerCount = 1,
+        //     },
+        //     .srcAccessMask = vk.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        //     .dstAccessMask = vk.VK_ACCESS_SHADER_READ_BIT,
+        //     .pNext = null,
+        // };
+        // vk.cmdPipelineBarrier(self.inner.cur_frame.main_cmd_buf,
+        //     vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        //     vk.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        //     0, 0, null, 0, null, 1, &barrier);
+        gvk.command.beginRenderPass(cmd_buf, self.inner.renderer.main_pass, framebuffer, self.inner.renderer.fb_size.width, self.inner.renderer.fb_size.height, clear_color);
 
         var offset: vk.VkDeviceSize = 0;
         vk.cmdBindVertexBuffers(cmd_buf, 0, 1, &self.inner.vert_buf.buf, &offset);
@@ -418,11 +442,11 @@ pub const Batcher = struct {
             if (!self.inner.do_shadow_pass) {
                 self.inner.do_shadow_pass = true;
                 self.inner.light_cast_vp = light_vp;
-                self.inner.host_cam_buf.light_vp = light_vp.mat;
+                self.inner.cur_batcher_frame.host_cam_buf.light_vp = light_vp.mat;
 
                 const shadow_cmd = self.inner.cur_frame.shadow_cmd_buf;
                 gvk.command.beginCommandBuffer(shadow_cmd);
-                gvk.command.beginRenderPass(shadow_cmd, self.inner.renderer.shadow_pass, self.inner.renderer.shadow_framebuffer, gvk.Renderer.ShadowMapSize, gvk.Renderer.ShadowMapSize, null);
+                gvk.command.beginRenderPass(shadow_cmd, self.inner.renderer.shadow_pass, self.inner.cur_frame.shadow_framebuffer, gvk.Renderer.ShadowMapSize, gvk.Renderer.ShadowMapSize, null);
 
                 var offset: vk.VkDeviceSize = 0;
                 vk.cmdBindVertexBuffers(shadow_cmd, 0, 1, &self.inner.vert_buf.buf, &offset);
@@ -456,9 +480,9 @@ pub const Batcher = struct {
             gvk.command.endRenderPass(shadow_cmd);
             gvk.command.endCommandBuffer(shadow_cmd);
             res.submit_shadow_cmd = true;
-            self.inner.host_cam_buf.enable_shadows = true;
+            self.inner.cur_batcher_frame.host_cam_buf.enable_shadows = true;
         } else {
-            self.inner.host_cam_buf.enable_shadows = false;
+            self.inner.cur_batcher_frame.host_cam_buf.enable_shadows = false;
         }
 
         // Send all the mesh data at once.
@@ -633,9 +657,9 @@ pub const Batcher = struct {
                         const desc_sets = [_]vk.VkDescriptorSet{
                             self.inner.cur_tex_desc_set,
                             self.inner.mats_desc_set,
-                            self.inner.cam_desc_set,
+                            self.inner.cur_frame.cam_desc_set,
                             self.inner.materials_desc_set,
-                            self.inner.shadowmap_desc_set,
+                            self.inner.cur_frame.shadowmap_desc_set,
                         };
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
                         var push_const = gvk.TexLightingVertexConstant{
@@ -670,9 +694,9 @@ pub const Batcher = struct {
                         const desc_sets = [_]vk.VkDescriptorSet{
                             self.inner.cur_tex_desc_set,
                             self.inner.mats_desc_set,
-                            self.inner.cam_desc_set,
+                            self.inner.cur_frame.cam_desc_set,
                             self.inner.materials_desc_set,
-                            self.inner.shadowmap_desc_set,
+                            self.inner.cur_frame.shadowmap_desc_set,
                         };
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
                         var push_const = gvk.TexLightingVertexConstant{

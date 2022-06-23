@@ -108,7 +108,7 @@ pub fn createRenderPass(device: vk.VkDevice, format: vk.VkFormat) vk.VkRenderPas
         .layout = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
 
-    const subpass = [_]vk.VkSubpassDescription{vk.VkSubpassDescription{
+    const subpasses = [_]vk.VkSubpassDescription{vk.VkSubpassDescription{
         .pipelineBindPoint = vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
         .pColorAttachments = @as(*const [1]vk.VkAttachmentReference, &attachment_ref),
@@ -121,7 +121,7 @@ pub fn createRenderPass(device: vk.VkDevice, format: vk.VkFormat) vk.VkRenderPas
         .pPreserveAttachments = null,
     }};
 
-    const dependency = [_]vk.VkSubpassDependency{vk.VkSubpassDependency{
+    const dependencies = [_]vk.VkSubpassDependency{vk.VkSubpassDependency{
         .srcSubpass = vk.VK_SUBPASS_EXTERNAL,
         .dstSubpass = 0,
         .srcStageMask = vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | vk.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
@@ -136,10 +136,10 @@ pub fn createRenderPass(device: vk.VkDevice, format: vk.VkFormat) vk.VkRenderPas
         .sType = vk.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .attachmentCount = attachments.len,
         .pAttachments = &attachments,
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
-        .dependencyCount = 1,
-        .pDependencies = &dependency,
+        .subpassCount = subpasses.len,
+        .pSubpasses = &subpasses,
+        .dependencyCount = dependencies.len,
+        .pDependencies = &dependencies,
         .pNext = null,
         .flags = 0,
     };

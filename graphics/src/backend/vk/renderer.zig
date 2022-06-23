@@ -5,83 +5,121 @@ const vk = @import("vk");
 const platform = @import("platform");
 const graphics = @import("../../graphics.zig");
 const gvk = graphics.vk;
+const gpu = graphics.gpu;
 
+/// Resources needed to render a frame.
 pub const Frame = struct {
     main_cmd_buf: vk.VkCommandBuffer,
+
+    /// Shadows.
     shadow_cmd_buf: vk.VkCommandBuffer,
-    framebuffer: vk.VkFramebuffer,
+    shadow_framebuffer: vk.VkFramebuffer,
+    shadow_image: gvk.image.Image,
+    shadow_image_view: vk.VkImageView,
+    shadowmap_desc_set: vk.VkDescriptorSet,
+
+    u_cam_buf: gvk.Buffer,
+    cam_desc_set: vk.VkDescriptorSet,
 
     fn deinit(self: Frame, device: vk.VkDevice) void {
-        vk.destroyFramebuffer(device, self.framebuffer, null);
+        self.u_cam_buf.deinit(device);
+
+        // Shadows deinit.
+        vk.destroyFramebuffer(device, self.shadow_framebuffer, null);
+        self.shadow_image.deinit(device);
+        vk.destroyImageView(device, self.shadow_image_view, null);
     }
 };
 
+// TODO: Gradually move renderer resources like buffers, desc layouts, desc sets, pipelines here.
 pub const Renderer = struct {
     physical: vk.VkPhysicalDevice,
     device: vk.VkDevice,
     cmd_pool: vk.VkCommandPool,
     frames: []Frame,
+
+    desc_pool: vk.VkDescriptorPool,
+
+    cam_desc_set_layout: vk.VkDescriptorSetLayout,
+
+    /// Number of final framebuffers match number of swapchain images.
+    framebuffers: []vk.VkFramebuffer,
     fb_size: vk.VkExtent2D,
+
     main_pass: vk.VkRenderPass,
 
     graphics_queue: vk.VkQueue,
 
     /// Shadows.
     shadow_pass: vk.VkRenderPass,
-    shadow_framebuffer: vk.VkFramebuffer,
-    shadow_image: gvk.image.Image,
-    shadow_image_view: vk.VkImageView,
     shadow_sampler: vk.VkSampler, // Clamps to border so out of bounds returns no shadows.
+    shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
 
     /// Default samplers.
     linear_sampler: vk.VkSampler,
     nearest_sampler: vk.VkSampler,
 
     pub const ShadowMapSize = 2048;
+    const ShadowMapFormat = vk.VK_FORMAT_D32_SFLOAT; // 16bit depth value. May need to increase.
 
     pub fn init(alloc: std.mem.Allocator, win: *platform.Window, swapchain: graphics.SwapChain) Renderer {
         const physical = win.impl.inner.physical_device;
         const device = win.impl.inner.device;
         const queue_family = win.impl.inner.queue_family;
-        const num_frame_images = @intCast(u32, swapchain.impl.images.len);
+        const num_framebuffers = @intCast(u32, swapchain.impl.images.len);
 
         var ret = Renderer{
             .physical = physical,
             .device = device,
             .cmd_pool = gvk.command.createCommandPool(device, queue_family),
-            .frames = alloc.alloc(Frame, num_frame_images) catch fatal(),
+            .desc_pool = gvk.createDescriptorPool(device),
+            .frames = alloc.alloc(Frame, gpu.MaxActiveFrames) catch fatal(),
+            .framebuffers = alloc.alloc(vk.VkFramebuffer, num_framebuffers) catch fatal(),
             .fb_size = swapchain.impl.buf_dim,
             .main_pass = gvk.renderpass.createRenderPass(device, swapchain.impl.buf_format),
             .linear_sampler = gvk.image.createTextureSampler(device, .{ .linear_filter = true }),
             .nearest_sampler = gvk.image.createTextureSampler(device, .{ .linear_filter = false }),
             .shadow_sampler = gvk.image.createTextureSampler(device, .{ .linear_filter = true, .address_mode = vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER }),
+            .shadowmap_desc_set_layout = gvk.createShadowMapDescriptorSetLayout(device),
+            .cam_desc_set_layout = gvk.createCameraDescriptorSetLayout(device),
             .graphics_queue = undefined,
             .shadow_pass = undefined,
-            .shadow_framebuffer = undefined,
-            .shadow_image = undefined,
-            .shadow_image_view = undefined,
         };
 
         vk.getDeviceQueue(device, queue_family.graphics_family.?, 0, &ret.graphics_queue);
 
-        const cmd_bufs = gvk.command.createCommandBuffers(alloc, device, ret.cmd_pool, num_frame_images * 2);
+        ret.shadow_pass = gvk.renderpass.createShadowRenderPass(device, ShadowMapFormat);
+
+        const cmd_bufs = gvk.command.createCommandBuffers(alloc, device, ret.cmd_pool, gpu.MaxActiveFrames * 2);
         defer alloc.free(cmd_bufs);
-        for (ret.frames) |_, i| {
-            ret.frames[i].main_cmd_buf = cmd_bufs[i * 2];
-            ret.frames[i].shadow_cmd_buf = cmd_bufs[i * 2 + 1];
+        for (ret.frames) |*frame, i| {
+            frame.main_cmd_buf = cmd_bufs[i * 2];
+            frame.shadow_cmd_buf = cmd_bufs[i * 2 + 1];
+            frame.shadow_image = gvk.image.createDepthImage(physical, device, ShadowMapSize, ShadowMapSize, ShadowMapFormat);
+            frame.shadow_image_view = gvk.image.createDefaultImageView(device, frame.shadow_image.image, ShadowMapFormat);
+            frame.shadow_framebuffer = gvk.framebuffer.createFramebuffer(device, ret.shadow_pass, ShadowMapSize, ShadowMapSize, &.{ frame.shadow_image_view });
+            frame.shadowmap_desc_set = gvk.descriptor.createDescriptorSet(device, ret.desc_pool, ret.shadowmap_desc_set_layout);
+            var image_infos = [_]vk.VkDescriptorImageInfo{
+                vk.VkDescriptorImageInfo{
+                    .imageLayout = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                    // .imageLayout = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    .imageView = frame.shadow_image_view,
+                    .sampler = ret.shadow_sampler,
+                },
+            };
+            gvk.descriptor.updateImageDescriptorSet(device, frame.shadowmap_desc_set, 4, &image_infos);
+            frame.u_cam_buf = gvk.buffer.createUniformBuffer(physical, device, gpu.ShaderCamera);
+            frame.cam_desc_set = gvk.descriptor.createDescriptorSet(device, ret.desc_pool, ret.cam_desc_set_layout);
+            gvk.descriptor.updateUniformBufferDescriptorSet(device, frame.cam_desc_set, frame.u_cam_buf.buf, 2, gpu.ShaderCamera);
+        }
+
+        for (ret.framebuffers) |_, i| {
             const attachments = &[_]vk.VkImageView{
                 swapchain.impl.image_views[i],
                 swapchain.impl.depth_image_views[i],
             };
-            ret.frames[i].framebuffer = gvk.framebuffer.createFramebuffer(device, ret.main_pass, ret.fb_size.width, ret.fb_size.height, attachments);
+            ret.framebuffers[i] = gvk.framebuffer.createFramebuffer(device, ret.main_pass, ret.fb_size.width, ret.fb_size.height, attachments);
         }
-
-        // Create shadow pass and framebuffer.
-        const ShadowMapFormat = vk.VK_FORMAT_D32_SFLOAT; // 16bit depth value. May need to increase.
-        ret.shadow_pass = gvk.renderpass.createShadowRenderPass(device, ShadowMapFormat);
-        ret.shadow_image = gvk.image.createDepthImage(physical, device, ShadowMapSize, ShadowMapSize, ShadowMapFormat);
-        ret.shadow_image_view = gvk.image.createDefaultImageView(device, ret.shadow_image.image, ShadowMapFormat);
-        ret.shadow_framebuffer = gvk.framebuffer.createFramebuffer(device, ret.shadow_pass, ShadowMapSize, ShadowMapSize, &.{ ret.shadow_image_view });
 
         return ret;
     }
@@ -90,6 +128,10 @@ pub const Renderer = struct {
         // gvk.dumpImageBmp(alloc, self, self.shadow_image.image, ShadowMapSize, ShadowMapSize, vk.VK_FORMAT_D32_SFLOAT, "shadow_map.bmp");
 
         const device = self.device;
+
+        vk.destroyDescriptorSetLayout(device, self.cam_desc_set_layout, null);
+        vk.destroyDescriptorPool(device, self.desc_pool, null);
+
         for (self.frames) |frame| {
             frame.deinit(device);
         }
@@ -99,12 +141,15 @@ pub const Renderer = struct {
         vk.destroySampler(device, self.linear_sampler, null);
         vk.destroySampler(device, self.nearest_sampler, null);
 
+        for (self.framebuffers) |framebuffer| {
+            vk.destroyFramebuffer(device, framebuffer, null);
+        }
+        alloc.free(self.framebuffers);
+
         // Shadows deinit.
         vk.destroyRenderPass(device, self.shadow_pass, null);
-        vk.destroyFramebuffer(device, self.shadow_framebuffer, null);
-        self.shadow_image.deinit(device);
-        vk.destroyImageView(device, self.shadow_image_view, null);
         vk.destroySampler(device, self.shadow_sampler, null);
+        vk.destroyDescriptorSetLayout(device, self.shadowmap_desc_set_layout, null);
     }
 
     pub fn beginSingleTimeCommands(self: Renderer) vk.VkCommandBuffer {

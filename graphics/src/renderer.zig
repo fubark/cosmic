@@ -70,8 +70,9 @@ pub const Renderer = struct {
         switch (Backend) {
             .Vulkan => {
                 const cur_image_idx = self.swapchain.impl.cur_image_idx;
-                const frame = self.inner.vk.frames[cur_image_idx];
-                gpu.Graphics.beginFrameVK(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, frame);
+                const cur_frame_idx = self.swapchain.impl.cur_frame_idx;
+                const framebuffer = self.inner.vk.framebuffers[cur_image_idx];
+                gpu.Graphics.beginFrameVK(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, cur_frame_idx, framebuffer);
             },
             .OpenGL => {
                 // In OpenGL, glClear can block if there there are too many commands in the queue.
@@ -88,12 +89,11 @@ pub const Renderer = struct {
             .Vulkan => {
                 const frame_res = gpu.Graphics.endFrameVK(&self.gctx.impl);
 
-                const cur_image_idx = self.swapchain.impl.cur_image_idx;
                 const cur_frame_idx = self.swapchain.impl.cur_frame_idx;
 
                 // Submit command.
                 const wait_stage_flag = @intCast(u32, vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-                const frame = self.inner.vk.frames[cur_image_idx];
+                const frame = self.inner.vk.frames[cur_frame_idx];
 
                 // Only submit shadow command if work was recorded.
                 const cmd_bufs: []const vk.VkCommandBuffer = if (frame_res.submit_shadow_cmd) &[_]vk.VkCommandBuffer{

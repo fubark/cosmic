@@ -813,7 +813,7 @@ pub fn createDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
         // For Camera struct.
         vk.VkDescriptorPoolSize{
             .@"type" = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
+            .descriptorCount = 1 * gpu.MaxActiveFrames,
         },
     };
 

@@ -29,8 +29,8 @@ pub const SwapChain = struct {
     buf_dim: vk.VkExtent2D,
 
     device: vk.VkDevice,
-    cur_frame_idx: u32,
-    cur_image_idx: u32,
+    cur_frame_idx: u8,
+    cur_image_idx: u8,
     present_queue: vk.VkQueue,
 
     const Self = @This();
@@ -183,18 +183,21 @@ pub const SwapChain = struct {
         res = vk.resetFences(self.device, 1, &self.inflight_fences[self.cur_frame_idx]);
         vk.assertSuccess(res);
 
-        res = vk.acquireNextImageKHR(self.device, self.swapchain, std.math.maxInt(u64), self.image_available_semas[self.cur_frame_idx], null, &self.cur_image_idx);
+        var image_idx: u32 = undefined;
+        res = vk.acquireNextImageKHR(self.device, self.swapchain, std.math.maxInt(u64), self.image_available_semas[self.cur_frame_idx], null, &image_idx);
+        self.cur_image_idx = @intCast(u8, image_idx);
         vk.assertSuccess(res);
     }
 
     pub fn endFrame(self: *Self) void {
+        const image_idx: u32 = self.cur_image_idx;
         const present_info = vk.VkPresentInfoKHR{
             .sType = vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &self.render_finished_semas[self.cur_frame_idx],
             .swapchainCount = 1,
             .pSwapchains = &self.swapchain,
-            .pImageIndices = &self.cur_image_idx,
+            .pImageIndices = &image_idx,
             .pNext = null,
             .pResults = null,
         };
