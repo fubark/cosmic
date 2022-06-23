@@ -1091,11 +1091,11 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn loadGLTF(self: *Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
+    pub fn loadGLTF(self: *Self, alloc: std.mem.Allocator, buf: [] align(8) const u8, opts: GLTFloadOptions) !GLTFhandle {
         return GLTFhandle.init(alloc, self, buf, opts);
     }
 
-    pub fn loadGLTFandBuffers(self: *Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
+    pub fn loadGLTFandBuffers(self: *Self, alloc: std.mem.Allocator, buf: [] align(8) const u8, opts: GLTFloadOptions) !GLTFhandle {
         var ret = try GLTFhandle.init(alloc, self, buf, opts);
         try ret.loadBuffers(alloc);
         return ret;
