@@ -351,6 +351,62 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
     });
 }
 
+pub fn createAnimShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
+        initAttrDesc(gpu.TexShaderVertex, "joints", vk.VK_FORMAT_R32G32_UINT, 1),
+        initAttrDesc(gpu.TexShaderVertex, "weights", vk.VK_FORMAT_R32_UINT, 2),
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = @sizeOf(ShadowVertexConstant),
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+
+    const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
+        tex_desc_set_layout,
+        mats_desc_set_layout,
+    };
+
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = desc_set_layouts.len,
+        .pSetLayouts = &desc_set_layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.anim_shadow_vert_spv;
+    const frag_src align(4) = shaders.anim_shadow_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
+        .depth_test = true,
+        .line_mode = false,
+    });
+}
+
 pub fn createShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
@@ -405,6 +461,68 @@ pub fn createShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
     });
 }
 
+pub fn createAnimPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
+    mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
+        initAttrDesc(gpu.TexShaderVertex, "normal", vk.VK_FORMAT_R32G32B32_SFLOAT, 1),
+        initAttrDesc(gpu.TexShaderVertex, "uv", vk.VK_FORMAT_R32G32_SFLOAT, 2),
+        initAttrDesc(gpu.TexShaderVertex, "joints", vk.VK_FORMAT_R32G32_UINT, 3),
+        initAttrDesc(gpu.TexShaderVertex, "weights", vk.VK_FORMAT_R32_UINT, 4),
+    };
+    const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexAttributeDescriptions = &attr_descriptors,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const push_const_range = [_]vk.VkPushConstantRange{
+        vk.VkPushConstantRange{
+            .offset = 0,
+            .size = @sizeOf(TexLightingVertexConstant),
+            .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
+        },
+    };
+
+    const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
+        tex_desc_set_layout,
+        mats_desc_set_layout,
+        cam_desc_set_layout,
+        materials_desc_set_layout,
+        shadowmap_desc_set_layout,
+    };
+
+    const pl_info = vk.VkPipelineLayoutCreateInfo{
+        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = desc_set_layouts.len,
+        .pSetLayouts = &desc_set_layouts,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &push_const_range,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const vert_src align(4) = shaders.anim_pbr_vert_spv;
+    const frag_src align(4) = shaders.anim_pbr_frag_spv;
+    return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
+        .vert_spv = &vert_src,
+        .frag_spv = &frag_src,
+        .depth_test = true,
+        .line_mode = false,
+    });
+}
+
 pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
     mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
@@ -418,7 +536,6 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         initAttrDesc(gpu.TexShaderVertex, "pos", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 0),
         initAttrDesc(gpu.TexShaderVertex, "normal", vk.VK_FORMAT_R32G32B32_SFLOAT, 1),
         initAttrDesc(gpu.TexShaderVertex, "uv", vk.VK_FORMAT_R32G32_SFLOAT, 2),
-        initAttrDesc(gpu.TexShaderVertex, "color", vk.VK_FORMAT_R32G32B32A32_SFLOAT, 3),
     };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -466,8 +583,13 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
     });
 }
 
+pub const ModelVertexConstant = struct {
+    vp: stdx.math.Mat4,
+    model_idx: u32,
+};
+
 pub const ShadowVertexConstant = struct {
-    mvp: stdx.math.Mat4,
+    vp: stdx.math.Mat4,
     model_idx: u32,
 };
 
@@ -538,7 +660,7 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
     const push_const_range = [_]vk.VkPushConstantRange{
         vk.VkPushConstantRange{
             .offset = 0,
-            .size = 16 * 4,
+            .size = @sizeOf(ModelVertexConstant),
             .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
         },
     };
@@ -568,7 +690,7 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
     });
 }
 
-pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, desc_set: vk.VkDescriptorSetLayout, depth_test: bool, wireframe: bool) Pipeline {
+pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set: vk.VkDescriptorSetLayout, mats_desc_set: vk.VkDescriptorSetLayout, depth_test: bool, wireframe: bool) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -594,14 +716,20 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
     const push_const_range = [_]vk.VkPushConstantRange{
         vk.VkPushConstantRange{
             .offset = 0,
-            .size = 16 * 4,
+            .size = @sizeOf(ModelVertexConstant),
             .stageFlags = vk.VK_SHADER_STAGE_VERTEX_BIT,
         },
     };
+
+    const desc_set_layouts = [_]vk.VkDescriptorSetLayout{
+        tex_desc_set,
+        mats_desc_set,
+    };
+
     const pl_info = vk.VkPipelineLayoutCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &desc_set,
+        .setLayoutCount = desc_set_layouts.len,
+        .pSetLayouts = &desc_set_layouts,
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &push_const_range,
         .pNext = null,
@@ -722,10 +850,12 @@ pub const Pipelines = struct {
     tex_pipeline_2d: Pipeline,
     tex_pbr_pipeline: Pipeline,
     anim_pipeline: Pipeline,
+    anim_pbr_pipeline: Pipeline,
     gradient_pipeline_2d: Pipeline,
     plane_pipeline: Pipeline,
     norm_pipeline: Pipeline,
     shadow_pipeline: Pipeline,
+    anim_shadow_pipeline: Pipeline,
 
     pub fn deinit(self: Pipelines, device: vk.VkDevice) void {
         self.wireframe_pipeline.deinit(device);
@@ -733,10 +863,12 @@ pub const Pipelines = struct {
         self.tex_pipeline_2d.deinit(device);
         self.tex_pbr_pipeline.deinit(device);
         self.anim_pipeline.deinit(device);
+        self.anim_pbr_pipeline.deinit(device);
         self.gradient_pipeline_2d.deinit(device);
         self.plane_pipeline.deinit(device);
         self.norm_pipeline.deinit(device);
         self.shadow_pipeline.deinit(device);
+        self.anim_shadow_pipeline.deinit(device);
     }
 };
 
@@ -744,8 +876,10 @@ pub const Buffer = buffer.Buffer;
 
 pub fn getImageData(alloc: std.mem.Allocator, renderer: *Renderer, img: vk.VkImage, width: usize, height: usize, format: vk.VkFormat) []const u8 {
     var pixel_size: u32 = 4 * 3;
-    if (format == vk.VK_FORMAT_D16_UNORM or format == vk.VK_FORMAT_D32_SFLOAT) {
+    if (format == vk.VK_FORMAT_D16_UNORM) {
         pixel_size = 2;
+    } else if (format == vk.VK_FORMAT_D32_SFLOAT) {
+        pixel_size = 4;
     }
     const size = width * height * pixel_size;
     const buf = buffer.createBuffer(renderer.physical, renderer.device, size, vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -772,8 +906,13 @@ pub fn dumpImageBmp(alloc: std.mem.Allocator, renderer: *Renderer, img: vk.VkIma
     defer alloc.free(bmp_data);
     var i: u32 = 0;
     while (i < width * height) : (i += 1) {
-        const val = std.mem.readIntNative(u16, data[i*2..i*2+2][0..2]);
-        bmp_data[i] = @floatToInt(u8, (@intToFloat(f32, val) / @intToFloat(f32, std.math.maxInt(u16))) * 255);
+        if (format == vk.VK_FORMAT_D16_UNORM) {
+            const val = std.mem.readIntNative(u16, data[i*2..i*2+2][0..2]);
+            bmp_data[i] = @floatToInt(u8, (@intToFloat(f32, val) / @intToFloat(f32, std.math.maxInt(u16))) * 255);
+        } else if (format == vk.VK_FORMAT_D32_SFLOAT) {
+            const val = @bitCast(f32, std.mem.readIntNative(u32, data[i*4..i*4+4][0..4]));
+            bmp_data[i] = @floatToInt(u8, val * 255);
+        }
     }
     _ = stbi.stbi_write_bmp(filename, @intCast(c_int, width), @intCast(c_int, height), 1, bmp_data.ptr);
 }

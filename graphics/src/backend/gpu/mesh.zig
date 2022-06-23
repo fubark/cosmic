@@ -7,10 +7,10 @@ const TexShaderVertex = graphics.gpu.TexShaderVertex;
 const Color = graphics.Color;
 const log = stdx.log.scoped(.mesh);
 
-const StartVertexBufferSize = 10000;
+const StartVertexBufferSize = 20000;
 const StartIndexBufferSize = StartVertexBufferSize * 4;
 
-const MaxVertexBufferSize = 10000 * 3;
+const MaxVertexBufferSize = 20000 * 3;
 const MaxIndexBufferSize = MaxVertexBufferSize * 4;
 
 /// Vertex, index, mats, materials buffer.

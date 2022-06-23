@@ -1168,14 +1168,28 @@ pub const Graphics = struct {
 
     pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, true),
+            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, null, true, false),
             else => unsupported(),
         }
     }
 
     pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, false),
+            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, null, false, false),
+            else => unsupported(),
+        }
+    }
+
+    pub fn drawAnimatedMeshPbr3D(self: *Self, xform: Transform, mesh: AnimatedMesh) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, xform, mesh, null, false, true),
+            else => unsupported(),
+        }
+    }
+
+    pub fn drawAnimatedMeshPbrCustom3D(self: *Self, xform: Transform, mesh: AnimatedMesh, custom_mat: Material) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, xform, mesh, custom_mat, false, true),
             else => unsupported(),
         }
     }

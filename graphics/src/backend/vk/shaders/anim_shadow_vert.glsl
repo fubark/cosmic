@@ -1,23 +1,18 @@
 #version 450
 #pragma shader_stage(vertex)
 
+layout(set = 1, binding = 1) readonly buffer Matrices {
+	mat4 mats[];
+};
+
 layout(push_constant) uniform VertConstants {
     mat4 vp;
     uint model_idx;
 } u_const;
 
-layout(set = 1, binding = 1) readonly buffer Matrices {
-	mat4 mats[];
-};
-
 layout(location = 0) in vec4 a_pos;
-layout(location = 1) in vec2 a_uv;
-layout(location = 2) in vec4 a_color;
-layout(location = 3) in uvec2 a_joints;
-layout(location = 4) in uint a_weights;
-
-layout(location = 0) out vec2 v_uv;
-layout(location = 1) out vec4 v_color;
+layout(location = 1) in uvec2 a_joints;
+layout(location = 2) in uint a_weights;
 
 uvec4 decodeUintComponents4(uvec2 val) {
     return uvec4(
@@ -38,11 +33,7 @@ vec4 decodeFloatComponents4(uint val) {
     );
 }
 
-void main()
-{
-    v_uv = a_uv;
-    v_color = a_color;
-
+void main() {
     uvec4 joints = decodeUintComponents4(a_joints);
     vec4 weights = decodeFloatComponents4(a_weights);
     mat4 skin = 

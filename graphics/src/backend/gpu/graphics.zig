@@ -193,9 +193,9 @@ pub const Graphics = struct {
         self.inner.desc_pool = gvk.createDescriptorPool(device);
         self.initCommon(alloc);
 
-        const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 20000);
-        const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 20000 * 3);
-        const storage_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 1000);
+        const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
+        const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 80000 * 3);
+        const mats_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 2000);
         const materials_buf = gvk.buffer.createStorageBuffer(physical, device, @sizeOf(graphics.Material) * 100);
 
         const u_cam_buf = gvk.buffer.createUniformBuffer(physical, device, ShaderCamera);
@@ -215,25 +215,27 @@ pub const Graphics = struct {
 
         self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
         const mats_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.mats_desc_set_layout);
-        gvk.descriptor.updateStorageBufferDescriptorSet(device, mats_desc_set, storage_buf.buf, 1, 0, storage_buf.size);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, mats_desc_set, mats_buf.buf, 1, 0, mats_buf.size);
 
         self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, true, false);
         const materials_desc_set = gvk.descriptor.createDescriptorSet(device, self.inner.desc_pool, self.inner.materials_desc_set_layout);
         gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, @sizeOf(graphics.Material) * 100);
 
-        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, false);
-        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, false, false);
+        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, false);
+        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, false, false);
         self.inner.pipelines.norm_pipeline = gvk.createNormPipeline(device, pass, fb_size);
         self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.mats_desc_set_layout, self.inner.tex_desc_set_layout);
-        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, true, true);
+        self.inner.pipelines.anim_pbr_pipeline = gvk.createAnimPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, true);
         self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
         self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
         self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, self.inner.cam_desc_set_layout, self.inner.materials_desc_set_layout);
         const shadow_pass = renderer.shadow_pass;
         const shadow_dim = vk.VkExtent2D{ .width = gvk.Renderer.ShadowMapSize, .height = gvk.Renderer.ShadowMapSize };
         self.inner.pipelines.shadow_pipeline = gvk.createShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
+        self.inner.pipelines.anim_shadow_pipeline = gvk.createAnimShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, storage_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, shadowmap_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, u_cam_buf, cam_desc_set, shadowmap_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
         self.batcher.inner.host_cam_buf.light_color = self.light_color;
         self.batcher.inner.host_cam_buf.light_vec = self.light_vec;
     }
@@ -1677,6 +1679,8 @@ pub const Graphics = struct {
         self.batcher.beginTex3D(self.white_tex);
         self.ensureUnusedBatchCapacity(3, 3);
 
+        self.batcher.model_idx = 0;
+
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.cur_fill_color);
         vert.setUV(0, 0); // Don't map uvs for now.
@@ -2045,7 +2049,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh, comptime fill: bool) void {
+    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh, custom_mat: ?graphics.Material, comptime fill: bool, comptime pbr: bool) void {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
@@ -2076,75 +2080,97 @@ pub const Graphics = struct {
             }
         }
 
-        var root_xform = model_xform;
-        var mvp = root_xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
+        self.batcher.beginMvp(vp);
 
         for (amesh.scene.mesh_nodes) |id| {
             const node = &amesh.scene.nodes[id];
 
-            const tex = if (fill) self.white_tex else b: {
-                if (node.mesh.image_id) |image_id| {
-                    const img = self.image_store.images.getNoCheck(image_id);
-                    break :b image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id };
+            var mesh_model = model_xform;
+            // Compute mesh model by working up the tree.
+            var cur_id = id;
+            while (cur_id != NullId) {
+                const cur_node = amesh.scene.nodes[cur_id];
+                var node_mat = cur_node.toTransform();
+                mesh_model = node_mat.getAppliedTransform(mesh_model);
+                cur_id = cur_node.parent;
+            }
+                
+            self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+            self.batcher.mesh.addMatrix(mesh_model.mat);
+
+            // Compute normal matrix for lighting.
+            self.batcher.normal = mesh_model.toRotationUniformScaleMat();
+
+            for (node.primitives) |prim| {
+                const tex = if (fill) self.white_tex else b: {
+                    if (prim.image_id) |image_id| {
+                        const img = self.image_store.images.getNoCheck(image_id);
+                        break :b image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id };
+                    } else {
+                        break :b self.white_tex;
+                    }
+                };
+
+                // Derive final joint matrices and non skin transform. 
+                if (node.skin.len > 0) {
+                    if (pbr) {
+                        self.batcher.beginAnimPbr3D(tex, self.cur_cam_world_pos);
+                    } else {
+                        self.batcher.beginAnim3D(tex);
+                    }
+                    const mat_idx = self.batcher.mesh.cur_mats_buf_size;
+                    for (node.skin) |joint, i| {
+                        var xform = Transform.initRowMajor(joint.inv_bind_mat);
+                        cur_id = joint.node_id;
+                        while (cur_id != NullId) {
+                            const joint_node = amesh.scene.nodes[cur_id];
+                            var joint_mat = joint_node.toTransform();
+                            xform.applyTransform(joint_mat);
+                            cur_id = joint_node.parent;
+                        }
+                        self.batcher.mesh.addMatrix(xform.mat);
+                        self.tmp_joint_idxes[i] = @intCast(u16, mat_idx + i);
+                    }
                 } else {
-                    break :b self.white_tex;
+                    self.batcher.beginTex3D(tex);
                 }
-            };
 
-            // Derive final joint matrices and non skin transform. 
-            if (node.skin.len > 0) {
-                self.batcher.beginAnim3D(tex);
-                const mat_idx = self.batcher.mesh.cur_mats_buf_size;
-                for (node.skin) |joint, i| {
-                    var xform = Transform.initRowMajor(joint.inv_bind_mat);
-                    var cur_id = joint.node_id;
-                    while (cur_id != NullId) {
-                        const joint_node = amesh.scene.nodes[cur_id];
-                        var joint_mat = joint_node.toTransform();
-                        xform.applyTransform(joint_mat);
-                        cur_id = joint_node.parent;
+                if (!self.batcher.ensureUnusedBuffer(prim.verts.len, prim.indexes.len)) {
+                    self.batcher.endCmd();
+                }
+                const vert_start = self.batcher.mesh.getNextIndexId();
+                if (node.skin.len > 0) {
+                    for (prim.verts) |vert| {
+                        var new_vert = vert;
+                        if (fill) {
+                            new_vert.setColor(self.cur_fill_color);
+                        }
+                        // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
+                        new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
+                        new_vert.joints.compact.joint_1 = self.tmp_joint_idxes[new_vert.joints.components.joint_2] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_3]) << 16);
+                        self.batcher.mesh.addVertex(&new_vert);
                     }
-                    self.batcher.mesh.addMatrix(xform.mat);
-                    self.tmp_joint_idxes[i] = @intCast(u16, mat_idx + i);
+                } else {
+                    for (prim.verts) |vert| {
+                        var new_vert = vert;
+                        if (fill) {
+                            new_vert.setColor(self.cur_fill_color);
+                        }
+                        self.batcher.mesh.addVertex(&new_vert);
+                    }
                 }
-            } else {
-                self.batcher.beginTex3D(tex);
-                var cur_id = id;
-                while (cur_id != NullId) {
-                    const cur_node = amesh.scene.nodes[cur_id];
-                    var node_mat = cur_node.toTransform();
-                    mvp = node_mat.getAppliedTransform(mvp);
-                    cur_id = cur_node.parent;
-                }
-                self.batcher.beginMvp(mvp);
-            }
+                self.batcher.mesh.addDeltaIndices(vert_start, prim.indexes);
 
-            if (!self.batcher.ensureUnusedBuffer(node.mesh.verts.len, node.mesh.indexes.len)) {
-                self.batcher.endCmd();
-            }
-            const vert_start = self.batcher.mesh.getNextIndexId();
-            if (node.skin.len > 0) {
-                for (node.mesh.verts) |vert| {
-                    var new_vert = vert;
-                    if (fill) {
-                        new_vert.setColor(self.cur_fill_color);
-                    }
-                    // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
-                    new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
-                    new_vert.joints.compact.joint_1 = self.tmp_joint_idxes[new_vert.joints.components.joint_2] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_3]) << 16);
-                    self.batcher.mesh.addVertex(&new_vert);
+                if (custom_mat) |material| {
+                    self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+                    self.batcher.mesh.addMaterial(material);
+                } else {
+                    self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+                    self.batcher.mesh.addMaterial(prim.material);
                 }
-            } else {
-                for (node.mesh.verts) |vert| {
-                    var new_vert = vert;
-                    if (fill) {
-                        new_vert.setColor(self.cur_fill_color);
-                    }
-                    self.batcher.mesh.addVertex(&new_vert);
-                }
+
+                self.endCmd();
             }
-            self.batcher.mesh.addDeltaIndices(vert_start, node.mesh.indexes);
         }
 
         self.batcher.beginMvp(cur_mvp);
@@ -2164,8 +2190,10 @@ pub const Graphics = struct {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        const mvp = xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
+        self.batcher.beginMvp(vp);
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
 
         if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
             self.batcher.endCmd();
@@ -2195,8 +2223,10 @@ pub const Graphics = struct {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        const mvp = xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
+        self.batcher.beginMvp(vp);
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
 
         // TODO: stroke color should pushed as a constant.
         if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {

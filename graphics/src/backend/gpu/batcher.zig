@@ -35,6 +35,7 @@ const ShaderType = enum(u4) {
     Anim3D = 6,
     Normal = 7,
     TexPbr3D = 8,
+    AnimPbr3D = 9,
 };
 
 const PreFlushTask = struct {
@@ -314,6 +315,22 @@ pub const Batcher = struct {
         }
     }
 
+    pub fn beginAnimPbr3D(self: *Self, image: ImageTex, cam_loc: stdx.math.Vec3) void {
+        if (self.cur_shader_type != .AnimPbr3D) {
+            self.endCmd();
+            self.cur_shader_type = .AnimPbr3D;
+            self.setTexture(image);
+            if (Backend == .Vulkan) {
+                self.inner.host_cam_buf.cam_pos = cam_loc;
+            }
+            return;
+        }
+        self.setTexture(image);
+        if (Backend == .Vulkan) {
+            self.inner.host_cam_buf.cam_pos = cam_loc;
+        }
+    }
+
     pub fn beginAnim3D(self: *Self, image: ImageTex) void {
         if (self.cur_shader_type != .Anim3D) {
             self.endCmd();
@@ -382,6 +399,9 @@ pub const Batcher = struct {
         self.cmd_vert_start_idx = 0;
         self.cmd_index_start_idx = 0;
         self.mesh.reset();
+
+        // Push the identity matrix onto index 0 for draw calls that don't need a model matrix.
+        self.mesh.addMatrix(Transform.initIdentity().mat);
 
         const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.beginCommandBuffer(cmd_buf);
@@ -578,10 +598,18 @@ pub const Batcher = struct {
                     .Tex3D => {
                         const pipeline = self.inner.pipelines.tex_pipeline;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
-                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
+                        const desc_sets = [_]vk.VkDescriptorSet{
+                            self.inner.cur_tex_desc_set,
+                            self.inner.mats_desc_set,
+                        };
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
 
                         // It's expensive to update a uniform buffer all the time so use push constants.
-                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                        var push_const = gvk.ModelVertexConstant{
+                            .vp = self.mvp.mat,
+                            .model_idx = self.model_idx,
+                        };
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.ModelVertexConstant), &push_const);
                     },
                     .TexPbr3D => {
                         if (self.inner.do_shadow_pass) {
@@ -594,13 +622,50 @@ pub const Batcher = struct {
                             };
                             vk.cmdBindDescriptorSets(shadow_cmd, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_p.layout, 0, desc_sets.len, &desc_sets, 0, null);
                             var push_const = gvk.ShadowVertexConstant{
-                                .mvp = self.inner.light_cast_vp.mat,
+                                .vp = self.inner.light_cast_vp.mat,
                                 .model_idx = self.model_idx,
                             };
                             vk.cmdPushConstants(shadow_cmd, shadow_p.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.ShadowVertexConstant), &push_const);
                             vk.cmdDrawIndexed(shadow_cmd, num_indexes, 1, self.cmd_index_start_idx, 0, 0);
                         }
                         const pipeline = self.inner.pipelines.tex_pbr_pipeline;
+                        vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+                        const desc_sets = [_]vk.VkDescriptorSet{
+                            self.inner.cur_tex_desc_set,
+                            self.inner.mats_desc_set,
+                            self.inner.cam_desc_set,
+                            self.inner.materials_desc_set,
+                            self.inner.shadowmap_desc_set,
+                        };
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
+                        var push_const = gvk.TexLightingVertexConstant{
+                            .mvp = self.mvp.mat,
+                            .normal_0 = self.normal[0..3].*,
+                            .normal_1 = self.normal[3..6].*,
+                            .normal_2 = self.normal[6..9].*,
+                            .model_idx = self.model_idx,
+                            .material_idx = self.material_idx,
+                        };
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.TexLightingVertexConstant), &push_const);
+                    },
+                    .AnimPbr3D => {
+                        if (self.inner.do_shadow_pass) {
+                            const shadow_p = self.inner.pipelines.anim_shadow_pipeline;
+                            const shadow_cmd = self.inner.cur_frame.shadow_cmd_buf;
+                            vk.cmdBindPipeline(shadow_cmd, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_p.pipeline);
+                            const desc_sets = [_]vk.VkDescriptorSet{
+                                self.inner.cur_tex_desc_set,
+                                self.inner.mats_desc_set,
+                            };
+                            vk.cmdBindDescriptorSets(shadow_cmd, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_p.layout, 0, desc_sets.len, &desc_sets, 0, null);
+                            var push_const = gvk.ShadowVertexConstant{
+                                .vp = self.inner.light_cast_vp.mat,
+                                .model_idx = self.model_idx,
+                            };
+                            vk.cmdPushConstants(shadow_cmd, shadow_p.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.ShadowVertexConstant), &push_const);
+                            vk.cmdDrawIndexed(shadow_cmd, num_indexes, 1, self.cmd_index_start_idx, 0, 0);
+                        }
+                        const pipeline = self.inner.pipelines.anim_pbr_pipeline;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
                         const desc_sets = [_]vk.VkDescriptorSet{
                             self.inner.cur_tex_desc_set,
@@ -628,13 +693,21 @@ pub const Batcher = struct {
                             self.inner.mats_desc_set,
                         };
                         vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
-                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                        var push_const = gvk.ModelVertexConstant{
+                            .vp = self.mvp.mat,
+                            .model_idx = self.model_idx,
+                        };
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.ModelVertexConstant), &push_const);
                     },
                     .Wireframe => {
                         const pipeline = self.inner.pipelines.wireframe_pipeline;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
                         // Must bind even though it does not use the texture since the pipeline was created with the descriptor layout.
-                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
+                        const desc_sets = [_]vk.VkDescriptorSet{
+                            self.inner.cur_tex_desc_set,
+                            self.inner.mats_desc_set,
+                        };
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
                         vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
                     },
                     .Normal => {
@@ -645,8 +718,16 @@ pub const Batcher = struct {
                     .Tex => {
                         const pipeline = self.inner.pipelines.tex_pipeline_2d;
                         vk.cmdBindPipeline(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
-                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &self.inner.cur_tex_desc_set, 0, null);
-                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, 16 * 4, &self.mvp.mat);
+                        const desc_sets = [_]vk.VkDescriptorSet{
+                            self.inner.cur_tex_desc_set,
+                            self.inner.mats_desc_set,
+                        };
+                        vk.cmdBindDescriptorSets(cmd_buf, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, desc_sets.len, &desc_sets, 0, null);
+                        var push_const = gvk.ModelVertexConstant{
+                            .vp = self.mvp.mat,
+                            .model_idx = 0,
+                        };
+                        vk.cmdPushConstants(cmd_buf, pipeline.layout, vk.VK_SHADER_STAGE_VERTEX_BIT, 0, @sizeOf(gvk.ModelVertexConstant), &push_const);
                     },
                     .Gradient => {
                         const pipeline = self.inner.pipelines.gradient_pipeline_2d;
