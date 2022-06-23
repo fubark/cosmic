@@ -1091,12 +1091,12 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn loadGLTF(_: Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
-        return GLTFhandle.init(alloc, buf, opts);
+    pub fn loadGLTF(self: *Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
+        return GLTFhandle.init(alloc, self, buf, opts);
     }
 
-    pub fn loadGLTFandBuffers(_: Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
-        var ret = try GLTFhandle.init(alloc, buf, opts);
+    pub fn loadGLTFandBuffers(self: *Self, alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
+        var ret = try GLTFhandle.init(alloc, self, buf, opts);
         try ret.loadBuffers(alloc);
         return ret;
     }
@@ -1207,15 +1207,21 @@ pub const GLTFloadOptions = struct {
     root_path: [:0]const u8 = "",
 };
 
+const GLTFimage = struct {
+    data: []const u8,
+    image_id: ?ImageId,
+};
+
 pub const GLTFhandle = struct {
     data: *cgltf.cgltf_data,
     loaded_buffers: bool,
     static_buffer_map: std.StringHashMap(GLTFstaticBufferEntry),
-    image_buffers: std.AutoHashMap(*cgltf.cgltf_image, []const u8),
+    image_buffers: std.AutoHashMap(*cgltf.cgltf_image, GLTFimage),
+    gctx: *Graphics,
 
     const Self = @This();
 
-    pub fn init(alloc: std.mem.Allocator, buf: []const u8, opts: GLTFloadOptions) !Self {
+    pub fn init(alloc: std.mem.Allocator, gctx: *Graphics, buf: []const u8, opts: GLTFloadOptions) !Self {
         var gltf_opts = std.mem.zeroInit(cgltf.cgltf_options, .{});
         var data: *cgltf.cgltf_data = undefined;
         const res = cgltf.parse(&gltf_opts, buf.ptr, buf.len, &data);
@@ -1239,7 +1245,8 @@ pub const GLTFhandle = struct {
                 .data = data,
                 .loaded_buffers = false,
                 .static_buffer_map = static_buffer_map,
-                .image_buffers = std.AutoHashMap(*cgltf.cgltf_image, []const u8).init(alloc),
+                .image_buffers = std.AutoHashMap(*cgltf.cgltf_image, GLTFimage).init(alloc),
+                .gctx = gctx,
             };
         } else {
             return error.FailedToLoad;
@@ -1259,9 +1266,13 @@ pub const GLTFhandle = struct {
         self.static_buffer_map.deinit();
 
         var image_iter = self.image_buffers.valueIterator();
-        while (image_iter.next()) |data| {
+        while (image_iter.next()) |info| {
             // Owned by cgltf malloc.
-            std.c.free(@intToPtr(?*anyopaque, @ptrToInt(data.ptr)));
+            std.c.free(@intToPtr(?*anyopaque, @ptrToInt(info.data.ptr)));
+
+            if (info.image_id) |id| {
+                self.gctx.removeImage(id);
+            }
         }
         self.image_buffers.deinit();
     }
@@ -1335,7 +1346,10 @@ pub const GLTFhandle = struct {
                                 if (res != cgltf.cgltf_result_success) {
                                     return error.InvalidData;
                                 }
-                                self.image_buffers.put(image, data[0..byte_len]) catch fatal();
+                                self.image_buffers.put(image, .{
+                                    .data = data[0..byte_len],
+                                    .image_id = null,
+                                }) catch fatal();
                             }
                         } else {
                             return error.UnknownFormat;
@@ -1463,16 +1477,16 @@ pub const GLTFscene = struct {
                     }
                 }
             }
-            fn initNode(alloc_: std.mem.Allocator, handle_: GLTFhandle, gctx_: *Graphics, mesh_nodes_: *std.ArrayList(u32), nodes_: []GLTFnode, map_: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) anyerror!void {
-                const id = map_.get(node).?;
-                nodes_[id] = try GLTFnode.init(alloc_, handle_, gctx_, map_, parent, node);
-                if (nodes_[id].has_mesh) {
-                    mesh_nodes_.append(id) catch fatal();
+            fn initNode(ctx: InitNodeContext, parent: u32, node: *cgltf.cgltf_node) anyerror!void {
+                const id = ctx.map.get(node).?;
+                ctx.nodes[id] = try GLTFnode.init(ctx, parent, node);
+                if (ctx.nodes[id].has_mesh) {
+                    ctx.mesh_nodes.append(id) catch fatal();
                 }
                 if (node.children_count > 0) {
                     const children = node.children[0..node.children_count];
                     for (children) |child| {
-                        try initNode(alloc_, handle_, gctx_, mesh_nodes_, nodes_, map_, id, child);
+                        try initNode(ctx, id, child);
                     }
                 }
             }
@@ -1491,9 +1505,18 @@ pub const GLTFscene = struct {
             root_nodes[i] = id;
         }
 
+        const ctx = InitNodeContext{
+            .alloc = alloc,
+            .handle = handle,
+            .gctx = gctx,
+            .mesh_nodes = &mesh_nodes,
+            .nodes = nodes.items,
+            .map = map,
+        };
+
         // Load each node.
         for (cnodes) |node| {
-            try S.initNode(alloc, handle, gctx, &mesh_nodes, nodes.items, map, NullId, node);
+            try S.initNode(ctx, NullId, node);
         }
 
         if (mesh_nodes.items.len == 0) {
@@ -1663,8 +1686,17 @@ pub const GLTFscene = struct {
     }
 };
 
+const InitNodeContext = struct {
+    alloc: std.mem.Allocator,
+    handle: GLTFhandle,
+    gctx: *Graphics,
+    mesh_nodes: *std.ArrayList(u32),
+    nodes: []GLTFnode,
+    map: std.AutoHashMap(*cgltf.cgltf_node, u32),
+};
+
 pub const GLTFnode = struct {
-    mesh: Mesh3D,
+    primitives: []const Mesh3D,
     skin: []const MeshJoint,
 
     scale: Vec3,
@@ -1679,16 +1711,9 @@ pub const GLTFnode = struct {
     has_rotate: bool,
     has_translate: bool,
 
-    pub fn init(alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, map: std.AutoHashMap(*cgltf.cgltf_node, u32), parent: u32, node: *cgltf.cgltf_node) !GLTFnode {
+    pub fn init(ctx: InitNodeContext, parent: u32, node: *cgltf.cgltf_node) !GLTFnode {
         var ret: GLTFnode = .{
-            .mesh = .{
-                .material = .{
-                    .roughness = 0,
-                    .emissivity = 0,
-                    .metallic = 0,
-                    .albedo_color = Color.White.toFloatArray(),
-                },
-            },
+            .primitives = &.{},
             .skin = &.{},
 
             .scale = undefined,
@@ -1704,15 +1729,15 @@ pub const GLTFnode = struct {
         };
         if (node.mesh != null) {
             // This node has mesh data.
-            try ret.loadMeshData(alloc, handle, gctx, map, node);
+            try ret.loadMeshData(ctx, node);
             ret.has_mesh = true;
         }
 
         if (node.children_count > 0) {
-            const children = alloc.alloc(u32, node.children_count) catch fatal();
+            const children = ctx.alloc.alloc(u32, node.children_count) catch fatal();
             const cchildren = node.children[0..node.children_count];
             for (cchildren) |child, i| {
-                children[i] = map.get(child).?;
+                children[i] = ctx.map.get(child).?;
             }
             ret.children = children;
         }
@@ -1732,189 +1757,232 @@ pub const GLTFnode = struct {
         return ret;
     }
 
-    fn loadMeshData(self: *GLTFnode, alloc: std.mem.Allocator, handle: GLTFhandle, gctx: *Graphics, map: std.AutoHashMap(*cgltf.cgltf_node, u32), node: *cgltf.cgltf_node) !void {
+    fn loadMeshData(self: *GLTFnode, ctx: InitNodeContext, node: *cgltf.cgltf_node) !void {
+        const alloc = ctx.alloc;
+        const map = ctx.map;
         const mesh = @ptrCast(*cgltf.cgltf_mesh, node.mesh);
         if (mesh.primitives_count > 0) {
-            const primitive = mesh.primitives[0];
+            const primitives = alloc.alloc(Mesh3D, mesh.primitives_count) catch fatal();
+            errdefer {
+                for (primitives) |prim| {
+                    prim.deinit(alloc);
+                }
+                alloc.free(primitives);
+            }
+            const cprimitives = mesh.primitives[0..mesh.primitives_count];
+            for (cprimitives) |primitive, prim_idx| {
+                primitives[prim_idx] = .{
+                    .material = .{
+                        .roughness = 0,
+                        .emissivity = 0,
+                        .metallic = 0,
+                        .albedo_color = Color.White.toFloatArray(),
+                    },
+                };
 
-            if (primitive.material != null) {
-                const material = @ptrCast(*cgltf.cgltf_material, primitive.material);
-                // Load texture.
-                if (material.has_pbr_metallic_roughness == 1) {
-                    if (material.pbr_metallic_roughness.base_color_texture.texture != null) {
-                        const texture = @ptrCast(*cgltf.cgltf_texture, material.pbr_metallic_roughness.base_color_texture.texture);
-                        const cimage = @ptrCast(*cgltf.cgltf_image, texture.image);
-                        if (handle.image_buffers.get(cimage)) |data| {
-                            const image = try gctx.createImage(data);
-                            self.mesh.image_id = image.id;
-                            self.mesh.gctx = gctx;
-                        } else {
-                            // Image data is already loaded from glb.
-                            const buffer_view = @ptrCast(*cgltf.cgltf_buffer_view, cimage.buffer_view);
-                            const buf = @ptrCast(*cgltf.cgltf_buffer, buffer_view.buffer);
-                            const offset = buffer_view.offset;
-                            const size = buffer_view.size;
-                            const data = @ptrCast([*c]u8, buf.data);
-                            const image = try gctx.createImage(data[offset..offset+size]);
-                            self.mesh.image_id = image.id;
-                            self.mesh.gctx = gctx;
+                if (primitive.material != null) {
+                    const material = @ptrCast(*cgltf.cgltf_material, primitive.material);
+                    // Load texture.
+                    if (material.has_pbr_metallic_roughness == 1) {
+                        if (material.pbr_metallic_roughness.base_color_texture.texture != null) {
+                            const texture = @ptrCast(*cgltf.cgltf_texture, material.pbr_metallic_roughness.base_color_texture.texture);
+                            const cimage = @ptrCast(*cgltf.cgltf_image, texture.image);
+                            if (ctx.handle.image_buffers.getPtr(cimage)) |info| {
+                                if (info.image_id == null) {
+                                    const image = try ctx.gctx.createImage(info.data);
+                                    info.image_id = image.id;
+                                }
+                                primitives[prim_idx].image_id = info.image_id.?;
+                            } else {
+                                // Image data is already loaded from glb.
+                                const buffer_view = @ptrCast(*cgltf.cgltf_buffer_view, cimage.buffer_view);
+                                const buf = @ptrCast(*cgltf.cgltf_buffer, buffer_view.buffer);
+                                const offset = buffer_view.offset;
+                                const size = buffer_view.size;
+                                const data = @ptrCast([*c]u8, buf.data);
+                                const image = try ctx.gctx.createImage(data[offset..offset+size]);
+                                primitives[prim_idx].image_id = image.id;
+                            }
                         }
+                        primitives[prim_idx].material.albedo_color = material.pbr_metallic_roughness.base_color_factor;
                     }
                 }
-            }
 
-            // Determine number of verts by looking at the first attribute.
-            var verts: []gpu.TexShaderVertex = undefined;
-            if (primitive.attributes_count > 0) {
-                const count = primitive.attributes[0].data[0].count;
-                verts = alloc.alloc(gpu.TexShaderVertex, count) catch fatal();
-            } else return error.NoNumVerts;
+                // Determine number of verts by looking at the first attribute.
+                var verts: []gpu.TexShaderVertex = undefined;
+                if (primitive.attributes_count > 0) {
+                    const count = primitive.attributes[0].data[0].count;
+                    verts = alloc.alloc(gpu.TexShaderVertex, count) catch fatal();
+                } else return error.NoNumVerts;
 
-            var ai: u32 = 0;
-            while (ai < primitive.attributes_count) : (ai += 1) {
-                const attr = primitive.attributes[ai];
-                const accessor = @ptrCast(*cgltf.cgltf_accessor, attr.data);
-                const component_type = accessor.component_type;
-                if (accessor.count != verts.len) {
-                    return error.NumVertsMismatch;
-                }
-                switch (attr.@"type") {
-                    cgltf.cgltf_attribute_type_normal => {
-                        if (accessor.@"type" == cgltf.cgltf_type_vec3 and component_type == cgltf.cgltf_component_type_r_32f) {
-                            const val_buf = alloc.alloc(cgltf.cgltf_float, 3 * accessor.count) catch fatal();
-                            defer alloc.free(val_buf);
-                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, val_buf.len);
-                            var vi: u32 = 0;
-                            while (vi < verts.len) : (vi += 1) {
-                                verts[vi].normal.x = val_buf[vi * 3];
-                                verts[vi].normal.y = val_buf[vi * 3 + 1];
-                                verts[vi].normal.z = val_buf[vi * 3 + 2];
+                var has_normals = false;
+
+                var ai: u32 = 0;
+                while (ai < primitive.attributes_count) : (ai += 1) {
+                    const attr = primitive.attributes[ai];
+                    const accessor = @ptrCast(*cgltf.cgltf_accessor, attr.data);
+                    const component_type = accessor.component_type;
+                    if (accessor.count != verts.len) {
+                        return error.NumVertsMismatch;
+                    }
+                    switch (attr.@"type") {
+                        cgltf.cgltf_attribute_type_normal => {
+                            if (accessor.@"type" == cgltf.cgltf_type_vec3 and component_type == cgltf.cgltf_component_type_r_32f) {
+                                const val_buf = alloc.alloc(cgltf.cgltf_float, 3 * accessor.count) catch fatal();
+                                defer alloc.free(val_buf);
+                                _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, val_buf.len);
+                                var vi: u32 = 0;
+                                while (vi < verts.len) : (vi += 1) {
+                                    verts[vi].normal.x = val_buf[vi * 3];
+                                    verts[vi].normal.y = val_buf[vi * 3 + 1];
+                                    verts[vi].normal.z = val_buf[vi * 3 + 2];
+                                }
+                                has_normals = true;
+                            } else {
+                                return error.UnsupportedFormat;
                             }
-                        } else {
-                            return error.UnsupportedFormat;
-                        }
-                    },
-                    cgltf.cgltf_attribute_type_position => {
-                        if (component_type == cgltf.cgltf_component_type_r_32f) {
+                        },
+                        cgltf.cgltf_attribute_type_position => {
+                            if (component_type == cgltf.cgltf_component_type_r_32f) {
+                                const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
+                                const num_floats = num_component_vals * accessor.count;
+                                const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
+                                defer alloc.free(val_buf);
+                                _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+
+                                var vi: u32 = 0;
+                                while (vi < verts.len) : (vi += 1) {
+                                    verts[vi].setXYZ(
+                                        val_buf[vi * num_component_vals],
+                                        val_buf[vi * num_component_vals + 1],
+                                        val_buf[vi * num_component_vals + 2],
+                                    );
+                                    verts[vi].setColor(Color.White);
+                                }
+                            } else {
+                                return error.UnsupportedComponentType;
+                            }
+                        },
+                        cgltf.cgltf_attribute_type_texcoord => {
+                            if (accessor.@"type" == cgltf.cgltf_type_vec2 and component_type == cgltf.cgltf_component_type_r_32f) {
+                                const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
+                                const num_floats = num_component_vals * accessor.count;
+                                const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
+                                defer alloc.free(val_buf);
+                                _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
+
+                                var vi: u32 = 0;
+                                while (vi < verts.len) : (vi += 1) {
+                                    verts[vi].setUV(
+                                        val_buf[vi * num_component_vals],
+                                        val_buf[vi * num_component_vals + 1],
+                                    );
+                                }
+                            } else {
+                                return error.UnsupportedComponentType;
+                            }
+                        },
+                        cgltf.cgltf_attribute_type_joints => {
                             const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
-                            const num_floats = num_component_vals * accessor.count;
-                            const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
-                            defer alloc.free(val_buf);
-                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
-
-                            var vi: u32 = 0;
-                            while (vi < verts.len) : (vi += 1) {
-                                verts[vi].setXYZ(
-                                    val_buf[vi * num_component_vals],
-                                    val_buf[vi * num_component_vals + 1],
-                                    val_buf[vi * num_component_vals + 2],
-                                );
-                                verts[vi].setColor(Color.White);
+                            if (component_type == cgltf.cgltf_component_type_r_16u and num_component_vals == 4) {
+                                var i: u32 = 0;
+                                while (i < accessor.count) : (i += 1) {
+                                    var joints: [4]u32 = undefined;
+                                    _ = cgltf.cgltf_accessor_read_uint(accessor, i, &joints, 4);
+                                    verts[i].joints.components.joint_0 = @intCast(u16, joints[0]);
+                                    verts[i].joints.components.joint_1 = @intCast(u16, joints[1]);
+                                    verts[i].joints.components.joint_2 = @intCast(u16, joints[2]);
+                                    verts[i].joints.components.joint_3 = @intCast(u16, joints[3]);
+                                }
+                            } else {
+                                return error.UnsupportedComponentType;
                             }
-                        } else {
-                            return error.UnsupportedComponentType;
-                        }
-                    },
-                    cgltf.cgltf_attribute_type_texcoord => {
-                        if (accessor.@"type" == cgltf.cgltf_type_vec2 and component_type == cgltf.cgltf_component_type_r_32f) {
+                        },
+                        cgltf.cgltf_attribute_type_weights => {
                             const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
-                            const num_floats = num_component_vals * accessor.count;
-                            const val_buf = alloc.alloc(cgltf.cgltf_float, num_floats) catch fatal();
-                            defer alloc.free(val_buf);
-                            _ = cgltf.cgltf_accessor_unpack_floats(accessor, val_buf.ptr, num_floats);
-
-                            var vi: u32 = 0;
-                            while (vi < verts.len) : (vi += 1) {
-                                verts[vi].setUV(
-                                    val_buf[vi * num_component_vals],
-                                    val_buf[vi * num_component_vals + 1],
-                                );
+                            if (component_type == cgltf.cgltf_component_type_r_32f and num_component_vals == 4) {
+                                var i: u32 = 0;
+                                while (i < accessor.count) : (i += 1) {
+                                    var weights: [4]f32 = undefined;
+                                    _ = cgltf.cgltf_accessor_read_float(accessor, i, &weights, 4);
+                                    const weight0 = @floatToInt(u8, std.math.floor(weights[0] * 255));
+                                    const weight1 = @floatToInt(u8, std.math.floor(weights[1] * 255));
+                                    const weight2 = @floatToInt(u8, std.math.floor(weights[2] * 255));
+                                    const weight3 = @floatToInt(u8, std.math.floor(weights[3] * 255));
+                                    const weights_u32 = weight0 | (@as(u32, weight1) << 8) | (@as(u32, weight2) << 16) | (@as(u32, weight3) << 24);
+                                    verts[i].weights = weights_u32;
+                                }
+                            } else {
+                                return error.UnsupportedComponentType;
                             }
-                        } else {
-                            return error.UnsupportedComponentType;
-                        }
-                    },
-                    cgltf.cgltf_attribute_type_joints => {
-                        const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
-                        if (component_type == cgltf.cgltf_component_type_r_16u and num_component_vals == 4) {
-                            var i: u32 = 0;
-                            while (i < accessor.count) : (i += 1) {
-                                var joints: [4]u32 = undefined;
-                                _ = cgltf.cgltf_accessor_read_uint(accessor, i, &joints, 4);
-                                verts[i].joints.components.joint_0 = @intCast(u16, joints[0]);
-                                verts[i].joints.components.joint_1 = @intCast(u16, joints[1]);
-                                verts[i].joints.components.joint_2 = @intCast(u16, joints[2]);
-                                verts[i].joints.components.joint_3 = @intCast(u16, joints[3]);
-                            }
-                        } else {
-                            return error.UnsupportedComponentType;
-                        }
-                    },
-                    cgltf.cgltf_attribute_type_weights => {
-                        const num_component_vals = cgltf.cgltf_num_components(accessor.@"type");
-                        if (component_type == cgltf.cgltf_component_type_r_32f and num_component_vals == 4) {
-                            var i: u32 = 0;
-                            while (i < accessor.count) : (i += 1) {
-                                var weights: [4]f32 = undefined;
-                                _ = cgltf.cgltf_accessor_read_float(accessor, i, &weights, 4);
-                                const weight0 = @floatToInt(u8, std.math.floor(weights[0] * 255));
-                                const weight1 = @floatToInt(u8, std.math.floor(weights[1] * 255));
-                                const weight2 = @floatToInt(u8, std.math.floor(weights[2] * 255));
-                                const weight3 = @floatToInt(u8, std.math.floor(weights[3] * 255));
-                                const weights_u32 = weight0 | (@as(u32, weight1) << 8) | (@as(u32, weight2) << 16) | (@as(u32, weight3) << 24);
-                                verts[i].weights = weights_u32;
-                            }
-                        } else {
-                            return error.UnsupportedComponentType;
-                        }
-                    },
-                    else => {},
+                        },
+                        else => {},
+                    }
                 }
-            }
 
-            var indexes: []u16 = undefined;
-            if (primitive.indices != null) {
-                const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
-                var i: u32 = 0;
-                indexes = alloc.alloc(u16, indices.count) catch fatal();
-                while (i < indices.count) : (i += 1) {
-                    indexes[i] = @intCast(u16, cgltf.cgltf_accessor_read_index(indices, i));
+                var indexes: []u16 = undefined;
+                if (primitive.indices != null) {
+                    const indices = @ptrCast(*cgltf.cgltf_accessor, primitive.indices);
+                    var i: u32 = 0;
+                    indexes = alloc.alloc(u16, indices.count) catch fatal();
+                    while (i < indices.count) : (i += 1) {
+                        indexes[i] = @intCast(u16, cgltf.cgltf_accessor_read_index(indices, i));
+                    }
+                }  else {
+                    // No index data. Generate them from verts.
+                    indexes = alloc.alloc(u16, verts.len) catch fatal();
+                    var i: u32 = 0;
+                    while (i < indexes.len) : (i += 1) {
+                        indexes[i] = @intCast(u16, i);
+                    }
                 }
-            }  else {
-                // No index data. Generate them from verts.
-                indexes = alloc.alloc(u16, verts.len) catch fatal();
-                var i: u32 = 0;
-                while (i < indexes.len) : (i += 1) {
-                    indexes[i] = @intCast(u16, i);
-                }
-            }
 
-            if (node.skin != null) {
-                const skin = @ptrCast(*cgltf.cgltf_skin, node.skin);
-                if (skin.joints_count > 0) {
-                    const inv_mat_accessor = @ptrCast(*cgltf.cgltf_accessor, skin.inverse_bind_matrices);
-                    if (inv_mat_accessor.@"type" == cgltf.cgltf_type_mat4 and inv_mat_accessor.component_type == cgltf.cgltf_component_type_r_32f) {
-                        const mesh_joints = alloc.alloc(MeshJoint, skin.joints_count) catch fatal();
-                        const joints = skin.joints[0..skin.joints_count];
-                        for (joints) |joint_node, i| {
-                            var mat: [16]f32 = undefined;
-                            _ = cgltf.cgltf_accessor_read_float(skin.inverse_bind_matrices, i, &mat, 16);
-                            mesh_joints[i] = .{
-                                // Convert from col major to row major.
-                                .inv_bind_mat = stdx.math.transpose4x4(mat),
-                                .node_id = map.get(joint_node).?,
-                            };
-                        }
-                        self.skin = mesh_joints;
-                    } else return error.UnsupportedType;
+                if (!has_normals) {
+                    // Generate flat normals as suggested by gltf spec.
+                    var i: u32 = 0;
+                    while (i < indexes.len) : (i += 3) {
+                        const vert1 = verts[indexes[i]];
+                        const vert2 = verts[indexes[i+1]];
+                        const vert3 = verts[indexes[i+2]];
+                        const v1 = Vec3.init(vert2.pos.x - vert1.pos.x, vert2.pos.y - vert1.pos.y, vert2.pos.z - vert1.pos.z);
+                        const v2 = Vec3.init(vert3.pos.x - vert1.pos.x, vert3.pos.y - vert1.pos.y, vert3.pos.z - vert1.pos.z);
+                        const normal = v1.cross(v2).normalize();
+                        verts[indexes[i]].normal = .{
+                            .x = normal.x,
+                            .y = normal.y,
+                            .z = normal.z,
+                        };
+                        verts[indexes[i+1]].normal = verts[indexes[i]].normal;
+                        verts[indexes[i+2]].normal = verts[indexes[i]].normal;
+                    }
                 }
-            }
 
-            self.mesh.verts = verts;
-            self.mesh.indexes = indexes;
-            return;
+                primitives[prim_idx].verts = verts;
+                primitives[prim_idx].indexes = indexes;
+            }
+            self.primitives = primitives;
+        } else return error.NoPrimitives;
+
+        if (node.skin != null) {
+            const skin = @ptrCast(*cgltf.cgltf_skin, node.skin);
+            if (skin.joints_count > 0) {
+                const inv_mat_accessor = @ptrCast(*cgltf.cgltf_accessor, skin.inverse_bind_matrices);
+                if (inv_mat_accessor.@"type" == cgltf.cgltf_type_mat4 and inv_mat_accessor.component_type == cgltf.cgltf_component_type_r_32f) {
+                    const mesh_joints = alloc.alloc(MeshJoint, skin.joints_count) catch fatal();
+                    const joints = skin.joints[0..skin.joints_count];
+                    for (joints) |joint_node, i| {
+                        var mat: [16]f32 = undefined;
+                        _ = cgltf.cgltf_accessor_read_float(skin.inverse_bind_matrices, i, &mat, 16);
+                        mesh_joints[i] = .{
+                            // Convert from col major to row major.
+                            .inv_bind_mat = stdx.math.transpose4x4(mat),
+                            .node_id = map.get(joint_node).?,
+                        };
+                    }
+                    self.skin = mesh_joints;
+                } else return error.UnsupportedType;
+            }
         }
-        return error.NoPrimitives;
     }
 
     pub fn toTransform(self: GLTFnode) Transform {
@@ -1932,7 +2000,10 @@ pub const GLTFnode = struct {
     }
 
     pub fn deinit(self: GLTFnode, alloc: std.mem.Allocator) void {
-        self.mesh.deinit(alloc);
+        for (self.primitives) |prim| {
+            prim.deinit(alloc);
+        }
+        alloc.free(self.primitives);
         alloc.free(self.skin);
         alloc.free(self.children);
     }
@@ -2094,14 +2165,10 @@ pub const Mesh3D = struct {
     indexes: []const u16 = &.{},
     image_id: ?ImageId = null,
     material: Material,
-    gctx: *Graphics = undefined,
 
     fn deinit(self: Mesh3D, alloc: std.mem.Allocator) void {
         alloc.free(self.verts);
         alloc.free(self.indexes);
-        if (self.image_id) |image_id| {
-            self.gctx.removeImage(image_id);
-        }
     }
 };
 

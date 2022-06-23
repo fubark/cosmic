@@ -1914,7 +1914,9 @@ pub const Graphics = struct {
     pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, mat: graphics.Material) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
-            self.drawMeshPbrCustom3D(xform, node.mesh, mat);
+            for (node.primitives) |prim| {
+                self.drawMeshPbrCustom3D(xform, prim, mat);
+            }
         }
     }
 
@@ -2151,7 +2153,9 @@ pub const Graphics = struct {
     pub fn fillScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
-            self.fillMesh3D(xform, node.mesh);
+            for (node.primitives) |prim| {
+                self.fillMesh3D(xform, prim);
+            }
         }
     }
 
@@ -2180,7 +2184,9 @@ pub const Graphics = struct {
     pub fn strokeScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
-            self.strokeMesh3D(xform, node.mesh);
+            for (node.primitives) |prim| {
+                self.strokeMesh3D(xform, prim);
+            }
         }
     }
 
