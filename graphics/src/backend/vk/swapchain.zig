@@ -29,8 +29,8 @@ pub const SwapChain = struct {
     buf_dim: vk.VkExtent2D,
 
     device: vk.VkDevice,
-    cur_frame_idx: u32,
-    cur_image_idx: u32,
+    cur_frame_idx: u8,
+    cur_image_idx: u8,
     present_queue: vk.VkQueue,
 
     const Self = @This();
@@ -67,7 +67,11 @@ pub const SwapChain = struct {
 
         const surface_format = swapc_info.getDefaultSurfaceFormat();
         self.buf_format = surface_format.format;
-        const present_mode = swapc_info.getDefaultPresentMode();
+
+        var present_mode = swapc_info.getPresentMode(.Mailbox) orelse
+            swapc_info.getPresentMode(.Vsync) orelse
+            swapc_info.getPresentMode(.Immediate) orelse fatal();
+
         self.buf_dim = swapc_info.getDefaultExtent();
 
         var image_count: u32 = swapc_info.capabilities.minImageCount + 1;
@@ -119,8 +123,10 @@ pub const SwapChain = struct {
         self.depth_images_mem = alloc.alloc(vk.VkDeviceMemory, image_count) catch fatal();
         self.depth_image_views = alloc.alloc(vk.VkImageView, image_count) catch fatal();
         for (self.depth_images) |_, i| {
-            gvk.image.createDefaultImage(physical, device, self.buf_dim.width, self.buf_dim.height, vk.VK_FORMAT_D32_SFLOAT, vk.VK_IMAGE_TILING_OPTIMAL,
-                vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &self.depth_images[i], &self.depth_images_mem[i]);
+            const image = gvk.image.createDefaultImage(physical, device, self.buf_dim.width, self.buf_dim.height, vk.VK_FORMAT_D32_SFLOAT, vk.VK_IMAGE_TILING_OPTIMAL,
+                vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            self.depth_images[i] = image.image;
+            self.depth_images_mem[i] = image.mem;
             self.depth_image_views[i] = gvk.image.createDefaultImageView(device, self.depth_images[i], vk.VK_FORMAT_D32_SFLOAT);
         }
 
@@ -177,18 +183,21 @@ pub const SwapChain = struct {
         res = vk.resetFences(self.device, 1, &self.inflight_fences[self.cur_frame_idx]);
         vk.assertSuccess(res);
 
-        res = vk.acquireNextImageKHR(self.device, self.swapchain, std.math.maxInt(u64), self.image_available_semas[self.cur_frame_idx], null, &self.cur_image_idx);
+        var image_idx: u32 = undefined;
+        res = vk.acquireNextImageKHR(self.device, self.swapchain, std.math.maxInt(u64), self.image_available_semas[self.cur_frame_idx], null, &image_idx);
+        self.cur_image_idx = @intCast(u8, image_idx);
         vk.assertSuccess(res);
     }
 
     pub fn endFrame(self: *Self) void {
+        const image_idx: u32 = self.cur_image_idx;
         const present_info = vk.VkPresentInfoKHR{
             .sType = vk.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &self.render_finished_semas[self.cur_frame_idx],
             .swapchainCount = 1,
             .pSwapchains = &self.swapchain,
-            .pImageIndices = &self.cur_image_idx,
+            .pImageIndices = &image_idx,
             .pNext = null,
             .pResults = null,
         };

@@ -2215,6 +2215,11 @@ pub const BuildContext = struct {
                 @compileError("Expected id type to be an enum literal.");
             }
         }
+        if (@hasField(BuildProps, "spread")) {
+            if (stdx.meta.FieldType(BuildProps, .spread) != WidgetProps(Widget)) {
+                @compileError("Expected widget props type to spread.");
+            }
+        }
         const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
         const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
 
@@ -2229,6 +2234,8 @@ pub const BuildContext = struct {
                     if (string.eq("id", f.name)) {
                         continue;
                     } else if (string.eq("bind", f.name)) {
+                        continue;
+                    } else if (string.eq("spread", f.name)) {
                         continue;
                     } else if (!HasProps) {
                         @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);
@@ -2245,15 +2252,25 @@ pub const BuildContext = struct {
             if (HasProps) {
                 var props: WidgetProps(Widget) = undefined;
 
-                inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
-                    if (@hasField(BuildProps, Field.name)) {
-                        @field(props, Field.name) = @field(build_props, Field.name);
-                    } else {
-                        if (Field.default_value) |def| {
-                            // Set default value.
-                            @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
+                if (@hasField(BuildProps, "spread")) {
+                    props = build_props.spread;
+                    // When spreading provided props, don't overwrite with default values.
+                    inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
+                        if (@hasField(BuildProps, Field.name)) {
+                            @field(props, Field.name) = @field(build_props, Field.name);
+                        }
+                    }
+                } else {
+                    inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
+                        if (@hasField(BuildProps, Field.name)) {
+                            @field(props, Field.name) = @field(build_props, Field.name);
                         } else {
-                            @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
+                            if (Field.default_value) |def| {
+                                // Set default value.
+                                @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
+                            } else {
+                                @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
+                            }
                         }
                     }
                 }
@@ -2722,7 +2739,7 @@ fn WidgetHasProps(comptime Widget: type) bool {
     return @typeInfo(PropsField.field_type) == .Struct;
 }
 
-fn WidgetProps(comptime Widget: type) type {
+pub fn WidgetProps(comptime Widget: type) type {
     if (WidgetHasProps(Widget)) {
         return std.meta.fieldInfo(Widget, .props).field_type;
     } else {

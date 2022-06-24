@@ -8,23 +8,23 @@ pub fn createFramebuffers(alloc: std.mem.Allocator, device: vk.VkDevice, pass: v
 ) []vk.VkFramebuffer {
     const ret = alloc.alloc(vk.VkFramebuffer, image_views.len) catch stdx.fatal();
     for (image_views) |view, i| {
-        ret[i] = createFramebuffer(device, pass, extent, view, depth_image_views[i]);
+        const attachments = &[_]vk.VkImageView{
+            view,
+            depth_image_views[i],
+        };
+        ret[i] = createFramebuffer(device, pass, extent.width, extent.height, attachments);
     }
     return ret;
 }
 
-fn createFramebuffer(device: vk.VkDevice, pass: vk.VkRenderPass, extent: vk.VkExtent2D, image_view: vk.VkImageView, depth_image_view: vk.VkImageView) vk.VkFramebuffer {
-    const attachments = [_]vk.VkImageView{
-        image_view,
-        depth_image_view,
-    };
+pub fn createFramebuffer(device: vk.VkDevice, pass: vk.VkRenderPass, width: usize, height: usize, attachments: []const vk.VkImageView) vk.VkFramebuffer {
     const create_info = vk.VkFramebufferCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         .renderPass = pass,
-        .attachmentCount = attachments.len,
-        .pAttachments = &attachments,
-        .width = extent.width,
-        .height = extent.height,
+        .attachmentCount = @intCast(u32, attachments.len),
+        .pAttachments = attachments.ptr,
+        .width = @intCast(u32, width),
+        .height = @intCast(u32, height),
         .layers = 1,
         .pNext = null,
         .flags = 0,

@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const build_options = @import("build_options");
 const Backend = build_options.GraphicsBackend;
 const platform = @import("platform");
@@ -21,6 +22,7 @@ pub const Renderer = struct {
     inner: switch (Backend) {
         .Vulkan => struct {
             ctx: gvk.VkContext,
+            vk: gvk.Renderer,
         },
         .OpenGL => void,
         else => void,
@@ -34,11 +36,12 @@ pub const Renderer = struct {
         switch (Backend) {
             .Vulkan => {
                 self.swapchain.initVK(alloc, win);
-                
-                const vk_ctx = gvk.VkContext.init(alloc, win, self.swapchain);
+
+                self.inner.vk = gvk.Renderer.init(alloc, win, self.swapchain);
+                const vk_ctx = gvk.VkContext.init(alloc, win);
                 self.inner.ctx = vk_ctx;
 
-                self.gctx.initVK(alloc, win.impl.dpr, vk_ctx);
+                self.gctx.initVK(alloc, win.impl.dpr, &self.inner.vk, vk_ctx);
             },
             .OpenGL => {
                 self.swapchain.init(alloc, win);
@@ -53,7 +56,7 @@ pub const Renderer = struct {
         self.swapchain.deinit(alloc);
         self.gctx.deinit();
         if (Backend == .Vulkan) {
-            self.inner.ctx.deinit(alloc);
+            self.inner.vk.deinit(alloc);
         }
     }
 
@@ -68,7 +71,8 @@ pub const Renderer = struct {
             .Vulkan => {
                 const cur_image_idx = self.swapchain.impl.cur_image_idx;
                 const cur_frame_idx = self.swapchain.impl.cur_frame_idx;
-                gpu.Graphics.beginFrameVK(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, cur_image_idx, cur_frame_idx);
+                const framebuffer = self.inner.vk.framebuffers[cur_image_idx];
+                gpu.Graphics.beginFrameVK(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, cur_frame_idx, framebuffer);
             },
             .OpenGL => {
                 // In OpenGL, glClear can block if there there are too many commands in the queue.
@@ -83,25 +87,33 @@ pub const Renderer = struct {
     pub inline fn endFrame(self: *Self) void {
         switch (Backend) {
             .Vulkan => {
-                gpu.Graphics.endFrameVK(&self.gctx.impl);
+                const frame_res = gpu.Graphics.endFrameVK(&self.gctx.impl);
 
-                const cur_image_idx = self.swapchain.impl.cur_image_idx;
                 const cur_frame_idx = self.swapchain.impl.cur_frame_idx;
 
                 // Submit command.
                 const wait_stage_flag = @intCast(u32, vk.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                const frame = self.inner.vk.frames[cur_frame_idx];
+
+                // Only submit shadow command if work was recorded.
+                const cmd_bufs: []const vk.VkCommandBuffer = if (frame_res.submit_shadow_cmd) &[_]vk.VkCommandBuffer{
+                    frame.shadow_cmd_buf,
+                    frame.main_cmd_buf,
+                } else &[_]vk.VkCommandBuffer{
+                    frame.main_cmd_buf,
+                };
                 const submit_info = vk.VkSubmitInfo{
                     .sType = vk.VK_STRUCTURE_TYPE_SUBMIT_INFO,
                     .waitSemaphoreCount = 1,
                     .pWaitSemaphores = &self.swapchain.impl.image_available_semas[cur_frame_idx],
                     .pWaitDstStageMask = &wait_stage_flag,
-                    .commandBufferCount = 1,
-                    .pCommandBuffers = &self.inner.ctx.cmd_bufs[cur_image_idx],
+                    .commandBufferCount = @intCast(u32, cmd_bufs.len),
+                    .pCommandBuffers = cmd_bufs.ptr,
                     .signalSemaphoreCount = 1,
                     .pSignalSemaphores = &self.swapchain.impl.render_finished_semas[cur_frame_idx],
                     .pNext = null,
                 };
-                const res = vk.queueSubmit(self.inner.ctx.graphics_queue, 1, &submit_info, self.swapchain.impl.inflight_fences[cur_frame_idx]);
+                const res = vk.queueSubmit(self.inner.vk.graphics_queue, 1, &submit_info, self.swapchain.impl.inflight_fences[cur_frame_idx]);
                 vk.assertSuccess(res);
             },
             .OpenGL => {
@@ -111,4 +123,8 @@ pub const Renderer = struct {
         }
         self.swapchain.endFrame();
     }
+};
+
+pub const FrameResultVK = struct {
+    submit_shadow_cmd: bool,
 };

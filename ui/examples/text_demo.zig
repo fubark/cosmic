@@ -12,7 +12,6 @@ const TextButton = ui.widgets.TextButton;
 const Column = ui.widgets.Column;
 const Row = ui.widgets.Row;
 const Text = ui.widgets.Text;
-const Slider = ui.widgets.Slider;
 const Flex = ui.widgets.Flex;
 const Button = ui.widgets.Button;
 const Padding = ui.widgets.Padding;
@@ -20,6 +19,8 @@ const Stretch = ui.widgets.Stretch;
 const ColorPicker = ui.widgets.ColorPicker;
 const SwitchOption = ui.widgets.SwitchOption;
 const FileDialog = ui.widgets.FileDialog;
+const SliderOption = ui.widgets.SliderOption;
+const Slider = ui.widgets.Slider;
 const Root = ui.widgets.Root;
 
 const helper = @import("helper.zig");
@@ -120,7 +121,14 @@ pub const App = struct {
                 self_.file_m = self_.root.showModal(self_, buildFileDialog, .{});
             }
         };
-        const size = if (self.size_slider.binded) self.size_slider.getWidget().value else 0;
+
+        const size_slider = ui.WidgetProps(Slider){
+            .init_val = 20,
+            .min_val = 1,
+            .max_val = 200,
+            .onChange = c.closure(self, S.onSliderChange),
+        };
+
         return c.decl(Row, .{
             .children = c.list(.{
                 c.decl(Flex, .{
@@ -148,19 +156,9 @@ pub const App = struct {
                     .child = c.decl(Column, .{
                         .spacing = 10,
                         .children = c.list(.{
-                            c.decl(Text, .{
-                                .text = c.fmt("Size ({})", .{size}),
-                                .color = Color.White,
-                            }),
-                            c.decl(Stretch, .{
-                                .method = .Width,
-                                .child = c.decl(Slider, .{
-                                    .bind = &self.size_slider,
-                                    .init_val = 20,
-                                    .min_val = 1,
-                                    .max_val = 200,
-                                    .onChange = c.funcExt(self, S.onSliderChange),
-                                }),
+                            c.decl(SliderOption, .{
+                                .label = "Size",
+                                .slider = size_slider,
                             }),
                             c.decl(ColorPicker, .{
                                 .label = "Text Color",

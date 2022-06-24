@@ -1,12 +1,13 @@
 #version 450
 #pragma shader_stage(vertex)
 
-// layout(binding = 0) uniform ModelViewProj {
-//     mat4 mat;
-// } u_mvp;
+layout(set = 1, binding = 1) readonly buffer Matrices {
+    mat4 mats[];
+};
 
 layout(push_constant) uniform VertConstants {
-    mat4 mat;
+    mat4 vp;
+    uint model_idx;
 } u_const;
 
 layout(location = 0) in vec4 a_pos;
@@ -20,5 +21,5 @@ void main()
 {
     v_uv = a_uv;
     v_color = a_color;
-    gl_Position = a_pos * u_const.mat;
+    gl_Position = a_pos * mats[u_const.model_idx] * u_const.vp;
 }

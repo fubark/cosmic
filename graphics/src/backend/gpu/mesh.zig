@@ -3,16 +3,17 @@ const stdx = @import("stdx");
 const gl = @import("gl");
 
 const graphics = @import("../../graphics.zig");
+const TexShaderVertex = graphics.gpu.TexShaderVertex;
 const Color = graphics.Color;
 const log = stdx.log.scoped(.mesh);
 
-const StartVertexBufferSize = 10000;
+const StartVertexBufferSize = 20000;
 const StartIndexBufferSize = StartVertexBufferSize * 4;
 
-const MaxVertexBufferSize = 10000 * 3;
+const MaxVertexBufferSize = 20000 * 3;
 const MaxIndexBufferSize = MaxVertexBufferSize * 4;
 
-/// Vertex and index buffer.
+/// Vertex, index, mats, materials buffer.
 pub const Mesh = struct {
     index_buffer_type: gl.GLenum = gl.GL_UNSIGNED_SHORT,
     alloc: std.mem.Allocator,
@@ -21,9 +22,15 @@ pub const Mesh = struct {
     vert_buf: []TexShaderVertex,
     cur_vert_buf_size: u32,
 
+    /// Zero copy view.
+    mats_buf: []stdx.math.Mat4,
+    cur_mats_buf_size: u32,
+    materials_buf: []graphics.Material,
+    cur_materials_buf_size: u32,
+
     const Self = @This();
 
-    pub fn init(alloc: std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator, mats_buf: []stdx.math.Mat4, materials_buf: []graphics.Material) Self {
         const vertex_buf = alloc.alloc(TexShaderVertex, StartVertexBufferSize) catch unreachable;
         const index_buf = alloc.alloc(u16, StartIndexBufferSize) catch unreachable;
         return Mesh{
@@ -31,8 +38,12 @@ pub const Mesh = struct {
             .index_buffer_type = gl.GL_UNSIGNED_SHORT,
             .vert_buf = vertex_buf,
             .index_buf = index_buf,
+            .mats_buf = mats_buf,
+            .materials_buf = materials_buf,
             .cur_vert_buf_size = 0,
             .cur_index_buf_size = 0,
+            .cur_mats_buf_size = 0,
+            .cur_materials_buf_size = 0,
         };
     }
 
@@ -44,6 +55,18 @@ pub const Mesh = struct {
     pub fn reset(self: *Self) void {
         self.cur_vert_buf_size = 0;
         self.cur_index_buf_size = 0;
+        self.cur_mats_buf_size = 0;
+        self.cur_materials_buf_size = 0;
+    }
+
+    pub fn addMatrix(self: *Self, mat: stdx.math.Mat4) void {
+        self.mats_buf[self.cur_mats_buf_size] = mat;
+        self.cur_mats_buf_size += 1;
+    }
+
+    pub fn addMaterial(self: *Self, material: graphics.Material) void {
+        self.materials_buf[self.cur_materials_buf_size] = material;
+        self.cur_materials_buf_size += 1;
     }
 
     pub fn addVertex(self: *Self, vert: *TexShaderVertex) void {
@@ -171,44 +194,3 @@ pub fn VertexData(comptime num_verts: usize, comptime num_indices: usize) type {
         }
     };
 }
-
-pub const TexShaderVertex = packed struct {
-    const Self = @This();
-
-    pos_x: f32,
-    pos_y: f32,
-    pos_z: f32,
-    pos_w: f32,
-    uv_x: f32,
-    uv_y: f32,
-    color_r: f32,
-    color_g: f32,
-    color_b: f32,
-    color_a: f32,
-
-    pub fn setXY(self: *Self, x: f32, y: f32) void {
-        self.pos_x = x;
-        self.pos_y = y;
-        self.pos_z = 0;
-        self.pos_w = 1;
-    }
-
-    pub fn setXYZ(self: *Self, x: f32, y: f32, z: f32) void {
-        self.pos_x = x;
-        self.pos_y = y;
-        self.pos_z = z;
-        self.pos_w = 1;
-    }
-
-    pub fn setColor(self: *Self, color: Color) void {
-        self.color_r = @intToFloat(f32, color.channels.r) / 255;
-        self.color_g = @intToFloat(f32, color.channels.g) / 255;
-        self.color_b = @intToFloat(f32, color.channels.b) / 255;
-        self.color_a = @intToFloat(f32, color.channels.a) / 255;
-    }
-
-    pub fn setUV(self: *Self, u: f32, v: f32) void {
-        self.uv_x = u;
-        self.uv_y = v;
-    }
-};

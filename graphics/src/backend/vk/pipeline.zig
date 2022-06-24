@@ -13,9 +13,14 @@ pub const Pipeline = struct {
 };
 
 const PipelineOptions = struct {
+    topology: vk.VkPrimitiveTopology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    vert_spv: []align(4) const u8,
+    frag_spv: []align(4) const u8,
+    geom_spv: []align(4) const u8 = "",
+
     depth_test: bool = true,
 
-    // Draw line vs filling triangles.
+    // Only for drawing lines over a triangle topology. eg. LINES topology doesn't need this.
     line_mode: bool = false,
 };
 
@@ -23,14 +28,14 @@ pub fn createDefaultPipeline(
     device: vk.VkDevice,
     pass: vk.VkRenderPass,
     view_dim: vk.VkExtent2D,
-    vert_spv: []align(4) const u8,
-    frag_spv: []align(4) const u8,
     pvis_info: vk.VkPipelineVertexInputStateCreateInfo,
     pl_info: vk.VkPipelineLayoutCreateInfo,
     opts: PipelineOptions,
 ) Pipeline {
-    const vert_mod = gvk.shader.createShaderModule(device, vert_spv);
-    const frag_mod = gvk.shader.createShaderModule(device, frag_spv);
+    const vert_mod = gvk.shader.createShaderModule(device, opts.vert_spv);
+    defer vk.destroyShaderModule(device, vert_mod, null);
+    const frag_mod = gvk.shader.createShaderModule(device, opts.frag_spv);
+    defer vk.destroyShaderModule(device, frag_mod, null);
 
     // ShaderStages
     const vert_pss_info = vk.VkPipelineShaderStageCreateInfo{
@@ -51,12 +56,38 @@ pub fn createDefaultPipeline(
         .flags = 0,
         .pSpecializationInfo = null,
     };
-    const stages = [_]vk.VkPipelineShaderStageCreateInfo{ vert_pss_info, frag_pss_info };
+
+    var stages: []const vk.VkPipelineShaderStageCreateInfo = &.{
+        vert_pss_info,
+        frag_pss_info,
+    };
+    var geom_mod: vk.VkShaderModule = undefined;
+    if (opts.geom_spv.len > 0) {
+        geom_mod = gvk.shader.createShaderModule(device, opts.geom_spv);
+        stages = &[_]vk.VkPipelineShaderStageCreateInfo{
+            vert_pss_info,
+            frag_pss_info,
+            vk.VkPipelineShaderStageCreateInfo{
+                .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = vk.VK_SHADER_STAGE_GEOMETRY_BIT,
+                .module = geom_mod,
+                .pName = "main",
+                .pNext = null,
+                .flags = 0,
+                .pSpecializationInfo = null,
+            },
+        };
+    }
+    defer {
+        if (opts.geom_spv.len > 0) {
+            defer vk.destroyShaderModule(device, geom_mod, null);
+        }
+    }
 
     // InputAssemblyState
     const pias_info = vk.VkPipelineInputAssemblyStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .topology = opts.topology,
         .primitiveRestartEnable = vk.VK_FALSE,
         .pNext = null,
         .flags = 0,
@@ -184,7 +215,7 @@ pub fn createDefaultPipeline(
     const g_pipelines = [_]vk.VkGraphicsPipelineCreateInfo{vk.VkGraphicsPipelineCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = @intCast(u32, stages.len),
-        .pStages = &stages,
+        .pStages = stages.ptr,
         .pVertexInputState = &pvis_info,
         .pInputAssemblyState = &pias_info,
         .pViewportState = &pvs_info,
@@ -206,8 +237,6 @@ pub fn createDefaultPipeline(
     var pipeln: vk.VkPipeline = undefined;
     res = vk.createGraphicsPipelines(device, null, @intCast(u32, g_pipelines.len), &g_pipelines, null, &pipeln);
     vk.assertSuccess(res);
-    vk.destroyShaderModule(device, vert_mod, null);
-    vk.destroyShaderModule(device, frag_mod, null);
     return .{
         .pipeline = pipeln,
         .layout = pipeline_layout,

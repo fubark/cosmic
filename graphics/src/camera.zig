@@ -33,6 +33,12 @@ pub const Camera = struct {
     rotate_x: f32,
     rotate_y: f32,
 
+    /// For perspective view. Used to compute partitions quickly.
+    aspect_ratio: f32,
+    vert_fov_rad: f32,
+    near: f32,
+    far: f32,
+
     /// Logical width and height.
     pub fn init2D(self: *Camera, width: u32, height: u32) void {
         self.proj_transform = initDisplayProjection(@intToFloat(f32, width), @intToFloat(f32, height));
@@ -40,6 +46,10 @@ pub const Camera = struct {
     }
 
     pub fn initPerspective3D(self: *Camera, vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) void {
+        self.vert_fov_rad = vert_fov_deg * 2 * std.math.pi / 360;
+        self.aspect_ratio = aspect_ratio;
+        self.near = near;
+        self.far = far;
         self.proj_transform = initPerspectiveProjection(vert_fov_deg, aspect_ratio, near, far);
         self.world_pos = stdx.math.Vec3.init(0, 0, 0);
         self.setRotation(0, -std.math.pi);
@@ -77,6 +87,40 @@ pub const Camera = struct {
         self.rotate_x = rotate_x;
         self.rotate_y = rotate_y;
         self.computeViewTransform();
+    }
+
+    /// Useful for partitioning the camera's frustum for shadow maps.
+    pub fn computePartitionCorners(self: Camera, near: f32, far: f32) [8]Vec3 {
+        const tan_v = std.math.tan(self.vert_fov_rad/2);
+        const near_dy = tan_v * near;
+        const far_dy = tan_v * far;
+        const near_dx = near_dy * self.aspect_ratio;
+        const far_dx = far_dy * self.aspect_ratio;
+
+        const near_forward = self.forward_nvec.mul(near);
+        const near_up = self.up_nvec.mul(near_dy);
+        const near_right = self.right_nvec.mul(near_dx);
+        const far_forward = self.forward_nvec.mul(far);
+        const far_up = self.up_nvec.mul(far_dy);
+        const far_right = self.right_nvec.mul(far_dx);
+        return .{
+            // near top-left.
+            self.world_pos.add3(near_forward.x + near_up.x - near_right.x, near_forward.y + near_up.y - near_right.y, near_forward.z + near_up.z - near_right.z),
+            // near top-right.
+            self.world_pos.add3(near_forward.x + near_up.x + near_right.x, near_forward.y + near_up.y + near_right.y, near_forward.z + near_up.z + near_right.z),
+            // near bottom-right.
+            self.world_pos.add3(near_forward.x - near_up.x + near_right.x, near_forward.y - near_up.y + near_right.y, near_forward.z - near_up.z + near_right.z),
+            // near bottom-left.
+            self.world_pos.add3(near_forward.x - near_up.x - near_right.x, near_forward.y - near_up.y - near_right.y, near_forward.z - near_up.z - near_right.z),
+            // far top-left.
+            self.world_pos.add3(far_forward.x + far_up.x - far_right.x, far_forward.y + far_up.y - far_right.y, far_forward.z + far_up.z - far_right.z),
+            // far top-right.
+            self.world_pos.add3(far_forward.x + far_up.x + far_right.x, far_forward.y + far_up.y + far_right.y, far_forward.z + far_up.z + far_right.z),
+            // far bottom-right.
+            self.world_pos.add3(far_forward.x - far_up.x + far_right.x, far_forward.y - far_up.y + far_right.y, far_forward.z - far_up.z + far_right.z),
+            // far bottom-left.
+            self.world_pos.add3(far_forward.x - far_up.x - far_right.x, far_forward.y - far_up.y - far_right.y, far_forward.z - far_up.z - far_right.z),
+        };
     }
 
     // TODO: Convert to rotate_x, rotate_y.
@@ -143,6 +187,58 @@ pub fn initTextureProjection(width: f32, height: f32) Transform {
     // to clip space [-1,1]
     res.translate(-1.0, -1.0);
     return res;
+}
+
+/// Transformed points will have:
+/// -x to the left, +x to the right
+/// +y upwards, -y downwards,
+/// -z in front, +z behind.
+pub fn initLookAt(from: Vec3, to: Vec3, up_ref: Vec3) Transform {
+    const forward = to.add3(-from.x, -from.y, -from.z).normalize();
+    const right = forward.cross(up_ref).normalize();
+    const up = right.cross(forward);
+    return Transform.initRowMajor(.{
+        right.x, right.y, right.z, -right.dot(from),
+        up.x, up.y, up.z, -up.dot(from),
+        -forward.x, -forward.y, -forward.z, forward.dot(from),
+        0, 0, 0, 1,
+    });
+}
+
+test "initLookAt" {
+    // Look toward origin on x axis.
+    const xform = initLookAt(Vec3.init(3, 0, 0), Vec3.init(2, 0, 0), Vec3.init(0, 1, 0));
+    try eqApproxVec3(xform.interpolate3(2, 0, 0), Vec3.init(0, 0, -1));
+    try eqApproxVec3(xform.interpolate3(3, 0, 1), Vec3.init(-1, 0, 0));
+    try eqApproxVec3(xform.interpolate3(3, 0, -1), Vec3.init(1, 0, 0));
+    try eqApproxVec3(xform.interpolate3(3, 1, 0), Vec3.init(0, 1, 0));
+    try eqApproxVec3(xform.interpolate3(3, -1, 0), Vec3.init(0, -1, 0));
+}
+
+pub fn initOrthographicProjection(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) Transform {
+    const dx = right - left;
+    const dy = bottom - top;
+    const dz = near - far;
+    return Transform.initRowMajor(.{
+        2.0 / dx, 0, 0, -(right + left) / dx,
+        0, 2.0 / dy, 0, -(bottom + top) / dy,
+        0, 0, 1.0 / dz, near / dz,
+        0, 0, 0, 1,
+    });
+}
+
+test "initOrthographicProjection" {
+    const xform = initOrthographicProjection(-10, 10, 10, -10, 10, -10);
+    // far top left.
+    try eqApproxVec3(xform.interpolate3(-10, 10, -10), Vec3.init(-1, -1, 0));
+    // far bottom right.
+    try eqApproxVec3(xform.interpolate3(10, -10, -10), Vec3.init(1, 1, 0));
+    // near top left.
+    try eqApproxVec3(xform.interpolate3(-10, 10, 10), Vec3.init(-1, -1, 1));
+    // near bottom right.
+    try eqApproxVec3(xform.interpolate3(10, -10, 10), Vec3.init(1, 1, 1));
+    // center.
+    try eqApproxVec3(xform.interpolate3(0, 0, 0), Vec3.init(0, 0, 0.5));
 }
 
 /// https://vincent-p.github.io/posts/vulkan_perspective_matrix/
@@ -218,7 +314,6 @@ pub fn initFrustumProjection(near: f32, far: f32, left: f32, right: f32, top: f3
     });
 }
 
-
 /// Binds to the event dispatcher and allows camera movement with mouse and keyboard events.
 pub const CameraModule = struct {
     cam: *Camera,
@@ -226,6 +321,8 @@ pub const CameraModule = struct {
     move_backward: bool,
     move_left: bool,
     move_right: bool,
+    move_up: bool,
+    move_down: bool,
 
     dragging: bool,
     drag_start_rotate_x: f32,
@@ -244,6 +341,8 @@ pub const CameraModule = struct {
                     .S => self.move_backward = true,
                     .A => self.move_left = true,
                     .D => self.move_right = true,
+                    .R => self.move_up = true,
+                    .F => self.move_down = true,
                     else => {},
                 }
             }
@@ -254,6 +353,8 @@ pub const CameraModule = struct {
                     .S => self.move_backward = false,
                     .A => self.move_left = false,
                     .D => self.move_right = false,
+                    .R => self.move_up = false,
+                    .F => self.move_down = false,
                     else => {},
                 }
             }
@@ -280,8 +381,8 @@ pub const CameraModule = struct {
                     const delta_x = @intToFloat(f32, me.x) - self.drag_start_x;
                     const delta_y = -(@intToFloat(f32, me.y) - self.drag_start_y);
 
-                    const delta_pitch = delta_y * 0.01;
-                    const delta_yaw = delta_x * 0.01;
+                    const delta_pitch = delta_y * 0.005;
+                    const delta_yaw = delta_x * 0.005;
                     self.cam.setRotation(self.drag_start_rotate_x + delta_pitch, self.drag_start_rotate_y - delta_yaw);
                 }
             }
@@ -297,6 +398,8 @@ pub const CameraModule = struct {
             .move_backward = false,
             .move_left = false,
             .move_right = false,
+            .move_up = false,
+            .move_down = false,
             .dragging = false,
             .drag_start_rotate_x = undefined,
             .drag_start_rotate_y = undefined,
@@ -317,6 +420,12 @@ pub const CameraModule = struct {
         }
         if (self.move_right) {
             self.cam.moveRight(0.05 * delta_ms);
+        }
+        if (self.move_up) {
+            self.cam.moveUp(0.05 * delta_ms);
+        }
+        if (self.move_down) {
+            self.cam.moveUp(-0.05 * delta_ms);
         }
     }
 };

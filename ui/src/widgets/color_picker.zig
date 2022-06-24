@@ -23,6 +23,7 @@ const log = stdx.log.scoped(.color_picker);
 pub const ColorPicker = struct {
     props: struct {
         label: []const u8 = "Color",
+        font_size: f32 = 16,
         init_val: Color = Color.White,
         onPreviewChange: ?Function(fn (Color) void) = null,
         onResult: ?Function(fn (color: Color, save: bool) void) = null,
@@ -81,6 +82,7 @@ pub const ColorPicker = struct {
                     d(Flex, .{
                         .child = d(Text, .{
                             .text = self.props.label,
+                            .font_size = self.props.font_size,
                             .color = Color.White,
                         }),
                     }),

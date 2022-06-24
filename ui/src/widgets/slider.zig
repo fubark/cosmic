@@ -7,138 +7,158 @@ const platform = @import("platform");
 const MouseUpEvent = platform.MouseUpEvent;
 const MouseDownEvent = platform.MouseDownEvent;
 const MouseMoveEvent = platform.MouseMoveEvent;
-const log = stdx.log.scoped(.slider);
 
 const ui = @import("../ui.zig");
-const Node = ui.Node;
+const log = stdx.log.scoped(.slider);
 
-pub const Slider = struct {
-    props: struct {
-        init_val: i32 = 0,
-        min_val: i32 = 0,
-        max_val: i32 = 100,
-        onChangeEnd: ?Function(fn (i32) void) = null,
-        onChange: ?Function(fn (i32) void) = null,
-        thumb_color: Color = Color.Blue,
-    },
+pub const Slider = SliderBase(false);
+pub const SliderFloat = SliderBase(true);
 
-    drag_start_value: i32,
-    last_value: i32,
-    value: i32,
-    pressed: bool,
-    node: *ui.Node,
+pub fn SliderBase(comptime is_float: bool) type {
+    const Value = if (is_float) f32 else i32;
+    return struct {
+        props: struct {
+            init_val: Value = 0,
+            min_val: Value = 0,
+            max_val: Value = if (is_float) 1 else 100,
+            onChangeEnd: ?Function(fn (Value) void) = null,
+            onChange: ?Function(fn (Value) void) = null,
+            thumb_color: Color = Color.Blue,
+            display_value: bool = true,
+        },
 
-    const Self = @This();
-    const ThumbWidth = 25;
-    const Height = 25;
+        drag_start_value: Value,
+        last_value: Value,
+        value: Value,
+        pressed: bool,
+        node: *ui.Node,
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
-        std.debug.assert(self.props.min_val <= self.props.max_val);
-        self.node = c.node;
-        self.value = self.props.init_val;
-        self.pressed = false;
-        if (self.value < self.props.min_val) {
-            self.value = self.props.min_val;
-        } else if (self.value > self.props.max_val) {
-            self.value = self.props.max_val;
+        const Self = @This();
+        const ThumbWidth = 25;
+        const Height = 25;
+
+        pub fn init(self: *Self, c: *ui.InitContext) void {
+            std.debug.assert(self.props.min_val <= self.props.max_val);
+            self.node = c.node;
+            self.value = self.props.init_val;
+            self.pressed = false;
+            if (self.value < self.props.min_val) {
+                self.value = self.props.min_val;
+            } else if (self.value > self.props.max_val) {
+                self.value = self.props.max_val;
+            }
+
+            c.addMouseDownHandler(c.node, handleMouseDownEvent);
         }
 
-        c.addMouseDownHandler(c.node, handleMouseDownEvent);
-    }
+        fn handleMouseUpEvent(node: *ui.Node, e: ui.Event(MouseUpEvent)) void {
+            var self = node.getWidget(Self);
+            if (e.val.button == .Left and self.pressed) {
+                self.pressed = false;
+                e.ctx.removeMouseUpHandler(*ui.Node, handleMouseUpEvent);
+                e.ctx.removeMouseMoveHandler(*ui.Node, handleMouseMoveEvent);
+                self.updateValueFromMouseX(node, e.val.x);
+                if (self.drag_start_value != self.value) {
+                    if (self.props.onChange) |cb| {
+                        cb.call(.{ self.value });
+                    }
+                    if (self.props.onChangeEnd) |cb| {
+                        cb.call(.{ self.value });
+                    }
+                }
+            }
+        }
 
-    fn handleMouseUpEvent(node: *Node, e: ui.Event(MouseUpEvent)) void {
-        var self = node.getWidget(Self);
-        if (e.val.button == .Left and self.pressed) {
-            self.pressed = false;
-            e.ctx.removeMouseUpHandler(*Node, handleMouseUpEvent);
-            e.ctx.removeMouseMoveHandler(*Node, handleMouseMoveEvent);
+        fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
+            var self = node.getWidget(Self);
+            if (e.val.button == .Left) {
+                self.pressed = true;
+                self.last_value = self.value;
+                self.drag_start_value = self.value;
+                e.ctx.removeMouseUpHandler(*ui.Node, handleMouseUpEvent);
+                e.ctx.addGlobalMouseUpHandler(node, handleMouseUpEvent);
+                e.ctx.addMouseMoveHandler(node, handleMouseMoveEvent);
+            }
+            return .Continue;
+        }
+
+        fn updateValueFromMouseX(self: *Self, node: *ui.Node, mouse_x: i16) void {
+            const num_values = self.props.max_val - self.props.min_val + 1;
+            const rel_x = @intToFloat(f32, mouse_x) - node.abs_pos.x - @intToFloat(f32, ThumbWidth)/2;
+            const ratio = rel_x / (node.layout.width - ThumbWidth);
+            if (is_float) {
+                self.value = self.props.min_val + ratio * (self.props.max_val - self.props.min_val);
+            } else {
+                self.value = @floatToInt(i32, @intToFloat(f32, self.props.min_val) + ratio * @intToFloat(f32, num_values));
+            }
+            if (self.value > self.props.max_val) {
+                self.value = self.props.max_val;
+            } else if (self.value < self.props.min_val) {
+                self.value = self.props.min_val;
+            }
+        }
+
+        fn handleMouseMoveEvent(node: *ui.Node, e: ui.Event(MouseMoveEvent)) void {
+            var self = node.getWidget(Self);
             self.updateValueFromMouseX(node, e.val.x);
-            if (self.drag_start_value != self.value) {
+            if (self.last_value != self.value) {
                 if (self.props.onChange) |cb| {
                     cb.call(.{ self.value });
                 }
-                if (self.props.onChangeEnd) |cb| {
-                    cb.call(.{ self.value });
+            }
+            self.last_value = self.value;
+        }
+
+        pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+            _ = self;
+            const min_width: f32 = 200;
+            const min_height = Height;
+            const cstr = c.getSizeConstraint();
+            
+            var res = ui.LayoutSize.init(min_width, min_height);
+            if (c.prefer_exact_width) {
+                res.width = cstr.width;
+            }
+            return res;
+        }
+
+        pub fn getBarLayout(self: Self) ui.Layout {
+            return ui.Layout.init(ThumbWidth/2, self.node.layout.height/2 - 5, self.node.layout.width - ThumbWidth, 10);
+        }
+
+        pub fn getThumbLayoutX(self: Self) f32 {
+            const val_range = self.props.max_val - self.props.min_val;
+            const ratio = @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
+            return (self.node.layout.width - ThumbWidth) * ratio + ThumbWidth/2;
+        }
+
+        pub fn render(self: *Self, ctx: *ui.RenderContext) void {
+            const g = ctx.g;
+            const alo = ctx.getAbsLayout();
+            const gutter_x = alo.x + ThumbWidth/2;
+            g.setFillColor(Color.init(40, 40, 40, 255));
+            g.fillRect(gutter_x, alo.y+alo.height/2 - 5, alo.width - ThumbWidth, 10);
+
+            const val_range = self.props.max_val - self.props.min_val;
+            const ratio = if (is_float) (self.value - self.props.min_val) / val_range else @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
+            const thumb_x = alo.x + (alo.width - ThumbWidth) * ratio;
+            g.setFillColor(self.props.thumb_color);
+            g.fillRect(thumb_x, alo.y, ThumbWidth, Height);
+
+            if (self.props.display_value) {
+                const font_id = g.getDefaultFontId();
+                g.setFont(font_id, 12);
+                g.setFillColor(Color.White);
+                if (is_float) {
+                    g.fillTextExt(gutter_x + 5, alo.y + Height/2, "{d:.2}", .{ self.value }, .{
+                        .baseline = .Middle,
+                    });
+                } else {
+                    g.fillTextExt(gutter_x + 5, alo.y + Height/2, "{}", .{ self.value }, .{
+                        .baseline = .Middle,
+                    });
                 }
             }
         }
-    }
-
-    fn handleMouseDownEvent(node: *Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
-        var self = node.getWidget(Self);
-        if (e.val.button == .Left) {
-            self.pressed = true;
-            self.last_value = self.value;
-            self.drag_start_value = self.value;
-            e.ctx.removeMouseUpHandler(*Node, handleMouseUpEvent);
-            e.ctx.addGlobalMouseUpHandler(node, handleMouseUpEvent);
-            e.ctx.addMouseMoveHandler(node, handleMouseMoveEvent);
-        }
-        return .Continue;
-    }
-
-    fn updateValueFromMouseX(self: *Self, node: *Node, mouse_x: i16) void {
-        const num_values = self.props.max_val - self.props.min_val + 1;
-        const rel_x = @intToFloat(f32, mouse_x) - node.abs_pos.x - @intToFloat(f32, ThumbWidth)/2;
-        const ratio = rel_x / (node.layout.width - ThumbWidth);
-        self.value = @floatToInt(i32, @intToFloat(f32, self.props.min_val) + ratio * @intToFloat(f32, num_values));
-        if (self.value > self.props.max_val) {
-            self.value = self.props.max_val;
-        } else if (self.value < self.props.min_val) {
-            self.value = self.props.min_val;
-        }
-    }
-
-    fn handleMouseMoveEvent(node: *Node, e: ui.Event(MouseMoveEvent)) void {
-        var self = node.getWidget(Self);
-        self.updateValueFromMouseX(node, e.val.x);
-        if (self.last_value != self.value) {
-            if (self.props.onChange) |cb| {
-                cb.call(.{ self.value });
-            }
-        }
-        self.last_value = self.value;
-    }
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = self;
-        _ = c;
-        return ui.NullFrameId;
-    }
-
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
-        const min_width: f32 = 200;
-        const min_height = Height;
-        const cstr = c.getSizeConstraint();
-        
-        var res = ui.LayoutSize.init(min_width, min_height);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        }
-        return res;
-    }
-
-    pub fn getBarLayout(self: Self) ui.Layout {
-        return ui.Layout.init(ThumbWidth/2, self.node.layout.height/2 - 5, self.node.layout.width - ThumbWidth, 10);
-    }
-
-    pub fn getThumbLayoutX(self: Self) f32 {
-        const val_range = self.props.max_val - self.props.min_val;
-        const ratio = @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
-        return (self.node.layout.width - ThumbWidth) * ratio + ThumbWidth/2;
-    }
-
-    pub fn render(self: *Self, ctx: *ui.RenderContext) void {
-        const g = ctx.g;
-        const alo = ctx.getAbsLayout();
-        g.setFillColor(Color.LightGray);
-        g.fillRect(alo.x + ThumbWidth/2, alo.y+alo.height/2 - 5, alo.width - ThumbWidth, 10);
-
-        const val_range = self.props.max_val - self.props.min_val;
-        const ratio = @intToFloat(f32, self.value - self.props.min_val) / @intToFloat(f32, val_range);
-        const thumb_x = alo.x + (alo.width - ThumbWidth) * ratio;
-        g.setFillColor(self.props.thumb_color);
-        g.fillRect(thumb_x, alo.y, ThumbWidth, Height);
-    }
-};
+    };
+}

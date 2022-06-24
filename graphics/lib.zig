@@ -51,6 +51,10 @@ pub fn getPackage(b: *std.build.Builder, opts: Options) std.build.Pkg {
         tess2_pkg = tess2.dummy_pkg;
     }
 
+    const stdx_pkg = stdx.getPackage(b, .{
+        .enable_tracy = opts.enable_tracy,
+    });
+
     const build_options = b.addOptions();
     build_options.addOption(GraphicsBackend, "GraphicsBackend", opts.graphics_backend);
     build_options.addOption(bool, "enable_tracy", opts.enable_tracy);
@@ -65,7 +69,7 @@ pub fn getPackage(b: *std.build.Builder, opts: Options) std.build.Pkg {
     const platform_pkg = platform.getPackage(b, platform_opts);
 
     ret.dependencies = b.allocator.dupe(std.build.Pkg, &.{
-        gl.pkg, vk.pkg, stdx.pkg, build_options_pkg, platform_pkg, freetype.pkg, lyon_pkg, tess2_pkg, sdl.pkg, stb.stbi_pkg, stb.stbtt_pkg, cgltf.pkg,
+        gl.pkg, vk.pkg, stdx_pkg, build_options_pkg, platform_pkg, freetype.pkg, lyon_pkg, tess2_pkg, sdl.pkg, stb.stbi_pkg, stb.stbtt_pkg, cgltf.pkg,
     }) catch @panic("error");
     return ret;
 }

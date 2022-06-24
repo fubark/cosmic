@@ -1,6 +1,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
@@ -13,7 +14,7 @@ const Backend = build_options.GraphicsBackend;
 const window = @import("window.zig");
 const Config = window.Config;
 const Mode = window.Mode;
-const log = stdx.log.scoped(.window_gl);
+const log = stdx.log.scoped(.window_sdl);
 
 const IsWebGL2 = builtin.target.isWasm();
 extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) u8;
@@ -50,8 +51,9 @@ pub const Window = struct {
     buf_width: u32,
     buf_height: u32,
 
-    // Depth pixel ratio. Buffer size / logical window size.
-    dpr: u8,
+    /// Depth pixel ratio. Buffer size / logical window size.
+    /// This isn't always a perfect multiple and SDL determines how big the buffer size is depending on the logical size and display settings.
+    dpr: f32,
 
     // Initialize to the default gl framebuffer.
     // If we are doing MSAA, then we'll need to set this to the multisample framebuffer.
@@ -329,7 +331,7 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
 
     if (builtin.os.tag == .macos) {
         // Macos needs VK_KHR_get_physical_device_properties2 for device extension: VK_KHR_portability_subset.
-        enabled_extensions.append("VK_KHR_get_physical_device_properties2") catch stdx.fatal();
+        enabled_extensions.append("VK_KHR_get_physical_device_properties2") catch fatal();
     }
 
     var instance: vk.VkInstance = undefined;
@@ -468,7 +470,7 @@ fn initVulkanWindow(alloc: std.mem.Allocator, win: *Window, config: Config, flag
     win.buf_width = @intCast(u32, buf_width);
     win.buf_height = @intCast(u32, buf_height);
 
-    win.dpr = @intCast(u8, win.buf_width / win.width);
+    win.dpr = @intToFloat(f32, win.buf_width) / @intToFloat(f32, win.width);
 }
 
 const SwapChainInfo = struct {
@@ -510,17 +512,27 @@ const SwapChainInfo = struct {
         return self.formats[0];
     }
 
-    pub fn getDefaultPresentMode(self: SwapChainInfo) vk.VkPresentModeKHR {
-        var best: vk.VkPresentModeKHR = vk.VK_PRESENT_MODE_FIFO_KHR;
-        for (self.present_modes) |mode| {
-            if (mode == vk.VK_PRESENT_MODE_MAILBOX_KHR) {
-                return mode;
-            } else if (mode == vk.VK_PRESENT_MODE_IMMEDIATE_KHR) {
-                best = mode;
+    /// Returns null if present mode is not supported.
+    pub fn getPresentMode(self: SwapChainInfo, mode: PresentMode) ?vk.VkPresentModeKHR {
+        const target = switch (mode) {
+            .Immediate => vk.VK_PRESENT_MODE_IMMEDIATE_KHR,
+            .Vsync => vk.VK_PRESENT_MODE_FIFO_KHR,
+            .Mailbox => vk.VK_PRESENT_MODE_MAILBOX_KHR,
+        };
+        for (self.present_modes) |vk_mode| {
+            if (vk_mode == target) {
+                return vk_mode;
             }
         }
-        return best;
+        return null;
     }
+};
+
+const PresentMode = enum(u2) {
+    Immediate = 0,
+    Vsync = 1,
+    // Like vsync but the queue size is 1.
+    Mailbox = 2,
 };
 
 /// Currently in the platform module to find a suitable physical device.
@@ -702,7 +714,7 @@ fn initGL_Window(alloc: std.mem.Allocator, win: *Window, config: Config, flags: 
     win.buf_width = @intCast(u32, buf_width);
     win.buf_height = @intCast(u32, buf_height);
 
-    win.dpr = @intCast(u8, win.buf_width / win.width);
+    win.dpr = @intToFloat(f32, win.buf_width) / @intToFloat(f32, win.width);
 }
 
 fn initGL_Context(win: *Window) !void {
@@ -768,13 +780,14 @@ fn resizeMsaaFrameBuffer(msaa: MsaaFrameBuffer, width: u32, height: u32) void {
     }
 }
 
-pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: u8) ?MsaaFrameBuffer {
+pub fn createMsaaFrameBuffer(width: u32, height: u32, dpr: f32) ?MsaaFrameBuffer {
     // Setup multisampling anti alias.
     // See: https://learnopengl.com/Advanced-OpenGL/Anti-Aliasing
     const max_samples = gl.getMaxSamples();
     log.debug("max samples: {}", .{max_samples});
     if (max_samples >= 2) {
-        const msaa_preferred_samples: u32 = switch (dpr) {
+        const dpr_ceil = @floatToInt(u8, std.math.ceil(dpr));
+        const msaa_preferred_samples: u32 = switch (dpr_ceil) {
             1 => 8,
             // Since the draw buffer is already a supersample, we don't need much msaa samples.
             2 => 4,

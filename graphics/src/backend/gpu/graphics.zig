@@ -1,11 +1,14 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const ds = stdx.ds;
 const platform = @import("platform");
 const cgltf = @import("cgltf");
 const stbi = @import("stbi");
 const math = stdx.math;
 const Vec2 = math.Vec2;
+const Vec3 = math.Vec3;
+const Vec4 = math.Vec4;
 const vec2 = math.Vec2.init;
 const Mat4 = math.Mat4;
 const geom = math.geom;
@@ -26,7 +29,8 @@ const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const BlendMode = graphics.BlendMode;
-const Transform = graphics.transform.Transform;
+const Transform = graphics.Transform;
+const Quaternion = graphics.Quaternion;
 const VMetrics = graphics.font.VMetrics;
 const TextMetrics = graphics.TextMetrics;
 const Font = graphics.font.Font;
@@ -37,10 +41,10 @@ const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.FontId;
 const FontGroupId = graphics.FontGroupId;
-const log = stdx.log.scoped(.graphics_gl);
-const mesh = @import("mesh.zig");
-const VertexData = mesh.VertexData;
-pub const TexShaderVertex = mesh.TexShaderVertex;
+const mesh_ = @import("mesh.zig");
+const VertexData = mesh_.VertexData;
+const vertex = @import("vertex.zig");
+pub const TexShaderVertex = vertex.TexShaderVertex;
 const Batcher = @import("batcher.zig").Batcher;
 const text_renderer = @import("text_renderer.zig");
 pub const TextGlyphIterator = text_renderer.TextGlyphIterator;
@@ -57,10 +61,12 @@ const image = @import("image.zig");
 pub const ImageStore = image.ImageStore;
 pub const Image = image.Image;
 pub const ImageTex = image.ImageTex;
+const log = stdx.log.scoped(.gpu_graphics);
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 
 const IsWasm = builtin.target.isWasm();
+const NullId = std.math.maxInt(u32);
 
 /// Having 2 frames "in flight" to draw on allows the cpu and gpu to work in parallel. More than 2 is not recommended right now.
 /// This doesn't have to match the number of swap chain images/framebuffers. This indicates the max number of frames that can be active at any moment.
@@ -79,10 +85,12 @@ pub const Graphics = struct {
         },
         .Vulkan => struct {
             ctx: VkContext,
+            renderer: *gvk.Renderer,
             pipelines: gvk.Pipelines,
-            tex_desc_pool: vk.VkDescriptorPool,
             tex_desc_set_layout: vk.VkDescriptorSetLayout,
-            cur_cmd_buf: vk.VkCommandBuffer,
+            mats_desc_set_layout: vk.VkDescriptorSetLayout,
+            materials_desc_set_layout: vk.VkDescriptorSetLayout,
+            cur_frame: gvk.Frame,
         },
         else => @compileError("unsupported"),
     },
@@ -93,6 +101,8 @@ pub const Graphics = struct {
     view_transform: Transform,
     cur_buf_width: u32,
     cur_buf_height: u32,
+    /// Feed the camera location to pbr shader.
+    cur_cam_world_pos: Vec3,
 
     default_font_id: FontId,
     default_font_gid: FontGroupId,
@@ -106,13 +116,16 @@ pub const Graphics = struct {
     cur_line_width: f32,
     cur_line_width_half: f32,
 
+    tmp_joint_idxes: [50]u16,
+
     clear_color: Color,
 
     // Depth pixel ratio:
     // This is used to fetch a higher res font bitmap for high dpi displays.
     // eg. 18px user font size would normally use a 32px backed font bitmap but with dpr=2,
     // it would use a 64px bitmap font instead.
-    cur_dpr: u8,
+    cur_dpr: f32,
+    cur_dpr_ceil: u8,
 
     image_store: image.ImageStore,
 
@@ -131,9 +144,13 @@ pub const Graphics = struct {
     /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
     raster_glyph_buffer: std.ArrayList(u8),
 
+    /// Currently one directional light. HDR light intensity.
+    light_color: Vec3 = Vec3.init(5, 5, 5),
+    light_vec: Vec3 = Vec3.init(-1, -1, 0).normalize(),
+
     const Self = @This();
 
-    pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+    pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.initDefault(alloc, dpr);
         self.initCommon(alloc);
 
@@ -159,31 +176,54 @@ pub const Graphics = struct {
         gl.enable(gl.GL_BLEND);
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: u8, vk_ctx: VkContext) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) void {
+        const physical = vk_ctx.physical;
+        const device = vk_ctx.device;
+        const fb_size = renderer.fb_size;
+        const pass = renderer.main_pass;
+
         self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
-        self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(vk_ctx.device);
-        self.inner.tex_desc_pool = gvk.createTexDescriptorPool(vk_ctx.device);
+        self.inner.renderer = renderer;
+        self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
+        const desc_pool = renderer.desc_pool;
         self.initCommon(alloc);
 
-        var vert_buf: vk.VkBuffer = undefined;
-        var vert_buf_mem: vk.VkDeviceMemory = undefined;
-        gvk.buffer.createVertexBuffer(vk_ctx.physical, vk_ctx.device, 40 * 20000, &vert_buf, &vert_buf_mem);
+        const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
+        const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 80000 * 3);
+        const mats_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 2000);
+        const materials_buf = gvk.buffer.createStorageBuffer(physical, device, @sizeOf(graphics.Material) * 100);
 
-        var index_buf: vk.VkBuffer = undefined;
-        var index_buf_mem: vk.VkDeviceMemory = undefined;
-        gvk.buffer.createIndexBuffer(vk_ctx.physical, vk_ctx.device, 2 * 20000 * 3, &index_buf, &index_buf_mem);
+        self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
+        const mats_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.mats_desc_set_layout);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, mats_desc_set, mats_buf.buf, 1, 0, mats_buf.size);
 
-        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, false);
-        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, false, false);
-        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size, self.inner.tex_desc_set_layout, true, true);
-        self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
-        self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(vk_ctx.device, vk_ctx.pass, vk_ctx.framebuffer_size);
+        self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, true, false);
+        const materials_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.materials_desc_set_layout);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, @sizeOf(graphics.Material) * 100);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, vert_buf_mem, index_buf, index_buf_mem, vk_ctx, self.inner.pipelines, &self.image_store);
+        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, false);
+        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, false, false);
+        self.inner.pipelines.norm_pipeline = gvk.createNormPipeline(device, pass, fb_size);
+        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.mats_desc_set_layout, self.inner.tex_desc_set_layout);
+        self.inner.pipelines.anim_pbr_pipeline = gvk.createAnimPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, true);
+        self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
+        self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
+        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        const shadow_pass = renderer.shadow_pass;
+        const shadow_dim = vk.VkExtent2D{ .width = gvk.Renderer.ShadowMapSize, .height = gvk.Renderer.ShadowMapSize };
+        self.inner.pipelines.shadow_pipeline = gvk.createShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
+        self.inner.pipelines.anim_shadow_pipeline = gvk.createAnimShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
+
+        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
+        for (self.batcher.inner.batcher_frames) |frame| {
+            frame.host_cam_buf.light_color = self.light_color;
+            frame.host_cam_buf.light_vec = self.light_vec;
+        }
     }
-    
-    fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: u8) void {
+
+    fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
@@ -202,6 +242,8 @@ pub const Graphics = struct {
             .cur_line_width = undefined,
             .cur_line_width_half = undefined,
             .cur_proj_transform = undefined,
+            .cur_cam_world_pos = undefined,
+            .tmp_joint_idxes = undefined,
             .view_transform = undefined,
             .image_store = image.ImageStore.init(alloc, self),
             .state_stack = std.ArrayList(DrawState).init(alloc),
@@ -210,6 +252,7 @@ pub const Graphics = struct {
             .cur_text_align = .Left,
             .cur_text_baseline = .Top,
             .cur_dpr = dpr,
+            .cur_dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
             .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
@@ -264,11 +307,12 @@ pub const Graphics = struct {
                 self.inner.pipelines.deinit(device);
 
                 vk.destroyDescriptorSetLayout(device, self.inner.tex_desc_set_layout, null);
-                vk.destroyDescriptorPool(device, self.inner.tex_desc_pool, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.mats_desc_set_layout, null);
+                vk.destroyDescriptorSetLayout(device, self.inner.materials_desc_set_layout, null);
             },
             else => {},
         }
-        self.batcher.deinit();
+        self.batcher.deinit(self.alloc);
         self.font_cache.deinit();
         self.state_stack.deinit();
 
@@ -298,8 +342,6 @@ pub const Graphics = struct {
     }
 
     pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
-        // log.debug("clipRect {} {} {} {}", .{x, y, width, height});
-
         switch (Backend) {
             .OpenGL => {
                 self.cur_clip_rect = .{
@@ -312,10 +354,10 @@ pub const Graphics = struct {
             },
             .Vulkan => {
                 self.cur_clip_rect = .{
-                    .x = x,
-                    .y = y,
-                    .width = width,
-                    .height = height,
+                    .x = x * self.cur_dpr,
+                    .y = y * self.cur_dpr,
+                    .width = width * self.cur_dpr,
+                    .height = height * self.cur_dpr,
                 };
             },
             else => {},
@@ -345,7 +387,7 @@ pub const Graphics = struct {
                         .height = @floatToInt(u32, rect.height),
                     },
                 };
-                vk.cmdSetScissor(self.inner.cur_cmd_buf, 0, 1, &vk_rect);
+                vk.cmdSetScissor(self.inner.cur_frame.main_cmd_buf, 0, 1, &vk_rect);
             },
             else => {},
         }
@@ -447,9 +489,9 @@ pub const Graphics = struct {
     }
 
     pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
-        // Convert to screen coords on cpu.
-        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y));
-        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y));
+        // Convert to buffer coords on cpu.
+        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y)).mul(self.cur_dpr);
+        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y)).mul(self.cur_dpr);
         self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
     }
 
@@ -491,18 +533,25 @@ pub const Graphics = struct {
     }
 
     pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, str, res, true);
+        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr_ceil, str, res, true);
     }
 
     pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, group_id, size, self.cur_dpr, str, res, true);
+        text_renderer.measureText(self, group_id, size, self.cur_dpr_ceil, str, res, true);
     }
 
     pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
-        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr, str);
+        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr_ceil, str);
     }
 
-    pub fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
+    pub inline fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
+        self.fillTextExt(x, y, str, .{
+            .@"align" = self.cur_text_align,
+            .baseline = self.cur_text_baseline,
+        });
+    }
+
+    pub fn fillTextExt(self: *Self, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
 
@@ -511,25 +560,25 @@ pub const Graphics = struct {
         var start_x = x;
         var start_y = y;
 
-        if (self.cur_text_align != .Left) {
+        if (opts.@"align" != .Left) {
             var metrics: TextMetrics = undefined;
             self.measureText(str, &metrics);
-            switch (self.cur_text_align) {
+            switch (opts.@"align") {
                 .Left => {},
                 .Right => start_x = x-metrics.width,
                 .Center => start_x = x-metrics.width/2,
             }
         }
-        if (self.cur_text_baseline != .Top) {
+        if (opts.baseline != .Top) {
             const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.cur_font_gid, self.cur_font_size);
-            switch (self.cur_text_baseline) {
+            switch (opts.baseline) {
                 .Top => {},
                 .Middle => start_y = y - vmetrics.height / 2,
                 .Alphabetic => start_y = y - vmetrics.ascender,
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr, start_x, start_y, str);
+        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr_ceil, start_x, start_y, str);
 
         while (iter.nextCodepointQuad(true)) {
             self.setCurrentTexture(iter.quad.image);
@@ -1608,6 +1657,8 @@ pub const Graphics = struct {
         self.batcher.beginTex3D(self.white_tex);
         self.ensureUnusedBatchCapacity(3, 3);
 
+        self.batcher.model_idx = 0;
+
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.cur_fill_color);
         vert.setUV(0, 0); // Don't map uvs for now.
@@ -1716,58 +1767,456 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
-        self.batcher.beginTex3D(self.white_tex);
+    pub fn drawTintedScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, color: Color) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawTintedMesh3D(xform, node.mesh, color);
+        }
+    }
+
+    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
+        self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        const mvp = xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
-        self.batcher.pushMeshData(verts, indexes);
+        self.batcher.beginMvp(vp);
+
+        // Compute normal matrix for lighting.
+        self.batcher.normal = xform.toRotationMat();
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
+
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(material);
+
+        self.ensureUnusedBatchCapacity(8, 36);
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        var vert: TexShaderVertex = undefined;
+        vert.setColor(Color.White);
+        vert.setUV(0, 0);
+        // far top-left
+        vert.setXYZ(-0.5, 0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(-1, 1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // far top-right
+        vert.setXYZ(0.5, 0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(1, 1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // far bottom-right
+        vert.setXYZ(0.5, -0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(1, -1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // far bottom-left
+        vert.setXYZ(-0.5, -0.5, -0.5);
+        vert.setNormal(comptime Vec3.init(-1, -1, -1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near top-left
+        vert.setXYZ(-0.5, 0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(-1, 1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near top-right
+        vert.setXYZ(0.5, 0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(1, 1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near bottom-right
+        vert.setXYZ(0.5, -0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(1, -1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+        // near bottom-left
+        vert.setXYZ(-0.5, -0.5, 0.5);
+        vert.setNormal(comptime Vec3.init(-1, -1, 1).normalize());
+        self.batcher.mesh.addVertex(&vert);
+
+        // far face
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+3);
+
+        // left face
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+3);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+3);
+        self.batcher.mesh.addIndex(vert_start+7);
+
+        // right face
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+6);
+        self.batcher.mesh.addIndex(vert_start+2);
+
+        // near face
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+7);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+5);
+        self.batcher.mesh.addIndex(vert_start+7);
+        self.batcher.mesh.addIndex(vert_start+6);
+
+        // bottom face
+        self.batcher.mesh.addIndex(vert_start+7);
+        self.batcher.mesh.addIndex(vert_start+3);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+2);
+        self.batcher.mesh.addIndex(vert_start+6);
+        self.batcher.mesh.addIndex(vert_start+7);
+
+        // top face
+        self.batcher.mesh.addIndex(vert_start);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+1);
+        self.batcher.mesh.addIndex(vert_start+4);
+        self.batcher.mesh.addIndex(vert_start+5);
+
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
-        self.batcher.beginTex3D(self.white_tex);
+    pub fn drawScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMesh3D(xform, node.mesh);
+        }
+    }
+
+    pub fn drawScenePbr3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMeshPbr3D(xform, node.mesh);
+        }
+    }
+
+    pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, mat: graphics.Material) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            for (node.primitives) |prim| {
+                self.drawMeshPbrCustom3D(xform, prim, mat);
+            }
+        }
+    }
+
+    pub fn drawTintedMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, color: Color) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTex3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
+        } else {
+            self.batcher.beginTex3D(self.white_tex);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        for (mesh.verts) |vert| {
+            var new_vert = vert;
+            new_vert.setColor(color);
+            self.batcher.mesh.addVertex(&new_vert);
+        }
+        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawSceneNormals3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            self.drawMeshNormals3D(xform, node.mesh);
+        }
+    }
+
+    pub fn drawMeshNormals3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        self.batcher.beginNormal();
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
 
-        if (!self.batcher.ensureUnusedBuffer(verts.len, indexes.len)) {
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len*2, mesh.verts.len*2)) {
             self.batcher.endCmd();
         }
         const vert_start = self.batcher.mesh.getNextIndexId();
-        for (verts) |vert| {
+        const norm_len = 1;
+        for (mesh.verts) |vert, i| {
+            var new_vert = vert;
+            new_vert.setColor(Color.Blue);
+            self.batcher.mesh.addVertex(&new_vert);
+            new_vert.setColor(Color.Red);
+            new_vert.setXYZ(new_vert.pos_x + new_vert.normal.x * norm_len, new_vert.pos_y + new_vert.normal.y * norm_len, new_vert.pos_z + new_vert.normal.z * norm_len);
+            self.batcher.mesh.addVertex(&new_vert);
+            self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i));
+            self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i) + 1);
+        }
+
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTex3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
+        } else {
+            self.batcher.beginTex3D(self.white_tex);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+        self.batcher.beginMvp(mvp);
+        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawMeshPbrCustom3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, mat: graphics.Material) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTexPbr3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id }, self.cur_cam_world_pos);
+        } else {
+            self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(vp);
+
+        // Compute normal matrix for lighting.
+        self.batcher.normal = xform.toRotationUniformScaleMat();
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
+
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(mat);
+
+        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawMeshPbr3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        if (mesh.image_id) |image_id| {
+            const img = self.image_store.images.getNoCheck(image_id);
+            self.batcher.beginTexPbr3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id }, self.cur_cam_world_pos);
+        } else {
+            self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
+        }
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(vp);
+
+        // Compute normal matrix for lighting.
+        self.batcher.normal = xform.toRotationUniformScaleMat();
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
+
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(mesh.material);
+
+        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh, custom_mat: ?graphics.Material, comptime fill: bool, comptime pbr: bool) void {
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+
+        // Apply animation.
+        for (amesh.transition_markers) |marker, i| {
+            const tt = marker.time_t;
+            const time_idx = marker.time_idx;
+            const transition = amesh.anim.transitions[i];
+            for (transition.properties.items) |prop| {
+                switch (prop.data) {
+                    .rotations => |rotations| {
+                        const from = Quaternion.init(rotations[time_idx]);
+                        const to = Quaternion.init(rotations[time_idx+1]);
+                        amesh.scene.nodes[prop.node_id].rotate = from.slerp(to, tt);
+                    },
+                    .scales => |scales| {
+                        const from = scales[time_idx];
+                        const to = scales[time_idx+1];
+                        amesh.scene.nodes[prop.node_id].scale = from.lerp(to, tt);
+                    },
+                    .translations => |translations| {
+                        const from = translations[time_idx];
+                        const to = translations[time_idx+1];
+                        amesh.scene.nodes[prop.node_id].translate = from.lerp(to, tt);
+                    },
+                }
+            }
+        }
+
+        self.batcher.beginMvp(vp);
+
+        for (amesh.scene.mesh_nodes) |id| {
+            const node = &amesh.scene.nodes[id];
+
+            var mesh_model = model_xform;
+            // Compute mesh model by working up the tree.
+            var cur_id = id;
+            while (cur_id != NullId) {
+                const cur_node = amesh.scene.nodes[cur_id];
+                var node_mat = cur_node.toTransform();
+                mesh_model = node_mat.getAppliedTransform(mesh_model);
+                cur_id = cur_node.parent;
+            }
+                
+            self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+            self.batcher.mesh.addMatrix(mesh_model.mat);
+
+            // Compute normal matrix for lighting.
+            self.batcher.normal = mesh_model.toRotationUniformScaleMat();
+
+            for (node.primitives) |prim| {
+                const tex = if (fill) self.white_tex else b: {
+                    if (prim.image_id) |image_id| {
+                        const img = self.image_store.images.getNoCheck(image_id);
+                        break :b image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id };
+                    } else {
+                        break :b self.white_tex;
+                    }
+                };
+
+                // Derive final joint matrices and non skin transform. 
+                if (node.skin.len > 0) {
+                    if (pbr) {
+                        self.batcher.beginAnimPbr3D(tex, self.cur_cam_world_pos);
+                    } else {
+                        self.batcher.beginAnim3D(tex);
+                    }
+                    const mat_idx = self.batcher.mesh.cur_mats_buf_size;
+                    for (node.skin) |joint, i| {
+                        var xform = Transform.initRowMajor(joint.inv_bind_mat);
+                        cur_id = joint.node_id;
+                        while (cur_id != NullId) {
+                            const joint_node = amesh.scene.nodes[cur_id];
+                            var joint_mat = joint_node.toTransform();
+                            xform.applyTransform(joint_mat);
+                            cur_id = joint_node.parent;
+                        }
+                        self.batcher.mesh.addMatrix(xform.mat);
+                        self.tmp_joint_idxes[i] = @intCast(u16, mat_idx + i);
+                    }
+                } else {
+                    self.batcher.beginTex3D(tex);
+                }
+
+                if (!self.batcher.ensureUnusedBuffer(prim.verts.len, prim.indexes.len)) {
+                    self.batcher.endCmd();
+                }
+                const vert_start = self.batcher.mesh.getNextIndexId();
+                if (node.skin.len > 0) {
+                    for (prim.verts) |vert| {
+                        var new_vert = vert;
+                        if (fill) {
+                            new_vert.setColor(self.cur_fill_color);
+                        }
+                        // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
+                        new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
+                        new_vert.joints.compact.joint_1 = self.tmp_joint_idxes[new_vert.joints.components.joint_2] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_3]) << 16);
+                        self.batcher.mesh.addVertex(&new_vert);
+                    }
+                } else {
+                    for (prim.verts) |vert| {
+                        var new_vert = vert;
+                        if (fill) {
+                            new_vert.setColor(self.cur_fill_color);
+                        }
+                        self.batcher.mesh.addVertex(&new_vert);
+                    }
+                }
+                self.batcher.mesh.addDeltaIndices(vert_start, prim.indexes);
+
+                if (custom_mat) |material| {
+                    self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+                    self.batcher.mesh.addMaterial(material);
+                } else {
+                    self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+                    self.batcher.mesh.addMaterial(prim.material);
+                }
+
+                self.endCmd();
+            }
+        }
+
+        self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub fn fillScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            for (node.primitives) |prim| {
+                self.fillMesh3D(xform, prim);
+            }
+        }
+    }
+
+    pub fn fillMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+        self.batcher.beginTex3D(self.white_tex);
+        const cur_mvp = self.batcher.mvp;
+        // Create temp mvp.
+        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.batcher.beginMvp(vp);
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
+
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
+            self.batcher.endCmd();
+        }
+        const vert_start = self.batcher.mesh.getNextIndexId();
+        for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(self.cur_fill_color);
             self.batcher.mesh.addVertex(&new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, indexes);
+        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
 
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const TexShaderVertex, indexes: []const u16) void {
+    pub fn strokeScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            for (node.primitives) |prim| {
+                self.strokeMesh3D(xform, prim);
+            }
+        }
+    }
+
+    pub fn strokeMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
         self.batcher.beginWireframe();
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        const mvp = xform.getAppliedTransform(vp);
-        self.batcher.beginMvp(mvp);
+        self.batcher.beginMvp(vp);
+
+        self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
+        self.batcher.mesh.addMatrix(xform.mat);
 
         // TODO: stroke color should pushed as a constant.
-        if (!self.batcher.ensureUnusedBuffer(verts.len, indexes.len)) {
+        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
             self.batcher.endCmd();
         }
         const vert_start = self.batcher.mesh.getNextIndexId();
-        for (verts) |vert| {
+        for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(self.cur_stroke_color);
             self.batcher.mesh.addVertex(&new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, indexes);
+        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
 
         self.batcher.beginMvp(cur_mvp);
     }
@@ -1925,11 +2374,11 @@ pub const Graphics = struct {
         return fbo_id;
     }
 
-    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, image_idx: u32, frame_idx: u32) void {
+    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, frame_idx: u8, framebuffer: vk.VkFramebuffer) void {
         self.cur_buf_width = buf_width;
         self.cur_buf_height = buf_height;
-        self.inner.cur_cmd_buf = self.inner.ctx.cmd_bufs[image_idx];
-        self.batcher.resetStateVK(self.white_tex, image_idx, frame_idx, self.clear_color);
+        self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
+        self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.clear_color);
 
         self.cur_clip_rect = .{
             .x = 0,
@@ -1980,10 +2429,10 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
-    pub fn endFrameVK(self: *Self) void {
+    pub fn endFrameVK(self: *Self) graphics.FrameResultVK {
         self.endCmd();
-        self.batcher.endFrameVK();
         self.image_store.processRemovals();
+        return self.batcher.endFrameVK();
     }
 
     pub fn endFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
@@ -2003,6 +2452,47 @@ pub const Graphics = struct {
         self.cur_proj_transform = cam.proj_transform;
         self.view_transform = cam.view_transform;
         self.batcher.mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.cur_cam_world_pos = cam.world_pos;
+    }
+
+    pub fn prepareShadows(self: *Self, cam: graphics.Camera) void {
+        // Setup shadow mapping view point from directional light.
+        const corners = cam.computePartitionCorners(cam.near, (cam.near + cam.far) * 0.3);
+
+        var center = Vec3.init(0, 0, 0);
+        for (corners) |corner| {
+            center = center.add3(corner.x, corner.y, corner.z);
+        }
+        center = center.mul(@as(f32, 1)/@as(f32, 8));
+
+        // Compute ortho projection for directional light.
+        const light_view = graphics.camera.initLookAt(center.add3(-self.light_vec.x, -self.light_vec.y, -self.light_vec.z), center, Vec3.init(0, 1, 0));
+        var min_x: f32 = std.math.f32_max;
+        var min_y: f32 = std.math.f32_max;
+        var min_z: f32 = std.math.f32_max;
+        var max_x: f32 = std.math.f32_min;
+        var max_y: f32 = std.math.f32_min;
+        var max_z: f32 = std.math.f32_min;
+        for (corners) |corner| {
+            const view_pos = light_view.interpolate3(corner.x, corner.y, corner.z);
+            min_x = std.math.min(min_x, view_pos.x);
+            max_x = std.math.max(max_x, view_pos.x);
+            min_y = std.math.min(min_y, view_pos.y);
+            max_y = std.math.max(max_y, view_pos.y);
+            min_z = std.math.min(min_z, view_pos.z);
+            max_z = std.math.max(max_z, view_pos.z);
+        }
+        const z_scale = 10.0;
+        if (min_z < 0) {
+            min_z *= z_scale;
+        }
+        if (max_z > 0) {
+            max_z *= z_scale;
+        }
+
+        const proj = graphics.camera.initOrthographicProjection(min_x, max_x, max_y, min_y, max_z, min_z);
+        const light_vp = light_view.getAppliedTransform(proj);
+        self.batcher.prepareShadowPass(light_vp);
     }
 
     pub fn translate(self: *Self, x: f32, y: f32) void {
@@ -2098,30 +2588,26 @@ pub const Graphics = struct {
                 gl.bindTexture(gl.GL_TEXTURE_2D, 0);
             },
             .Vulkan => {
+                const renderer = self.inner.renderer;
                 const ctx = self.inner.ctx;
-
-                var staging_buf: vk.VkBuffer = undefined;
-                var staging_buf_mem: vk.VkDeviceMemory = undefined;
-
                 const size = @intCast(u32, buf.len);
-                gvk.buffer.createBuffer(ctx.physical, ctx.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_buf, &staging_buf_mem);
+                const staging_buf = gvk.buffer.createBuffer(ctx.physical, ctx.device, size, vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
                 // Copy to gpu.
                 var gpu_data: ?*anyopaque = null;
-                var res = vk.mapMemory(ctx.device, staging_buf_mem, 0, size, 0, &gpu_data);
+                var res = vk.mapMemory(ctx.device, staging_buf.mem, 0, size, 0, &gpu_data);
                 vk.assertSuccess(res);
                 std.mem.copy(u8, @ptrCast([*]u8, gpu_data)[0..size], buf);
-                vk.unmapMemory(ctx.device, staging_buf_mem);
+                vk.unmapMemory(ctx.device, staging_buf.mem);
 
                 // Transition to transfer dst layout.
-                ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                ctx.copyBufferToImage(staging_buf, img.inner.image, img.width, img.height);
+                gvk.transitionImageLayout(renderer, img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                gvk.copyBufferToImage(renderer, staging_buf.buf, img.inner.image, img.width, img.height);
                 // Transition to shader access layout.
-                ctx.transitionImageLayout(img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                gvk.transitionImageLayout(renderer, img.inner.image, vk.VK_FORMAT_R8G8B8A8_SRGB, vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
                 // Cleanup.
-                vk.destroyBuffer(ctx.device, staging_buf, null);
-                vk.freeMemory(ctx.device, staging_buf_mem, null);
+                staging_buf.deinit(ctx.device);
             },
             else => {},
         }
@@ -2159,3 +2645,15 @@ fn getTess2Handle() *tess2.TESStesselator {
     }
     return tess_.?;
 }
+
+/// Currently holds the camera pos and the global directional light. Eventually the light params will be decoupled once multiple lights are supported.
+pub const ShaderCamera = struct {
+    cam_pos: Vec3,
+    pad_0: f32 = 0,
+    light_vec: Vec3,
+    pad_1: f32 = 0,
+    light_color: Vec3,
+    pad_2: f32 = 0,
+    light_vp: Mat4,
+    enable_shadows: bool,
+};

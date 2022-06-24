@@ -59,6 +59,15 @@ pub const Vec3 = struct {
         );
     }
 
+    /// Linear interpolation for t: [0,1]
+    pub fn lerp(self: Vec3, v: Vec3, tt: f32) Vec3 {
+        return .{
+            .x = self.x + (v.x - self.x) * tt,
+            .y = self.y + (v.y - self.y) * tt,
+            .z = self.z + (v.z - self.z) * tt,
+        };
+    }
+
     pub fn dot(self: Vec3, v: Vec3) f32 {
         return self.x * v.x + self.y * v.y + self.z * v.z;
     }
@@ -83,6 +92,11 @@ pub const Vec3 = struct {
     /// Component addition.
     pub fn add(self: Vec3, v: Vec3) Vec3 {
         return Vec3.init(self.x + v.x, self.y + v.y, self.z + v.z);
+    }
+
+    /// Component addition.
+    pub fn add3(self: Vec3, x: f32, y: f32, z: f32) Vec3 {
+        return Vec3.init(self.x + x, self.y + y, self.z + z);
     }
 
     pub fn length(self: Vec3) f32 {
@@ -143,6 +157,20 @@ pub const Vec4 = struct {
 
     pub fn init(x: f32, y: f32, z: f32, w: f32) Vec4 {
         return .{ .x = x, .y = y, .z = z, .w = w };
+    }
+
+    pub fn dot(self: Vec4, v: Vec4) f32 {
+        return self.x * v.x + self.y * v.y + self.z * v.z + self.w * v.w;
+    }
+
+    /// Component addition.
+    pub fn add(self: Vec4, v: Vec4) Vec4 {
+        return Vec4.init(self.x + v.x, self.y + v.y, self.z + v.z, self.w + v.w);
+    }
+
+    /// Component multiplication.
+    pub fn mul(self: Vec4, s: f32) Vec4 {
+        return Vec4.init(self.x * s, self.y * s, self.z * s, self.w * s);
     }
 
     /// Component division.

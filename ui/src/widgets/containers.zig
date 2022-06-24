@@ -17,14 +17,11 @@ pub const Padding = struct {
     const Self = @This();
 
     pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = self;
         _ = c;
         return self.props.child;
     }
 
     pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
-
         var pad_top = self.props.pad_top orelse self.props.padding;
         var pad_right = self.props.pad_right orelse self.props.padding;
         var pad_bottom = self.props.pad_bottom orelse self.props.padding;
