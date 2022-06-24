@@ -19,15 +19,17 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 | Status | Platform | Size (counter.zig)* |
 | --- | --- | --- |
 | ✅ | Web with Wasm/WebGL2 [(Demo)](https://fubark.github.io/cosmic-site/zig-ui) | counter.wasm - 381 KB |
-| ✅ | Linux x64 with OpenGL | counter - 2.2 M |
-| ✅ | Windows x64 with OpenGL | counter.exe - 2.7 M |
-| ✅ | macOS x64 with OpenGL | counter - 2.5 M |
-| ✅ | macOS arm64 with OpenGL | counter - 2.8 M |
+| ✅ | Linux x64, OpenGL, Vulkan | counter - 2.2 M |
+| ✅ | Windows x64, OpenGL | counter.exe - 2.7 M |
+| ✅ | macOS x64, OpenGL, Vulkan via MoltenVK | counter - 2.5 M |
+| ✅ | macOS arm64, OpenGL, Vulkan via MoltenVK | counter - 2.8 M |
+| Planned | Windows Vulkan backend |
 | Undecided | Android/iOS |
-| Soon   | Vulkan backend for Desktop |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
 \* Static binary size. Compiled with -Drelease-safe.
+
+\** Note for the Vulkan backend on macOS, you need to install MoltenVK. In a future release, the static lib will automatically be included. If you'd like to use OpenGL instead, enable it in cosmic/platform/backend.zig.
 
 ## Dependencies
 Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/).
