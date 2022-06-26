@@ -6,6 +6,7 @@ const vec2 = Vec2.init;
 pub const geom = @import("geom.zig");
 
 usingnamespace @import("matrix.zig");
+usingnamespace @import("transform.zig");
 
 pub fn Point2(comptime T: type) type {
     return struct {

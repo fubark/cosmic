@@ -9,6 +9,7 @@ const lyon = @import("lyon");
 const Vec2 = stdx.math.Vec2;
 const Vec3 = stdx.math.Vec3;
 const Vec4 = stdx.math.Vec4;
+const Transform = stdx.math.Transform;
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
@@ -18,7 +19,6 @@ const ImageId = graphics.ImageId;
 const ImageTex = graphics.gpu.ImageTex;
 const GLTextureId = gl.GLuint;
 const Color = graphics.Color;
-const Transform = graphics.transform.Transform;
 const mesh = @import("mesh.zig");
 const VertexData = mesh.VertexData;
 const Mesh = mesh.Mesh;

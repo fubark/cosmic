@@ -1,15 +1,17 @@
 const std = @import("std");
-const stdx = @import("stdx");
+
+const stdx = @import("../stdx.zig");
 const t = stdx.testing;
 const math = stdx.math;
 const Mat4 = math.Mat4;
-const eqApproxVec4 = stdx.math.eqApproxVec4;
-const eqApproxVec3 = stdx.math.eqApproxVec3;
+const eqApproxVec4 = math.eqApproxVec4;
+const eqApproxVec3 = math.eqApproxVec3;
 
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 
+// Contains abstractions to represent transformations that transforms points from one space to another using matrices and vectors.
 // TODO: Add transform just for 2D coords.
 
 pub const Transform = struct {
