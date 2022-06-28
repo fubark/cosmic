@@ -3,6 +3,8 @@ const stdx = @import("../stdx.zig");
 const string = stdx.string;
 const t = stdx.testing;
 
+const dense = @import("dense.zig");
+pub const DenseHandleList = dense.DenseHandleList;
 const pooled = @import("pooled.zig");
 pub const PooledHandleList = pooled.PooledHandleList;
 pub const PoolIdGenerator = pooled.PoolIdGenerator;
