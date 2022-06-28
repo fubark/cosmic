@@ -58,6 +58,7 @@ const LibH2oPath: ?[]const u8 = null;
 pub fn build(b: *Builder) !void {
     // Options.
     const path = b.option([]const u8, "path", "Path to main file, for: build, run, test-file") orelse "";
+    const vendor_path = b.option([]const u8, "vendor", "Path to vendor.") orelse "";
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const link_graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
@@ -192,6 +193,9 @@ pub fn build(b: *Builder) !void {
         step.step.dependOn(&test_exe.step);
         b.step("test-behavior", "Run behavior tests").dependOn(&step.step);
     }
+
+    const copy_vendor = ctx.createCopyVendorStep(ctx.path, vendor_path);
+    b.step("copy-vendor", "Copy vendor source to this repo using vendor_files.txt").dependOn(&copy_vendor.step);
 
     const test_file = ctx.createTestFileStep(ctx.path, null);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
@@ -528,6 +532,12 @@ const BuilderContext = struct {
         return exe;
     }
 
+    fn createCopyVendorStep(self: *Self, path: []const u8, vendor_path: []const u8) *CopyVendorStep {
+        const b = self.builder;
+        const step = CopyVendorStep.create(b, path, vendor_path);
+        return step;
+    }
+
     fn createTestFileStep(self: *Self, path: []const u8, build_options: ?*std.build.OptionsStep) *std.build.LibExeObjStep {
         const step = self.builder.addTest(path);
         self.setBuildMode(step);
@@ -781,6 +791,87 @@ fn addZigV8(step: *LibExeObjStep) void {
     step.addPackage(zig_v8_pkg);
     step.linkLibC();
     step.addIncludeDir("./lib/zig-v8/src");
+}
+
+const CopyVendorStep = struct {
+    step: std.build.Step,
+    b: *Builder,
+    path: []const u8,
+    vendor_path: []const u8,
+
+    fn create(b: *Builder, path: []const u8, vendor_path: []const u8) *CopyVendorStep {
+        const new = b.allocator.create(CopyVendorStep) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("copy-vendor", .{}), b.allocator, make),
+            .b = b,
+            .path = b.dupe(path),
+            .vendor_path = b.dupe(vendor_path),
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(CopyVendorStep, "step", step);
+
+        const vendor_files_txt = self.b.fmt("{s}/vendor_files.txt", .{self.path});
+        const f = try std.fs.cwd().openFile(vendor_files_txt, .{ .mode = .read_only });
+        defer f.close();
+        const content = try f.readToEndAlloc(self.b.allocator, 1e12);
+        var iter = std.mem.tokenize(u8, content, "\n\r");
+        while (iter.next()) |line| {
+            const src_path = self.b.pathJoin(&.{ self.vendor_path, line });
+            const dst_path = self.b.pathJoin(&.{ self.path, "vendor", line });
+            const stat = try std.fs.cwd().statFile(src_path);
+            if (stat.kind == .Directory) {
+                var src_dir = try std.fs.cwd().openDir(src_path, .{ .iterate = true });
+                defer src_dir.close();
+                std.fs.cwd().access(dst_path, .{}) catch |e| {
+                    if (e == error.FileNotFound) {
+                        try std.fs.cwd().makePath(dst_path);
+                    } else return e;
+                };
+                var dst_dir = try std.fs.cwd().openDir(dst_path, .{});
+                defer dst_dir.close();
+                try copyDir(src_dir, dst_dir);
+            } else {
+                const filename = std.fs.path.basename(src_path);
+                var src_dir = try std.fs.cwd().openDir(std.fs.path.dirname(src_path).?, .{});
+                defer src_dir.close();
+                var dst_dir = try std.fs.cwd().openDir(std.fs.path.dirname(dst_path).?, .{});
+                defer dst_dir.close();
+                try src_dir.copyFile(filename, dst_dir, filename, .{});
+            }
+            log.debug("copied {s}", .{line});
+        }
+    }
+};
+
+fn copyDir(src_dir: std.fs.Dir, dest_dir: std.fs.Dir) anyerror!void {
+    var iter = src_dir.iterate();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .File => try src_dir.copyFile(entry.name, dest_dir, entry.name, .{}),
+            .Directory => {
+                // log.debug("{s}", .{entry.name});
+                // Create destination directory
+                dest_dir.makeDir(entry.name) catch |e| {
+                    switch (e) {
+                        std.os.MakeDirError.PathAlreadyExists => {},
+                        else => return e,
+                    }
+                };
+                // Open destination directory
+                var dest_entry_dir = try dest_dir.openDir(entry.name, .{ .access_sub_paths = true, .iterate = true, .no_follow = true });
+                defer dest_entry_dir.close();
+                // Open directory we're copying files from
+                var src_entry_dir = try src_dir.openDir(entry.name, .{ .access_sub_paths = true, .iterate = true, .no_follow = true });
+                defer src_entry_dir.close();
+                // Begin the recursive descent!
+                try copyDir(src_entry_dir, dest_entry_dir);
+            },
+            else => {},
+        }
+    }
 }
 
 const GenMacLibCStep = struct {
