@@ -31,6 +31,7 @@ const maudio = @import("lib/miniaudio/lib.zig");
 const mingw = @import("lib/mingw/lib.zig");
 const backend = @import("platform/backend.zig");
 const cgltf = @import("lib/cgltf/lib.zig");
+const jolt = @import("lib/jolt/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -616,6 +617,7 @@ const BuilderContext = struct {
         freetype.addPackage(step);
         gl.addPackage(step);
         vk.addPackage(step);
+        jolt.addPackage(step);
         maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
         tess2.addPackage(step, self.link_tess2);
@@ -644,6 +646,7 @@ const BuilderContext = struct {
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
+            jolt.buildAndLink(step);
         }
         if (self.link_audio) {
             maudio.buildAndLink(step);
