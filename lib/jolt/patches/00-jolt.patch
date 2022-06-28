@@ -1,0 +1,42 @@
+diff --git a/Jolt/Physics/Body/BodyManager.cpp b/Jolt/Physics/Body/BodyManager.cpp
+index e206785a..5fff498a 100644
+--- a/Jolt/Physics/Body/BodyManager.cpp
++++ b/Jolt/Physics/Body/BodyManager.cpp
+@@ -356,6 +356,13 @@ void BodyManager::GetActiveBodies(BodyIDVector &outBodyIDs) const
+ 	outBodyIDs.assign(mActiveBodies, mActiveBodies + mNumActiveBodies);
+ }
+ 
++void BodyManager::GetActiveBodiesBuf(BodyID* out) const
++{
++	JPH_PROFILE_FUNCTION();
++	UniqueLock lock(mActiveBodiesMutex, EPhysicsLockTypes::ActiveBodiesList);
++	memcpy(out, mActiveBodies, mNumActiveBodies * sizeof(BodyID));
++}
++
+ void BodyManager::GetBodyIDs(BodyIDVector &outBodies) const
+ {
+ 	JPH_PROFILE_FUNCTION();
+diff --git a/Jolt/Physics/Body/BodyManager.h b/Jolt/Physics/Body/BodyManager.h
+index 9a75de1c..bc685863 100644
+--- a/Jolt/Physics/Body/BodyManager.h
++++ b/Jolt/Physics/Body/BodyManager.h
+@@ -77,6 +77,7 @@ public:
+ 
+ 	/// Get copy of the list of active bodies under protection of a lock.
+ 	void							GetActiveBodies(BodyIDVector &outBodyIDs) const;
++	void							GetActiveBodiesBuf(BodyID* out) const;
+ 
+ 	/// Get the list of active bodies. Note: Not thread safe. The active bodies list can change at any moment.
+ 	const BodyID *					GetActiveBodiesUnsafe() const				{ return mActiveBodies; }
+diff --git a/Jolt/Physics/PhysicsSystem.h b/Jolt/Physics/PhysicsSystem.h
+index 5196f6b3..fb683ae7 100644
+--- a/Jolt/Physics/PhysicsSystem.h
++++ b/Jolt/Physics/PhysicsSystem.h
+@@ -164,6 +164,7 @@ public:
+ 	/// Get copy of the list of active bodies under protection of a lock.
+ 	/// @param outBodyIDs On return, this will contain the list of BodyIDs
+ 	void						GetActiveBodies(BodyIDVector &outBodyIDs) const				{ return mBodyManager.GetActiveBodies(outBodyIDs); }
++    void GetActiveBodiesBuf(BodyID* out) const { mBodyManager.GetActiveBodiesBuf(out); }
+ 
+ #ifdef JPH_TRACK_BROADPHASE_STATS
+ 	/// Trace the accumulated broadphase stats to the TTY
