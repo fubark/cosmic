@@ -77,6 +77,7 @@ public:
 
 	/// Get copy of the list of active bodies under protection of a lock.
 	void							GetActiveBodies(BodyIDVector &outBodyIDs) const;
+	void							GetActiveBodiesBuf(BodyID* out) const;
 
 	/// Get the list of active bodies. Note: Not thread safe. The active bodies list can change at any moment.
 	const BodyID *					GetActiveBodiesUnsafe() const				{ return mActiveBodies; }

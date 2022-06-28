@@ -356,6 +356,13 @@ void BodyManager::GetActiveBodies(BodyIDVector &outBodyIDs) const
 	outBodyIDs.assign(mActiveBodies, mActiveBodies + mNumActiveBodies);
 }
 
+void BodyManager::GetActiveBodiesBuf(BodyID* out) const
+{
+	JPH_PROFILE_FUNCTION();
+	UniqueLock lock(mActiveBodiesMutex, EPhysicsLockTypes::ActiveBodiesList);
+	memcpy(out, mActiveBodies, mNumActiveBodies * sizeof(BodyID));
+}
+
 void BodyManager::GetBodyIDs(BodyIDVector &outBodies) const
 {
 	JPH_PROFILE_FUNCTION();

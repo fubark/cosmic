@@ -164,7 +164,7 @@ public:
 	/// Get copy of the list of active bodies under protection of a lock.
 	/// @param outBodyIDs On return, this will contain the list of BodyIDs
 	void						GetActiveBodies(BodyIDVector &outBodyIDs) const				{ return mBodyManager.GetActiveBodies(outBodyIDs); }
-	void GetActiveBodiesBuf(BodyID* buf);
+    void GetActiveBodiesBuf(BodyID* out) const { mBodyManager.GetActiveBodiesBuf(out); }
 
 #ifdef JPH_TRACK_BROADPHASE_STATS
 	/// Trace the accumulated broadphase stats to the TTY
