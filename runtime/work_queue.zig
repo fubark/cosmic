@@ -11,7 +11,7 @@ pub const WorkQueue = struct {
 
     alloc: std.mem.Allocator,
     tasks_mutex: std.Thread.Mutex,
-    tasks: ds.CompactUnorderedList(TaskId, TaskInfo),
+    tasks: ds.PooledHandleList(TaskId, TaskInfo),
 
     // Allocate the worker on the heap for now so the worker thread doesn't have to query for it.
     workers: std.ArrayList(*Worker),
@@ -38,7 +38,7 @@ pub const WorkQueue = struct {
         var new = Self{
             .alloc = alloc,
             .tasks_mutex = std.Thread.Mutex{},
-            .tasks = ds.CompactUnorderedList(TaskId, TaskInfo).init(alloc),
+            .tasks = ds.PooledHandleList(TaskId, TaskInfo).init(alloc),
             .ready = std.atomic.Queue(TaskId).init(),
             .done = std.atomic.Queue(TaskResultInfo).init(),
             .workers = std.ArrayList(*Worker).init(alloc),

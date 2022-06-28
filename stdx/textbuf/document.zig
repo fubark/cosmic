@@ -44,8 +44,8 @@ pub const Document = struct {
 
     alloc: std.mem.Allocator,
     line_tree: ds.CompleteTreeArray(TreeBranchFactor, Node),
-    line_chunks: ds.CompactUnorderedList(LineChunkId, LineChunkArray),
-    lines: ds.CompactUnorderedList(LineId, Line),
+    line_chunks: ds.PooledHandleList(LineChunkId, LineChunkArray),
+    lines: ds.PooledHandleList(LineId, Line),
 
     // Temp vars.
     node_buf: std.ArrayList(NodeId),
@@ -55,8 +55,8 @@ pub const Document = struct {
         self.* = .{
             .line_tree = ds.CompleteTreeArray(3, Node).init(alloc),
             .alloc = alloc,
-            .line_chunks = ds.CompactUnorderedList(LineChunkId, LineChunkArray).init(alloc),
-            .lines = ds.CompactUnorderedList(LineId, Line).init(alloc),
+            .line_chunks = ds.PooledHandleList(LineChunkId, LineChunkArray).init(alloc),
+            .lines = ds.PooledHandleList(LineId, Line).init(alloc),
             .node_buf = std.ArrayList(NodeId).init(alloc),
             .str_buf = std.ArrayList(u8).init(alloc),
         };

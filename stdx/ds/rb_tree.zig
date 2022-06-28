@@ -17,7 +17,7 @@ const Color = enum(u1) {
 pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, comptime Compare: fn (Value, Value, Context) std.math.Order) type {
     return struct {
         root: OptId,
-        buf: stdx.ds.CompactUnorderedList(Id, Node),
+        buf: stdx.ds.PooledHandleList(Id, Node),
         /// The current number of nodes. Does not count detached nodes.
         size: usize,
         ctx: Context,
@@ -58,7 +58,7 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
         pub fn init(alloc: std.mem.Allocator, ctx: Context) Self {
             return .{
                 .root = NullId,
-                .buf = stdx.ds.CompactUnorderedList(Id, Node).init(alloc),
+                .buf = stdx.ds.PooledHandleList(Id, Node).init(alloc),
                 .size = 0,
                 .ctx = ctx,
             };

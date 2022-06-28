@@ -1,193 +1,12 @@
 const std = @import("std");
 const stdx = @import("../stdx.zig");
+const PooledHandleList = stdx.ds.PooledHandleList;
 const t = stdx.testing;
 const ds = stdx.ds;
 const log = stdx.log.scoped(.compact);
 
-/// Useful for keeping elements closer together in memory when you're using a bunch of insert/delete,
-/// while keeping realloc to a minimum and preserving the element's initial insert index.
-/// Backed by std.ArrayList.
-/// Item ids are reused once removed.
-/// Items are assigned an id and have O(1) access time by id.
-/// TODO: Iterating can be just as fast as a dense array if CompactIdGenerator kept a sorted list of freed id ranges.
-///       Although that also means delete ops would need to be O(logn).
-pub fn CompactUnorderedList(comptime Id: type, comptime T: type) type {
-    if (@typeInfo(Id).Int.signedness != .unsigned) {
-        @compileError("Unsigned id type required.");
-    }
-    return struct {
-        id_gen: CompactIdGenerator(Id),
-
-        // TODO: Rename to buf.
-        data: std.ArrayList(T),
-
-        // Keep track of whether an item exists at id in order to perform iteration.
-        // TODO: Rename to exists.
-        // TODO: Maybe the user should provide this if it's important. It would also simplify the api and remove optional return types. It also means iteration won't be possible.
-        data_exists: ds.BitArrayList,
-
-        const Self = @This();
-        const Iterator = struct {
-            // The current id should reflect the id of the value returned from next or nextPtr.
-            cur_id: Id,
-            list: *const Self,
-
-            fn init(list: *const Self) @This() {
-                return .{
-                    .cur_id = std.math.maxInt(Id),
-                    .list = list,
-                };
-            }
-
-            pub fn reset(self: *@This()) void {
-                self.idx = std.math.maxInt(Id);
-            }
-
-            pub fn nextPtr(self: *@This()) ?*T {
-                self.cur_id +%= 1;
-                while (true) {
-                    if (self.cur_id < self.list.data.items.len) {
-                        if (!self.list.data_exists.isSet(self.cur_id)) {
-                            self.cur_id += 1;
-                            continue;
-                        } else {
-                            return &self.list.data.items[self.cur_id];
-                        }
-                    } else {
-                        return null;
-                    }
-                }
-            }
-
-            pub fn next(self: *@This()) ?T {
-                self.cur_id +%= 1;
-                while (true) {
-                    if (self.cur_id < self.list.data.items.len) {
-                        if (!self.list.data_exists.isSet(self.cur_id)) {
-                            self.cur_id += 1;
-                            continue;
-                        } else {
-                            return self.list.data.items[self.cur_id];
-                        }
-                    } else {
-                        return null;
-                    }
-                }
-            }
-        };
-
-        pub fn init(alloc: std.mem.Allocator) @This() {
-            const new = @This(){
-                .id_gen = CompactIdGenerator(Id).init(alloc, 0),
-                .data = std.ArrayList(T).init(alloc),
-                .data_exists = ds.BitArrayList.init(alloc),
-            };
-            return new;
-        }
-
-        pub fn deinit(self: Self) void {
-            self.id_gen.deinit();
-            self.data.deinit();
-            self.data_exists.deinit();
-        }
-
-        pub fn iterator(self: *const Self) Iterator {
-            return Iterator.init(self);
-        }
-
-        // Returns the id of the item.
-        pub fn add(self: *Self, item: T) !Id {
-            const new_id = self.id_gen.getNextId();
-            errdefer self.id_gen.deleteId(new_id);
-
-            if (new_id >= self.data.items.len) {
-                try self.data.resize(new_id + 1);
-                try self.data_exists.resize(new_id + 1);
-            }
-            self.data.items[new_id] = item;
-            self.data_exists.set(new_id);
-            return new_id;
-        }
-
-        pub fn set(self: *Self, id: Id, item: T) void {
-            self.data.items[id] = item;
-        }
-
-        pub fn remove(self: *Self, id: Id) void {
-            self.data_exists.unset(id);
-            self.id_gen.deleteId(id);
-        }
-
-        pub fn clearRetainingCapacity(self: *Self) void {
-            self.data_exists.clearRetainingCapacity();
-            self.id_gen.clearRetainingCapacity();
-            self.data.clearRetainingCapacity();
-        }
-
-        pub fn get(self: Self, id: Id) ?T {
-            if (self.has(id)) {
-                return self.data.items[id];
-            } else return null;
-        }
-
-        pub fn getNoCheck(self: Self, id: Id) T {
-            return self.data.items[id];
-        }
-
-        pub fn getPtr(self: *const Self, id: Id) ?*T {
-            if (self.has(id)) {
-                return &self.data.items[id];
-            } else return null;
-        }
-
-        pub fn getPtrNoCheck(self: Self, id: Id) *T {
-            return &self.data.items[id];
-        }
-
-        pub fn has(self: Self, id: Id) bool {
-            return self.data_exists.isSet(id);
-        }
-
-        pub fn size(self: Self) usize {
-            return self.data.items.len - self.id_gen.next_ids.count;
-        }
-    };
-}
-
-test "CompactUnorderedList" {
-    {
-        // General test.
-        var arr = CompactUnorderedList(u32, u8).init(t.alloc);
-        defer arr.deinit();
-
-        _ = try arr.add(1);
-        const id = try arr.add(2);
-        _ = try arr.add(3);
-        arr.remove(id);
-        // Test adding to a removed slot.
-        _ = try arr.add(4);
-        const id2 = try arr.add(5);
-        // Test iterator skips removed slot.
-        arr.remove(id2);
-
-        var iter = arr.iterator();
-        try t.eq(iter.next(), 1);
-        try t.eq(iter.next(), 4);
-        try t.eq(iter.next(), 3);
-        try t.eq(iter.next(), null);
-        try t.eq(arr.size(), 3);
-    }
-    {
-        // Empty test.
-        var arr = CompactUnorderedList(u32, u8).init(t.alloc);
-        defer arr.deinit();
-        var iter = arr.iterator();
-        try t.eq(iter.next(), null);
-        try t.eq(arr.size(), 0);
-    }
-}
-
-/// Buffer is a CompactUnorderedList.
+// TODO: Rename to PooledHandleSLList
+/// Buffer is a PooledHandleList.
 pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
     const Null = CompactNull(Id);
     const Node = CompactSinglyLinkedListNode(Id, T);
@@ -195,12 +14,12 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
         const Self = @This();
 
         first: Id,
-        nodes: CompactUnorderedList(Id, Node),
+        nodes: PooledHandleList(Id, Node),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .first = Null,
-                .nodes = CompactUnorderedList(Id, Node).init(alloc),
+                .nodes = PooledHandleList(Id, Node).init(alloc),
             };
         }
 
@@ -317,6 +136,7 @@ test "CompactSinglyLinkedList" {
     }
 }
 
+// TODO: Rename to PooledHandleSLListNode
 /// Id should be an unsigned integer type.
 /// Max value of Id is used to indicate null. (An optional would increase the struct size.)
 pub fn CompactSinglyLinkedListNode(comptime Id: type, comptime T: type) type {
@@ -341,13 +161,13 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             head: ?Index,
         };
 
-        nodes: CompactUnorderedList(Index, Node),
-        lists: CompactUnorderedList(ListId, List),
+        nodes: PooledHandleList(Index, Node),
+        lists: PooledHandleList(ListId, List),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
-                .nodes = CompactUnorderedList(Index, Node).init(alloc),
-                .lists = CompactUnorderedList(ListId, List).init(alloc),
+                .nodes = PooledHandleList(Index, Node).init(alloc),
+                .lists = PooledHandleList(ListId, List).init(alloc),
             };
         }
 
@@ -549,67 +369,6 @@ test "CompactManySinglyLinkedList" {
     try t.eq(lists.getNextIdNoCheck(head), Null);
 }
 
-/// Reuses deleted ids.
-/// Uses a fifo id buffer to get the next id if not empty, otherwise it uses the next id counter.
-pub fn CompactIdGenerator(comptime T: type) type {
-    return struct {
-        const Self = @This();
-
-        start_id: T,
-        next_default_id: T,
-        next_ids: std.fifo.LinearFifo(T, .Dynamic),
-
-        pub fn init(alloc: std.mem.Allocator, start_id: T) Self {
-            return .{
-                .start_id = start_id,
-                .next_default_id = start_id,
-                .next_ids = std.fifo.LinearFifo(T, .Dynamic).init(alloc),
-            };
-        }
-
-        pub fn peekNextId(self: Self) T {
-            if (self.next_ids.readableLength() == 0) {
-                return self.next_default_id;
-            } else {
-                return self.next_ids.peekItem(0);
-            }
-        }
-
-        pub fn getNextId(self: *Self) T {
-            if (self.next_ids.readableLength() == 0) {
-                defer self.next_default_id += 1;
-                return self.next_default_id;
-            } else {
-                return self.next_ids.readItem().?;
-            }
-        }
-
-        pub fn clearRetainingCapacity(self: *Self) void {
-            self.next_default_id = self.start_id;
-            self.next_ids.head = 0;
-            self.next_ids.count = 0;
-        }
-
-        pub fn deleteId(self: *Self, id: T) void {
-            self.next_ids.writeItem(id) catch unreachable;
-        }
-
-        pub fn deinit(self: Self) void {
-            self.next_ids.deinit();
-        }
-    };
-}
-
-test "CompactIdGenerator" {
-    var gen = CompactIdGenerator(u16).init(t.alloc, 1);
-    defer gen.deinit();
-    try t.eq(gen.getNextId(), 1);
-    try t.eq(gen.getNextId(), 2);
-    gen.deleteId(1);
-    try t.eq(gen.getNextId(), 1);
-    try t.eq(gen.getNextId(), 3);
-}
-
 /// Holds linked lists in a compact buffer. Does not keep track of list heads.
 /// This might replace CompactManySinglyLinkedList.
 pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
@@ -620,11 +379,11 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
 
         pub const Node = CompactSinglyLinkedListNode(Id, T);
 
-        nodes: CompactUnorderedList(Id, Node),
+        nodes: PooledHandleList(Id, Node),
 
         pub fn init(alloc: std.mem.Allocator) Self {
             return .{
-                .nodes = CompactUnorderedList(Id, Node).init(alloc),
+                .nodes = PooledHandleList(Id, Node).init(alloc),
             };
         }
 
@@ -648,7 +407,7 @@ pub fn CompactSinglyLinkedListBuffer(comptime Id: type, comptime T: type) type {
             return self.nodes.getPtrNoCheck(idx);
         }
 
-        pub fn iterator(self: Self) CompactUnorderedList(Id, Node).Iterator {
+        pub fn iterator(self: Self) PooledHandleList(Id, Node).Iterator {
             return self.nodes.iterator();
         }
 

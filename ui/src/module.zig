@@ -1715,8 +1715,8 @@ pub const ModuleCommon = struct {
     arena_alloc: std.mem.Allocator,
 
     g: *Graphics,
-    text_measures: ds.CompactUnorderedList(TextMeasureId, TextMeasure),
-    interval_sessions: ds.CompactUnorderedList(u32, IntervalSession),
+    text_measures: ds.PooledHandleList(TextMeasureId, TextMeasure),
+    interval_sessions: ds.PooledHandleList(u32, IntervalSession),
 
     // TODO: Use one buffer for all the handlers.
     /// Keyboard handlers.
@@ -1769,10 +1769,10 @@ pub const ModuleCommon = struct {
             .arena_alloc = undefined,
 
             .g = g,
-            .text_measures = ds.CompactUnorderedList(TextMeasureId, TextMeasure).init(alloc),
+            .text_measures = ds.PooledHandleList(TextMeasureId, TextMeasure).init(alloc),
             // .default_font_gid = g.getFontGroupBySingleFontName("Nunito Sans"),
             .default_font_gid = g.getDefaultFontGroupId(),
-            .interval_sessions = ds.CompactUnorderedList(u32, IntervalSession).init(alloc),
+            .interval_sessions = ds.PooledHandleList(u32, IntervalSession).init(alloc),
 
             .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
             .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),

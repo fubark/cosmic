@@ -83,7 +83,7 @@ pub const RuntimeContext = struct {
     /// Since the finalizer callback relies on the garbage collector, the handles should be light in memory
     /// and have a pointer to the inner struct which can be deinited explicitly
     /// either through the runtime or user request.
-    weak_handles: ds.CompactUnorderedList(WeakHandleId, WeakHandle),
+    weak_handles: ds.PooledHandleList(WeakHandleId, WeakHandle),
 
     generic_resource_list: ResourceListId,
     generic_resource_list_last: ResourceId,
@@ -131,7 +131,7 @@ pub const RuntimeContext = struct {
 
     work_queue: WorkQueue,
 
-    promises: ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)),
+    promises: ds.PooledHandleList(PromiseId, v8.Persistent(v8.PromiseResolver)),
 
     last_err: CsError,
 
@@ -202,7 +202,7 @@ pub const RuntimeContext = struct {
             .random_class = undefined,
             .default_obj_t = undefined,
             .resources = ds.CompactManySinglyLinkedList(ResourceListId, ResourceId, ResourceHandle).init(alloc),
-            .weak_handles = ds.CompactUnorderedList(u32, WeakHandle).init(alloc),
+            .weak_handles = ds.PooledHandleList(u32, WeakHandle).init(alloc),
             .generic_resource_list = undefined,
             .generic_resource_list_last = undefined,
             .window_resource_list = undefined,
@@ -234,7 +234,7 @@ pub const RuntimeContext = struct {
 
             .main_wakeup = undefined,
             .work_queue = undefined,
-            .promises = ds.CompactUnorderedList(PromiseId, v8.Persistent(v8.PromiseResolver)).init(alloc),
+            .promises = ds.PooledHandleList(PromiseId, v8.Persistent(v8.PromiseResolver)).init(alloc),
             .uv_loop = undefined,
             .uv_dummy_async = undefined,
             .uv_poller = undefined,

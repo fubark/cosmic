@@ -15,7 +15,7 @@ var galloc: std.mem.Allocator = undefined;
 pub fn init(alloc: std.mem.Allocator) void {
     galloc = alloc;
     js_buffer.init(alloc);
-    promises = ds.CompactUnorderedList(PromiseId, PromiseInternal).init(alloc);
+    promises = ds.PooledHandleList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
 }
 
@@ -104,7 +104,7 @@ pub const WasmJsBuffer = struct {
 };
 
 pub const PromiseId = u32;
-var promises: ds.CompactUnorderedList(PromiseId, PromiseInternal) = undefined;
+var promises: ds.PooledHandleList(PromiseId, PromiseInternal) = undefined;
 const PromiseDepId = u32;
 var promise_child_deps: ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId) = undefined;
 pub const NullId = ds.CompactNull(u32);
