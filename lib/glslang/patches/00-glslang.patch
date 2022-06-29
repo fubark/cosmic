@@ -1,0 +1,113 @@
+diff --git a/glslang/CInterface/glslang_c_interface.cpp b/glslang/CInterface/glslang_c_interface.cpp
+index 0e691a1..eedf2c2 100644
+--- a/glslang/CInterface/glslang_c_interface.cpp
++++ b/glslang/CInterface/glslang_c_interface.cpp
+@@ -144,7 +144,7 @@ public:
+             /* use internal free() function */
+             this->callbacks.free_include_result(this->context, innerResult->includeResult);
+             /* ignore internal fields of TShader::Includer::IncludeResult */
+-            delete result;
++            delete static_cast<CallbackIncludeResult*>(result);
+             return;
+         }
+ 
+@@ -390,18 +390,33 @@ GLSLANG_EXPORT const char* glslang_shader_get_preprocessed_code(glslang_shader_t
+ 
+ GLSLANG_EXPORT int glslang_shader_preprocess(glslang_shader_t* shader, const glslang_input_t* input)
+ {
+-    DirStackFileIncluder Includer;
+-    /* TODO: use custom callbacks if they are available in 'i->callbacks' */
+-    return shader->shader->preprocess(
+-        reinterpret_cast<const TBuiltInResource*>(input->resource),
+-        input->default_version,
+-        c_shader_profile(input->default_profile),
+-        input->force_default_version_and_profile != 0,
+-        input->forward_compatible != 0,
+-        (EShMessages)c_shader_messages(input->messages),
+-        &shader->preprocessedGLSL,
+-        Includer
+-    );
++    if (input->include_callbacks.include_system || input->include_callbacks.include_local) {
++        CallbackIncluder Includer(input->include_callbacks, input->include_callbacks_ctx);
++        /* TODO: use custom callbacks if they are available in 'i->callbacks' */
++        return shader->shader->preprocess(
++            reinterpret_cast<const TBuiltInResource*>(input->resource),
++            input->default_version,
++            c_shader_profile(input->default_profile),
++            input->force_default_version_and_profile != 0,
++            input->forward_compatible != 0,
++            (EShMessages)c_shader_messages(input->messages),
++            &shader->preprocessedGLSL,
++            Includer
++        );
++    } else {
++        DirStackFileIncluder Includer;
++        /* TODO: use custom callbacks if they are available in 'i->callbacks' */
++        return shader->shader->preprocess(
++            reinterpret_cast<const TBuiltInResource*>(input->resource),
++            input->default_version,
++            c_shader_profile(input->default_profile),
++            input->force_default_version_and_profile != 0,
++            input->forward_compatible != 0,
++            (EShMessages)c_shader_messages(input->messages),
++            &shader->preprocessedGLSL,
++            Includer
++        );
++    }
+ }
+ 
+ GLSLANG_EXPORT int glslang_shader_parse(glslang_shader_t* shader, const glslang_input_t* input)
+diff --git a/glslang/Include/glslang_c_interface.h b/glslang/Include/glslang_c_interface.h
+index 9e5909c..5c80b90 100644
+--- a/glslang/Include/glslang_c_interface.h
++++ b/glslang/Include/glslang_c_interface.h
+@@ -153,23 +153,6 @@ typedef struct glslang_resource_s {
+     glslang_limits_t limits;
+ } glslang_resource_t;
+ 
+-typedef struct glslang_input_s {
+-    glslang_source_t language;
+-    glslang_stage_t stage;
+-    glslang_client_t client;
+-    glslang_target_client_version_t client_version;
+-    glslang_target_language_t target_language;
+-    glslang_target_language_version_t target_language_version;
+-    /** Shader source code */
+-    const char* code;
+-    int default_version;
+-    glslang_profile_t default_profile;
+-    int force_default_version_and_profile;
+-    int forward_compatible;
+-    glslang_messages_t messages;
+-    const glslang_resource_t* resource;
+-} glslang_input_t;
+-
+ /* Inclusion result structure allocated by C include_local/include_system callbacks */
+ typedef struct glsl_include_result_s {
+     /* Header file name or NULL if inclusion failed */
+@@ -199,6 +182,25 @@ typedef struct glsl_include_callbacks_s {
+     glsl_free_include_result_func free_include_result;
+ } glsl_include_callbacks_t;
+ 
++typedef struct glslang_input_s {
++    glslang_source_t language;
++    glslang_stage_t stage;
++    glslang_client_t client;
++    glslang_target_client_version_t client_version;
++    glslang_target_language_t target_language;
++    glslang_target_language_version_t target_language_version;
++    /** Shader source code */
++    const char* code;
++    int default_version;
++    glslang_profile_t default_profile;
++    int force_default_version_and_profile;
++    int forward_compatible;
++    glslang_messages_t messages;
++    const glslang_resource_t* resource;
++    void* include_callbacks_ctx;
++    glsl_include_callbacks_t include_callbacks;
++} glslang_input_t;
++
+ /* SpvOptions counterpart */
+ typedef struct glslang_spv_options_s {
+     bool generate_debug_info;

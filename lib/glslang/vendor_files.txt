@@ -1,0 +1,10 @@
+/glslang/CInterface
+/glslang/Include
+/glslang/Public
+/glslang/GenericCodeGen
+/glslang/MachineIndependent
+/glslang/OSDependent
+/glslang/build_info.h
+/SPIRV
+/OGLCompilersDLL
+/StandAlone
