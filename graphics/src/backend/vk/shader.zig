@@ -1,11 +1,11 @@
 const std = @import("std");
 const vk = @import("vk");
 
-pub fn createShaderModule(device: vk.VkDevice, src: []align(4) const u8) vk.VkShaderModule {
+pub fn createShaderModule(device: vk.VkDevice, src: []const u32) vk.VkShaderModule {
     const info = vk.VkShaderModuleCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = src.len,
-        .pCode = std.mem.bytesAsSlice(u32, src).ptr,
+        .codeSize = src.len * @sizeOf(u32),
+        .pCode = src.ptr,
         .pNext = null,
         .flags = 0,
     };

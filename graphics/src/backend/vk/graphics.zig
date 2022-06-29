@@ -26,7 +26,7 @@ pub const memory = @import("memory.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const Pipeline = pipeline.Pipeline;
 pub const descriptor = @import("descriptor.zig");
-const shaders = @import("shaders/shaders.zig");
+pub const shaders = @import("shaders.zig");
 
 // TODO: Remove.
 pub const VkContext = struct {
@@ -240,7 +240,7 @@ pub fn transitionImageLayout(renderer: *Renderer, img: vk.VkImage, format: vk.Vk
     renderer.endSingleTimeCommands(cmd_buf);
 }
 
-pub fn createPlanePipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
+pub fn createPlanePipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) !Pipeline {
     // const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
     //     vk.VkVertexInputBindingDescription{
     //         .binding = 0,
@@ -285,16 +285,18 @@ pub fn createPlanePipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim:
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.plane_vert_spv;
-    const frag_src align(4) = shaders.plane_frag_spv;
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.plane_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.plane_frag_glsl, .{});
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = true,
     });
 }
 
-pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
+pub fn createGradientPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -342,16 +344,18 @@ pub fn createGradientPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_d
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.gradient_vert_spv;
-    const frag_src align(4) = shaders.gradient_frag_spv;
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.gradient_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.gradient_frag_glsl, .{});
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = false,
     });
 }
 
-pub fn createAnimShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createAnimShadowPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -397,17 +401,19 @@ pub fn createAnimShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.anim_shadow_vert_spv;
-    const frag_src align(4) = shaders.anim_shadow_frag_spv;
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.anim_shadow_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.anim_shadow_frag_glsl, .{});
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = true,
         .line_mode = false,
     });
 }
 
-pub fn createShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createShadowPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, mats_desc_set_layout: vk.VkDescriptorSetLayout) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -451,18 +457,20 @@ pub fn createShadowPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.shadow_vert_spv;
-    const frag_src align(4) = shaders.shadow_frag_spv;
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.shadow_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.shadow_frag_glsl, .{});
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = true,
         .line_mode = false,
     });
 }
 
-pub fn createAnimPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
-    mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createAnimPbrPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
+    mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -513,18 +521,23 @@ pub fn createAnimPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_di
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.anim_pbr_vert_spv;
-    const frag_src align(4) = shaders.anim_pbr_frag_spv;
+    var include_map = std.StringHashMap([]const u8).init(alloc);
+    defer include_map.deinit();
+    try include_map.put("pbr.glsl", shaders.pbr_glsl);
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.anim_pbr_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.anim_pbr_frag_glsl, .{ .include_map = include_map.unmanaged });
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = true,
         .line_mode = false,
     });
 }
 
-pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
-    mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createTexPbrPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set_layout: vk.VkDescriptorSetLayout, shadowmap_desc_set_layout: vk.VkDescriptorSetLayout,
+    mats_desc_set_layout: vk.VkDescriptorSetLayout, cam_desc_set_layout: vk.VkDescriptorSetLayout, materials_desc_set_layout: vk.VkDescriptorSetLayout) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -573,11 +586,16 @@ pub fn createTexPbrPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.tex_pbr_vert_spv;
-    const frag_src align(4) = shaders.tex_pbr_frag_spv;
+    var include_map = std.StringHashMap([]const u8).init(alloc);
+    defer include_map.deinit();
+    try include_map.put("pbr.glsl", shaders.pbr_glsl);
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.tex_pbr_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.tex_pbr_frag_glsl, .{ .include_map = include_map.unmanaged });
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = true,
         .line_mode = false,
     });
@@ -632,7 +650,7 @@ fn initAttrDesc(comptime Vertex: type, comptime field_name: []const u8, comptime
     };
 }
 
-pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, mats_desc_set_layout: vk.VkDescriptorSetLayout, tex_desc_set_layout: vk.VkDescriptorSetLayout) Pipeline {
+pub fn createAnimPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, mats_desc_set_layout: vk.VkDescriptorSetLayout, tex_desc_set_layout: vk.VkDescriptorSetLayout) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -680,17 +698,19 @@ pub fn createAnimPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.anim_vert_spv;
-    const frag_src align(4) = shaders.anim_frag_spv;
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.anim_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.anim_frag_glsl, .{});
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = true,
         .line_mode = false,
     });
 }
 
-pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set: vk.VkDescriptorSetLayout, mats_desc_set: vk.VkDescriptorSetLayout, depth_test: bool, wireframe: bool) Pipeline {
+pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D, tex_desc_set: vk.VkDescriptorSetLayout, mats_desc_set: vk.VkDescriptorSetLayout, vert_spirv: []const u32, frag_spirv: []const u32, depth_test: bool, wireframe: bool) Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -736,17 +756,15 @@ pub fn createTexPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: v
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.tex_vert_spv;
-    const frag_src align(4) = shaders.tex_frag_spv;
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spirv,
+        .frag_spv = frag_spirv,
         .depth_test = depth_test,
         .line_mode = wireframe,
     });
 }
 
-pub fn createNormPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) Pipeline {
+pub fn createNormPipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) !Pipeline {
     const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
         vk.VkVertexInputBindingDescription{
             .binding = 0,
@@ -785,12 +803,14 @@ pub fn createNormPipeline(device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: 
         .flags = 0,
     };
 
-    const vert_src align(4) = shaders.norm_vert_spv;
-    const frag_src align(4) = shaders.norm_frag_spv;
+    const vert_spv = try gpu.shader.compileGLSL(alloc, .Vertex, shaders.norm_vert_glsl, .{});
+    defer alloc.free(vert_spv);
+    const frag_spv = try gpu.shader.compileGLSL(alloc, .Fragment, shaders.norm_frag_glsl, .{});
+    defer alloc.free(frag_spv);
     return pipeline.createDefaultPipeline(device, pass, view_dim, pvis_info, pl_info, .{
         .topology = vk.VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-        .vert_spv = &vert_src,
-        .frag_spv = &frag_src,
+        .vert_spv = vert_spv,
+        .frag_spv = frag_spv,
         .depth_test = false,
         .line_mode = false,
     });

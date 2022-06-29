@@ -61,6 +61,7 @@ const image = @import("image.zig");
 pub const ImageStore = image.ImageStore;
 pub const Image = image.Image;
 pub const ImageTex = image.ImageTex;
+pub const shader = @import("shader.zig");
 const log = stdx.log.scoped(.gpu_graphics);
 
 const vera_ttf = @embedFile("../../../../assets/vera.ttf");
@@ -176,7 +177,7 @@ pub const Graphics = struct {
         gl.enable(gl.GL_BLEND);
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) void {
+    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
         const physical = vk_ctx.physical;
         const device = vk_ctx.device;
         const fb_size = renderer.fb_size;
@@ -202,19 +203,25 @@ pub const Graphics = struct {
         const materials_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.materials_desc_set_layout);
         gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, @sizeOf(graphics.Material) * 100);
 
-        self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, false);
-        self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, false, false);
-        self.inner.pipelines.norm_pipeline = gvk.createNormPipeline(device, pass, fb_size);
-        self.inner.pipelines.anim_pipeline = gvk.createAnimPipeline(device, pass, fb_size, self.inner.mats_desc_set_layout, self.inner.tex_desc_set_layout);
-        self.inner.pipelines.anim_pbr_pipeline = gvk.createAnimPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
-        self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, true, true);
-        self.inner.pipelines.gradient_pipeline_2d = gvk.createGradientPipeline(device, pass, fb_size);
-        self.inner.pipelines.plane_pipeline = gvk.createPlanePipeline(device, pass, fb_size);
-        self.inner.pipelines.tex_pbr_pipeline = gvk.createTexPbrPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        {
+            const vert_spv = try shader.compileGLSL(alloc, .Vertex, gvk.shaders.tex_vert_glsl, .{});
+            defer alloc.free(vert_spv);
+            const frag_spv = try shader.compileGLSL(alloc, .Fragment, gvk.shaders.tex_frag_glsl, .{});
+            defer alloc.free(frag_spv);
+            self.inner.pipelines.tex_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, vert_spv, frag_spv, true, false);
+            self.inner.pipelines.tex_pipeline_2d = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, vert_spv, frag_spv, false, false);
+            self.inner.pipelines.wireframe_pipeline = gvk.createTexPipeline(device, pass, fb_size, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout, vert_spv, frag_spv, true, true);
+        }
+        self.inner.pipelines.norm_pipeline = try gvk.createNormPipeline(alloc, device, pass, fb_size);
+        self.inner.pipelines.anim_pipeline = try gvk.createAnimPipeline(alloc, device, pass, fb_size, self.inner.mats_desc_set_layout, self.inner.tex_desc_set_layout);
+        self.inner.pipelines.anim_pbr_pipeline = try gvk.createAnimPbrPipeline(alloc, device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
+        self.inner.pipelines.gradient_pipeline_2d = try gvk.createGradientPipeline(alloc, device, pass, fb_size);
+        self.inner.pipelines.plane_pipeline = try gvk.createPlanePipeline(alloc, device, pass, fb_size);
+        self.inner.pipelines.tex_pbr_pipeline = try gvk.createTexPbrPipeline(alloc, device, pass, fb_size, self.inner.tex_desc_set_layout, renderer.shadowmap_desc_set_layout, self.inner.mats_desc_set_layout, renderer.cam_desc_set_layout, self.inner.materials_desc_set_layout);
         const shadow_pass = renderer.shadow_pass;
         const shadow_dim = vk.VkExtent2D{ .width = gvk.Renderer.ShadowMapSize, .height = gvk.Renderer.ShadowMapSize };
-        self.inner.pipelines.shadow_pipeline = gvk.createShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
-        self.inner.pipelines.anim_shadow_pipeline = gvk.createAnimShadowPipeline(device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
+        self.inner.pipelines.shadow_pipeline = try gvk.createShadowPipeline(alloc, device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
+        self.inner.pipelines.anim_shadow_pipeline = try gvk.createAnimShadowPipeline(alloc, device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
 
         self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
         for (self.batcher.inner.batcher_frames) |frame| {

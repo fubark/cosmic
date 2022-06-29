@@ -14,9 +14,9 @@ pub const Pipeline = struct {
 
 const PipelineOptions = struct {
     topology: vk.VkPrimitiveTopology = vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-    vert_spv: []align(4) const u8,
-    frag_spv: []align(4) const u8,
-    geom_spv: []align(4) const u8 = "",
+    vert_spv: []const u32,
+    frag_spv: []const u32,
+    geom_spv: []const u32 = &.{},
 
     depth_test: bool = true,
 

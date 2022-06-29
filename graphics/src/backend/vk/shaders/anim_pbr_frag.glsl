@@ -1,5 +1,6 @@
 #version 450
 #pragma shader_stage(fragment)
+#extension GL_GOOGLE_include_directive : require
 
 #include "pbr.glsl"
 
