@@ -28,6 +28,8 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
     if (step.build_mode == .Debug) {
         c_flags.append("-DJPH_ENABLE_ASSERTS=1") catch @panic("error");
+        // Since the TempAllocator does allocations aligned by 16bytes data structures that use JPH_CACHE_LINE_SIZE should also be aligned by 16bytes.
+        c_flags.append("-DJPH_CACHE_LINE_SIZE=16") catch @panic("error");
         // c_flags.append("-O0") catch @panic("error");
     }
 

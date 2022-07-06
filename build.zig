@@ -784,7 +784,9 @@ const BuilderContext = struct {
         });
         gl.addPackage(lib);
         uv.addPackage(lib);
-        addZigV8(lib);
+        if (self.add_v8_pkg) {
+            addZigV8(lib);
+        }
         maudio.addPackage(lib);
         step.linkLibrary(lib);
     }

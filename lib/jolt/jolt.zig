@@ -295,7 +295,7 @@ pub fn init() void {
     if (builtin.mode == .Debug) {
         const S = struct {
             fn assertFailed(expr: [*c]const u8, msg: [*c]const u8, file: [*c]const u8, line: c_uint) callconv(.C) u8 {
-                log.debug("jolt: {s} {s} {s}:{d}", .{expr, msg, file, line});
+                log.debug("jolt: {s} {s} {s}:{d}", .{expr, stdx.cstr.spanOrEmpty(msg), file, line});
                 @panic("assert failed");
                 // return 0;
             }
