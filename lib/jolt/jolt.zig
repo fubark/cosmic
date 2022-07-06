@@ -285,9 +285,11 @@ pub fn registerTypes() void {
 pub const JPH__BodyCreationSettings__SIZEOF = c.JPH__BodyCreationSettings__SIZEOF;
 
 pub fn init() void {
-    // Verify struct sizes.
-    std.debug.assert(c.JPH__BodyCreationSettings__SIZEOF() == @sizeOf(BodyCreationSettings));
-    std.debug.assert(c.JPH__BodyLockRead__SIZEOF() == @sizeOf(c.BodyLock));
+    if (!builtin.is_test) {
+        // Verify struct sizes.
+        std.debug.assert(c.JPH__BodyCreationSettings__SIZEOF() == @sizeOf(BodyCreationSettings));
+        std.debug.assert(c.JPH__BodyLockRead__SIZEOF() == @sizeOf(c.BodyLock));
+    }
 
     // Set assert failed callback.
     if (builtin.mode == .Debug) {
