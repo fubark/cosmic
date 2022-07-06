@@ -547,6 +547,7 @@ const BuilderContext = struct {
         step.setMainPkgPath(".");
 
         self.addDeps(step) catch unreachable;
+        self.buildLinkMock(step);
 
         const build_opts = build_options orelse self.createDefaultBuildOptions();
         step.addPackage(build_opts.getPackage("build_options"));
@@ -615,6 +616,7 @@ const BuilderContext = struct {
         sdl.addPackage(step);
         stb.addStbttPackage(step);
         stb.addStbiPackage(step);
+        stb.addStbPerlinPackage(step);
         freetype.addPackage(step);
         gl.addPackage(step);
         vk.addPackage(step);
