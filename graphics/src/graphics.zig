@@ -74,6 +74,7 @@ const font_group_ = @import("font_group.zig");
 pub const FontGroup = font_group_.FontGroup;
 pub const FontDesc = font_.FontDesc;
 pub const BitmapFontStrike = font_.BitmapFontStrike;
+pub const perlinNoise = @import("noise.zig").perlinNoise;
 
 pub const canvas = @import("backend/canvas/graphics.zig");
 pub const gpu = @import("backend/gpu/graphics.zig");

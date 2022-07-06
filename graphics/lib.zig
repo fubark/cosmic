@@ -70,7 +70,7 @@ pub fn getPackage(b: *std.build.Builder, opts: Options) std.build.Pkg {
     const platform_pkg = platform.getPackage(b, platform_opts);
 
     ret.dependencies = b.allocator.dupe(std.build.Pkg, &.{
-        gl.pkg, vk.pkg, stdx_pkg, build_options_pkg, platform_pkg, freetype.pkg, lyon_pkg, tess2_pkg, sdl.pkg, stb.stbi_pkg, stb.stbtt_pkg, cgltf.pkg, glslang.pkg,
+        gl.pkg, vk.pkg, stdx_pkg, build_options_pkg, platform_pkg, freetype.pkg, lyon_pkg, tess2_pkg, sdl.pkg, stb.stbi_pkg, stb.stbtt_pkg, stb.stb_perlin_pkg, cgltf.pkg, glslang.pkg, 
     }) catch @panic("error");
     return ret;
 }
@@ -110,6 +110,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
         stb.buildAndLinkStbtt(step);
     }
     stb.buildAndLinkStbi(step);
+    stb.buildAndLinkStbPerlin(step);
     if (opts.link_freetype2) {
         freetype.buildAndLink(step);
     }
