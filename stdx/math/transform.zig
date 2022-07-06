@@ -113,6 +113,11 @@ pub const Transform = struct {
         self.mat = math.mul4x4_4x4(getRotationZ(rad), self.mat);
     }
 
+    pub fn rotateQuat(self: *Self, quat: Quaternion) void {
+        const xform = Transform.initQuaternion(quat);
+        self.mat = math.mul4x4_4x4(xform.mat, self.mat);
+    }
+
     pub fn reset(self: *Self) void {
         self.mat = identity();
     }
@@ -269,6 +274,42 @@ pub const Quaternion = struct {
         };
     }
 
+    pub fn initIdent() Quaternion {
+        return .{
+            .vec = Vec4.init(0, 0, 0, 1),
+        };
+    }
+
+    /// Given unit axis vector and angle, return equivalent quaternion.
+    pub fn initRotation(axis: Vec3, rad: f32) Quaternion {
+        const sin = std.math.sin(rad * 0.5);
+        const cos = std.math.cos(rad * 0.5);
+        return .{
+            .vec = Vec4.init(
+                axis.x * sin,
+                axis.y * sin,
+                axis.z * sin,
+                cos,
+            )
+        };
+    }
+
+    pub fn toAxisVec(self: Quaternion) Vec3 {
+        const rad = std.math.acos(self.vec.w) * 2;
+        const sin = std.math.sin(rad * 0.5);
+        return Vec3.init(
+            self.vec.x / sin,
+            self.vec.y / sin,
+            self.vec.z / sin,
+        );
+    }
+
+    pub fn inverse(self: Quaternion) Quaternion {
+        return .{
+            .vec = Vec4.init(-self.vec.x, -self.vec.y, -self.vec.z, self.vec.w),
+        };
+    }
+
     pub fn rotate(self: Quaternion, v: Vec3) Vec3 {
         const q = Vec3.init(self.vec.x, self.vec.y, self.vec.z);
         const qdotq = q.dot(q);
@@ -306,6 +347,7 @@ pub const Quaternion = struct {
         return self.vec.dot(q.vec);
     }
 
+    /// Return quaternion for doing a subsequent rotation.
     pub fn mul(self: Quaternion, q: Quaternion) Quaternion {
         return Quaternion{
             .vec = .{

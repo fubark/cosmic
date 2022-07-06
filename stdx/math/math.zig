@@ -22,10 +22,30 @@ pub fn Point2(comptime T: type) type {
     };
 }
 
+pub fn Point3(comptime T: type) type {
+    return struct {
+        x: T,
+        y: T,
+        z: T,
+
+        pub fn init(x: T, y: T, z: T) @This() {
+            return .{
+                .x = x,
+                .y = y,
+                .z = z,
+            };
+        }
+    };
+}
+
 pub const Vec3 = struct {
     x: f32,
     y: f32,
     z: f32,
+
+    pub const UnitX = init(1, 0, 0);
+    pub const UnitY = init(0, 1, 0);
+    pub const UnitZ = init(0, 0, 1);
 
     pub fn init(x: f32, y: f32, z: f32) Vec3 {
         return .{
