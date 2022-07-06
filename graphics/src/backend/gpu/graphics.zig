@@ -191,8 +191,8 @@ pub const Graphics = struct {
         self.initCommon(alloc);
 
         const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
-        const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 80000 * 3);
-        const mats_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 2000);
+        const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 120000 * 3);
+        const mats_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 5000);
         const materials_buf = gvk.buffer.createStorageBuffer(physical, device, @sizeOf(graphics.Material) * 100);
 
         self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
@@ -1781,7 +1781,13 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
+    pub fn pushMaterial(self: *Self, material: graphics.Material) u32 {
+        const id = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.addMaterial(material);
+        return id;
+    }
+
+    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material_id: u32) void {
         self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
@@ -1794,8 +1800,7 @@ pub const Graphics = struct {
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
         self.batcher.mesh.addMatrix(xform.mat);
 
-        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
-        self.batcher.mesh.addMaterial(material);
+        self.batcher.material_idx = material_id;
 
         self.ensureUnusedBatchCapacity(8, 36);
         const vert_start = self.batcher.mesh.getNextIndexId();
@@ -1884,6 +1889,11 @@ pub const Graphics = struct {
         self.batcher.mesh.addIndex(vert_start+5);
 
         self.batcher.beginMvp(cur_mvp);
+    }
+
+    pub inline fn drawSingleCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
+        const mat_id = self.pushMaterial(material);
+        self.drawCuboidPbr3D(xform, mat_id);
     }
 
     pub fn drawScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {

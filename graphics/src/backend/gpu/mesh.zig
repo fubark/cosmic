@@ -8,10 +8,10 @@ const Color = graphics.Color;
 const log = stdx.log.scoped(.mesh);
 
 const StartVertexBufferSize = 20000;
-const StartIndexBufferSize = StartVertexBufferSize * 4;
+const StartIndexBufferSize = StartVertexBufferSize * 8;
 
-const MaxVertexBufferSize = 20000 * 3;
-const MaxIndexBufferSize = MaxVertexBufferSize * 4;
+const MaxVertexBufferSize = 20000 * 4;
+const MaxIndexBufferSize = MaxVertexBufferSize * 8;
 
 /// Vertex, index, mats, materials buffer.
 pub const Mesh = struct {
