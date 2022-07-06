@@ -29,4 +29,7 @@ test {
 
     const main = @import("../runtime/main.zig");
     t.refAllDecls(main);
+
+    const app = @import("../app/main.zig");
+    t.refAllDecls(app);
 }
