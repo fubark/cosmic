@@ -432,26 +432,26 @@ const BuilderContext = struct {
         self.copyAssets(step);
 
         // Create copy of index.html.
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.fromRoot("./lib/wasm-js/gen-index.html"));
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm/index.html"), self.fromRoot("./lib/wasm/gen-index.html"));
         step.step.dependOn(&cp.step);
 
         // Replace wasm file name in gen-index.html
-        const index_path = self.fromRoot("./lib/wasm-js/gen-index.html");
+        const index_path = self.fromRoot("./lib/wasm/gen-index.html");
         const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
         step.step.dependOn(&replace.step);
 
         // Install gen-index.html
-        const install_index = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/gen-index.html", "index.html");
+        const install_index = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/gen-index.html", "index.html");
         step.step.dependOn(&install_index.step);
 
         // graphics.js
-        // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-canvas.js", "graphics.js");
-        const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-webgl2.js", "graphics.js");
+        // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/graphics-canvas.js", "graphics.js");
+        const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/graphics-webgl2.js", "graphics.js");
         step.step.dependOn(&install_graphics.step);
 
         // stdx.js
-        const install_stdx = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/stdx.js", "stdx.js");
+        const install_stdx = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/stdx.js", "stdx.js");
         step.step.dependOn(&install_stdx.step);
 
         return step;

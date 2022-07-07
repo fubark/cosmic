@@ -42,7 +42,7 @@ Clone the cosmic repo which includes:
 - cosmic/lib/sdl: SDL2 source. Used to create a window and OpenGL 3.3 context. Built automatically.
 - cosmic/lib/freetype2: Freetype2 font renderer backend used by default for desktop. Built automatically.
 - cosmic/lib/stb: stb_truetype and stb_image source. Used to rasterize fonts and decode images. Built automatically.
-- cosmic/lib/wasm-js: Wasm/js bootstrap and glue code.
+- cosmic/lib/wasm: Wasm/js bootstrap and glue code.
 ```sh
 git clone https://github.com/fubark/cosmic.git
 cd cosmic
