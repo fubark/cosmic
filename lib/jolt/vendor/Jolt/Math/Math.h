@@ -109,6 +109,10 @@ inline uint CountTrailingZeros(uint32 inValue)
 	#endif
 #elif defined(JPH_CPU_ARM64)
 	return __builtin_clz(__builtin_bitreverse32(inValue));
+#elif defined(JPH_CPU_WASM)
+    if (inValue == 0)
+        return 32;
+    return __builtin_ctz(inValue);
 #else
 	#error Undefined
 #endif
@@ -133,6 +137,10 @@ inline uint CountLeadingZeros(uint32 inValue)
 	#endif
 #elif defined(JPH_CPU_ARM64)
 	return __builtin_clz(inValue);
+#elif defined(JPH_CPU_WASM)
+    if (inValue == 0)
+        return 32;
+    return __builtin_clz(inValue);
 #else
 	#error Undefined
 #endif

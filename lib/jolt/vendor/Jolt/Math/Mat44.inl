@@ -236,7 +236,11 @@ Mat44 Mat44::operator * (Mat44Arg inM) const
 		result.mCol[i].mValue = t;
 	}
 #else
-	#error Unsupported CPU architecture
+    for (int i = 0; i < 4; ++i) {
+        Vec4 c = inM.mCol[i].mValue;
+        result.mCol[i] = (mCol[0] * Vec4::sReplicate(c.mValue.x)) + (mCol[1] * Vec4::sReplicate(c.mValue.y)) +
+            (mCol[2] * Vec4::sReplicate(c.mValue.z)) + (mCol[3] * Vec4::sReplicate(c.mValue.w));
+    }
 #endif
 	return result;
 }
@@ -256,7 +260,9 @@ Vec3 Mat44::operator * (Vec3Arg inV) const
 	t = vaddq_f32(t, mCol[3].mValue); // Don't combine this with the first mul into a fused multiply add, causes precision issues
 	return Vec3::sFixW(t);
 #else
-	#error Unsupported CPU architecture
+    Vec4 t = (mCol[0] * Vec4::sReplicate(inV.mValue.x)) + (mCol[1] * Vec4::sReplicate(inV.mValue.y)) +
+        (mCol[2] * Vec4::sReplicate(inV.mValue.z)) + mCol[3];
+    return Vec3::sFixW(t.mValue);
 #endif
 }
 
@@ -275,7 +281,8 @@ Vec4 Mat44::operator * (Vec4Arg inV) const
 	t = vmlaq_f32(t, mCol[3].mValue, vdupq_laneq_f32(inV.mValue, 3));
 	return t;
 #else
-	#error Unsupported CPU architecture
+    return mCol[0] * Vec4::sReplicate(inV.mValue.x) + mCol[1] * Vec4::sReplicate(inV.mValue.y) +
+        mCol[2] * Vec4::sReplicate(inV.mValue.z) + mCol[3] * Vec4::sReplicate(inV.mValue.w);
 #endif
 }
 
@@ -292,7 +299,9 @@ Vec3 Mat44::Multiply3x3(Vec3Arg inV) const
 	t = vmlaq_f32(t, mCol[2].mValue, vdupq_laneq_f32(inV.mValue, 2));
 	return Vec3::sFixW(t);
 #else
-	#error Unsupported CPU architecture
+    Vec4 t = (mCol[0] * Vec4::sReplicate(inV.mValue.x)) + (mCol[1] * Vec4::sReplicate(inV.mValue.y)) +
+        (mCol[2] * Vec4::sReplicate(inV.mValue.z));
+    return Vec3::sFixW(t.mValue);
 #endif
 }
 
@@ -336,7 +345,11 @@ Mat44 Mat44::Multiply3x3(Mat44Arg inM) const
 		result.mCol[i].mValue = t;
 	}
 #else
-	#error Unsupported CPU architecture
+    for (int i = 0; i < 3; ++i) {
+        Vec4 c = inM.mCol[i].mValue;
+        result.mCol[i] = (mCol[0] * Vec4::sReplicate(c.mValue.x)) + (mCol[1] * Vec4::sReplicate(c.mValue.y)) +
+            (mCol[2] * Vec4::sReplicate(c.mValue.z));
+    }
 #endif
 	result.mCol[3] = Vec4(0, 0, 0, 1);
 	return result;
@@ -453,7 +466,12 @@ Mat44 Mat44::Transposed() const
 	result.mCol[3].mValue = tmp4.val[1];
 	return result;
 #else
-	#error Unsupported CPU architecture
+    Mat44 result;
+    result.mCol[0] = Vec4(mCol[0].mValue.x, mCol[1].mValue.x, mCol[2].mValue.x, mCol[3].mValue.x);
+    result.mCol[1] = Vec4(mCol[0].mValue.y, mCol[1].mValue.y, mCol[2].mValue.y, mCol[3].mValue.y);
+    result.mCol[2] = Vec4(mCol[0].mValue.z, mCol[1].mValue.z, mCol[2].mValue.z, mCol[3].mValue.z);
+    result.mCol[3] = Vec4(mCol[0].mValue.w, mCol[1].mValue.w, mCol[2].mValue.w, mCol[3].mValue.w);
+    return result;
 #endif
 }
 
@@ -481,7 +499,11 @@ Mat44 Mat44::Transposed3x3() const
 	result.mCol[1].mValue = tmp3.val[1];
 	result.mCol[2].mValue = tmp4.val[0];
 #else
-	#error Unsupported CPU architecture
+    Mat44 result;
+    result.mCol[0] = Vec4(mCol[0].mValue.x, mCol[1].mValue.x, mCol[2].mValue.x, 0);
+    result.mCol[1] = Vec4(mCol[0].mValue.y, mCol[1].mValue.y, mCol[2].mValue.y, 0);
+    result.mCol[2] = Vec4(mCol[0].mValue.z, mCol[1].mValue.z, mCol[2].mValue.z, 0);
+    return result;
 #endif
 	result.mCol[3] = Vec4(0, 0, 0, 1);
 	return result;
@@ -642,7 +664,146 @@ Mat44 Mat44::Inversed() const
 	result.mCol[3].mValue = vmulq_f32(det, minor3);
 	return result;
 #else
-	#error Undefined CPU architecture
+    float inv[16];
+
+    float m0 = mCol[0].mValue.x;
+    float m1 = mCol[1].mValue.x;
+    float m2 = mCol[2].mValue.x;
+    float m3 = mCol[3].mValue.x;
+    float m4 = mCol[0].mValue.y;
+    float m5 = mCol[1].mValue.y;
+    float m6 = mCol[2].mValue.y;
+    float m7 = mCol[3].mValue.y;
+    float m8 = mCol[0].mValue.z;
+    float m9 = mCol[1].mValue.z;
+    float m10 = mCol[2].mValue.z;
+    float m11 = mCol[3].mValue.z;
+    float m12 = mCol[0].mValue.w;
+    float m13 = mCol[1].mValue.w;
+    float m14 = mCol[2].mValue.w;
+    float m15 = mCol[3].mValue.w;
+
+    inv[0] = m5  * m10 * m15 - 
+             m5  * m11 * m14 - 
+             m9  * m6  * m15 + 
+             m9  * m7  * m14 +
+             m13 * m6  * m11 - 
+             m13 * m7  * m10;
+
+    inv[4] = -m4  * m10 * m15 + 
+              m4  * m11 * m14 + 
+              m8  * m6  * m15 - 
+              m8  * m7  * m14 - 
+              m12 * m6  * m11 + 
+              m12 * m7  * m10;
+
+    inv[8] = m4  * m9 * m15 - 
+             m4  * m11 * m13 - 
+             m8  * m5 * m15 + 
+             m8  * m7 * m13 + 
+             m12 * m5 * m11 - 
+             m12 * m7 * m9;
+
+    inv[12] = -m4  * m9 * m14 + 
+               m4  * m10 * m13 +
+               m8  * m5 * m14 - 
+               m8  * m6 * m13 - 
+               m12 * m5 * m10 + 
+               m12 * m6 * m9;
+
+    inv[1] = -m1  * m10 * m15 + 
+              m1  * m11 * m14 + 
+              m9  * m2 * m15 - 
+              m9  * m3 * m14 - 
+              m13 * m2 * m11 + 
+              m13 * m3 * m10;
+
+    inv[5] = m0  * m10 * m15 - 
+             m0  * m11 * m14 - 
+             m8  * m2 * m15 + 
+             m8  * m3 * m14 + 
+             m12 * m2 * m11 - 
+             m12 * m3 * m10;
+
+    inv[9] = -m0  * m9 * m15 + 
+              m0  * m11 * m13 + 
+              m8  * m1 * m15 - 
+              m8  * m3 * m13 - 
+              m12 * m1 * m11 + 
+              m12 * m3 * m9;
+
+    inv[13] = m0  * m9 * m14 - 
+              m0  * m10 * m13 - 
+              m8  * m1 * m14 + 
+              m8  * m2 * m13 + 
+              m12 * m1 * m10 - 
+              m12 * m2 * m9;
+
+    inv[2] = m1  * m6 * m15 - 
+             m1  * m7 * m14 - 
+             m5  * m2 * m15 + 
+             m5  * m3 * m14 + 
+             m13 * m2 * m7 - 
+             m13 * m3 * m6;
+
+    inv[6] = -m0  * m6 * m15 + 
+              m0  * m7 * m14 + 
+              m4  * m2 * m15 - 
+              m4  * m3 * m14 - 
+              m12 * m2 * m7 + 
+              m12 * m3 * m6;
+
+    inv[10] = m0  * m5 * m15 - 
+              m0  * m7 * m13 - 
+              m4  * m1 * m15 + 
+              m4  * m3 * m13 + 
+              m12 * m1 * m7 - 
+              m12 * m3 * m5;
+
+    inv[14] = -m0  * m5 * m14 + 
+               m0  * m6 * m13 + 
+               m4  * m1 * m14 - 
+               m4  * m2 * m13 - 
+               m12 * m1 * m6 + 
+               m12 * m2 * m5;
+
+    inv[3] = -m1 * m6 * m11 + 
+              m1 * m7 * m10 + 
+              m5 * m2 * m11 - 
+              m5 * m3 * m10 - 
+              m9 * m2 * m7 + 
+              m9 * m3 * m6;
+
+    inv[7] = m0 * m6 * m11 - 
+             m0 * m7 * m10 - 
+             m4 * m2 * m11 + 
+             m4 * m3 * m10 + 
+             m8 * m2 * m7 - 
+             m8 * m3 * m6;
+
+    inv[11] = -m0 * m5 * m11 + 
+               m0 * m7 * m9 + 
+               m4 * m1 * m11 - 
+               m4 * m3 * m9 - 
+               m8 * m1 * m7 + 
+               m8 * m3 * m5;
+
+    inv[15] = m0 * m5 * m10 - 
+              m0 * m6 * m9 - 
+              m4 * m1 * m10 + 
+              m4 * m2 * m9 + 
+              m8 * m1 * m6 - 
+              m8 * m2 * m5;
+
+    float det = m0 * inv[0] + m1 * inv[4] + m2 * inv[8] + m3 * inv[12];
+    det = 1.0f / det;
+    
+    Mat44 result;
+    result.mCol[0] = Vec4(inv[0], inv[4], inv[8], inv[12]) * det;
+    result.mCol[1] = Vec4(inv[1], inv[5], inv[9], inv[13]) * det;
+    result.mCol[2] = Vec4(inv[2], inv[6], inv[10], inv[14]) * det;
+    result.mCol[3] = Vec4(inv[3], inv[7], inv[11], inv[15]) * det;
+    return result;
 #endif
 }
 
@@ -791,7 +952,33 @@ Mat44 Mat44::Adjointed3x3() const
 	result.mCol[3].mValue = v0001;
 	return result;
 #else
-	#error Undefined CPU architecture
+    float inv[9];
+    float m0 = mCol[0].mValue.x;
+    float m1 = mCol[1].mValue.x;
+    float m2 = mCol[2].mValue.x;
+    float m3 = mCol[0].mValue.y;
+    float m4 = mCol[1].mValue.y;
+    float m5 = mCol[2].mValue.y;
+    float m6 = mCol[0].mValue.z;
+    float m7 = mCol[1].mValue.z;
+    float m8 = mCol[2].mValue.z;
+
+    inv[0] = m4*m8 - m5*m7;
+    inv[1] = m2*m7 - m1*m8;
+    inv[2] = m1*m5 - m2*m4;
+    inv[3] = m5*m6 - m3*m8;
+    inv[4] = m0*m8 - m2*m6;
+    inv[5] = m2*m3 - m0*m5;
+    inv[6] = m3*m7 - m4*m6;
+    inv[7] = m1*m6 - m0*m7;
+    inv[8] = m0*m4 - m1*m3;
+
+    Mat44 result;
+    result.mCol[0] = Vec4(inv[0], inv[3], inv[6], 0);
+    result.mCol[1] = Vec4(inv[1], inv[4], inv[7], 0);
+    result.mCol[2] = Vec4(inv[2], inv[5], inv[8], 0);
+    result.mCol[3] = Vec4(0, 0, 0, 1);
+    return result;
 #endif
 }
 
@@ -938,7 +1125,36 @@ Mat44 Mat44::Inversed3x3() const
 	result.mCol[3].mValue = v0001;
 	return result;
 #else
-	#error Undefined CPU architecture
+    float inv[9];
+    float m0 = mCol[0].mValue.x;
+    float m1 = mCol[1].mValue.x;
+    float m2 = mCol[2].mValue.x;
+    float m3 = mCol[0].mValue.y;
+    float m4 = mCol[1].mValue.y;
+    float m5 = mCol[2].mValue.y;
+    float m6 = mCol[0].mValue.z;
+    float m7 = mCol[1].mValue.z;
+    float m8 = mCol[2].mValue.z;
+
+    inv[0] = m4*m8 - m5*m7;
+    inv[1] = m2*m7 - m1*m8;
+    inv[2] = m1*m5 - m2*m4;
+    inv[3] = m5*m6 - m3*m8;
+    inv[4] = m0*m8 - m2*m6;
+    inv[5] = m2*m3 - m0*m5;
+    inv[6] = m3*m7 - m4*m6;
+    inv[7] = m1*m6 - m0*m7;
+    inv[8] = m0*m4 - m1*m3;
+
+    float det = m0*inv[0] + m1*inv[3] + m2*inv[6];
+    det = 1.0f / det;
+
+    Mat44 result;
+    result.mCol[0] = Vec4(inv[0], inv[3], inv[6], 0) * det;
+    result.mCol[1] = Vec4(inv[1], inv[4], inv[7], 0) * det;
+    result.mCol[2] = Vec4(inv[2], inv[5], inv[8], 0) * det;
+    result.mCol[3] = Vec4(0, 0, 0, 1);
+    return result;
 #endif
 }
 

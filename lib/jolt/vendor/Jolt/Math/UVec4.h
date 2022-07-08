@@ -18,7 +18,7 @@ public:
 #elif defined(JPH_USE_NEON)
 	using Type = uint32x4_t;
 #else
-	#error Undefined
+    using Type = struct { uint32 x; uint32 y; uint32 z; uint32 w; };
 #endif
 
 	/// Constructor
@@ -97,7 +97,10 @@ public:
 	JPH_INLINE uint32			GetZ() const										{ return vgetq_lane_u32(mValue, 2); }
 	JPH_INLINE uint32			GetW() const										{ return vgetq_lane_u32(mValue, 3); }
 #else
-	#error Undefined
+	JPH_INLINE uint32			GetX() const										{ return mU32[0]; }
+	JPH_INLINE uint32			GetY() const										{ return mU32[1]; }
+	JPH_INLINE uint32			GetZ() const										{ return mU32[2]; }
+	JPH_INLINE uint32			GetW() const										{ return mU32[3]; }
 #endif
 
 	/// Set individual components

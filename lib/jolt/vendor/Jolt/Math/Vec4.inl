@@ -35,7 +35,7 @@ Vec4::Vec4(float inX, float inY, float inZ, float inW)
 	uint32x2_t zw = vcreate_f32(static_cast<uint64>(*reinterpret_cast<uint32* >(&inZ)) | (static_cast<uint64>(*reinterpret_cast<uint32 *>(&inW)) << 32));
 	mValue = vcombine_f32(xy, zw);
 #else
-	#error Undefined CPU architecture
+    mValue = { inX, inY, inZ, inW };
 #endif
 }
 
@@ -52,7 +52,7 @@ Vec4 Vec4::Swizzle() const
 #elif defined(JPH_USE_NEON)
 	return __builtin_shufflevector(mValue, mValue, SwizzleX, SwizzleY, SwizzleZ, SwizzleW);
 #else
-	#error Unsupported CPU architecture
+    return Type{ mF32[SwizzleX], mF32[SwizzleY], mF32[SwizzleZ], mF32[SwizzleW] };
 #endif
 }
 
@@ -63,7 +63,7 @@ Vec4 Vec4::sZero()
 #elif defined(JPH_USE_NEON)
 	return vdupq_n_f32(0);
 #else
-	#error Unsupported CPU architecture
+    return Type{ 0, 0, 0, 0 };
 #endif
 }
 
@@ -74,7 +74,7 @@ Vec4 Vec4::sReplicate(float inV)
 #elif defined(JPH_USE_NEON)
 	return vdupq_n_f32(inV);
 #else
-	#error Unsupported CPU architecture
+    return Type{ inV, inV, inV, inV };
 #endif
 }
 
@@ -90,18 +90,17 @@ Vec4 Vec4::sLoadFloat4(const Float4 *inV)
 #elif defined(JPH_USE_NEON)
 	return vld1q_f32(&inV->x);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(inV->x, inV->y, inV->z, inV->w);
 #endif
 }
 
-Vec4 Vec4::sLoadFloat4Aligned(const Float4 *inV)
-{
+Vec4 Vec4::sLoadFloat4Aligned(const Float4 *inV) {
 #if defined(JPH_USE_SSE)
 	return _mm_load_ps(&inV->x);
 #elif defined(JPH_USE_NEON)
 	return vld1q_f32(&inV->x);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(inV->x, inV->y, inV->z, inV->w);
 #endif
 }
 
@@ -138,7 +137,12 @@ Vec4 Vec4::sMin(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vminq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        std::min(inV1.mValue.x, inV2.mValue.x),
+        std::min(inV1.mValue.y, inV2.mValue.y),
+        std::min(inV1.mValue.z, inV2.mValue.z),
+        std::min(inV1.mValue.w, inV2.mValue.w)
+    );
 #endif
 }
 
@@ -149,7 +153,12 @@ Vec4 Vec4::sMax(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vmaxq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        std::max(inV1.mValue.x, inV2.mValue.x),
+        std::max(inV1.mValue.y, inV2.mValue.y),
+        std::max(inV1.mValue.z, inV2.mValue.z),
+        std::max(inV1.mValue.w, inV2.mValue.w)
+    );
 #endif
 }
 
@@ -160,7 +169,12 @@ UVec4 Vec4::sEquals(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vceqq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        (inV1.mValue.x == inV2.mValue.x) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.y == inV2.mValue.y) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.z == inV2.mValue.z) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.w == inV2.mValue.w) ? 0xFFFFFFFF : 0
+    );
 #endif
 }
 
@@ -171,7 +185,12 @@ UVec4 Vec4::sLess(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vcltq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        (inV1.mValue.x < inV2.mValue.x) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.y < inV2.mValue.y) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.z < inV2.mValue.z) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.w < inV2.mValue.w) ? 0xFFFFFFFF : 0
+    );
 #endif
 }
 
@@ -182,7 +201,12 @@ UVec4 Vec4::sLessOrEqual(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vcleq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        (inV1.mValue.x <= inV2.mValue.x) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.y <= inV2.mValue.y) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.z <= inV2.mValue.z) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.w <= inV2.mValue.w) ? 0xFFFFFFFF : 0
+    );
 #endif
 }
 
@@ -193,7 +217,12 @@ UVec4 Vec4::sGreater(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vcgtq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        (inV1.mValue.x > inV2.mValue.x) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.y > inV2.mValue.y) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.z > inV2.mValue.z) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.w > inV2.mValue.w) ? 0xFFFFFFFF : 0
+    );
 #endif
 }
 
@@ -204,7 +233,12 @@ UVec4 Vec4::sGreaterOrEqual(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vcgeq_f32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        (inV1.mValue.x >= inV2.mValue.x) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.y >= inV2.mValue.y) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.z >= inV2.mValue.z) ? 0xFFFFFFFF : 0,
+        (inV1.mValue.w >= inV2.mValue.w) ? 0xFFFFFFFF : 0
+    );
 #endif
 }
 
@@ -219,7 +253,12 @@ Vec4 Vec4::sFusedMultiplyAdd(Vec4Arg inMul1, Vec4Arg inMul2, Vec4Arg inAdd)
 #elif defined(JPH_USE_NEON)
 	return vmlaq_f32(inAdd.mValue, inMul1.mValue, inMul2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        inMul1.mValue.x * inMul2.mValue.x + inAdd.mValue.x,
+        inMul1.mValue.y * inMul2.mValue.y + inAdd.mValue.y,
+        inMul1.mValue.z * inMul2.mValue.z + inAdd.mValue.z,
+        inMul1.mValue.w * inMul2.mValue.w + inAdd.mValue.w
+    );
 #endif
 }
 
@@ -244,7 +283,12 @@ Vec4 Vec4::sOr(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vorrq_s32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        static_cast<float>(static_cast<uint32>(inV1.mValue.x) | static_cast<uint32>(inV2.mValue.x)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.y) | static_cast<uint32>(inV2.mValue.y)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.z) | static_cast<uint32>(inV2.mValue.z)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.w) | static_cast<uint32>(inV2.mValue.w))
+    );
 #endif
 }
 
@@ -255,7 +299,12 @@ Vec4 Vec4::sXor(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return veorq_s32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        static_cast<float>(static_cast<uint32>(inV1.mValue.x) ^ static_cast<uint32>(inV2.mValue.x)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.y) ^ static_cast<uint32>(inV2.mValue.y)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.z) ^ static_cast<uint32>(inV2.mValue.z)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.w) ^ static_cast<uint32>(inV2.mValue.w))
+    );
 #endif
 }
 
@@ -266,7 +315,12 @@ Vec4 Vec4::sAnd(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vandq_s32(inV1.mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        static_cast<float>(static_cast<uint32>(inV1.mValue.x) & static_cast<uint32>(inV2.mValue.x)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.y) & static_cast<uint32>(inV2.mValue.y)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.z) & static_cast<uint32>(inV2.mValue.z)),
+        static_cast<float>(static_cast<uint32>(inV1.mValue.w) & static_cast<uint32>(inV2.mValue.w))
+    );
 #endif
 }
 
@@ -341,7 +395,7 @@ bool Vec4::IsNaN() const
 	uint32x4_t is_equal = vceqq_f32(mValue, mValue); // If a number is not equal to itself it's a NaN
 	return vaddvq_u32(vshrq_n_u32(is_equal, 31)) != 4;
 #else
-	#error Unsupported CPU architecture
+    return isnan(mValue.x) || isnan(mValue.y) || isnan(mValue.z) || isnan(mValue.w);
 #endif
 }
 
@@ -352,7 +406,12 @@ Vec4 Vec4::operator * (Vec4Arg inV2) const
 #elif defined(JPH_USE_NEON)
 	return vmulq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x * inV2.mValue.x,
+        mValue.y * inV2.mValue.y,
+        mValue.z * inV2.mValue.z,
+        mValue.w * inV2.mValue.w
+    );
 #endif
 }
 
@@ -363,7 +422,12 @@ Vec4 Vec4::operator * (float inV2) const
 #elif defined(JPH_USE_NEON)
 	return vmulq_n_f32(mValue, inV2);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x * inV2,
+        mValue.y * inV2,
+        mValue.z * inV2,
+        mValue.w * inV2
+    );
 #endif
 }
 
@@ -375,7 +439,12 @@ Vec4 operator * (float inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vmulq_n_f32(inV2.mValue, inV1);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        inV1 * inV2.mValue.x,
+        inV1 * inV2.mValue.y,
+        inV1 * inV2.mValue.z,
+        inV1 * inV2.mValue.w
+    );
 #endif
 }
 
@@ -386,7 +455,12 @@ Vec4 Vec4::operator / (float inV2) const
 #elif defined(JPH_USE_NEON)
 	return vdivq_f32(mValue, vdupq_n_f32(inV2));
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x / inV2,
+        mValue.y / inV2,
+        mValue.z / inV2,
+        mValue.w / inV2
+    );
 #endif
 }
 
@@ -397,7 +471,12 @@ Vec4 &Vec4::operator *= (float inV2)
 #elif defined(JPH_USE_NEON)
 	mValue = vmulq_n_f32(mValue, inV2);
 #else
-	#error Unsupported CPU architecture
+    mValue = {
+        mValue.x * inV2,
+        mValue.y * inV2,
+        mValue.z * inV2,
+        mValue.w * inV2
+    };
 #endif
 	return *this;
 }
@@ -409,7 +488,12 @@ Vec4 &Vec4::operator *= (Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	mValue = vmulq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    mValue = {
+        mValue.x * inV2.mValue.x,
+        mValue.y * inV2.mValue.y,
+        mValue.z * inV2.mValue.z,
+        mValue.w * inV2.mValue.w,
+    };
 #endif
 	return *this;
 }
@@ -421,7 +505,12 @@ Vec4 &Vec4::operator /= (float inV2)
 #elif defined(JPH_USE_NEON)
 	mValue = vdivq_f32(mValue, vdupq_n_f32(inV2));
 #else
-	#error Unsupported CPU architecture
+    mValue = {
+        mValue.x / inV2,
+        mValue.y / inV2,
+        mValue.z / inV2,
+        mValue.w / inV2,
+    };
 #endif
 	return *this;
 }
@@ -433,7 +522,12 @@ Vec4 Vec4::operator + (Vec4Arg inV2) const
 #elif defined(JPH_USE_NEON)
 	return vaddq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x + inV2.mValue.x,
+        mValue.y + inV2.mValue.y,
+        mValue.z + inV2.mValue.z,
+        mValue.w + inV2.mValue.w
+    );
 #endif
 }
 
@@ -444,7 +538,12 @@ Vec4 &Vec4::operator += (Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	mValue = vaddq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    mValue = {
+        mValue.x + inV2.mValue.x,
+        mValue.y + inV2.mValue.y,
+        mValue.z + inV2.mValue.z,
+        mValue.w + inV2.mValue.w
+    };
 #endif
 	return *this;
 }
@@ -456,7 +555,12 @@ Vec4 Vec4::operator - () const
 #elif defined(JPH_USE_NEON)
 	return vnegq_f32(mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        -mValue.x,
+        -mValue.y,
+        -mValue.z,
+        -mValue.w
+    );
 #endif
 }
 
@@ -467,7 +571,12 @@ Vec4 Vec4::operator - (Vec4Arg inV2) const
 #elif defined(JPH_USE_NEON)
 	return vsubq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x - inV2.mValue.x,
+        mValue.y - inV2.mValue.y,
+        mValue.z - inV2.mValue.z,
+        mValue.w - inV2.mValue.w
+    );
 #endif
 }
 
@@ -478,7 +587,12 @@ Vec4 &Vec4::operator -= (Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	mValue = vsubq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    mValue = {
+        mValue.x - inV2.mValue.x,
+        mValue.y - inV2.mValue.y,
+        mValue.z - inV2.mValue.z,
+        mValue.w - inV2.mValue.w
+    };
 #endif
 	return *this;
 }
@@ -490,7 +604,12 @@ Vec4 Vec4::operator / (Vec4Arg inV2) const
 #elif defined(JPH_USE_NEON)
 	return vdivq_f32(mValue, inV2.mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x / inV2.mValue.x,
+        mValue.y / inV2.mValue.y,
+        mValue.z / inV2.mValue.z,
+        mValue.w / inV2.mValue.w
+    );
 #endif
 }
 
@@ -501,7 +620,7 @@ Vec4 Vec4::SplatX() const
 #elif defined(JPH_USE_NEON)
 	return vdupq_laneq_f32(mValue, 0);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(mValue.x, mValue.x, mValue.x, mValue.x);
 #endif
 }
 
@@ -512,7 +631,7 @@ Vec4 Vec4::SplatY() const
 #elif defined(JPH_USE_NEON)
 	return vdupq_laneq_f32(mValue, 1);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(mValue.y, mValue.y, mValue.y, mValue.y);
 #endif
 }
 
@@ -523,7 +642,7 @@ Vec4 Vec4::SplatZ() const
 #elif defined(JPH_USE_NEON)
 	return vdupq_laneq_f32(mValue, 2);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(mValue.z, mValue.z, mValue.z, mValue.z);
 #endif
 }
 
@@ -534,7 +653,7 @@ Vec4 Vec4::SplatW() const
 #elif defined(JPH_USE_NEON)
 	return vdupq_laneq_f32(mValue, 3);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(mValue.w, mValue.w, mValue.w, mValue.w);
 #endif
 }
 
@@ -547,7 +666,7 @@ Vec4 Vec4::Abs() const
 #elif defined(JPH_USE_NEON)
 	return vabsq_f32(mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(abs(mValue.x), abs(mValue.y), abs(mValue.z), abs(mValue.w));
 #endif
 }
 
@@ -621,7 +740,12 @@ Vec4 Vec4::Sqrt() const
 #elif defined(JPH_USE_NEON)
 	return vsqrtq_f32(mValue);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        sqrt(mValue.x),
+        sqrt(mValue.y),
+        sqrt(mValue.z),
+        sqrt(mValue.w)
+    );
 #endif
 }
 
@@ -639,7 +763,12 @@ Vec4 Vec4::GetSign() const
 	Type one = vdupq_n_f32(1.0f);
 	return vorrq_s32(vandq_s32(mValue, minus_one), one);
 #else
-	#error Unsupported CPU architecture
+    return Vec4(
+        mValue.x < 0 ? -1.0f : 1.0f,
+        mValue.y < 0 ? -1.0f : 1.0f,
+        mValue.z < 0 ? -1.0f : 1.0f,
+        mValue.w < 0 ? -1.0f : 1.0f
+    );
 #endif
 }
 
@@ -663,7 +792,10 @@ void Vec4::StoreFloat4(Float4 *outV) const
 #elif defined(JPH_USE_NEON)
     vst1q_f32(&outV->x, mValue);
 #else
-	#error Unsupported CPU architecture
+    outV->x = mValue.x;
+    outV->y = mValue.y;
+    outV->z = mValue.z;
+    outV->w = mValue.w;
 #endif
 }
 
@@ -674,7 +806,12 @@ UVec4 Vec4::ToInt() const
 #elif defined(JPH_USE_NEON)
 	return vcvtq_u32_f32(mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        static_cast<uint32>(mValue.x),
+        static_cast<uint32>(mValue.y),
+        static_cast<uint32>(mValue.z),
+        static_cast<uint32>(mValue.w)
+    );
 #endif
 }
 
@@ -685,7 +822,12 @@ UVec4 Vec4::ReinterpretAsInt() const
 #elif defined(JPH_USE_NEON)
 	return vreinterpretq_u32_f32(mValue);
 #else
-	#error Unsupported CPU architecture
+    return UVec4(
+        reinterpret_cast<const uint32&>(mValue.x),
+        reinterpret_cast<const uint32&>(mValue.y),
+        reinterpret_cast<const uint32&>(mValue.z),
+        reinterpret_cast<const uint32&>(mValue.w)
+    );
 #endif
 }
 
@@ -697,7 +839,20 @@ int Vec4::GetSignBits() const
     int32x4_t shift = { 0, 1, 2, 3 };
     return vaddvq_u32(vshlq_u32(vshrq_n_u32(vreinterpretq_u32_f32(mValue), 31), shift));
 #else
-	#error Unsupported CPU architecture
+    int res = 0;
+    if (mValue.x < 0) {
+        res |= 1;
+    }
+    if (mValue.y < 0) {
+        res |= 2;
+    }
+    if (mValue.z < 0) {
+        res |= 4;
+    }
+    if (mValue.w < 0) {
+        res |= 8;
+    }
+    return res;
 #endif
 }
 
