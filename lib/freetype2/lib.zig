@@ -28,6 +28,9 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     lib.setBuildMode(build_mode);
     lib.addIncludeDir(srcPath() ++ "/include");
     lib.addIncludeDir(srcPath() ++ "/vendor/include");
+    if (target.getCpuArch().isWasm()) {
+        lib.addIncludeDir(srcPath() ++ "/../wasm/include");
+    }
     lib.linkLibC();
 
     var c_flags = std.ArrayList([]const u8).init(step.builder.allocator);
