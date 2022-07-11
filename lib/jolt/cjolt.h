@@ -147,14 +147,14 @@ usize JPH__BodyCreationSettings__SIZEOF();
 BodyCreationSettings JPH__BodyCreationSettings__CONSTRUCT();
 BodyCreationSettings JPH__BodyCreationSettings__CONSTRUCT2(
     Shape* shape,
-    Vec3 pos,
-    Quat rot,
+    Vec3* pos,
+    Quat* rot,
     EMotionType motion_type,
     ObjectLayer object_layer
 );
 
 BoxShape* JPH__BoxShape__NEW(
-    Vec3 inHalfExtent,
+    Vec3* inHalfExtent,
     float inConvexRadius,
     const PhysicsMaterial* inMaterial
 );

@@ -2,11 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
-const Vec3 = stdx.math.Vec3;
-const Vec4 = stdx.math.Vec4;
+const StdVec3 = stdx.math.Vec3;
+const StdVec4 = stdx.math.Vec4;
 const Quaternion = stdx.math.Quaternion;
 
-const log = std.log.scoped(.jolt);
+const log = stdx.log.scoped(.jolt);
 
 const c = @cImport({
     @cInclude("cjolt.h");
@@ -63,29 +63,43 @@ pub const EActivation = enum(c.EActivation) {
 const ObjectVsBroadPhaseLayerFilter = fn (ObjectLayer, BroadPhaseLayer) bool;
 const ObjectLayerPairFilter = fn (ObjectLayer, ObjectLayer) bool;
 
-fn vec4(x: f32, y: f32, z: f32, w: f32) c.Vec3 {
+fn vec4(x: f32, y: f32, z: f32, w: f32) Vec3 {
     return .{
-        .x = x, 
-        .y = y,
-        .z = z,
-        .w = w,
+        .inner = .{
+            .x = x, 
+            .y = y,
+            .z = z,
+            .w = w,
+        },
     };
 }
+
+/// Explicit declaration since cImport ignores the alignment.
+const Vec4 = extern struct {
+    inner: extern struct {
+        x: f32,
+        y: f32,
+        z: f32,
+        w: f32,
+    } align(16),
+};
+const Vec3 = Vec4;
+const Quat = Vec4;
 
 pub const BodyCreationSettings = struct {
     inner: c.BodyCreationSettings,
 
     pub fn initDefault() BodyCreationSettings {
         return .{
-            .inner = c.JPH__BodyCreationSettings__CONSTRUCT(),
+            .inner = JPH__BodyCreationSettings__CONSTRUCT(),
         };
     }
 
-    pub fn initShape(shape: *c.Shape, pos: Vec3, rot: Quaternion, motion_type: EMotionType, object_layer: ObjectLayer) BodyCreationSettings {
+    pub fn initShape(shape: *c.Shape, pos: StdVec3, rot: Quaternion, motion_type: EMotionType, object_layer: ObjectLayer) BodyCreationSettings {
         return .{
-            .inner = c.JPH__BodyCreationSettings__CONSTRUCT2(shape, 
-                vec4(pos.x, pos.y, pos.z, undefined),
-                vec4(rot.vec.x, rot.vec.y, rot.vec.z, rot.vec.w),
+            .inner = JPH__BodyCreationSettings__CONSTRUCT2(shape, 
+                &vec4(pos.x, pos.y, pos.z, undefined),
+                &vec4(rot.vec.x, rot.vec.y, rot.vec.z, rot.vec.w),
                 @enumToInt(motion_type), object_layer),
         };
     }
@@ -98,7 +112,7 @@ pub const PhysicsSystem = struct {
         broadPhaseLayerInterface: *c.BroadPhaseLayerInterface, comptime ovbFilter: ObjectVsBroadPhaseLayerFilter, comptime opFilter: ObjectLayerPairFilter,
     ) PhysicsSystem {
         const ret = PhysicsSystem{
-            .handle = c.JPH__PhysicsSystem__NEW().?,
+            .handle = JPH__PhysicsSystem__NEW().?,
         };
         const S = struct {
             fn ovbFilter(layer1: ObjectLayer, layer2: BroadPhaseLayer) callconv(.C) c_int {
@@ -148,9 +162,9 @@ pub const PhysicsSystem = struct {
         c.JPH__PhysicsSystem__GetActiveBodies(self.handle, out.ptr);
     }
 
-    pub fn getGravity(self: PhysicsSystem) Vec3 {
+    pub fn getGravity(self: PhysicsSystem) StdVec3 {
         const res = c.JPH__PhysicsSystem__GetGravity(self.handle);
-        return Vec3.init(res.x, res.y, res.z);
+        return StdVec3.init(res.x, res.y, res.z);
     }
 
     pub fn update(self: PhysicsSystem, delta_s: f32, collision_steps: u32, integration_substeps: u32, alloc: *c.TempAllocator, job_sys: JobSystem) void {
@@ -181,7 +195,7 @@ pub const BodyInterface = struct {
         c.JPH__BodyInterface__AddBody(self.handle, &body_id, @enumToInt(activation_mode));
     }
 
-    pub fn setLinearVelocity(self: BodyInterface, body_id: c.BodyId, vel: Vec3) void {
+    pub fn setLinearVelocity(self: BodyInterface, body_id: c.BodyId, vel: StdVec3) void {
         c.JPH__BodyInterface__SetLinearVelocity(self.handle, &body_id, vec4(vel.x, vel.y, vel.z, undefined));
     }
 };
@@ -223,14 +237,14 @@ pub const Body = struct {
         return c.JPH__Body__GetID(self.handle);
     }
 
-    pub fn getPosition(self: Body) Vec3 {
+    pub fn getPosition(self: Body) StdVec3 {
         const res = c.JPH__Body__GetPosition(self.handle);
-        return Vec3.init(res.x, res.y, res.z);
+        return StdVec3.init(res.x, res.y, res.z);
     }
 
     pub fn getRotation(self: Body) Quaternion {
         const res = c.JPH__Body__GetRotation(self.handle);
-        return Quaternion.init(Vec4.init(res.x, res.y, res.z, res.w));
+        return Quaternion.init(StdVec4.init(res.x, res.y, res.z, res.w));
     }
 
     pub fn isActive(self: Body) bool {
@@ -251,7 +265,7 @@ pub const BPLayerInterfaceImpl = struct {
 
     pub fn init() BPLayerInterfaceImpl {
         return .{
-            .handle = @ptrCast(*c.BroadPhaseLayerInterface, c.JPH__BPLayerInterfaceImpl__NEW().?),
+            .handle = @ptrCast(*c.BroadPhaseLayerInterface, JPH__BPLayerInterfaceImpl__NEW().?),
         };
     }
 
@@ -263,9 +277,9 @@ pub const BPLayerInterfaceImpl = struct {
 pub const BoxShape = struct {
     handle: *c.BoxShape,
 
-    pub fn init(halfExtent: Vec3, convexRadius: f32, material: ?*c.PhysicsMaterial) BoxShape {
+    pub fn init(halfExtent: StdVec3, convexRadius: f32, material: ?*c.PhysicsMaterial) BoxShape {
         return .{
-            .handle = c.JPH__BoxShape__NEW(vec4(halfExtent.x, halfExtent.y, halfExtent.z, undefined), convexRadius, material).?,
+            .handle = JPH__BoxShape__NEW(&vec4(halfExtent.x, halfExtent.y, halfExtent.z, undefined), convexRadius, material).?,
         };
     }
 
@@ -275,20 +289,18 @@ pub const BoxShape = struct {
 };
 
 pub fn registerDefaultAllocator() void {
-    c.JPH__RegisterDefaultAllocator();
+    JPH__RegisterDefaultAllocator();
 }
 
 pub fn registerTypes() void {
-    c.JPH__RegisterTypes();
+    JPH__RegisterTypes();
 }
-
-pub const JPH__BodyCreationSettings__SIZEOF = c.JPH__BodyCreationSettings__SIZEOF;
 
 pub fn init() void {
     if (!builtin.is_test) {
         // Verify struct sizes.
-        std.debug.assert(c.JPH__BodyCreationSettings__SIZEOF() == @sizeOf(BodyCreationSettings));
-        std.debug.assert(c.JPH__BodyLockRead__SIZEOF() == @sizeOf(c.BodyLock));
+        std.debug.assert(JPH__BodyCreationSettings__SIZEOF() == @sizeOf(BodyCreationSettings));
+        std.debug.assert(JPH__BodyLockRead__SIZEOF() == @sizeOf(c.BodyLock));
     }
 
     // Set assert failed callback.
@@ -308,7 +320,7 @@ pub fn init() void {
     registerDefaultAllocator();
 
     // Initialize factory global before register types.
-    c.JPH__InitDefaultFactory();
+    JPH__InitDefaultFactory();
 
     // Register all jolt physics types.
     registerTypes();
@@ -336,3 +348,17 @@ pub const JobSystem = struct {
         c.JPH__JobSystemThreadPool__DELETE(self.handle);
     }
 };
+
+pub extern fn JPH__BodyCreationSettings__CONSTRUCT2(shape: ?*c.Shape, pos: [*c]Vec3, rot: [*c]Quat, motion_type: c.EMotionType, object_layer: c.ObjectLayer) c.BodyCreationSettings;
+pub extern fn JPH__BoxShape__NEW(inHalfExtent: [*c]Vec3, inConvexRadius: f32, inMaterial: ?*const c.PhysicsMaterial) ?*c.BoxShape;
+
+/// cImport generates extern function declarations with ... if the function is has no params.
+/// This still links correctly for desktop but wasm will complain. For now, explicitly declare these no param functions.
+pub extern fn JPH__RegisterDefaultAllocator() void;
+pub extern fn JPH__BPLayerInterfaceImpl__NEW() ?*c.BPLayerInterfaceImpl;
+pub extern fn JPH__InitDefaultFactory() void;
+pub extern fn JPH__RegisterTypes() void;
+pub extern fn JPH__BodyCreationSettings__SIZEOF() usize;
+pub extern fn JPH__PhysicsSystem__NEW() ?*c.PhysicsSystem;
+pub extern fn JPH__BodyCreationSettings__CONSTRUCT() c.BodyCreationSettings;
+pub extern fn JPH__BodyLockRead__SIZEOF() usize;

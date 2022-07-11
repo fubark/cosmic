@@ -188,8 +188,8 @@ BodyCreationSettings JPH__BodyCreationSettings__CONSTRUCT() {
 
 BodyCreationSettings JPH__BodyCreationSettings__CONSTRUCT2(
     Shape* shape,
-    Vec3Arg pos,
-    QuatArg rot,
+    Vec3Arg& pos,
+    QuatArg& rot,
     EMotionType motion_type,
     ObjectLayer object_layer
 ) {
@@ -197,7 +197,7 @@ BodyCreationSettings JPH__BodyCreationSettings__CONSTRUCT2(
 }
 
 BoxShape* JPH__BoxShape__NEW(
-    Vec3Arg inHalfExtent,
+    Vec3Arg& inHalfExtent,
     float inConvexRadius,
     const PhysicsMaterial *inMaterial
 ) {
