@@ -6,9 +6,6 @@ const vec2 = Vec2.init;
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const graphics = @import("graphics");
-const Graphics = graphics.Graphics;
-const FontId = graphics.FontId;
-const Image = graphics.Image;
 const Color = graphics.Color;
 const platform = @import("platform");
 
@@ -19,9 +16,8 @@ var app: helper.App = undefined;
 
 var zig_logo_svg: []const u8 = undefined;
 var tiger_head_image: graphics.ImageId = undefined;
-var game_char_image: Image = undefined;
-var last_frame_time_ns: u64 = undefined;
-var font_id: FontId = undefined;
+var game_char_image: graphics.Image = undefined;
+var font_id: graphics.FontId = undefined;
 
 pub fn main() !void {
     app.init("Demo");
@@ -35,6 +31,13 @@ pub fn main() !void {
 
 // Main loop shared by desktop and web.
 fn update(delta_ms: f32) void {
+    if (IsWasm) {
+        // Wait for assets to load in the browser before getting to main loop.
+        if (loaded_assets < 5) {
+            return;
+        }
+    }
+
     const g = app.gctx;
 
     g.setFillColor(Color.Black);
@@ -212,6 +215,7 @@ var loaded_assets: u32 = 0;
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
         const ret = helper.wasmInit(&app, "Demo");
+        galloc = stdx.heap.getDefaultAllocator();
         const S = struct {
             fn onFetchResult(_: ?*anyopaque, e: platform.FetchResultEvent) void {
                 if (e.fetch_id == zig_logo_id) {
@@ -245,20 +249,7 @@ pub usingnamespace if (IsWasm) struct {
     }
 
     export fn wasmUpdate(cur_time_ms: f32, input_len: u32) *const u8 {
-        stdx.wasm.js_buffer.input_buf.items.len = input_len;
-        app.dispatcher.processEvents();
-
-        // Wait for assets to load in the browser before getting to main loop.
-        if (loaded_assets < 5) {
-            return stdx.wasm.js_buffer.writeResult();
-        }
-
-        const now_ns = @floatToInt(u64, cur_time_ms * 1e6);
-        const diff_ms = @intToFloat(f32, now_ns - last_frame_time_ns) / 1e6;
-        last_frame_time_ns = now_ns;
-
-        update(diff_ms);
-        return stdx.wasm.js_buffer.writeResult();
+        return helper.wasmUpdate(cur_time_ms, input_len, &app, update);
     }
 } else struct {};
 
