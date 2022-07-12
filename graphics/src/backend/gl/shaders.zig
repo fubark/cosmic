@@ -6,6 +6,7 @@ const Mat4 = stdx.math.Mat4;
 const gl = @import("gl");
 
 const graphics = @import("../../graphics.zig");
+const TexShaderVertex = graphics.gpu.TexShaderVertex;
 const Shader = graphics.gl.Shader;
 const Color = graphics.Color;
 
@@ -79,17 +80,20 @@ pub const GradientShader = struct {
     u_end_pos: gl.GLint,
     u_end_color: gl.GLint,
 
-    const Self = @This();
-
-    pub fn init(vert_buf_id: gl.GLuint) Self {
+    pub fn init(vert_buf_id: gl.GLuint) GradientShader {
         var shader: Shader = undefined;
-        shader = Shader.init(gradient_vert, gradient_frag) catch unreachable;
+        if (IsWasm) {
+            shader = Shader.init(gradient_vert_webgl2, gradient_frag_webgl2) catch unreachable;
+        } else {
+            shader = Shader.init(gradient_vert, gradient_frag) catch unreachable;
+        }
 
         gl.bindVertexArray(shader.vao_id);
         gl.bindBuffer(gl.GL_ARRAY_BUFFER, vert_buf_id);
-        // a_pos
-        gl.enableVertexAttribArray(0);
-        vertexAttribPointer(0, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(0));
+        bindAttributes(@sizeOf(TexShaderVertex), &.{
+            // a_pos
+            ShaderAttribute.init(0, 0, gl.GL_FLOAT, 4),
+        });
         gl.bindVertexArray(0);
 
         return .{
@@ -102,11 +106,11 @@ pub const GradientShader = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: GradientShader) void {
         self.shader.deinit();
     }
 
-    pub fn bind(self: Self, mvp: Mat4, start_pos: Vec2, start_color: Color, end_pos: Vec2, end_color: Color) void {
+    pub fn bind(self: GradientShader, mvp: Mat4, start_pos: Vec2, start_color: Color, end_pos: Vec2, end_color: Color) void {
         gl.useProgram(self.shader.prog_id);
 
         // set u_mvp, since transpose is false, it expects to receive in column major order.
@@ -135,4 +139,27 @@ fn u32ToVoidPtr(val: u32) ?*const gl.GLvoid {
 // offset - offset in bytes of the first component of first vertex.
 fn vertexAttribPointer(attr_idx: gl.GLuint, size: gl.GLint, data_type: gl.GLenum, stride: gl.GLsizei, offset: ?*const gl.GLvoid) void {
     gl.vertexAttribPointer(attr_idx, size, data_type, gl.GL_FALSE, stride, offset);
+}
+
+const ShaderAttribute = struct {
+    pos: u32,
+    offset: u32,
+    num_components: gl.GLint,
+    data_type: gl.GLenum,
+
+    fn init(pos: u32, offset: u32, data_type: gl.GLenum, num_components: gl.GLint) ShaderAttribute {
+        return .{
+            .pos = pos,
+            .offset = offset,
+            .data_type = data_type,
+            .num_components = num_components,
+        };
+    }
+};
+
+fn bindAttributes(stride: u32, attrs: []const ShaderAttribute) void {
+    for (attrs) |attr| {
+        gl.enableVertexAttribArray(attr.pos);
+        vertexAttribPointer(attr.pos, attr.num_components, attr.data_type, @intCast(c_int, stride), u32ToVoidPtr(attr.offset));
+    }
 }

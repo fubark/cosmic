@@ -497,9 +497,16 @@ pub const Graphics = struct {
 
     pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         // Convert to buffer coords on cpu.
-        const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y)).mul(self.cur_dpr);
-        const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y)).mul(self.cur_dpr);
-        self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
+        if (Backend == .OpenGL and IsWasm) {
+            // Use bottom left coords.
+            const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, @intToFloat(f32, self.cur_buf_height) - start_y)).mul(self.cur_dpr);
+            const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, @intToFloat(f32, self.cur_buf_height) - end_y)).mul(self.cur_dpr);
+            self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
+        } else {
+            const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y)).mul(self.cur_dpr);
+            const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y)).mul(self.cur_dpr);
+            self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
+        }
     }
 
     pub fn getStrokeColor(self: Self) Color {
