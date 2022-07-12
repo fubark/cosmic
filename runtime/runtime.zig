@@ -2786,12 +2786,6 @@ test "F64SafeUint, F64SafeInt" {
     try t.eq(@floatToInt(F64SafeInt, double), int);
 }
 
-/// Used in c code to log synchronously.
-const c_log = stdx.log.scoped(.c);
-pub export fn cosmic_log(buf: [*c]const u8) void {
-    c_log.debug("{s}", .{ buf });
-}
-
 const ModuleInfo = struct {
     const Self = @This();
 
