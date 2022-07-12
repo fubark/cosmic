@@ -7,7 +7,7 @@ const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const platform = @import("platform");
 const graphics = @import("graphics");
-const Transform = graphics.Transform;
+const Transform = stdx.math.Transform;
 const Color = graphics.Color;
 const ui = @import("ui");
 const Row = ui.widgets.Row;
@@ -279,7 +279,7 @@ fn update(delta_ms: f32) void {
     var xform = Transform.initIdentity();
     xform.scale3D(800, 1, 800);
     xform.translate3D(0, -0.6, 0);
-    gctx.drawCuboidPbr3D(xform, graphics.Material.initAlbedoColor(Color.Gray));
+    gctx.drawSingleCuboidPbr3D(xform, graphics.Material.initAlbedoColor(Color.Gray));
 
     xform = Transform.initIdentity();
     xform.scale3D(20, 20, 20);
@@ -327,7 +327,7 @@ fn update(delta_ms: f32) void {
 
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
-        return helper.wasmInit(&app, "Counter");
+        return helper.wasmInit(&app, "3d");
     }
 
     export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
