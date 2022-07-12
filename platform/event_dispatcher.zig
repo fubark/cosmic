@@ -265,7 +265,7 @@ fn processSdlEvents(dispatcher: *EventDispatcher) void {
 }
 
 /// Assumes the global wasm input buffer contains a valid slice of the commands to be processed.
-fn processWasmEvents(dispatcher: EventDispatcher) void {
+fn processWasmEvents(dispatcher: *EventDispatcher) void {
     const Command = struct {
         const KeyDown = 1;
         const KeyUp = 2;

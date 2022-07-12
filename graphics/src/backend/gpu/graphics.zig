@@ -168,6 +168,7 @@ pub const Graphics = struct {
         self.inner.pipelines = .{
             .tex = graphics.gl.shaders.TexShader.init(vert_buf_id),
             .gradient = graphics.gl.shaders.GradientShader.init(vert_buf_id),
+            .plane = try graphics.gl.shaders.PlaneShader.init(vert_buf_id),
         };
 
         self.batcher = Batcher.initGL(alloc, vert_buf_id, self.inner.pipelines, &self.image_store);
@@ -721,12 +722,30 @@ pub const Graphics = struct {
     pub fn drawPlane(self: *Self) void {
         self.batcher.endCmd();
         self.batcher.cur_shader_type = .Plane;
-        self.batcher.mesh.addIndex(0);
-        self.batcher.mesh.addIndex(1);
-        self.batcher.mesh.addIndex(2);
-        self.batcher.mesh.addIndex(3);
-        self.batcher.mesh.addIndex(4);
-        self.batcher.mesh.addIndex(5);
+
+        self.ensureUnusedBatchCapacity(4, 6);
+        var vert: TexShaderVertex = undefined;
+        const start_idx = self.batcher.mesh.getNextIndexId();
+        if (Backend == .OpenGL) {
+            vert.setXYZ(-1, 1, -1);
+            self.batcher.mesh.addVertex(&vert);
+            vert.setXYZ(1, 1, -1);
+            self.batcher.mesh.addVertex(&vert);
+            vert.setXYZ(1, -1, -1);
+            self.batcher.mesh.addVertex(&vert);
+            vert.setXYZ(-1, -1, -1);
+            self.batcher.mesh.addVertex(&vert);
+        } else {
+            vert.setXYZ(-1, -1, 1);
+            self.batcher.mesh.addVertex(&vert);
+            vert.setXYZ(1, -1, 1);
+            self.batcher.mesh.addVertex(&vert);
+            vert.setXYZ(1, 1, 1);
+            self.batcher.mesh.addVertex(&vert);
+            vert.setXYZ(-1, 1, 1);
+            self.batcher.mesh.addVertex(&vert);
+        }
+        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
         self.batcher.endCmdForce();
     }
 

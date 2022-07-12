@@ -1078,7 +1078,7 @@ pub const Graphics = struct {
 
     pub inline fn drawPlane(self: *Self) void {
         switch (Backend) {
-            .Vulkan => gpu.Graphics.drawPlane(&self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.drawPlane(&self.impl),
             else => stdx.unsupported(),
         }
     }

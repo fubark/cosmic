@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
@@ -19,6 +20,54 @@ const tex_frag_webgl2 = @embedFile("shaders/tex_frag_webgl2.glsl");
 const gradient_vert = @embedFile("shaders/gradient_vert.glsl");
 const gradient_frag = @embedFile("shaders/gradient_frag.glsl");
 
+const gradient_vert_webgl2 = @embedFile("shaders/gradient_vert_webgl2.glsl");
+const gradient_frag_webgl2 = @embedFile("shaders/gradient_frag_webgl2.glsl");
+
+const plane_vert = @embedFile("shaders/plane_vert.glsl");
+const plane_frag = @embedFile("shaders/plane_frag.glsl");
+
+const plane_vert_webgl2 = @embedFile("shaders/plane_vert_webgl2.glsl");
+const plane_frag_webgl2 = @embedFile("shaders/plane_frag_webgl2.glsl");
+
+pub const PlaneShader = struct {
+    shader: Shader,
+    u_const: gl.GLint,
+
+    pub fn init(vert_buf_id: gl.GLuint) !PlaneShader {
+        var shader: Shader = undefined;
+        if (IsWasm) {
+            shader = try Shader.init(plane_vert_webgl2, plane_frag_webgl2);
+        } else {
+            shader = try Shader.init(plane_vert, plane_frag);
+        }
+
+        gl.bindVertexArray(shader.vao_id);
+        defer gl.bindVertexArray(0);
+
+        gl.bindBuffer(gl.GL_ARRAY_BUFFER, vert_buf_id);
+        bindAttributes(@sizeOf(TexShaderVertex), &.{
+            // a_pos
+            ShaderAttribute.init(0, @offsetOf(TexShaderVertex, "pos"), gl.GL_FLOAT, 4),
+        });
+
+        return PlaneShader{
+            .shader = shader,
+            .u_const = shader.getUniformLocation("u_const.mvp"),
+        };
+    }
+
+    pub fn deinit(self: PlaneShader) void {
+        self.shader.deinit();
+    }
+
+    pub fn bind(self: PlaneShader, mvp: Mat4) void {
+        gl.useProgram(self.shader.prog_id);
+
+        // set u_mvp, since transpose is false, it expects to receive in column major order.
+        gl.uniformMatrix4fv(self.u_const, 1, gl.GL_FALSE, &mvp);
+    }
+};
+
 pub const TexShader = struct {
     shader: Shader,
     u_mvp: gl.GLint,
@@ -35,17 +84,17 @@ pub const TexShader = struct {
         }
 
         gl.bindVertexArray(shader.vao_id);
+        defer gl.bindVertexArray(0);
+
         gl.bindBuffer(gl.GL_ARRAY_BUFFER, vert_buf_id);
-        // a_pos
-        gl.enableVertexAttribArray(0);
-        vertexAttribPointer(0, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(0));
-        // a_uv
-        gl.enableVertexAttribArray(1);
-        vertexAttribPointer(1, 2, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(4 * 4));
-        // a_color
-        gl.enableVertexAttribArray(2);
-        vertexAttribPointer(2, 4, gl.GL_FLOAT, 10 * 4, u32ToVoidPtr(6 * 4));
-        gl.bindVertexArray(0);
+        bindAttributes(@sizeOf(TexShaderVertex), &.{
+            // a_pos
+            ShaderAttribute.init(0, @offsetOf(TexShaderVertex, "pos"), gl.GL_FLOAT, 4),
+            // a_uv
+            ShaderAttribute.init(1, @offsetOf(TexShaderVertex, "uv"), gl.GL_FLOAT, 2),
+            // a_color
+            ShaderAttribute.init(2, @offsetOf(TexShaderVertex, "color"), gl.GL_FLOAT, 4),
+        });
 
         return .{
             .shader = shader,

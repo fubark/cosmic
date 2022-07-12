@@ -241,29 +241,28 @@ pub fn transitionImageLayout(renderer: *Renderer, img: vk.VkImage, format: vk.Vk
 }
 
 pub fn createPlanePipeline(alloc: std.mem.Allocator, device: vk.VkDevice, pass: vk.VkRenderPass, view_dim: vk.VkExtent2D) !Pipeline {
-    // const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
-    //     vk.VkVertexInputBindingDescription{
-    //         .binding = 0,
-    //         .stride = 0,
-    //         .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
-    //     },
-    // };
-    // const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
-        // vk.VkVertexInputAttributeDescription{
-        //     .binding = 0,
-        //     .location = 0,
-        //     .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
-        //     .offset = 0,
-        // },
-    // };
+    const bind_descriptors = [_]vk.VkVertexInputBindingDescription{
+        vk.VkVertexInputBindingDescription{
+            .binding = 0,
+            .stride = @sizeOf(gpu.TexShaderVertex),
+            .inputRate = vk.VK_VERTEX_INPUT_RATE_VERTEX,
+        },
+    };
+    const attr_descriptors = [_]vk.VkVertexInputAttributeDescription{
+        // pos.
+        vk.VkVertexInputAttributeDescription{
+            .binding = 0,
+            .location = 0,
+            .format = vk.VK_FORMAT_R32G32B32A32_SFLOAT,
+            .offset = 0,
+        },
+    };
     const pvis_info = vk.VkPipelineVertexInputStateCreateInfo{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .vertexAttributeDescriptionCount = 0,
-        // .pVertexBindingDescriptions = &bind_descriptors,
-        .pVertexBindingDescriptions = null,
-        // .pVertexAttributeDescriptions = &attr_descriptors,
-        .pVertexAttributeDescriptions = null,
+        .vertexBindingDescriptionCount = bind_descriptors.len,
+        .vertexAttributeDescriptionCount = attr_descriptors.len,
+        .pVertexBindingDescriptions = &bind_descriptors,
+        .pVertexAttributeDescriptions = &attr_descriptors,
         .pNext = null,
         .flags = 0,
     };

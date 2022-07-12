@@ -17,6 +17,7 @@ const IsWasm = builtin.target.isWasm();
 extern "graphics" fn jsGlCreateTexture() u32;
 extern "graphics" fn jsGlEnable(cap: u32) void;
 extern "graphics" fn jsGlDisable(cap: u32) void;
+extern "graphics" fn jsGlFrontFace(mode: u32) void;
 extern "graphics" fn jsGlBindTexture(target: u32, texture: u32) void;
 extern "graphics" fn jsGlClearColor(r: f32, g: f32, b: f32, a: f32) void;
 extern "graphics" fn jsGlGetParameterInt(tag: u32) i32;
@@ -52,6 +53,8 @@ extern "graphics" fn jsGlDeleteTexture(texture: u32) void;
 extern "graphics" fn jsGlUseProgram(program: u32) void;
 extern "graphics" fn jsGlUniformMatrix4fv(location: i32, transpose: u8, value_ptr: *const f32) void;
 extern "graphics" fn jsGlUniform1i(location: i32, val: i32) void;
+extern "graphics" fn jsGlUniform2fv(location: i32, value_ptr: *const f32) void;
+extern "graphics" fn jsGlUniform4fv(location: i32, value_ptr: *const f32) void;
 extern "graphics" fn jsGlBufferData(target: u32, data_ptr: ?*const u8, data_size: u32, usage: u32) void;
 extern "graphics" fn jsGlDrawElements(mode: u32, num_indices: u32, index_type: u32, index_offset: u32) void;
 extern "graphics" fn jsGlCreateRenderbuffer() u32;
@@ -77,6 +80,14 @@ pub inline fn clear(mask: c.GLbitfield) void {
         jsGlClear(mask);
     } else {
         c.glClear(mask);
+    }
+}
+
+pub inline fn frontFace(mode: c.GLenum) void {
+    if (IsWasm) {
+        jsGlFrontFace(mode);
+    } else {
+        c.glFrontFace(mode);
     }
 }
 
@@ -250,6 +261,10 @@ pub fn checkFramebufferStatus(target: c.GLenum) c.GLenum {
         return c.glCheckFramebufferStatus(target);
     }
 } 
+
+pub inline fn drawArrays(mode: c.GLenum, first: c.GLint, count: usize) void {
+    c.glDrawArrays(mode, first, @intCast(c_int, count));
+}
 
 pub inline fn drawElements(mode: c.GLenum, num_indices: usize, index_type: c.GLenum, index_offset: usize) void {
     if (IsWasm) {
@@ -475,6 +490,14 @@ pub inline fn bufferData(target: c.GLenum, size: c.GLsizeiptr, data: ?*const any
     }
 }
 
+pub inline fn polygonMode(face: c.GLenum, mode: c.GLenum) void {
+    if (IsWasm) {
+        @compileError("unsupported");
+    } else {
+        sdl.glPolygonMode(face, mode);
+    }
+}
+
 pub inline fn enableVertexAttribArray(index: c.GLuint) void {
     if (IsWasm) {
         jsGlEnableVertexAttribArray(index);
@@ -678,7 +701,13 @@ pub inline fn uniformMatrix4fv(location: c.GLint, count: c.GLsizei, transpose: c
 }
 
 pub inline fn uniform2fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
-    if (IsWindows) {
+    if (IsWasm) {
+        if (count == 1) {
+            jsGlUniform2fv(location, value);
+        } else {
+            stdx.unsupported();
+        }
+    } else if (IsWindows) {
         winUniform2fv(location, count, value);
     } else {
         c.glUniform2fv(location, count, value);
@@ -686,7 +715,13 @@ pub inline fn uniform2fv(location: c.GLint, count: c.GLsizei, value: [*c]const c
 }
 
 pub inline fn uniform4fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
-    if (IsWindows) {
+    if (IsWasm) {
+        if (count == 1) {
+            jsGlUniform4fv(location, value);
+        } else {
+            stdx.unsupported();
+        }
+    } else if (IsWindows) {
         winUniform4fv(location, count, value);
     } else {
         c.glUniform4fv(location, count, value);

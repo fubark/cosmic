@@ -10,10 +10,7 @@ layout(location = 1) out vec3 farPoint;
 layout(location = 2) out mat4 mvp;
 
 // Grid position are in xy clipped space
-vec3 gridPlane[6] = vec3[](
-    vec3(1, 1, 1), vec3(-1, -1, 1), vec3(-1, 1, 1),
-    vec3(-1, -1, 1), vec3(1, 1, 1), vec3(1, -1, 1)
-);
+layout(location = 0) in vec4 pos;
 
 vec3 UnprojectPoint(float x, float y, float z, mat4 mvp) {
     mat4 mvp_inv = inverse(mvp);
@@ -22,7 +19,7 @@ vec3 UnprojectPoint(float x, float y, float z, mat4 mvp) {
 }
 
 void main() {
-    vec3 p = gridPlane[gl_VertexIndex].xyz;
+    vec3 p = pos.xyz;
     nearPoint = UnprojectPoint(p.x, p.y, 1, u_const.mvp).xyz; // unprojecting on the near plane
     farPoint = UnprojectPoint(p.x, p.y, 0, u_const.mvp).xyz; // unprojecting on the far plane
     mvp = u_const.mvp;

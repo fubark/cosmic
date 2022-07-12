@@ -3,17 +3,17 @@ const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
 pub const Shader = @import("shader.zig").Shader;
-const shaders = @import("shaders.zig");
-pub const TexShader = shaders.TexShader;
-pub const GradientShader = shaders.GradientShader;
+pub const shaders = @import("shaders.zig");
 
 pub const Pipelines = struct {
-    tex: TexShader,
-    gradient: GradientShader,
+    tex: shaders.TexShader,
+    gradient: shaders.GradientShader,
+    plane: shaders.PlaneShader,
 
     pub fn deinit(self: Pipelines) void {
         self.tex.deinit();
         self.gradient.deinit();
+        self.plane.deinit();
     }
 };
 
