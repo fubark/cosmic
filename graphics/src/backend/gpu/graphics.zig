@@ -45,7 +45,8 @@ const mesh_ = @import("mesh.zig");
 const VertexData = mesh_.VertexData;
 const vertex = @import("vertex.zig");
 pub const TexShaderVertex = vertex.TexShaderVertex;
-const Batcher = @import("batcher.zig").Batcher;
+const batcher = @import("batcher.zig");
+const Batcher = batcher.Batcher;
 const text_renderer = @import("text_renderer.zig");
 pub const TextGlyphIterator = text_renderer.TextGlyphIterator;
 const RenderTextIterator = text_renderer.RenderTextIterator;
@@ -164,17 +165,19 @@ pub const Graphics = struct {
         gl.genBuffers(1, &vert_buf_id);
 
         // Initialize pipelines.
-        self.inner.pipelines.tex = graphics.gl.TexShader.init(vert_buf_id);
-        self.inner.pipelines.gradient = graphics.gl.GradientShader.init(vert_buf_id);
+        self.inner.pipelines = .{
+            .tex = graphics.gl.shaders.TexShader.init(vert_buf_id),
+            .gradient = graphics.gl.shaders.GradientShader.init(vert_buf_id),
+        };
 
         self.batcher = Batcher.initGL(alloc, vert_buf_id, self.inner.pipelines, &self.image_store);
 
-        // 2D graphics for now. Turn off 3d options.
-        gl.disable(gl.GL_DEPTH_TEST);
-        gl.disable(gl.GL_CULL_FACE);
-
         // Enable blending by default.
         gl.enable(gl.GL_BLEND);
+
+        // Cull back face.
+        gl.enable(gl.GL_CULL_FACE);
+        gl.frontFace(gl.GL_CCW);
     }
 
     pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
