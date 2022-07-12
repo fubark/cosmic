@@ -195,8 +195,9 @@ pub const Graphics = struct {
 
         const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
         const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 120000 * 3);
-        const mats_buf = gvk.buffer.createStorageBuffer(physical, device, 4*16 * 5000);
-        const materials_buf = gvk.buffer.createStorageBuffer(physical, device, @sizeOf(graphics.Material) * 100);
+        // TODO: Move buffer management into Batcher.
+        const mats_buf = gvk.buffer.createStorageBuffer(physical, device, batcher.MatBufferInitialSizeBytes);
+        const materials_buf = gvk.buffer.createStorageBuffer(physical, device, batcher.MaterialBufferInitialSizeBytes);
 
         self.inner.mats_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, true, false);
         const mats_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.mats_desc_set_layout);
@@ -204,7 +205,7 @@ pub const Graphics = struct {
 
         self.inner.materials_desc_set_layout = gvk.descriptor.createDescriptorSetLayout(device, vk.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3, true, false);
         const materials_desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, self.inner.materials_desc_set_layout);
-        gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, @sizeOf(graphics.Material) * 100);
+        gvk.descriptor.updateStorageBufferDescriptorSet(device, materials_desc_set, materials_buf.buf, 3, 0, materials_buf.size);
 
         {
             const vert_spv = try shader.compileGLSL(alloc, .Vertex, gvk.shaders.tex_vert_glsl, .{});
@@ -476,9 +477,8 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn clear(self: Self) void {
-        _ = self;
-        gl.clear(gl.GL_COLOR_BUFFER_BIT);
+    pub inline fn clear(_: Self) void {
+        gl.clear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
     }
 
     pub fn setClearColor(self: *Self, color: Color) void {
@@ -2444,12 +2444,12 @@ pub const Graphics = struct {
         if (custom_fbo == 0) {
             // This clears the main framebuffer that is swapped to window.
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
-            gl.clear(gl.GL_COLOR_BUFFER_BIT);
+            self.clear();
         } else {
             // Set the frame buffer we are drawing to.
             gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
             // Clears the custom frame buffer.
-            gl.clear(gl.GL_COLOR_BUFFER_BIT);
+            self.clear();
         }
 
         // Straight alpha by default.

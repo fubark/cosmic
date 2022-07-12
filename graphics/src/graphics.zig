@@ -102,7 +102,9 @@ pub const Graphics = struct {
     pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
         self.initCommon(alloc);
         switch (Backend) {
-            .OpenGL => gpu.Graphics.initGL(&self.impl, alloc, dpr),
+            .OpenGL => gpu.Graphics.initGL(&self.impl, alloc, dpr) catch |err| {
+                stdx.panicFmt("{}", .{err});
+            },
             .WasmCanvas => canvas.Graphics.init(&self.impl, alloc),
             .Test => testg.Graphics.init(&self.impl, alloc),
             else => stdx.unsupported(),

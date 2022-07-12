@@ -46,11 +46,19 @@ pub const Camera = struct {
     }
 
     pub fn initPerspective3D(self: *Camera, vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) void {
+        initPerspective3Dinternal(self, vert_fov_deg, aspect_ratio, near, far, Backend);
+    }
+
+    fn initPerspective3Dinternal(self: *Camera, vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32, comptime backend: @TypeOf(Backend)) void {
         self.vert_fov_rad = vert_fov_deg * 2 * std.math.pi / 360;
         self.aspect_ratio = aspect_ratio;
         self.near = near;
         self.far = far;
-        self.proj_transform = initPerspectiveProjection(vert_fov_deg, aspect_ratio, near, far);
+        if (backend == .OpenGL) {
+            self.proj_transform = initPerspectiveProjectionGL(vert_fov_deg, aspect_ratio, near, far);
+        } else {
+            self.proj_transform = initPerspectiveProjectionVK(vert_fov_deg, aspect_ratio, near, far);
+        }
         self.world_pos = stdx.math.Vec3.init(0, 0, 0);
         self.setRotation(0, -std.math.pi);
     }
@@ -241,10 +249,42 @@ test "initOrthographicProjection" {
     try eqApproxVec3(xform.interpolate3(0, 0, 0), Vec3.init(0, 0, 0.5));
 }
 
-/// https://vincent-p.github.io/posts/vulkan_perspective_matrix/
 pub fn initPerspectiveProjection(vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) Transform {
+    if (Backend == .OpenGL) {
+        return initPerspectiveProjectionGL(vert_fov_deg, aspect_ratio, near, far);
+    } else {
+        return initPerspectiveProjectionVK(vert_fov_deg, aspect_ratio, near, far);
+    }
+}
+
+/// Projects to clip space: x[-1,1] y[1,-1] z[-1,1]
+inline fn initPerspectiveProjectionGL(vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) Transform {
     const fov_rad = vert_fov_deg * 2 * std.math.pi / 360;
-    const focal_length = 1 / std.math.tan(fov_rad / 2);
+    const focal_length = 1 / std.math.tan(fov_rad * 0.5);
+    const x = focal_length / aspect_ratio;
+    const y = focal_length;
+
+    const a = (far + near) / (near - far);
+    const b = (2 * far * near) / (near - far);
+    return Transform.initRowMajor(.{
+        x, 0, 0, 0,
+        0, y, 0, 0,
+        0, 0, a, b,
+        0, 0, -1, 0,
+    });
+}
+
+test "OpenGL perspective projection" {
+    const proj = initPerspectiveProjectionGL(60, 2, 0.1, 100);
+    try eqApproxVec4(proj.interpolate4(0, 0, -0.1, 1).divW(), Vec4.init(0, 0, -1, 1));
+    try eqApproxVec4(proj.interpolate4(0, 0, -100, 1).divW(), Vec4.init(0, 0, 1, 1));
+}
+
+/// https://vincent-p.github.io/posts/vulkan_perspective_matrix/
+/// Projects to clip space: x[-1,1] y[-1,1] z[1,0]
+inline fn initPerspectiveProjectionVK(vert_fov_deg: f32, aspect_ratio: f32, near: f32, far: f32) Transform {
+    const fov_rad = vert_fov_deg * 2 * std.math.pi / 360;
+    const focal_length = 1 / std.math.tan(fov_rad * 0.5);
     const x = focal_length / aspect_ratio;
     const y = -focal_length;
     const a = near / (far - near);
@@ -257,10 +297,16 @@ pub fn initPerspectiveProjection(vert_fov_deg: f32, aspect_ratio: f32, near: f32
     });
 }
 
+test "Vulkan perspective projection" {
+    const proj = initPerspectiveProjectionVK(60, 2, 0.1, 100);
+    try eqApproxVec4(proj.interpolate4(0, 0, -0.1, 1).divW(), Vec4.init(0, 0, 1, 1));
+    try eqApproxVec4(proj.interpolate4(0, 0, -100, 1).divW(), Vec4.init(0, 0, 0, 1));
+}
+
 test "Perspective camera." {
     const pif = @as(f32, std.math.pi);
     var cam: Camera = undefined;
-    cam.initPerspective3D(60, 2, 0.1, 100);
+    cam.initPerspective3Dinternal(60, 2, 0.1, 100, .Vulkan);
 
     try eqApproxVec3(cam.forward_nvec, Vec3.init(0, 0, -1));
     try eqApproxVec3(cam.right_nvec, Vec3.init(1, 0, 0));

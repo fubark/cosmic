@@ -13,7 +13,10 @@ const StartIndexBufferSize = StartVertexBufferSize * 8;
 const MaxVertexBufferSize = 20000 * 4;
 const MaxIndexBufferSize = MaxVertexBufferSize * 8;
 
+// TODO: Move vertex and index buffer management to Batcher.
 /// Vertex, index, mats, materials buffer.
+/// Buffer slices can be mapped directly (zero copy) to the gpu for vulkan or desktop opengl.
+/// Mesh doesn't care if the memory is mapped and just writes to buffer and advances the index.
 pub const Mesh = struct {
     index_buffer_type: gl.GLenum = gl.GL_UNSIGNED_SHORT,
     alloc: std.mem.Allocator,
@@ -22,7 +25,6 @@ pub const Mesh = struct {
     vert_buf: []TexShaderVertex,
     cur_vert_buf_size: u32,
 
-    /// Zero copy view.
     mats_buf: []stdx.math.Mat4,
     cur_mats_buf_size: u32,
     materials_buf: []graphics.Material,

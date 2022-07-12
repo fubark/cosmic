@@ -1,7 +1,10 @@
 const std = @import("std");
 const Backend = @import("build_options").GraphicsBackend;
+const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
+const unsupported = stdx.unsupported;
 const ds = stdx.ds;
 const gl = @import("gl");
 const vk = @import("vk");
@@ -25,6 +28,12 @@ const Mesh = mesh.Mesh;
 const log = stdx.log.scoped(.batcher);
 
 const NullId = std.math.maxInt(u32);
+
+/// Initial buffer sizes
+pub const MatBufferInitialSize = 5000;
+pub const MatBufferInitialSizeBytes = MatBufferInitialSize * @sizeOf(stdx.math.Mat4);
+pub const MaterialBufferInitialSize = 100;
+pub const MaterialBufferInitialSizeBytes = MaterialBufferInitialSize * @sizeOf(graphics.Material);
 
 const ShaderType = enum(u4) {
     Tex = 0,
@@ -80,6 +89,11 @@ pub const Batcher = struct {
             index_buf_id: gl.GLuint,
             pipelines: graphics.gl.Pipelines,
             cur_gl_tex_id: GLTextureId,
+            mats_buf_id: gl.GLuint,
+            materials_buf_id: gl.GLuint,
+            mats_buf: []stdx.math.Mat4,
+            materials_buf: []graphics.Material,
+            depth_test: bool,
         },
         .Vulkan => struct {
             ctx: gvk.VkContext,
@@ -113,12 +127,15 @@ pub const Batcher = struct {
     end_pos: Vec2,
     end_color: Color,
 
-    const Self = @This();
-
     /// Batcher owns vert_buf_id afterwards.
-    pub fn initGL(alloc: std.mem.Allocator, vert_buf_id: gl.GLuint, pipelines: graphics.gl.Pipelines, image_store: *graphics.gpu.ImageStore) Self {
-        var new = Self{
-            .mesh = Mesh.init(alloc, &.{}),
+    pub fn initGL(
+        alloc: std.mem.Allocator,
+        vert_buf_id: gl.GLuint,
+        pipelines: graphics.gl.Pipelines,
+        image_store: *graphics.gpu.ImageStore
+    ) Batcher {
+        var new = Batcher{
+            .mesh = undefined,
             .cmds = std.ArrayList(DrawCmd).init(alloc),
             .cmd_vert_start_idx = 0,
             .cmd_index_start_idx = 0,
@@ -127,6 +144,11 @@ pub const Batcher = struct {
                 .vert_buf_id = vert_buf_id,
                 .index_buf_id = undefined,
                 .cur_gl_tex_id = undefined,
+                .mats_buf_id = undefined,
+                .materials_buf_id = undefined,
+                .mats_buf = undefined,
+                .materials_buf = undefined,
+                .depth_test = undefined,
             },
             .pre_flush_tasks = std.ArrayList(PreFlushTask).init(alloc),
             .mvp = undefined,
@@ -137,6 +159,7 @@ pub const Batcher = struct {
                 .tex_id = NullId,
             },
             .cur_shader_type = undefined,
+            .model_idx = undefined,
             .start_pos = undefined,
             .start_color = undefined,
             .end_pos = undefined,
@@ -144,9 +167,21 @@ pub const Batcher = struct {
             .image_store = image_store,
         };
         // Generate buffers.
-        var buf_ids: [1]gl.GLuint = undefined;
+        var buf_ids: [3]gl.GLuint = undefined;
         gl.genBuffers(1, &buf_ids);
         new.inner.index_buf_id = buf_ids[0];
+        new.inner.mats_buf_id = buf_ids[1];
+        new.inner.materials_buf_id = buf_ids[2];
+
+        new.inner.mats_buf = alloc.alloc(stdx.math.Mat4, MatBufferInitialSize) catch fatal();
+        new.inner.materials_buf = alloc.alloc(graphics.Material, MaterialBufferInitialSize) catch fatal();
+
+        new.mesh = Mesh.init(alloc, new.inner.mats_buf, new.inner.materials_buf);
+
+        // Disable depth test by default.
+        new.inner.depth_test = false;
+        gl.disable(gl.GL_DEPTH_TEST);
+
         return new;
     }
 
@@ -161,8 +196,8 @@ pub const Batcher = struct {
         renderer: *gvk.Renderer,
         pipelines: gvk.Pipelines,
         image_store: *graphics.gpu.ImageStore
-    ) Self {
-        var new = Self{
+    ) Batcher {
+        var new = Batcher{
             .mesh = undefined,
             .cmds = std.ArrayList(DrawCmd).init(alloc),
             .cmd_vert_start_idx = 0,
@@ -238,15 +273,23 @@ pub const Batcher = struct {
         return new;
     }
 
-    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: Batcher, alloc: std.mem.Allocator) void {
         self.pre_flush_tasks.deinit();
         self.mesh.deinit();
         self.cmds.deinit();
 
         switch (Backend) {
             .OpenGL => {
-                const bufs = [_]gl.GLuint{ self.inner.vert_buf_id, self.inner.index_buf_id };
-                gl.deleteBuffers(2, &bufs);
+                const bufs = [_]gl.GLuint{
+                    self.inner.vert_buf_id,
+                    self.inner.index_buf_id,
+                    self.inner.mats_buf_id,
+                    self.inner.materials_buf_id,
+                };
+                gl.deleteBuffers(4, &bufs);
+
+                alloc.free(self.inner.mats_buf);
+                alloc.free(self.inner.materials_buf);
             },
             .Vulkan => {
                 const device = self.inner.ctx.device;
@@ -262,7 +305,7 @@ pub const Batcher = struct {
     }
 
     /// Queue a task to run before the next flush.
-    pub fn addNextPreFlushTask(self: *Self, ctx: ?*anyopaque, cb: fn (?*anyopaque) void) void {
+    pub fn addNextPreFlushTask(self: *Batcher, ctx: ?*anyopaque, cb: fn (?*anyopaque) void) void {
         self.pre_flush_tasks.append(.{
             .ctx = ctx,
             .cb = cb,
@@ -270,7 +313,7 @@ pub const Batcher = struct {
     }
 
     /// Begins the tex shader. Will flush previous batched command.
-    pub fn beginTex(self: *Self, image: ImageTex) void {
+    pub fn beginTex(self: *Batcher, image: ImageTex) void {
         if (self.cur_shader_type != .Tex) {
             self.endCmd();
             self.cur_shader_type = .Tex;
@@ -280,7 +323,7 @@ pub const Batcher = struct {
         self.setTexture(image);
     }
 
-    pub fn beginNormal(self: *Self) void {
+    pub fn beginNormal(self: *Batcher) void {
         if (self.cur_shader_type != .Normal) {
             self.endCmd();
             self.cur_shader_type = .Normal;
@@ -288,7 +331,7 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn beginTex3D(self: *Self, image: ImageTex) void {
+    pub fn beginTex3D(self: *Batcher, image: ImageTex) void {
         if (self.cur_shader_type != .Tex3D) {
             self.endCmd();
             self.cur_shader_type = .Tex3D;
@@ -298,7 +341,7 @@ pub const Batcher = struct {
         self.setTexture(image);
     }
 
-    pub fn beginTexPbr3D(self: *Self, image: ImageTex, cam_loc: stdx.math.Vec3) void {
+    pub fn beginTexPbr3D(self: *Batcher, image: ImageTex, cam_loc: stdx.math.Vec3) void {
         if (self.cur_shader_type != .TexPbr3D) {
             self.endCmd();
             self.cur_shader_type = .TexPbr3D;
@@ -314,7 +357,7 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn beginAnimPbr3D(self: *Self, image: ImageTex, cam_loc: stdx.math.Vec3) void {
+    pub fn beginAnimPbr3D(self: *Batcher, image: ImageTex, cam_loc: stdx.math.Vec3) void {
         if (self.cur_shader_type != .AnimPbr3D) {
             self.endCmd();
             self.cur_shader_type = .AnimPbr3D;
@@ -330,7 +373,7 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn beginAnim3D(self: *Self, image: ImageTex) void {
+    pub fn beginAnim3D(self: *Batcher, image: ImageTex) void {
         if (self.cur_shader_type != .Anim3D) {
             self.endCmd();
             self.cur_shader_type = .Anim3D;
@@ -340,7 +383,7 @@ pub const Batcher = struct {
         self.setTexture(image);
     }
 
-    pub fn beginWireframe(self: *Self) void {
+    pub fn beginWireframe(self: *Batcher) void {
         if (self.cur_shader_type != .Wireframe) {
             self.endCmd();
             self.cur_shader_type = .Wireframe;
@@ -348,7 +391,7 @@ pub const Batcher = struct {
     }
 
     /// Begins the gradient shader. Will flush previous batched command.
-    pub fn beginGradient(self: *Self, start_pos: Vec2, start_color: Color, end_pos: Vec2, end_color: Color) void {
+    pub fn beginGradient(self: *Batcher, start_pos: Vec2, start_color: Color, end_pos: Vec2, end_color: Color) void {
         // Always flush the previous.
         self.endCmd();
         self.start_pos = start_pos;
@@ -359,11 +402,11 @@ pub const Batcher = struct {
     }
 
     // TODO: we can use sample2d arrays and pass active tex ids in vertex data to further reduce number of flushes.
-    pub fn beginTexture(self: *Self, image: ImageTex) void {
+    pub fn beginTexture(self: *Batcher, image: ImageTex) void {
         self.setTexture(image);
     }
 
-    inline fn setTexture(self: *Self, image: ImageTex) void {
+    inline fn setTexture(self: *Batcher, image: ImageTex) void {
         if (self.cur_image_tex.tex_id != image.tex_id) {
             self.endCmd();
             self.cur_image_tex = image;
@@ -379,7 +422,7 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn resetState(self: *Self, tex: ImageTex) void {
+    pub fn resetState(self: *Batcher, tex: ImageTex) void {
         self.cur_image_tex = tex;
         self.cur_shader_type = .Tex;
         self.cmd_vert_start_idx = 0;
@@ -388,7 +431,7 @@ pub const Batcher = struct {
         self.mesh.reset();
     }
 
-    pub fn resetStateVK(self: *Self, image_tex: ImageTex, frame_idx: u8, framebuffer: vk.VkFramebuffer, clear_color: Color) void {
+    pub fn resetStateVK(self: *Batcher, image_tex: ImageTex, frame_idx: u8, framebuffer: vk.VkFramebuffer, clear_color: Color) void {
         self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
         self.inner.cur_batcher_frame = self.inner.batcher_frames[frame_idx];
         self.inner.cur_tex_desc_set = self.image_store.getTexture(image_tex.tex_id).inner.desc_set;
@@ -437,7 +480,7 @@ pub const Batcher = struct {
     }
 
     /// Must be called before draw calls are recorded for the shadow pass.
-    pub fn prepareShadowPass(self: *Self, light_vp: Transform) void {
+    pub fn prepareShadowPass(self: *Batcher, light_vp: Transform) void {
         if (Backend == .Vulkan) {
             if (!self.inner.do_shadow_pass) {
                 self.inner.do_shadow_pass = true;
@@ -467,7 +510,7 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn endFrameVK(self: *Self) graphics.FrameResultVK {
+    pub fn endFrameVK(self: *Batcher) graphics.FrameResultVK {
         const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.endRenderPass(cmd_buf);
         gvk.command.endCommandBuffer(cmd_buf);
@@ -499,18 +542,18 @@ pub const Batcher = struct {
         return res;
     }
 
-    pub fn beginMvp(self: *Self, mvp: Transform) void {
+    pub fn beginMvp(self: *Batcher, mvp: Transform) void {
         // Always flush the previous.
         self.endCmd();
         self.mvp = mvp;
     }
 
-    pub fn ensureUnusedBuffer(self: *Self, vert_inc: usize, index_inc: usize) bool {
+    pub fn ensureUnusedBuffer(self: *Batcher, vert_inc: usize, index_inc: usize) bool {
         return self.mesh.ensureUnusedBuffer(vert_inc, index_inc);
     }
 
     /// Push a batch of vertices and indexes where index 0 refers to the first vertex.
-    pub fn pushVertIdxBatch(self: *Self, verts: []const Vec2, idxes: []const u16, color: Color) void {
+    pub fn pushVertIdxBatch(self: *Batcher, verts: []const Vec2, idxes: []const u16, color: Color) void {
         var gpu_vert: TexShaderVertex = undefined;
         gpu_vert.setColor(color);
         const vert_offset_id = self.mesh.getNextIndexId();
@@ -525,7 +568,7 @@ pub const Batcher = struct {
     }
 
     // Caller must check if there is enough buffer space prior.
-    pub fn pushLyonVertexData(self: *Self, data: *lyon.VertexData, color: Color) void {
+    pub fn pushLyonVertexData(self: *Batcher, data: *lyon.VertexData, color: Color) void {
         var vert: TexShaderVertex = undefined;
         vert.setColor(color);
         const vert_offset_id = self.mesh.getNextIndexId();
@@ -540,11 +583,11 @@ pub const Batcher = struct {
     }
 
     // Caller must check if there is enough buffer space prior.
-    pub fn pushVertexData(self: *Self, comptime num_verts: usize, comptime num_indices: usize, data: *VertexData(num_verts, num_indices)) void {
+    pub fn pushVertexData(self: *Batcher, comptime num_verts: usize, comptime num_indices: usize, data: *VertexData(num_verts, num_indices)) void {
         self.mesh.addVertexData(num_verts, num_indices, data);
     }
 
-    pub fn pushMeshData(self: *Self, verts: []const TexShaderVertex, indexes: []const u16) void {
+    pub fn pushMeshData(self: *Batcher, verts: []const TexShaderVertex, indexes: []const u16) void {
         if (!self.ensureUnusedBuffer(verts.len, indexes.len)) {
             self.endCmd();
         }
@@ -552,7 +595,7 @@ pub const Batcher = struct {
         self.mesh.addDeltaIndices(vert_start, indexes);
     }
 
-    pub fn endCmdForce(self: *Self) void {
+    pub fn endCmdForce(self: *Batcher) void {
         // Run pre flush callbacks.
         if (self.pre_flush_tasks.items.len > 0) {
             for (self.pre_flush_tasks.items) |it| {
@@ -574,29 +617,69 @@ pub const Batcher = struct {
         }
     }
 
-    pub fn endCmd(self: *Self) void {
+    pub fn endCmd(self: *Batcher) void {
         if (self.mesh.cur_index_buf_size > self.cmd_index_start_idx) {
             self.endCmdForce();
         }
     }
 
+    fn setDepthTestGL(self: *Batcher, depth_test: bool) void {
+        if (self.inner.depth_test == depth_test) {
+            return;
+        }
+        if (depth_test) {
+            gl.enable(gl.GL_DEPTH_TEST);
+        } else {
+            gl.disable(gl.GL_DEPTH_TEST);
+        }
+        self.inner.depth_test = depth_test;
+    }
+
     /// OpenGL immediately flushes with drawElements.
     /// Vulkan records the draw command, flushed by endFrameVK.
-    fn pushDrawCall(self: *Self) void {
+    fn pushDrawCall(self: *Batcher) void {
         switch (Backend) {
             .OpenGL => {
                 switch (self.cur_shader_type) {
+                    .Tex3D => {
+                        self.setDepthTestGL(true);
+                        self.inner.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
+                        gl.bindVertexArray(self.inner.pipelines.tex.shader.vao_id);
+                    },
+                    .Plane => {
+                        self.setDepthTestGL(true);
+                        self.inner.pipelines.plane.bind(self.mvp.mat);
+                        gl.bindVertexArray(self.inner.pipelines.plane.shader.vao_id);
+                    },
+                    .Wireframe => {
+                        if (!IsWasm) {
+                            gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE);
+                            self.setDepthTestGL(true);
+                            self.inner.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
+                            gl.bindVertexArray(self.inner.pipelines.tex.shader.vao_id);
+                            gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL);
+                        } else {
+                            // Only supported on Desktop atm.
+                            return;
+                        }
+                    },
+                    .Anim3D => stdx.panic("anim 3d"),
+                    .TexPbr3D => stdx.panic("tex pbr 3d"),
+                    .AnimPbr3D => stdx.panic("anim pbr 3d"),
+                    .Normal => stdx.panic("normal"),
                     .Tex => {
+                        self.setDepthTestGL(false);
                         self.inner.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
                         // Recall how to pull data from the buffer for shader.
                         gl.bindVertexArray(self.inner.pipelines.tex.shader.vao_id);
                     },
                     .Gradient => {
+                        self.setDepthTestGL(false);
                         self.inner.pipelines.gradient.bind(self.mvp.mat, self.start_pos, self.start_color, self.end_pos, self.end_color);
                         // Recall how to pull data from the buffer for shader.
                         gl.bindVertexArray(self.inner.pipelines.gradient.shader.vao_id);
                     },
-                    .Custom => stdx.unsupported(),
+                    .Custom => unsupported(),
                 }
 
                 const num_verts = self.mesh.cur_vert_buf_size;
@@ -604,7 +687,7 @@ pub const Batcher = struct {
 
                 // Update vertex buffer.
                 gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.inner.vert_buf_id);
-                gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, num_verts * 10 * 4), self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
+                gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, num_verts * @sizeOf(TexShaderVertex)), self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
                 // Update index buffer.
                 gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.inner.index_buf_id);
