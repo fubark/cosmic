@@ -71,7 +71,7 @@ pub const Mesh = struct {
         self.cur_materials_buf_size += 1;
     }
 
-    pub fn addVertex(self: *Self, vert: *TexShaderVertex) void {
+    pub fn addVertex(self: *Self, vert: *const TexShaderVertex) void {
         self.vert_buf[self.cur_vert_buf_size] = vert.*;
         self.cur_vert_buf_size += 1;
     }

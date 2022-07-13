@@ -63,7 +63,7 @@ const VkFrame = struct {
 pub const Batcher = struct {
     pre_flush_tasks: std.ArrayList(PreFlushTask),
 
-    mesh: Mesh,
+    mesh: *Mesh,
     cmds: std.ArrayList(DrawCmd),
     cmd_vert_start_idx: u32,
     cmd_index_start_idx: u32,
@@ -85,17 +85,11 @@ pub const Batcher = struct {
 
     inner: switch (Backend) {
         .OpenGL => struct {
-            vert_buf_id: gl.GLuint,
-            index_buf_id: gl.GLuint,
-            pipelines: graphics.gl.Pipelines,
+            renderer: *graphics.gl.Renderer,
             cur_gl_tex_id: GLTextureId,
-            mats_buf_id: gl.GLuint,
-            materials_buf_id: gl.GLuint,
-            mats_buf: []stdx.math.Mat4,
-            materials_buf: []graphics.Material,
-            depth_test: bool,
         },
         .Vulkan => struct {
+            mesh: Mesh,
             ctx: gvk.VkContext,
             renderer: *gvk.Renderer,
             cur_frame: gvk.Frame,
@@ -130,25 +124,17 @@ pub const Batcher = struct {
     /// Batcher owns vert_buf_id afterwards.
     pub fn initGL(
         alloc: std.mem.Allocator,
-        vert_buf_id: gl.GLuint,
-        pipelines: graphics.gl.Pipelines,
+        renderer: *graphics.gl.Renderer,
         image_store: *graphics.gpu.ImageStore
     ) Batcher {
         var new = Batcher{
-            .mesh = undefined,
+            .mesh = &renderer.mesh,
             .cmds = std.ArrayList(DrawCmd).init(alloc),
             .cmd_vert_start_idx = 0,
             .cmd_index_start_idx = 0,
             .inner = .{
-                .pipelines = pipelines,
-                .vert_buf_id = vert_buf_id,
-                .index_buf_id = undefined,
+                .renderer = renderer,
                 .cur_gl_tex_id = undefined,
-                .mats_buf_id = undefined,
-                .materials_buf_id = undefined,
-                .mats_buf = undefined,
-                .materials_buf = undefined,
-                .depth_test = undefined,
             },
             .pre_flush_tasks = std.ArrayList(PreFlushTask).init(alloc),
             .mvp = undefined,
@@ -166,26 +152,10 @@ pub const Batcher = struct {
             .end_color = undefined,
             .image_store = image_store,
         };
-        // Generate buffers.
-        var buf_ids: [3]gl.GLuint = undefined;
-        gl.genBuffers(1, &buf_ids);
-        new.inner.index_buf_id = buf_ids[0];
-        new.inner.mats_buf_id = buf_ids[1];
-        new.inner.materials_buf_id = buf_ids[2];
-
-        new.inner.mats_buf = alloc.alloc(stdx.math.Mat4, MatBufferInitialSize) catch fatal();
-        new.inner.materials_buf = alloc.alloc(graphics.Material, MaterialBufferInitialSize) catch fatal();
-
-        new.mesh = Mesh.init(alloc, new.inner.mats_buf, new.inner.materials_buf);
-
-        // Disable depth test by default.
-        new.inner.depth_test = false;
-        gl.disable(gl.GL_DEPTH_TEST);
-
         return new;
     }
 
-    pub fn initVK(alloc: std.mem.Allocator,
+    pub fn initVK(new: *Batcher, alloc: std.mem.Allocator,
         vert_buf: gvk.Buffer,
         index_buf: gvk.Buffer,
         mats_buf: gvk.Buffer,
@@ -196,8 +166,8 @@ pub const Batcher = struct {
         renderer: *gvk.Renderer,
         pipelines: gvk.Pipelines,
         image_store: *graphics.gpu.ImageStore
-    ) Batcher {
-        var new = Batcher{
+    ) void {
+        new.* = .{
             .mesh = undefined,
             .cmds = std.ArrayList(DrawCmd).init(alloc),
             .cmd_vert_start_idx = 0,
@@ -268,30 +238,17 @@ pub const Batcher = struct {
             frame.host_cam_buf = host_cam_buf;
         }
 
-        new.mesh = Mesh.init(alloc, new.inner.host_mats_buf, new.inner.host_materials_buf);
-
-        return new;
+        new.inner.mesh = Mesh.init(alloc, new.inner.host_mats_buf, new.inner.host_materials_buf);
+        new.mesh = &new.inner.mesh;
     }
 
     pub fn deinit(self: Batcher, alloc: std.mem.Allocator) void {
         self.pre_flush_tasks.deinit();
-        self.mesh.deinit();
         self.cmds.deinit();
 
         switch (Backend) {
-            .OpenGL => {
-                const bufs = [_]gl.GLuint{
-                    self.inner.vert_buf_id,
-                    self.inner.index_buf_id,
-                    self.inner.mats_buf_id,
-                    self.inner.materials_buf_id,
-                };
-                gl.deleteBuffers(4, &bufs);
-
-                alloc.free(self.inner.mats_buf);
-                alloc.free(self.inner.materials_buf);
-            },
             .Vulkan => {
+                self.mesh.deinit();
                 const device = self.inner.ctx.device;
                 self.inner.vert_buf.deinit(device);
                 self.inner.index_buf.deinit(device);
@@ -548,8 +505,11 @@ pub const Batcher = struct {
         self.mvp = mvp;
     }
 
-    pub fn ensureUnusedBuffer(self: *Batcher, vert_inc: usize, index_inc: usize) bool {
-        return self.mesh.ensureUnusedBuffer(vert_inc, index_inc);
+    /// Ensures that the buffer has enough space.
+    pub fn ensureUnusedBuffer(self: *Batcher, vert_inc: usize, index_inc: usize) void {
+        if (!self.mesh.ensureUnusedBuffer(vert_inc, index_inc)) {
+            self.endCmdForce();
+        }
     }
 
     /// Push a batch of vertices and indexes where index 0 refers to the first vertex.
@@ -623,40 +583,23 @@ pub const Batcher = struct {
         }
     }
 
-    fn setDepthTestGL(self: *Batcher, depth_test: bool) void {
-        if (self.inner.depth_test == depth_test) {
-            return;
-        }
-        if (depth_test) {
-            gl.enable(gl.GL_DEPTH_TEST);
-        } else {
-            gl.disable(gl.GL_DEPTH_TEST);
-        }
-        self.inner.depth_test = depth_test;
-    }
-
     /// OpenGL immediately flushes with drawElements.
     /// Vulkan records the draw command, flushed by endFrameVK.
     fn pushDrawCall(self: *Batcher) void {
         switch (Backend) {
             .OpenGL => {
                 switch (self.cur_shader_type) {
-                    .Tex3D => {
-                        self.setDepthTestGL(true);
-                        self.inner.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
-                        gl.bindVertexArray(self.inner.pipelines.tex.shader.vao_id);
-                    },
                     .Plane => {
-                        self.setDepthTestGL(true);
-                        self.inner.pipelines.plane.bind(self.mvp.mat);
-                        gl.bindVertexArray(self.inner.pipelines.plane.shader.vao_id);
+                        self.inner.renderer.setDepthTest(true);
+                        self.inner.renderer.pipelines.plane.bind(self.mvp.mat);
+                        gl.bindVertexArray(self.inner.renderer.pipelines.plane.shader.vao_id);
                     },
                     .Wireframe => {
                         if (!IsWasm) {
                             gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE);
-                            self.setDepthTestGL(true);
-                            self.inner.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
-                            gl.bindVertexArray(self.inner.pipelines.tex.shader.vao_id);
+                            self.inner.renderer.setDepthTest(true);
+                            self.inner.renderer.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
+                            gl.bindVertexArray(self.inner.renderer.pipelines.tex.shader.vao_id);
                             gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL);
                         } else {
                             // Only supported on Desktop atm.
@@ -668,17 +611,18 @@ pub const Batcher = struct {
                     .AnimPbr3D => stdx.panic("anim pbr 3d"),
                     .Normal => stdx.panic("normal"),
                     .Tex => {
-                        self.setDepthTestGL(false);
-                        self.inner.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
+                        self.inner.renderer.setDepthTest(false);
+                        self.inner.renderer.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
                         // Recall how to pull data from the buffer for shader.
-                        gl.bindVertexArray(self.inner.pipelines.tex.shader.vao_id);
+                        gl.bindVertexArray(self.inner.renderer.pipelines.tex.shader.vao_id);
                     },
                     .Gradient => {
-                        self.setDepthTestGL(false);
-                        self.inner.pipelines.gradient.bind(self.mvp.mat, self.start_pos, self.start_color, self.end_pos, self.end_color);
+                        self.inner.renderer.setDepthTest(false);
+                        self.inner.renderer.pipelines.gradient.bind(self.mvp.mat, self.start_pos, self.start_color, self.end_pos, self.end_color);
                         // Recall how to pull data from the buffer for shader.
-                        gl.bindVertexArray(self.inner.pipelines.gradient.shader.vao_id);
+                        gl.bindVertexArray(self.inner.renderer.pipelines.gradient.shader.vao_id);
                     },
+                    .Tex3D,
                     .Custom => unsupported(),
                 }
 
@@ -686,11 +630,11 @@ pub const Batcher = struct {
                 const num_indexes = self.mesh.cur_index_buf_size;
 
                 // Update vertex buffer.
-                gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.inner.vert_buf_id);
+                gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.inner.renderer.vert_buf_id);
                 gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, num_verts * @sizeOf(TexShaderVertex)), self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
                 // Update index buffer.
-                gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.inner.index_buf_id);
+                gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.inner.renderer.index_buf_id);
                 gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, num_indexes * 2), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
                 gl.drawElements(gl.GL_TRIANGLES, num_indexes, self.mesh.index_buffer_type, 0);

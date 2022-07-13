@@ -42,6 +42,7 @@ const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.FontId;
 const FontGroupId = graphics.FontGroupId;
 const mesh_ = @import("mesh.zig");
+pub const Mesh = mesh_.Mesh;
 const VertexData = mesh_.VertexData;
 const vertex = @import("vertex.zig");
 pub const TexShaderVertex = vertex.TexShaderVertex;
@@ -57,11 +58,13 @@ const Tessellator = tessellator.Tessellator;
 pub const RenderFont = @import("render_font.zig").RenderFont;
 pub const Glyph = @import("glyph.zig").Glyph;
 const gvk = graphics.vk;
+const ggl = graphics.gl;
 const VkContext = gvk.VkContext;
 const image = @import("image.zig");
 pub const ImageStore = image.ImageStore;
 pub const Image = image.Image;
 pub const ImageTex = image.ImageTex;
+pub const TextureId = image.TextureId;
 pub const shader = @import("shader.zig");
 const log = stdx.log.scoped(.gpu_graphics);
 
@@ -152,33 +155,10 @@ pub const Graphics = struct {
 
     const Self = @This();
 
-    pub fn initGL(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
-        self.initDefault(alloc, dpr);
+    pub fn initGL(self: *Self, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
+        try self.initDefault(alloc, dpr);
         self.initCommon(alloc);
-
-        const max_total_textures = gl.getMaxTotalTextures();
-        const max_fragment_textures = gl.getMaxFragmentTextures();
-        log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
-
-        // Builtin shaders use the same vert buffer.
-        var vert_buf_id: gl.GLuint = undefined;
-        gl.genBuffers(1, &vert_buf_id);
-
-        // Initialize pipelines.
-        self.inner.pipelines = .{
-            .tex = graphics.gl.shaders.TexShader.init(vert_buf_id),
-            .gradient = graphics.gl.shaders.GradientShader.init(vert_buf_id),
-            .plane = try graphics.gl.shaders.PlaneShader.init(vert_buf_id),
-        };
-
-        self.batcher = Batcher.initGL(alloc, vert_buf_id, self.inner.pipelines, &self.image_store);
-
-        // Enable blending by default.
-        gl.enable(gl.GL_BLEND);
-
-        // Cull back face.
-        gl.enable(gl.GL_CULL_FACE);
-        gl.frontFace(gl.GL_CCW);
+        self.batcher = Batcher.initGL(alloc, renderer, &self.image_store);
     }
 
     pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
@@ -187,7 +167,7 @@ pub const Graphics = struct {
         const fb_size = renderer.fb_size;
         const pass = renderer.main_pass;
 
-        self.initDefault(alloc, dpr);
+        try self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
         self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
@@ -311,9 +291,6 @@ pub const Graphics = struct {
 
     pub fn deinit(self: *Self) void {
         switch (Backend) {
-            .OpenGL => {
-                self.inner.pipelines.deinit();
-            },
             .Vulkan => {
                 const device = self.inner.ctx.device;
                 self.inner.pipelines.deinit(device);
@@ -638,19 +615,13 @@ pub const Graphics = struct {
         self.batcher.beginTexture(image_tex);
     }
 
-    fn ensureUnusedBatchCapacity(self: *Self, vert_inc: usize, index_inc: usize) void {
-        if (!self.batcher.ensureUnusedBuffer(vert_inc, index_inc)) {
-            self.endCmd();
-        }
-    }
-
     fn pushLyonVertexData(self: *Self, data: *lyon.VertexData, color: Color) void {
-        self.ensureUnusedBatchCapacity(data.vertex_len, data.index_len);
+        self.batcher.ensureUnusedBuffer(data.vertex_len, data.index_len);
         self.batcher.pushLyonVertexData(data, color);
     }
 
     fn pushVertexData(self: *Self, comptime num_verts: usize, comptime num_indices: usize, data: *VertexData(num_verts, num_indices)) void {
-        self.ensureUnusedBatchCapacity(num_verts, num_indices);
+        self.batcher.ensureUnusedBuffer(num_verts, num_indices);
         self.batcher.pushVertexData(num_verts, num_indices, data);
     }
 
@@ -723,7 +694,7 @@ pub const Graphics = struct {
         self.batcher.endCmd();
         self.batcher.cur_shader_type = .Plane;
 
-        self.ensureUnusedBatchCapacity(4, 6);
+        self.batcher.ensureUnusedBuffer(4, 6);
         var vert: TexShaderVertex = undefined;
         const start_idx = self.batcher.mesh.getNextIndexId();
         if (Backend == .OpenGL) {
@@ -756,7 +727,7 @@ pub const Graphics = struct {
     // Sometimes we want to override the color (eg. rendering part of a stroke.)
     fn fillRectColor(self: *Self, x: f32, y: f32, width: f32, height: f32, color: Color) void {
         self.setCurrentTexture(self.white_tex);
-        self.ensureUnusedBatchCapacity(4, 6);
+        self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(color);
@@ -801,7 +772,7 @@ pub const Graphics = struct {
     // n is the number of sections in the arc we will draw.
     pub fn drawCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.batcher.beginTex(self.white_tex);
-        self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
+        self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
 
         const inner_rad = radius - self.cur_line_width_half;
         const outer_rad = radius + self.cur_line_width_half;
@@ -840,7 +811,7 @@ pub const Graphics = struct {
 
     pub fn fillCircleSectorN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, num_tri: u32) void {
         self.setCurrentTexture(self.white_tex);
-        self.ensureUnusedBatchCapacity(num_tri + 2, num_tri * 3);
+        self.batcher.ensureUnusedBuffer(num_tri + 2, num_tri * 3);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.cur_fill_color);
@@ -900,7 +871,7 @@ pub const Graphics = struct {
 
     pub fn fillEllipseSectorN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.setCurrentTexture(self.white_tex);
-        self.ensureUnusedBatchCapacity(n + 2, n * 3);
+        self.batcher.ensureUnusedBuffer(n + 2, n * 3);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.cur_fill_color);
@@ -965,7 +936,7 @@ pub const Graphics = struct {
     // n is the number of sections in the arc we will draw.
     pub fn drawEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.batcher.beginTex(self.white_tex);
-        self.ensureUnusedBatchCapacity(2 + n * 2, n * 3 * 2);
+        self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
 
         const inner_h_rad = h_radius - self.cur_line_width_half;
         const inner_v_rad = v_radius - self.cur_line_width_half;
@@ -1085,7 +1056,7 @@ pub const Graphics = struct {
     // Points are given in ccw order. Currently doesn't map uvs.
     pub fn fillQuad(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, x4: f32, y4: f32, color: Color) void {
         self.setCurrentTexture(self.white_tex);
-        self.ensureUnusedBatchCapacity(4, 6);
+        self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(color);
@@ -1295,7 +1266,7 @@ pub const Graphics = struct {
             // log.debug("poly: {}, {}, {}", .{polygon.len, nverts, nelems});
 
             self.setCurrentTexture(self.white_tex);
-            self.ensureUnusedBatchCapacity(@intCast(u32, nverts), @intCast(usize, nelems * 3));
+            self.batcher.ensureUnusedBuffer(@intCast(u32, nverts), @intCast(usize, nelems * 3));
 
             var i: u32 = 0;
             while (i < nverts) : (i += 1) {
@@ -1527,7 +1498,7 @@ pub const Graphics = struct {
             self.setCurrentTexture(self.white_tex);
             const out_verts = self.tessellator.out_verts.items;
             const out_idxes = self.tessellator.out_idxes.items;
-            self.ensureUnusedBatchCapacity(out_verts.len, out_idxes.len);
+            self.batcher.ensureUnusedBuffer(out_verts.len, out_idxes.len);
             self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.cur_fill_color);
         } else {
             unreachable;
@@ -1691,7 +1662,7 @@ pub const Graphics = struct {
     /// Points of front face is in ccw order.
     pub fn fillTriangle3D(self: *Self, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
         self.batcher.beginTex3D(self.white_tex);
-        self.ensureUnusedBatchCapacity(3, 3);
+        self.batcher.ensureUnusedBuffer(3, 3);
 
         self.batcher.model_idx = 0;
 
@@ -1711,7 +1682,7 @@ pub const Graphics = struct {
 
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         self.setCurrentTexture(self.white_tex);
-        self.ensureUnusedBatchCapacity(3, 3);
+        self.batcher.ensureUnusedBuffer(3, 3);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.cur_fill_color);
@@ -1730,7 +1701,7 @@ pub const Graphics = struct {
     /// Assumes pts are in ccw order.
     pub fn fillConvexPolygon(self: *Self, pts: []const Vec2) void {
         self.setCurrentTexture(self.white_tex);
-        self.ensureUnusedBatchCapacity(pts.len, (pts.len - 2) * 3);
+        self.batcher.ensureUnusedBuffer(pts.len, (pts.len - 2) * 3);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.cur_fill_color);
@@ -1758,7 +1729,7 @@ pub const Graphics = struct {
         self.setCurrentTexture(self.white_tex);
         const out_verts = self.tessellator.out_verts.items;
         const out_idxes = self.tessellator.out_idxes.items;
-        self.ensureUnusedBatchCapacity(out_verts.len, out_idxes.len);
+        self.batcher.ensureUnusedBuffer(out_verts.len, out_idxes.len);
         self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.cur_fill_color);
     }
 
@@ -1786,7 +1757,7 @@ pub const Graphics = struct {
         var verts = tess2.tessGetVertices(tess);
         const nelems = tess2.tessGetElementCount(tess);
 
-        self.ensureUnusedBatchCapacity(@intCast(u32, nverts), @intCast(usize, nelems * 3));
+        self.batcher.ensureUnusedBuffer(@intCast(u32, nverts), @intCast(usize, nelems * 3));
 
         var i: u32 = 0;
         while (i < nverts) : (i += 1) {
@@ -1831,7 +1802,7 @@ pub const Graphics = struct {
 
         self.batcher.material_idx = material_id;
 
-        self.ensureUnusedBatchCapacity(8, 36);
+        self.batcher.ensureUnusedBuffer(8, 36);
         const vert_start = self.batcher.mesh.getNextIndexId();
         var vert: TexShaderVertex = undefined;
         vert.setColor(Color.White);
@@ -1960,9 +1931,7 @@ pub const Graphics = struct {
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
-        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
-            self.batcher.endCmd();
-        }
+        self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
         const vert_start = self.batcher.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
@@ -1988,9 +1957,7 @@ pub const Graphics = struct {
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
 
-        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len*2, mesh.verts.len*2)) {
-            self.batcher.endCmd();
-        }
+        self.batcher.ensureUnusedBuffer(mesh.verts.len*2, mesh.verts.len*2);
         const vert_start = self.batcher.mesh.getNextIndexId();
         const norm_len = 1;
         for (mesh.verts) |vert, i| {
@@ -2159,9 +2126,7 @@ pub const Graphics = struct {
                     self.batcher.beginTex3D(tex);
                 }
 
-                if (!self.batcher.ensureUnusedBuffer(prim.verts.len, prim.indexes.len)) {
-                    self.batcher.endCmd();
-                }
+                self.batcher.ensureUnusedBuffer(prim.verts.len, prim.indexes.len);
                 const vert_start = self.batcher.mesh.getNextIndexId();
                 if (node.skin.len > 0) {
                     for (prim.verts) |vert| {
@@ -2214,14 +2179,12 @@ pub const Graphics = struct {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
         const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
-        self.batcher.beginMvp(vp);
 
+        self.batcher.beginMvp(vp);
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
         self.batcher.mesh.addMatrix(xform.mat);
 
-        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
-            self.batcher.endCmd();
-        }
+        self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
         const vert_start = self.batcher.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
@@ -2253,9 +2216,7 @@ pub const Graphics = struct {
         self.batcher.mesh.addMatrix(xform.mat);
 
         // TODO: stroke color should pushed as a constant.
-        if (!self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len)) {
-            self.batcher.endCmd();
-        }
+        self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
         const vert_start = self.batcher.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
@@ -2286,7 +2247,7 @@ pub const Graphics = struct {
     pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const img = self.image_store.images.get(image_id);
         self.batcher.beginTex(image.ImageDesc{ .image_id = image_id, .tex_id = img.tex_id });
-        self.ensureUnusedBatchCapacity(4, 6);
+        self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(Color.White);
@@ -2325,7 +2286,7 @@ pub const Graphics = struct {
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
-        self.ensureUnusedBatchCapacity(4, 6);
+        self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(Color.White);
@@ -2359,7 +2320,7 @@ pub const Graphics = struct {
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
-        self.ensureUnusedBatchCapacity(4, 6);
+        self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(Color.White);

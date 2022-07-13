@@ -1,0 +1,159 @@
+const std = @import("std");
+const stdx = @import("stdx");
+const Mat4 = stdx.math.Mat4;
+const gl = @import("gl");
+const GLtextureId = gl.GLuint;
+
+const graphics = @import("../../graphics.zig");
+const TexShaderVertex = graphics.gpu.TexShaderVertex;
+const TextureId = graphics.gpu.TextureId;
+const Mesh = graphics.gpu.Mesh;
+const log = stdx.log.scoped(.gl_renderer);
+
+/// Initial buffer sizes
+const MatBufferInitialSize = 5000;
+const MatBufferInitialSizeBytes = MatBufferInitialSize * @sizeOf(Mat4);
+const MaterialBufferInitialSize = 100;
+const MaterialBufferInitialSizeBytes = MaterialBufferInitialSize * @sizeOf(graphics.Material);
+
+/// Provides an API to make direct draw calls using OpenGL shaders.
+/// Makes no assumptions about how to group draw calls together.
+/// Manages common buffers used for shaders.
+/// Keeps some OpenGL state to avoid redundant calls.
+pub const Renderer = struct {
+    /// Buffers.
+    vert_buf_id: gl.GLuint,
+    index_buf_id: gl.GLuint,
+    mats_buf_id: gl.GLuint,
+    mats_buf: []stdx.math.Mat4,
+    materials_buf_id: gl.GLuint,
+    materials_buf: []graphics.Material,
+    mesh: Mesh,
+    image_store: *graphics.gpu.ImageStore,
+
+    /// Pipelines.
+    pipelines: graphics.gl.Pipelines,
+
+    /// State.
+    depth_test: bool,
+
+    pub fn init(self: *Renderer, alloc: std.mem.Allocator) !void {
+        self.* = .{
+            .vert_buf_id = undefined,
+            .index_buf_id = undefined,
+            .mats_buf_id = undefined,
+            .materials_buf_id = undefined,
+            .materials_buf = undefined,
+            .mats_buf = undefined,
+            .depth_test = undefined,
+            .mesh = undefined,
+            .pipelines = undefined,
+            .image_store = undefined,
+        };
+        const max_total_textures = gl.getMaxTotalTextures();
+        const max_fragment_textures = gl.getMaxFragmentTextures();
+        log.debug("max frag textures: {}, max total textures: {}", .{ max_fragment_textures, max_total_textures });
+
+        // Generate buffers.
+        var buf_ids: [4]gl.GLuint = undefined;
+        gl.genBuffers(4, &buf_ids);
+        self.vert_buf_id = buf_ids[0];
+        self.index_buf_id = buf_ids[1];
+        self.mats_buf_id = buf_ids[2];
+        self.materials_buf_id = buf_ids[3];
+
+        self.mats_buf = try alloc.alloc(Mat4, MatBufferInitialSize);
+        self.materials_buf = try alloc.alloc(graphics.Material, MaterialBufferInitialSize);
+
+        self.mesh = Mesh.init(alloc, self.mats_buf, self.materials_buf);
+
+        // Initialize pipelines.
+        self.pipelines = .{
+            .tex = graphics.gl.shaders.TexShader.init(self.vert_buf_id),
+            .gradient = graphics.gl.shaders.GradientShader.init(self.vert_buf_id),
+            .plane = try graphics.gl.shaders.PlaneShader.init(self.vert_buf_id),
+        };
+
+        // Enable blending by default.
+        gl.enable(gl.GL_BLEND);
+
+        // Cull back face.
+        gl.enable(gl.GL_CULL_FACE);
+        gl.frontFace(gl.GL_CCW);
+
+        // Disable depth test by default.
+        gl.disable(gl.GL_DEPTH_TEST);
+        self.depth_test = false;
+    }
+
+    pub fn deinit(self: Renderer, alloc: std.mem.Allocator) void {
+        const bufs = [_]gl.GLuint{
+            self.vert_buf_id,
+            self.index_buf_id,
+            self.mats_buf_id,
+            self.materials_buf_id,
+        };
+        gl.deleteBuffers(4, &bufs);
+
+        alloc.free(self.mats_buf);
+        alloc.free(self.materials_buf);
+
+        self.pipelines.deinit();
+    }
+
+    pub fn pushVertex(self: *Renderer, vert: TexShaderVertex) void {
+        self.mesh.addVertex(&vert);
+    }
+
+    pub fn pushDeltaIndices(self: *Renderer, start: u16, indices: []const u16) void {
+        self.mesh.addDeltaIndices(start, indices);
+    }
+
+    pub fn pushTex3D(self: *Renderer, mvp: Mat4, tex_id: TextureId) void {
+        const gl_tex_id = self.image_store.getTexture(tex_id).inner.tex_id;
+        self.setDepthTest(true);
+        self.pipelines.tex.bind(mvp, gl_tex_id);
+        gl.bindVertexArray(self.pipelines.tex.shader.vao_id);
+        self.pushCurrentElements();
+    }
+
+    /// Ensures that the buffer has enough space.
+    pub fn ensureUnusedBuffer(self: *Renderer, vert_inc: usize, index_inc: usize) void {
+        if (!self.mesh.ensureUnusedBuffer(vert_inc, index_inc)) {
+            // Currently, draw calls reset the mesh so data that proceeds the current buffer belongs to the same draw call.
+            stdx.panic("buffer limit");
+        }
+    }
+
+    pub fn getCurrentIndexId(self: Renderer) u16 {
+        return self.mesh.getNextIndexId();
+    }
+
+    fn pushCurrentElements(self: *Renderer) void {
+        const num_verts = self.mesh.cur_vert_buf_size;
+        const num_indexes = self.mesh.cur_index_buf_size;
+
+        // Update vertex buffer.
+        gl.bindBuffer(gl.GL_ARRAY_BUFFER, self.vert_buf_id);
+        gl.bufferData(gl.GL_ARRAY_BUFFER, @intCast(c_long, num_verts * @sizeOf(TexShaderVertex)), self.mesh.vert_buf.ptr, gl.GL_DYNAMIC_DRAW);
+
+        // Update index buffer.
+        gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.index_buf_id);
+        gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, num_indexes * 2), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
+
+        gl.drawElements(gl.GL_TRIANGLES, num_indexes, self.mesh.index_buffer_type, 0);
+        self.mesh.reset();
+    }
+
+    pub fn setDepthTest(self: *Renderer, depth_test: bool) void {
+        if (self.depth_test == depth_test) {
+            return;
+        }
+        if (depth_test) {
+            gl.enable(gl.GL_DEPTH_TEST);
+        } else {
+            gl.disable(gl.GL_DEPTH_TEST);
+        }
+        self.depth_test = depth_test;
+    }
+};

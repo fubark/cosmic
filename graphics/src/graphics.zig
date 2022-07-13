@@ -92,6 +92,11 @@ pub const Graphics = struct {
         .Test => testg.Graphics,
         else => stdx.unsupported(),
     },
+    /// Part of migration towards specific backend.
+    new_impl: switch (Backend) {
+        .OpenGL => gl.Graphics,
+        else => void,
+    },
     alloc: std.mem.Allocator,
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
@@ -99,11 +104,14 @@ pub const Graphics = struct {
 
     const Self = @This();
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
+    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: f32) !void {
         self.initCommon(alloc);
         switch (Backend) {
-            .OpenGL => gpu.Graphics.initGL(&self.impl, alloc, dpr) catch |err| {
-                stdx.panicFmt("{}", .{err});
+            .OpenGL => {
+                try gl.Graphics.init(&self.new_impl, alloc);
+                try gpu.Graphics.initGL(&self.impl, alloc, &self.new_impl.renderer, dpr);
+                self.new_impl.gpu_ctx = &self.impl;
+                self.new_impl.renderer.image_store = &self.impl.image_store;
             },
             .WasmCanvas => canvas.Graphics.init(&self.impl, alloc),
             .Test => testg.Graphics.init(&self.impl, alloc),
@@ -123,6 +131,7 @@ pub const Graphics = struct {
             .svg_parser = svg.SvgParser.init(alloc),
             .text_buf = std.ArrayList(u8).init(alloc),
             .impl = undefined,
+            .new_impl = undefined,
         };
 
         if (FontRendererBackend == .Freetype) {
@@ -138,7 +147,11 @@ pub const Graphics = struct {
         self.svg_parser.deinit();
         self.text_buf.deinit();
         switch (Backend) {
-            .OpenGL, .Vulkan => self.impl.deinit(),
+            .OpenGL => {
+                self.impl.deinit();
+                self.new_impl.deinit(self.alloc);
+            },
+            .Vulkan => self.impl.deinit(),
             .WasmCanvas => self.impl.deinit(),
             .Test => {},
             else => stdx.unsupported(),
@@ -458,7 +471,8 @@ pub const Graphics = struct {
 
     pub fn fillTriangle3D(self: *Self, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillTriangle3D(&self.impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
+            .OpenGL => gl.Graphics.fillTriangle3D(&self.new_impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
+            .Vulkan => gpu.Graphics.fillTriangle3D(&self.impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
             else => stdx.unsupported(),
         }
     }
@@ -1170,14 +1184,16 @@ pub const Graphics = struct {
     /// Draws the mesh with the current fill color.
     pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillMesh3D(&self.impl, xform, verts, indexes),
+            .OpenGL => gl.Graphics.fillMesh3D(&self.new_impl, xform, verts, indexes),
+            .Vulkan => gpu.Graphics.fillMesh3D(&self.impl, xform, verts, indexes),
             else => unsupported(),
         }
     }
 
     pub fn fillScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillScene3D(&self.impl, xform, scene),
+            .OpenGL => gl.Graphics.fillScene3D(&self.new_impl, xform, scene),
+            .Vulkan => gpu.Graphics.fillScene3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }

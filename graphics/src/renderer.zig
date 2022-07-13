@@ -45,7 +45,9 @@ pub const Renderer = struct {
             },
             .OpenGL => {
                 self.swapchain.init(alloc, win);
-                self.gctx.init(alloc, win.impl.dpr);
+                self.gctx.init(alloc, win.impl.dpr) catch |err| {
+                    stdx.panicFmt("{}", .{err});
+                };
             },
             else => {},
         }
