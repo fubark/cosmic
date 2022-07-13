@@ -76,3 +76,7 @@ const c_log = scoped(.c);
 pub export fn zig_log(buf: [*c]const u8) void {
     c_log.debug("{s}", .{ buf });
 }
+
+pub export fn zig_log_u32(buf: [*c]const u8, val: u32) void {
+    c_log.debug("{s}: {}", .{ buf, val });
+}

@@ -235,6 +235,8 @@
                     }
                     const ptr = wasm.exports.wasmUpdate(now_ms, wasm.inputLen);
                     processWasmResult(ptr);
+                    // Log current wasm memory size.
+                    // console.log('wasm memory', wasm.exports.memory.buffer.byteLength)
                 } catch (e) {
                     // Report error and stop the loop.
                     console.error(e);

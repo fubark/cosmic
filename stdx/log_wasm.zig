@@ -3,8 +3,13 @@ const builtin = @import("builtin");
 const stdx = @import("stdx.zig");
 
 extern "stdx" fn jsWarn(ptr: [*]const u8, len: usize) void;
-extern "stdx" fn jsLog(ptr: [*]const u8, len: usize) void;
+pub extern "stdx" fn jsLog(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsErr(ptr: [*]const u8, len: usize) void;
+
+const DebugLog = builtin.mode == .Debug and true;
+
+/// A seperate buffer is used for logging since it can be cleared after passing to js.
+var buf = std.ArrayList(u8).init(stdx.wasm.galloc);
 
 pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
     return struct {
@@ -12,12 +17,12 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             comptime format: []const u8,
             args: anytype,
         ) void {
-            if (builtin.mode == .Debug) {
+            if (DebugLog) {
                 const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-                const js_buf = &stdx.wasm.js_buffer;
-                js_buf.output_buf.clearRetainingCapacity();
-                std.fmt.format(js_buf.output_writer, "debug" ++ prefix ++ format, args) catch unreachable;
-                jsLog(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
+                buf.clearRetainingCapacity();
+                const writer = buf.writer();
+                std.fmt.format(writer, "debug" ++ prefix ++ format, args) catch unreachable;
+                jsLog(buf.items.ptr, buf.items.len);
             }
         }
 
@@ -26,10 +31,10 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-            const js_buf = &stdx.wasm.js_buffer;
-            js_buf.output_buf.clearRetainingCapacity();
-            std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
-            jsLog(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
+            buf.clearRetainingCapacity();
+            const writer = buf.writer();
+            std.fmt.format(writer, prefix ++ format, args) catch unreachable;
+            jsLog(buf.items.ptr, buf.items.len);
         }
 
         pub fn warn(
@@ -37,10 +42,10 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-            const js_buf = &stdx.wasm.js_buffer;
-            js_buf.output_buf.clearRetainingCapacity();
-            std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
-            jsWarn(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
+            buf.clearRetainingCapacity();
+            const writer = buf.writer();
+            std.fmt.format(writer, prefix ++ format, args) catch unreachable;
+            jsWarn(buf.items.ptr, buf.items.len);
         }
 
         pub fn err(
@@ -48,10 +53,10 @@ pub fn scoped(comptime Scope: @Type(.EnumLiteral)) type {
             args: anytype,
         ) void {
             const prefix = if (Scope == .default) ": " else "(" ++ @tagName(Scope) ++ "): ";
-            const js_buf = &stdx.wasm.js_buffer;
-            js_buf.output_buf.clearRetainingCapacity();
-            std.fmt.format(js_buf.output_writer, prefix ++ format, args) catch unreachable;
-            jsErr(js_buf.output_buf.items.ptr, js_buf.output_buf.items.len);
+            buf.clearRetainingCapacity();
+            const writer = buf.writer();
+            std.fmt.format(writer, prefix ++ format, args) catch unreachable;
+            jsErr(buf.items.ptr, buf.items.len);
         }
     };
 }
