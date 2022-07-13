@@ -1,9 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const stdx = @import("stdx");
-const t = stdx.testing;
-const log = stdx.log.scoped(.platform);
 const sdl = @import("sdl");
+
+pub const GraphicsBackend = @import("backend.zig").GraphicsBackend;
 
 const input_sdl = @import("input_sdl.zig");
 pub const initSdlKeyDownEvent = input_sdl.initKeyDownEvent;
@@ -56,12 +56,11 @@ pub const Window = window.Window;
 pub const quit = window.quit;
 
 pub const WindowResizeEvent = struct {
-    const Self = @This();
-
+    /// Logical sizes.
     width: u16,
     height: u16,
 
-    pub fn init(width: u16, height: u16) Self {
+    pub fn init(width: u16, height: u16) WindowResizeEvent {
         return .{
             .width = width,
             .height = height,

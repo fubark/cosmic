@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
+const build_options = @import("build_options");
 const stdx = @import("stdx");
 const Vec3 = stdx.math.Vec3;
 const Vec4 = stdx.math.Vec4;
@@ -8,6 +9,8 @@ const Quaternion = stdx.math.Quaternion;
 const Transform = stdx.math.Transform;
 const fatal = stdx.fatal;
 const platform = @import("platform");
+const GraphicsBackend = platform.GraphicsBackend;
+const gfx_backend = std.enums.nameCast(GraphicsBackend, build_options.GraphicsBackend);
 const graphics = @import("graphics");
 const glslang = @import("glslang");
 const Color = graphics.Color;
@@ -363,16 +366,131 @@ fn update(delta_ms: f32) void {
 
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
-        return helper.wasmInit(&app, "Counter");
+        _ = wasmInitApp(&app, "Cosmic");
+        init() catch fatal();
+        return stdx.wasm.js_buffer.writeResult();
     }
 
     export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
-        return helper.wasmUpdate(cur_time_ms, input_buffer_len, &app, update);
+        return wasmUpdateApp(cur_time_ms, input_buffer_len, &app, update);
     }
 
     /// Not that useful since it's a long lived process in the browser.
     export fn wasmDeinit() void {
+        deinit(app.alloc);
         app.deinit();
         stdx.wasm.deinit();
     }
 } else struct {};
+
+fn onWindowResize(_: ?*anyopaque, e: platform.WindowResizeEvent) void {
+    // Update cameras.
+    app.cam.init2D(e.width, e.height);
+
+    // platform.Window's resize handler should have updated the sizes already so getAspectRatio should be accurate.
+    const aspect = app.win.getAspectRatio();
+    main_cam.updatePerspective3D(60, aspect, 0.1, 1000, gfx_backend);
+}
+
+pub const App = struct {
+    gctx: *graphics.Graphics,
+    renderer: graphics.Renderer,
+    cam: graphics.Camera,
+    dispatcher: platform.EventDispatcher,
+    win: platform.Window,
+    fps_limiter: graphics.DefaultFpsLimiter,
+    quit: bool,
+    last_frame_time_ms: f64,
+    alloc: std.mem.Allocator,
+
+    pub fn init(self: *App, title: []const u8) void {
+        const alloc = stdx.heap.getDefaultAllocator();
+        self.alloc = alloc;
+        self.dispatcher = platform.EventDispatcher.init(alloc);
+
+        self.win = platform.Window.init(alloc, .{
+            .title = title,
+            .width = 1200,
+            .height = 800,
+            .high_dpi = true,
+            .resizable = true,
+            .mode = .Windowed,
+            .anti_alias = false,
+        }) catch unreachable;
+        self.win.addDefaultHandlers(&self.dispatcher);
+        self.dispatcher.addOnWindowResize(null, onWindowResize);
+
+        self.renderer.init(alloc, &self.win);
+        self.gctx = self.renderer.getGraphics();
+        self.gctx.setClearColor(Color.init(20, 20, 20, 255));
+
+        self.cam.init2D(self.win.getWidth(), self.win.getHeight());
+
+        // Create an fps limiter in case vsync is off or not supported.
+        self.fps_limiter = graphics.DefaultFpsLimiter.init(60);
+        self.quit = false;
+
+        const S = struct {
+            fn onQuit(ptr: ?*anyopaque) void {
+                const self_ = stdx.mem.ptrCastAlign(*App, ptr.?);
+                self_.quit = true;
+            }
+        };
+        self.dispatcher.addOnQuit(self, S.onQuit);
+
+        if (builtin.target.isWasm()) {
+            self.last_frame_time_ms = stdx.time.getMillisTime();
+        }
+    }
+
+    pub fn runEventLoop(self: *App, comptime update_fn: fn (delta_ms: f32) void) void {
+        while (!app.quit) {
+            self.dispatcher.processEvents();
+
+            self.renderer.beginFrame(self.cam);
+            self.fps_limiter.beginFrame();
+            const delta_ms = self.fps_limiter.getLastFrameDeltaMs();
+            update_fn(delta_ms);
+            self.renderer.endFrame();
+
+            const delay = self.fps_limiter.endFrame();
+            if (delay > 0) {
+                platform.delay(delay);
+            }
+        }
+    }
+
+    pub fn deinit(self: *App) void {
+        self.dispatcher.deinit();
+        self.renderer.deinit(self.alloc);
+        self.win.deinit();
+        stdx.heap.deinitDefaultAllocator();
+    }
+};
+
+pub fn wasmUpdateApp(cur_time_ms: f64, input_buffer_len: u32, app_: *App, comptime update_fn: fn (delta_ms: f32) void) *const u8 {
+    // Since C++ init code adds atexits, this should trigger an exit call to invoke them.
+    defer stdx.wasm.flushAtExits();
+
+    // Update the input buffer view.
+    stdx.wasm.js_buffer.input_buf.items.len = input_buffer_len;
+
+    const delta_ms = cur_time_ms - app_.last_frame_time_ms;
+    app_.last_frame_time_ms = cur_time_ms;
+
+    app_.dispatcher.processEvents();
+    app_.renderer.beginFrame(app_.cam);
+
+    update_fn(@floatCast(f32, delta_ms));
+
+    app_.renderer.endFrame();
+    return stdx.wasm.js_buffer.writeResult();
+}
+
+pub fn wasmInitApp(app_: *App, title: []const u8) *const u8 {
+    defer stdx.wasm.flushAtExits();
+    const alloc = stdx.heap.getDefaultAllocator();
+    stdx.wasm.init(alloc);
+    app_.init(title);
+    return stdx.wasm.js_buffer.writeResult();
+}
