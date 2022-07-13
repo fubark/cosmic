@@ -420,8 +420,12 @@ const BuilderContext = struct {
 
         const step = self.builder.addSharedLibrary(name, path, .unversioned);
         // const step = self.builder.addStaticLibrary(name, path);
+        step.setMainPkgPath(".");
         self.setBuildMode(step);
         self.setTarget(step);
+
+        // Set enough stack size. 128KB.
+        step.stack_size = 1024 * 128;
 
         self.addDeps(step) catch unreachable;
 
