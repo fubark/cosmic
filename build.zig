@@ -418,47 +418,54 @@ const BuilderContext = struct {
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const step = self.builder.addSharedLibrary(name, path, .unversioned);
+        const wasm = self.builder.addSharedLibrary(name, path, .unversioned);
         // const step = self.builder.addStaticLibrary(name, path);
-        step.setMainPkgPath(".");
-        self.setBuildMode(step);
-        self.setTarget(step);
+        wasm.setMainPkgPath(".");
+        self.setBuildMode(wasm);
+        self.setTarget(wasm);
 
         // Set enough stack size. 128KB.
-        step.stack_size = 1024 * 128;
+        wasm.stack_size = 1024 * 128;
 
-        self.addDeps(step) catch unreachable;
+        const opts_step = self.createDefaultBuildOptions();
+        const pkg = opts_step.getPackage("build_options");
+        wasm.addPackage(pkg);
 
-        _ = self.addInstallArtifact(step);
+        const graphics_backend = backend.getGraphicsBackend(wasm);
+        opts_step.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
+
+        self.addDeps(wasm) catch unreachable;
+
+        _ = self.addInstallArtifact(wasm);
         // This is needed for wasm builds or the main .wasm file won't output to the custom directory. 
-        self.setOutputDir(step, step.install_step.?.dest_dir.custom);
+        self.setOutputDir(wasm, wasm.install_step.?.dest_dir.custom);
 
-        self.copyAssets(step);
+        self.copyAssets(wasm);
 
         // Create copy of index.html.
         var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm/index.html"), self.fromRoot("./lib/wasm/gen-index.html"));
-        step.step.dependOn(&cp.step);
+        wasm.step.dependOn(&cp.step);
 
         // Replace wasm file name in gen-index.html
         const index_path = self.fromRoot("./lib/wasm/gen-index.html");
         const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
-        step.step.dependOn(&replace.step);
+        wasm.step.dependOn(&replace.step);
 
         // Install gen-index.html
-        const install_index = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/gen-index.html", "index.html");
-        step.step.dependOn(&install_index.step);
+        const install_index = self.addStepInstallFile(wasm, srcPath() ++ "/lib/wasm/gen-index.html", "index.html");
+        wasm.step.dependOn(&install_index.step);
 
         // graphics.js
         // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/graphics-canvas.js", "graphics.js");
-        const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/graphics-webgl2.js", "graphics.js");
-        step.step.dependOn(&install_graphics.step);
+        const install_graphics = self.addStepInstallFile(wasm, srcPath() ++ "/lib/wasm/graphics-webgl2.js", "graphics.js");
+        wasm.step.dependOn(&install_graphics.step);
 
         // stdx.js
-        const install_stdx = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/stdx.js", "stdx.js");
-        step.step.dependOn(&install_stdx.step);
+        const install_stdx = self.addStepInstallFile(wasm, srcPath() ++ "/lib/wasm/stdx.js", "stdx.js");
+        wasm.step.dependOn(&install_stdx.step);
 
-        return step;
+        return wasm;
     }
 
     /// dst_rel_path is relative to the step's custom dest directory.
