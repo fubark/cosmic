@@ -1,13 +1,17 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const Mat4 = stdx.math.Mat4;
+const Mat3 = stdx.math.Mat3;
+const Vec3 = stdx.math.Vec3;
 const gl = @import("gl");
 const GLtextureId = gl.GLuint;
 
 const graphics = @import("../../graphics.zig");
-const TexShaderVertex = graphics.gpu.TexShaderVertex;
-const TextureId = graphics.gpu.TextureId;
-const Mesh = graphics.gpu.Mesh;
+const gpu = graphics.gpu;
+const TexShaderVertex = gpu.TexShaderVertex;
+const TextureId = gpu.TextureId;
+const Mesh = gpu.Mesh;
+const shaders = @import("shaders.zig");
 const log = stdx.log.scoped(.gl_renderer);
 
 /// Initial buffer sizes
@@ -32,7 +36,7 @@ pub const Renderer = struct {
     image_store: *graphics.gpu.ImageStore,
 
     /// Pipelines.
-    pipelines: graphics.gl.Pipelines,
+    pipelines: Pipelines,
 
     /// State.
     depth_test: bool,
@@ -69,9 +73,10 @@ pub const Renderer = struct {
 
         // Initialize pipelines.
         self.pipelines = .{
-            .tex = graphics.gl.shaders.TexShader.init(self.vert_buf_id),
-            .gradient = graphics.gl.shaders.GradientShader.init(self.vert_buf_id),
-            .plane = try graphics.gl.shaders.PlaneShader.init(self.vert_buf_id),
+            .tex = try shaders.TexShader.init(self.vert_buf_id),
+            .gradient = try shaders.GradientShader.init(self.vert_buf_id),
+            .plane = try shaders.PlaneShader.init(self.vert_buf_id),
+            .tex_pbr = try shaders.TexPbrShader.init(alloc, self.vert_buf_id),
         };
 
         // Enable blending by default.
@@ -117,6 +122,20 @@ pub const Renderer = struct {
         self.pushCurrentElements();
     }
 
+    pub fn pushTexPbr3D(self: *Renderer, mvp: Mat4, model: Mat4, normal: Mat3, mat: graphics.Material, light: gpu.ShaderCamera, tex_id: TextureId) void {
+        const gl_tex_id = self.image_store.getTexture(tex_id).inner.tex_id;
+        self.setDepthTest(true);
+        self.pipelines.tex_pbr.bind(mvp, model, normal, gl_tex_id, mat, light);
+        gl.bindVertexArray(self.pipelines.tex_pbr.shader.vao_id);
+        self.pushCurrentElements();
+    }
+
+    pub fn ensurePushMeshData(self: *Renderer, verts: []const TexShaderVertex, indexes: []const u16) void {
+        self.ensureUnusedBuffer(verts.len, indexes.len);
+        const vert_start = self.mesh.addVertices(verts);
+        self.mesh.addDeltaIndices(vert_start, indexes);
+    }
+
     /// Ensures that the buffer has enough space.
     pub fn ensureUnusedBuffer(self: *Renderer, vert_inc: usize, index_inc: usize) void {
         if (!self.mesh.ensureUnusedBuffer(vert_inc, index_inc)) {
@@ -155,5 +174,19 @@ pub const Renderer = struct {
             gl.disable(gl.GL_DEPTH_TEST);
         }
         self.depth_test = depth_test;
+    }
+};
+
+pub const Pipelines = struct {
+    tex: shaders.TexShader,
+    gradient: shaders.GradientShader,
+    plane: shaders.PlaneShader,
+    tex_pbr: shaders.TexPbrShader,
+
+    pub fn deinit(self: Pipelines) void {
+        self.tex.deinit();
+        self.tex_pbr.deinit();
+        self.gradient.deinit();
+        self.plane.deinit();
     }
 };

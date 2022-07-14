@@ -52,8 +52,11 @@ extern "graphics" fn jsGlActiveTexture(texture: u32) void;
 extern "graphics" fn jsGlDeleteTexture(texture: u32) void;
 extern "graphics" fn jsGlUseProgram(program: u32) void;
 extern "graphics" fn jsGlUniformMatrix4fv(location: i32, transpose: u8, value_ptr: *const f32) void;
+extern "graphics" fn jsGlUniformMatrix3fv(location: i32, transpose: u8, value_ptr: *const f32) void;
 extern "graphics" fn jsGlUniform1i(location: i32, val: i32) void;
+extern "graphics" fn jsGlUniform1fv(location: i32, value_ptr: *const f32) void;
 extern "graphics" fn jsGlUniform2fv(location: i32, value_ptr: *const f32) void;
+extern "graphics" fn jsGlUniform3fv(location: i32, value_ptr: *const f32) void;
 extern "graphics" fn jsGlUniform4fv(location: i32, value_ptr: *const f32) void;
 extern "graphics" fn jsGlBufferData(target: u32, data_ptr: ?*const u8, data_size: u32, usage: u32) void;
 extern "graphics" fn jsGlDrawElements(mode: u32, num_indices: u32, index_type: u32, index_offset: u32) void;
@@ -686,6 +689,20 @@ pub inline fn blitFramebuffer(srcX0: c.GLint, srcY0: c.GLint, srcX1: c.GLint, sr
     }
 }
 
+pub inline fn uniformMatrix3fv(location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void {
+    if (IsWasm) {
+        if (count == 1) {
+            jsGlUniformMatrix3fv(location, transpose, value);
+        } else {
+            stdx.unsupported();
+        }
+    } else if (IsWindows) {
+        winUniformMatrix3fv(location, count, transpose, value);
+    } else {
+        c.glUniformMatrix3fv(location, count, transpose, value);
+    }
+}
+
 pub inline fn uniformMatrix4fv(location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void {
     if (IsWasm) {
         if (count == 1) {
@@ -700,6 +717,20 @@ pub inline fn uniformMatrix4fv(location: c.GLint, count: c.GLsizei, transpose: c
     }
 }
 
+pub inline fn uniform1fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
+    if (IsWasm) {
+        if (count == 1) {
+            jsGlUniform1fv(location, value);
+        } else {
+            stdx.unsupported();
+        }
+    } else if (IsWindows) {
+        winUniform1fv(location, count, value);
+    } else {
+        c.glUniform1fv(location, count, value);
+    }
+}
+
 pub inline fn uniform2fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
     if (IsWasm) {
         if (count == 1) {
@@ -711,6 +742,20 @@ pub inline fn uniform2fv(location: c.GLint, count: c.GLsizei, value: [*c]const c
         winUniform2fv(location, count, value);
     } else {
         c.glUniform2fv(location, count, value);
+    }
+}
+
+pub inline fn uniform3fv(location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void {
+    if (IsWasm) {
+        if (count == 1) {
+            jsGlUniform3fv(location, value);
+        } else {
+            stdx.unsupported();
+        }
+    } else if (IsWindows) {
+        winUniform3fv(location, count, value);
+    } else {
+        c.glUniform3fv(location, count, value);
     }
 }
 
@@ -754,8 +799,11 @@ var winCompileShader: fn (shader: c.GLuint) void = undefined;
 var winGetShaderiv: fn (shader: c.GLuint, pname: c.GLenum, params: [*c]c.GLint) void = undefined;
 var winBindBuffer: fn (target: c.GLenum, buffer: c.GLuint) void = undefined;
 var winBufferData: fn (target: c.GLenum, size: c.GLsizeiptr, data: ?*const anyopaque, usage: c.GLenum) void = undefined;
+var winUniformMatrix3fv: fn (location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void = undefined;
 var winUniformMatrix4fv: fn (location: c.GLint, count: c.GLsizei, transpose: c.GLboolean, value: [*c]const c.GLfloat) void = undefined;
+var winUniform1fv: fn (location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void = undefined;
 var winUniform2fv: fn (location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void = undefined;
+var winUniform3fv: fn (location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void = undefined;
 var winUniform4fv: fn (location: c.GLint, count: c.GLsizei, value: [*c]const c.GLfloat) void = undefined;
 var winGetUniformLocation: fn (program: c.GLuint, name: [*c]const c.GLchar) c.GLint = undefined;
 var winUniform1i: fn (location: c.GLint, v0: c.GLint) void = undefined;
@@ -814,7 +862,10 @@ pub fn initWinGL_Functions() void {
     loadGlFunc(&winBlitFramebuffer, "glBlitFramebuffer");
     loadGlFunc(&winBlendEquation, "glBlendEquation");
     loadGlFunc(&winUniformMatrix4fv, "glUniformMatrix4fv");
+    loadGlFunc(&winUniformMatrix3fv, "glUniformMatrix3fv");
+    loadGlFunc(&winUniform1fv, "glUniform1fv");
     loadGlFunc(&winUniform2fv, "glUniform2fv");
+    loadGlFunc(&winUniform3fv, "glUniform3fv");
     loadGlFunc(&winUniform4fv, "glUniform4fv");
     loadGlFunc(&winGetUniformLocation, "glGetUniformLocation");
     loadGlFunc(&winUniform1i, "glUniform1i");

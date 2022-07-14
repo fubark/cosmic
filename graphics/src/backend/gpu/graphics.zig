@@ -85,9 +85,7 @@ pub const Graphics = struct {
 
     white_tex: image.ImageTex,
     inner: switch (Backend) {
-        .OpenGL => struct {
-            pipelines: graphics.gl.Pipelines,
-        },
+        .OpenGL => void,
         .Vulkan => struct {
             ctx: VkContext,
             renderer: *gvk.Renderer,
@@ -2011,7 +2009,7 @@ pub const Graphics = struct {
         self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
         self.batcher.mesh.addMaterial(mat);
 
-        self.batcher.pushMeshData(mesh.verts, mesh.indexes);
+        self.batcher.ensurePushMeshData(mesh.verts, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
     }
 

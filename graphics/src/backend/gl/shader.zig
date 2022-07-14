@@ -87,7 +87,12 @@ pub const Shader = struct {
         gl.deleteShader(self.vert_id);
     }
 
-    pub fn getUniformLocation(self: Self, name: [:0]const u8) gl.GLint {
-        return gl.getUniformLocation(self.prog_id, name);
+    pub fn getUniformLocation(self: Self, name: [:0]const u8) !gl.GLint {
+        const res = gl.getUniformLocation(self.prog_id, name);
+        if (res == -1) {
+            log.debug("Missing uniform: {s}", .{name});
+            return error.Missing;
+        }
+        return res;
     }
 };

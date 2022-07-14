@@ -693,6 +693,7 @@ pub const Graphics = struct {
         var src_width: c_int = undefined;
         var src_height: c_int = undefined;
         var channels: c_int = undefined;
+        // Does not alter channels.
         const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
         defer stbi.stbi_image_free(bitmap);
         _ = stbi.stbi_write_bmp(path, src_width, src_height, channels, &bitmap[0]);
@@ -1162,7 +1163,8 @@ pub const Graphics = struct {
 
     pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: GLTFscene, mat: Material) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawScenePbrCustom3D(&self.impl, xform, scene, mat),
+            .OpenGL => gl.Graphics.drawScenePbrCustom3D(&self.new_impl, xform, scene, mat),
+            .Vulkan => gpu.Graphics.drawScenePbrCustom3D(&self.impl, xform, scene, mat),
             else => unsupported(),
         }
     }

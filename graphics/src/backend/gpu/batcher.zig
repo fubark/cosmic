@@ -547,10 +547,8 @@ pub const Batcher = struct {
         self.mesh.addVertexData(num_verts, num_indices, data);
     }
 
-    pub fn pushMeshData(self: *Batcher, verts: []const TexShaderVertex, indexes: []const u16) void {
-        if (!self.ensureUnusedBuffer(verts.len, indexes.len)) {
-            self.endCmd();
-        }
+    pub fn ensurePushMeshData(self: *Batcher, verts: []const TexShaderVertex, indexes: []const u16) void {
+        self.ensureUnusedBuffer(verts.len, indexes.len);
         const vert_start = self.mesh.addVertices(verts);
         self.mesh.addDeltaIndices(vert_start, indexes);
     }
@@ -607,7 +605,6 @@ pub const Batcher = struct {
                         }
                     },
                     .Anim3D => stdx.panic("anim 3d"),
-                    .TexPbr3D => stdx.panic("tex pbr 3d"),
                     .AnimPbr3D => stdx.panic("anim pbr 3d"),
                     .Normal => stdx.panic("normal"),
                     .Tex => {
@@ -623,6 +620,7 @@ pub const Batcher = struct {
                         gl.bindVertexArray(self.inner.renderer.pipelines.gradient.shader.vao_id);
                     },
                     .Tex3D,
+                    .TexPbr3D,
                     .Custom => unsupported(),
                 }
 

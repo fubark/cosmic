@@ -7,22 +7,9 @@ const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
 pub const Shader = @import("shader.zig").Shader;
-pub const shaders = @import("shaders.zig");
 pub const Renderer = @import("renderer.zig").Renderer;
 const TexShaderVertex = gpu.TexShaderVertex;
 const log = stdx.log.scoped(.gl_graphics);
-
-pub const Pipelines = struct {
-    tex: shaders.TexShader,
-    gradient: shaders.GradientShader,
-    plane: shaders.PlaneShader,
-
-    pub fn deinit(self: Pipelines) void {
-        self.tex.deinit();
-        self.gradient.deinit();
-        self.plane.deinit();
-    }
-};
 
 pub const Graphics = struct {
     renderer: Renderer,
@@ -85,6 +72,36 @@ pub const Graphics = struct {
         }
         self.renderer.pushDeltaIndices(vert_start, mesh.indexes);
         self.renderer.pushTex3D(mvp.mat, self.gpu_ctx.white_tex.tex_id);
+    }
+
+    pub fn drawScenePbrCustom3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene, mat: graphics.Material) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            for (node.primitives) |prim| {
+                self.drawMeshPbrCustom3D(xform, prim, mat);
+            }
+        }
+    }
+
+    pub fn drawMeshPbrCustom3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D, mat: graphics.Material) void {
+        self.gpu_ctx.batcher.endCmd();
+        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        // Compute normal matrix for lighting.
+        const normal = xform.toRotationMat();
+        self.renderer.ensurePushMeshData(mesh.verts, mesh.indexes);
+        const tex_id = if (mesh.image_id) |image_id| b: {
+            const img = self.renderer.image_store.images.getNoCheck(image_id);
+            break :b img.tex_id;
+        } else self.gpu_ctx.white_tex.tex_id;
+
+        const light = gpu.ShaderCamera{
+            .cam_pos = self.gpu_ctx.cur_cam_world_pos,
+            .light_vec = self.gpu_ctx.light_vec,
+            .light_color = self.gpu_ctx.light_color,
+            .light_vp = undefined,
+            .enable_shadows = false,
+        };
+        self.renderer.pushTexPbr3D(vp.mat, xform.mat, normal, mat, light, tex_id);
     }
 };
 
