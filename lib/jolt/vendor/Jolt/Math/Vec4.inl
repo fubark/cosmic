@@ -283,11 +283,15 @@ Vec4 Vec4::sOr(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vorrq_s32(inV1.mValue, inV2.mValue);
 #else
+    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) | reinterpret_cast<uint32&>(inV2.mValue.x);
+    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) | reinterpret_cast<uint32&>(inV2.mValue.y);
+    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) | reinterpret_cast<uint32&>(inV2.mValue.z);
+    uint32 w = reinterpret_cast<uint32&>(inV1.mValue.w) | reinterpret_cast<uint32&>(inV2.mValue.w);
     return Vec4(
-        static_cast<float>(static_cast<uint32>(inV1.mValue.x) | static_cast<uint32>(inV2.mValue.x)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.y) | static_cast<uint32>(inV2.mValue.y)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.z) | static_cast<uint32>(inV2.mValue.z)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.w) | static_cast<uint32>(inV2.mValue.w))
+        reinterpret_cast<float&>(x),
+        reinterpret_cast<float&>(y),
+        reinterpret_cast<float&>(z),
+        reinterpret_cast<float&>(w)
     );
 #endif
 }
@@ -299,11 +303,15 @@ Vec4 Vec4::sXor(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return veorq_s32(inV1.mValue, inV2.mValue);
 #else
+    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) ^ reinterpret_cast<uint32&>(inV2.mValue.x);
+    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) ^ reinterpret_cast<uint32&>(inV2.mValue.y);
+    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) ^ reinterpret_cast<uint32&>(inV2.mValue.z);
+    uint32 w = reinterpret_cast<uint32&>(inV1.mValue.w) ^ reinterpret_cast<uint32&>(inV2.mValue.w);
     return Vec4(
-        static_cast<float>(static_cast<uint32>(inV1.mValue.x) ^ static_cast<uint32>(inV2.mValue.x)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.y) ^ static_cast<uint32>(inV2.mValue.y)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.z) ^ static_cast<uint32>(inV2.mValue.z)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.w) ^ static_cast<uint32>(inV2.mValue.w))
+        reinterpret_cast<float&>(x),
+        reinterpret_cast<float&>(y),
+        reinterpret_cast<float&>(z),
+        reinterpret_cast<float&>(w)
     );
 #endif
 }
@@ -315,11 +323,15 @@ Vec4 Vec4::sAnd(Vec4Arg inV1, Vec4Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vandq_s32(inV1.mValue, inV2.mValue);
 #else
+    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) & reinterpret_cast<uint32&>(inV2.mValue.x);
+    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) & reinterpret_cast<uint32&>(inV2.mValue.y);
+    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) & reinterpret_cast<uint32&>(inV2.mValue.z);
+    uint32 w = reinterpret_cast<uint32&>(inV1.mValue.w) & reinterpret_cast<uint32&>(inV2.mValue.w);
     return Vec4(
-        static_cast<float>(static_cast<uint32>(inV1.mValue.x) & static_cast<uint32>(inV2.mValue.x)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.y) & static_cast<uint32>(inV2.mValue.y)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.z) & static_cast<uint32>(inV2.mValue.z)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.w) & static_cast<uint32>(inV2.mValue.w))
+        reinterpret_cast<float&>(x),
+        reinterpret_cast<float&>(y),
+        reinterpret_cast<float&>(z),
+        reinterpret_cast<float&>(w)
     );
 #endif
 }

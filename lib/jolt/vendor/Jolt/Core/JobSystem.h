@@ -10,7 +10,7 @@
 #include <Jolt/Core/StaticArray.h>
 
 JPH_SUPPRESS_WARNINGS_STD_BEGIN
-#include <atomic>
+#include <Jolt/atomic.h>
 JPH_SUPPRESS_WARNINGS_STD_END
 
 JPH_NAMESPACE_BEGIN
@@ -139,6 +139,9 @@ public:
 
 	/// Wait for a set of jobs to be finished, note that only 1 thread can be waiting on a barrier at a time
 	virtual void			WaitForJobs(Barrier *inBarrier) = 0;
+
+    virtual void RunJobs(int inThreadIndex) = 0;
+
 
 protected:
 	/// A class that contains information for a single unit of work

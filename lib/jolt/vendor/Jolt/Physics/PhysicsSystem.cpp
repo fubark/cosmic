@@ -562,6 +562,10 @@ void PhysicsSystem::Update(float inDeltaTime, int inCollisionSteps, int inIntegr
 		barrier->AddJobs(handles.data(), handles.size());
 	}
 
+    #if defined(JPH_SINGLE_THREAD)
+    inJobSystem->RunJobs(0);
+    #endif
+
 	// Wait until all jobs finish
 	// Note we don't just wait for the last job. If we would and another job
 	// would be scheduled in between there is the possibility of a deadlock.

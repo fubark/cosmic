@@ -202,6 +202,11 @@ pub fn build(b: *Builder) !void {
     const test_file = ctx.createTestFileStep(ctx.path, null);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
 
+    const test_jolt = jolt.createTest(b, target, mode, .{}).run();
+    // const test_jolt = jolt.createTest(b, target, mode, .{ .multi_threaded = false, .enable_simd = false }).run();
+    // const test_jolt = jolt.createTest(b, target, mode, .{ .multi_threaded = false }).run();
+    b.step("test-jolt", "Test jolt library.").dependOn(&test_jolt.step);
+
     {
         const step = b.addLog("", .{});
         const build_exe = ctx.createBuildExeStep(null);
@@ -599,7 +604,7 @@ const BuilderContext = struct {
     }
 
     fn isWasmTarget(self: Self) bool {
-        return self.target.getCpuArch() == .wasm32 or self.target.getCpuArch() == .wasm64;
+        return self.target.getCpuArch().isWasm();
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
@@ -661,8 +666,12 @@ const BuilderContext = struct {
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
-            jolt.buildAndLink(step);
-            glslang.buildAndLink(step);
+            if (step.target.getCpuArch().isWasm()) {
+                jolt.buildAndLink(step, .{ .multi_threaded = false, .enable_simd = false });
+            } else {
+                jolt.buildAndLink(step, .{});
+                glslang.buildAndLink(step);
+            }
         }
         if (self.link_audio) {
             maudio.buildAndLink(step);

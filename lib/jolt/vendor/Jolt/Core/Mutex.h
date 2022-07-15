@@ -7,9 +7,9 @@
 #include <Jolt/Core/NonCopyable.h>
 
 JPH_SUPPRESS_WARNINGS_STD_BEGIN
-#include <mutex>
-#include <shared_mutex>
-#include <thread>
+#include <Jolt/mutex.h>
+#include <Jolt/shared_mutex.h>
+#include <Jolt/thread.h>
 JPH_SUPPRESS_WARNINGS_STD_END
 
 JPH_NAMESPACE_BEGIN

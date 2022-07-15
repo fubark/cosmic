@@ -24,7 +24,7 @@ class FPFlushDenormals : public FPControlWord<FP_FZ, FP_FZ> { };
 
 #else
 
-#error Unsupported CPU architecture
+class FPFlushDenormals : public FPControlWord<0, 0> {};
 
 #endif
 

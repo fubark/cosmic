@@ -7,9 +7,9 @@
 #include <Jolt/Core/FixedSizeFreeList.h>
 
 JPH_SUPPRESS_WARNINGS_STD_BEGIN
-#include <thread>
-#include <mutex>
-#include <condition_variable>
+#include <Jolt/thread.h>
+#include <Jolt/mutex.h>
+#include <Jolt/condition_variable.h>
 JPH_SUPPRESS_WARNINGS_STD_END
 
 JPH_NAMESPACE_BEGIN
@@ -42,6 +42,7 @@ public:
 	virtual Barrier *		CreateBarrier() override;
 	virtual void			DestroyBarrier(Barrier *inBarrier) override;
 	virtual void			WaitForJobs(Barrier *inBarrier) override;
+    virtual void RunJobs(int inThreadIndex) override;
 
 	/// Change the max concurrency after initialization
 	void					SetNumThreads(int inNumThreads)					{ StopThreads(); StartThreads(inNumThreads); }

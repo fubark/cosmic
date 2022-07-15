@@ -16,7 +16,101 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addIncludeDir(srcPath() ++ "/");
 }
 
-pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
+const BuildOptions = struct {
+    multi_threaded: bool = true,
+    enable_simd: bool = true,
+};
+
+pub fn createTest(b: *std.build.Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode, opts: BuildOptions) *std.build.LibExeObjStep {
+    const exe = b.addExecutable("test-jolt", null);
+    exe.setBuildMode(mode);
+    exe.setTarget(target);
+    exe.addIncludeDir(srcPath() ++ "/vendor/UnitTests");
+    exe.addIncludeDir(srcPath() ++ "/vendor");
+    exe.linkLibCpp();
+
+    buildAndLink(exe, opts);
+
+    var c_flags = std.ArrayList([]const u8).init(b.allocator);
+    c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
+
+    if (!opts.multi_threaded) {
+        c_flags.append("-DJPH_SINGLE_THREAD=1") catch @panic("error");
+    }
+    if (!opts.enable_simd) {
+        c_flags.append("-DJPH_NO_SIMD=1") catch @panic("error");
+    }
+
+    var sources = std.ArrayList([]const u8).init(b.allocator);
+    if (opts.enable_simd) {
+        sources.appendSlice(&.{
+            "/vendor/UnitTests/Core/FPFlushDenormalsTest.cpp",
+        }) catch @panic("error");
+    }
+    // Many tests won't pass with simd disabled due to not having denormalize mechanism.
+    // However the Math tests should pass.
+    sources.appendSlice(&.{
+        "/vendor/UnitTests/Math/HalfFloatTests.cpp",
+        "/vendor/UnitTests/Math/MatrixTests.cpp",
+        "/vendor/UnitTests/Math/MathTests.cpp",
+        "/vendor/UnitTests/Math/VectorTests.cpp",
+        "/vendor/UnitTests/Math/DVec3Tests.cpp",
+        "/vendor/UnitTests/Math/Vec3Tests.cpp",
+        "/vendor/UnitTests/Math/Vec4Tests.cpp",
+        "/vendor/UnitTests/Math/UVec4Tests.cpp",
+        "/vendor/UnitTests/Math/QuatTests.cpp",
+        "/vendor/UnitTests/Math/Mat44Tests.cpp",
+        "/vendor/UnitTests/Geometry/GJKTests.cpp",
+        "/vendor/UnitTests/Geometry/EllipseTest.cpp",
+        "/vendor/UnitTests/Geometry/EPATests.cpp",
+        "/vendor/UnitTests/Geometry/RayAABoxTests.cpp",
+        "/vendor/UnitTests/Geometry/PlaneTests.cpp",
+        "/vendor/UnitTests/Geometry/ConvexHullBuilderTest.cpp",
+        "/vendor/UnitTests/Core/StringToolsTest.cpp",
+        "/vendor/UnitTests/Core/JobSystemTest.cpp",
+        "/vendor/UnitTests/Core/LinearCurveTest.cpp",
+        // Currently not building all of ObjectStream since it is an extra feature.
+        // "/vendor/UnitTests/ObjectStream/ObjectStreamTest.cpp",
+
+        "/vendor/UnitTests/Physics/PhysicsTests.cpp",
+        "/vendor/UnitTests/Physics/BroadPhaseTests.cpp",
+        "/vendor/UnitTests/Physics/ShapeTests.cpp",
+        "/vendor/UnitTests/Physics/PhysicsStepListenerTests.cpp",
+        "/vendor/UnitTests/Physics/ContactListenerTests.cpp",
+        "/vendor/UnitTests/Physics/TransformedShapeTests.cpp",
+        "/vendor/UnitTests/Physics/SensorTests.cpp",
+        "/vendor/UnitTests/Physics/ConvexVsTrianglesTest.cpp",
+        "/vendor/UnitTests/Physics/CollideShapeTests.cpp",
+        "/vendor/UnitTests/Physics/CollisionGroupTests.cpp",
+        "/vendor/UnitTests/Physics/RayShapeTests.cpp",
+        "/vendor/UnitTests/Physics/CastShapeTests.cpp",
+        "/vendor/UnitTests/Physics/CollidePointTests.cpp",
+        "/vendor/UnitTests/Physics/SliderConstraintTests.cpp",
+        "/vendor/UnitTests/Physics/PathConstraintTests.cpp",
+        "/vendor/UnitTests/Physics/ActiveEdgesTests.cpp",
+        "/vendor/UnitTests/Physics/SubShapeIDTest.cpp",
+        "/vendor/UnitTests/Physics/HeightFieldShapeTests.cpp",
+        "/vendor/UnitTests/Physics/MotionQualityLinearCastTests.cpp",
+        "/vendor/UnitTests/Physics/PhysicsDeterminismTests.cpp",
+        "/vendor/UnitTests/PhysicsTestContext.cpp",
+        
+        // This generates the main with doctest.
+        "/vendor/UnitTests/UnitTestFramework.cpp",
+    }) catch @panic("error");
+    for (sources.items) |src| {
+        exe.addCSourceFile(b.fmt("{s}{s}", .{srcPath(), src}), c_flags.items);
+    }
+
+    // Turns out UnitTestFramework generates the main and sets up the default allocator.
+    // c_flags.clearRetainingCapacity();
+    // c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
+    // c_flags.appendSlice(&.{ "-DDOCTEST_CONFIG_IMPLEMENT_WITH_MAIN=1" }) catch @panic("error");
+    // exe.addCSourceFile(b.fmt("{s}/doctest.cpp", .{srcPath()}), c_flags.items);
+
+    return exe;
+}
+
+pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
     const b = step.builder;
     const lib = b.addStaticLibrary("jolt", null);
     lib.setTarget(step.target);
@@ -26,11 +120,22 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
 
     var c_flags = std.ArrayList([]const u8).init(b.allocator);
     c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
-    // Since the TempAllocator does allocations aligned by 16bytes data structures that use JPH_CACHE_LINE_SIZE should also be aligned by 16bytes.
+    // Since the TempAllocator does allocations aligned by 16bytes, data structures that use JPH_CACHE_LINE_SIZE should also be aligned by 16bytes.
     c_flags.append("-DJPH_CACHE_LINE_SIZE=16") catch @panic("error");
     if (step.build_mode == .Debug) {
         c_flags.append("-DJPH_ENABLE_ASSERTS=1") catch @panic("error");
+        // For debugging:
         // c_flags.append("-O0") catch @panic("error");
+        if (step.target.getCpuArch().isWasm()) {
+            // Compile with some optimization or number of function locals will exceed max limit in browsers.
+            c_flags.append("-O1") catch @panic("error");
+        }
+    }
+    if (!opts.multi_threaded) {
+        c_flags.append("-DJPH_SINGLE_THREAD=1") catch @panic("error");
+    }
+    if (!opts.enable_simd) {
+        c_flags.append("-DJPH_NO_SIMD=1") catch @panic("error");
     }
 
     var sources = std.ArrayList([]const u8).init(b.allocator);
@@ -90,6 +195,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
         "/vendor/Jolt/Physics/Collision/GroupFilter.cpp",
         "/vendor/Jolt/Physics/Collision/GroupFilterTable.cpp",
         "/vendor/Jolt/Physics/Collision/ManifoldBetweenTwoFaces.cpp",
+        "/vendor/Jolt/Physics/Collision/NarrowPhaseQuery.cpp",
         "/vendor/Jolt/Physics/Collision/PhysicsMaterial.cpp",
         "/vendor/Jolt/Physics/Collision/PhysicsMaterialSimple.cpp",
         "/vendor/Jolt/Physics/Collision/TransformedShape.cpp",
@@ -132,9 +238,11 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
         "/vendor/Jolt/RegisterTypes.cpp",
         "/cjolt.cpp",
     }) catch @panic("error");
-
     for (sources.items) |src| {
         lib.addCSourceFile(b.fmt("{s}{s}", .{srcPath(), src}), c_flags.items);
+    }
+    if (!opts.multi_threaded) {
+        lib.addCSourceFile(b.fmt("{s}/vendor/Jolt/atomic.cpp", .{srcPath()}), c_flags.items);
     }
     step.linkLibrary(lib);
 }

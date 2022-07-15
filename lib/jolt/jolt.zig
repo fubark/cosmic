@@ -12,6 +12,9 @@ const c = @cImport({
     @cInclude("cjolt.h");
 });
 
+const Vec4 = c.Vec4;
+const Vec3 = c.Vec3;
+const Quat = c.Quat;
 pub const ObjectLayer = c.ObjectLayer;
 pub const BroadPhaseLayer = c.BroadPhaseLayer;
 pub const BodyId = c.BodyId;
@@ -73,18 +76,6 @@ fn vec4(x: f32, y: f32, z: f32, w: f32) Vec3 {
         },
     };
 }
-
-/// Explicit declaration since cImport ignores the alignment.
-const Vec4 = extern struct {
-    inner: extern struct {
-        x: f32,
-        y: f32,
-        z: f32,
-        w: f32,
-    } align(16),
-};
-const Vec3 = Vec4;
-const Quat = Vec4;
 
 pub const BodyCreationSettings = struct {
     inner: c.BodyCreationSettings,
@@ -239,12 +230,12 @@ pub const Body = struct {
 
     pub fn getPosition(self: Body) StdVec3 {
         const res = c.JPH__Body__GetPosition(self.handle);
-        return StdVec3.init(res.x, res.y, res.z);
+        return StdVec3.init(res.inner.x, res.inner.y, res.inner.z);
     }
 
     pub fn getRotation(self: Body) Quaternion {
         const res = c.JPH__Body__GetRotation(self.handle);
-        return Quaternion.init(StdVec4.init(res.x, res.y, res.z, res.w));
+        return Quaternion.init(StdVec4.init(res.inner.x, res.inner.y, res.inner.z, res.inner.w));
     }
 
     pub fn isActive(self: Body) bool {

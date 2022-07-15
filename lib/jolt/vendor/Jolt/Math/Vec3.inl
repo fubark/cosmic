@@ -289,10 +289,13 @@ Vec3 Vec3::sOr(Vec3Arg inV1, Vec3Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vorrq_s32(inV1.mValue, inV2.mValue);
 #else
+    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) | reinterpret_cast<uint32&>(inV2.mValue.x);
+    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) | reinterpret_cast<uint32&>(inV2.mValue.y);
+    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) | reinterpret_cast<uint32&>(inV2.mValue.z);
     return Vec3(
-        static_cast<float>(static_cast<uint32>(inV1.mValue.x) | static_cast<uint32>(inV2.mValue.x)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.y) | static_cast<uint32>(inV2.mValue.y)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.z) | static_cast<uint32>(inV2.mValue.z))
+        reinterpret_cast<float&>(x),
+        reinterpret_cast<float&>(y),
+        reinterpret_cast<float&>(z)
     );
 #endif
 }
@@ -304,12 +307,14 @@ Vec3 Vec3::sXor(Vec3Arg inV1, Vec3Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return veorq_s32(inV1.mValue, inV2.mValue);
 #else
-    return Type{
-        static_cast<float>(static_cast<uint32>(inV1.mValue.x) ^ static_cast<uint32>(inV2.mValue.x)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.y) ^ static_cast<uint32>(inV2.mValue.y)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.z) ^ static_cast<uint32>(inV2.mValue.z)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.w) ^ static_cast<uint32>(inV2.mValue.w))
-    };
+    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) ^ reinterpret_cast<uint32&>(inV2.mValue.x);
+    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) ^ reinterpret_cast<uint32&>(inV2.mValue.y);
+    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) ^ reinterpret_cast<uint32&>(inV2.mValue.z);
+    return Vec3(
+        reinterpret_cast<float&>(x),
+        reinterpret_cast<float&>(y),
+        reinterpret_cast<float&>(z)
+    );
 #endif
 }
 
@@ -320,12 +325,14 @@ Vec3 Vec3::sAnd(Vec3Arg inV1, Vec3Arg inV2)
 #elif defined(JPH_USE_NEON)
 	return vandq_s32(inV1.mValue, inV2.mValue);
 #else
-    return Type{
-        static_cast<float>(static_cast<uint32>(inV1.mValue.x) & static_cast<uint32>(inV2.mValue.x)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.y) & static_cast<uint32>(inV2.mValue.y)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.z) & static_cast<uint32>(inV2.mValue.z)),
-        static_cast<float>(static_cast<uint32>(inV1.mValue.w) & static_cast<uint32>(inV2.mValue.w))
-    };
+    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) & reinterpret_cast<uint32&>(inV2.mValue.x);
+    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) & reinterpret_cast<uint32&>(inV2.mValue.y);
+    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) & reinterpret_cast<uint32&>(inV2.mValue.z);
+    return Vec3(
+        reinterpret_cast<float&>(x),
+        reinterpret_cast<float&>(y),
+        reinterpret_cast<float&>(z)
+    );
 #endif
 }
 
@@ -652,7 +659,7 @@ Vec3 Vec3::Cross(Vec3Arg inV2) const
     Type t3 = vsubq_f32(t1, t2);
     return __builtin_shufflevector(t3, t3, 1, 2, 0, 0); // Assure Z and W are the same
 #else
-    float z = mValue.z * inV2.mValue.y - mValue.y * inV2.mValue.x;
+    float z = mValue.x * inV2.mValue.y - mValue.y * inV2.mValue.x;
     return Type{
         mValue.y * inV2.mValue.z - mValue.z * inV2.mValue.y,
         mValue.z * inV2.mValue.x - mValue.x * inV2.mValue.z,

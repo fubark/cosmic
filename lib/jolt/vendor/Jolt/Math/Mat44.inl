@@ -503,7 +503,6 @@ Mat44 Mat44::Transposed3x3() const
     result.mCol[0] = Vec4(mCol[0].mValue.x, mCol[1].mValue.x, mCol[2].mValue.x, 0);
     result.mCol[1] = Vec4(mCol[0].mValue.y, mCol[1].mValue.y, mCol[2].mValue.y, 0);
     result.mCol[2] = Vec4(mCol[0].mValue.z, mCol[1].mValue.z, mCol[2].mValue.z, 0);
-    return result;
 #endif
 	result.mCol[3] = Vec4(0, 0, 0, 1);
 	return result;

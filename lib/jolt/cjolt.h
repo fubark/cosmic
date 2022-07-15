@@ -11,12 +11,13 @@ typedef uint64_t uint64;
 typedef char bool;
 typedef uintptr_t usize;
 typedef struct Vec4 {
-    // Does zig support arrays in structs? Use components for now.
-    float x;
-    float y;
-    float z;
-    float w;
-} Vec4 __attribute__((aligned(16)));
+    struct {
+        float x;
+        float y;
+        float z;
+        float w;
+    } inner __attribute__((aligned(16)));
+} Vec4;
 typedef Vec4 Vec3;
 typedef Vec4 Quat;
 typedef struct Mat44 {

@@ -254,6 +254,9 @@ JobSystemThreadPool::JobSystemThreadPool(uint inMaxJobs, uint inMaxBarriers, int
 
 void JobSystemThreadPool::StartThreads(int inNumThreads)
 {
+#if defined(JPH_SINGLE_THREAD)
+	inNumThreads = 1;
+#endif
 	// Auto detect number of threads
 	if (inNumThreads < 0)
 		inNumThreads = thread::hardware_concurrency() - 1;
@@ -273,8 +276,13 @@ void JobSystemThreadPool::StartThreads(int inNumThreads)
 	// Start running threads
 	JPH_ASSERT(mThreads.empty());
 	mThreads.reserve(inNumThreads);
+#if defined(JPH_SINGLE_THREAD)
+	for (int i = 0; i < inNumThreads; ++i)
+		mThreads.emplace_back();
+#else
 	for (int i = 0; i < inNumThreads; ++i)
 		mThreads.emplace_back([this, i] { ThreadMain(i); });
+#endif
 }
 
 JobSystemThreadPool::~JobSystemThreadPool()
@@ -563,6 +571,35 @@ void JobSystemThreadPool::ThreadMain(int inThreadIndex)
 	}
 
 	JPH_PROFILE_THREAD_END();
+}
+
+void JobSystemThreadPool::RunJobs(int inThreadIndex) {
+	atomic<uint> &head = mHeads[inThreadIndex];
+
+	// Wait for jobs
+	mSemaphore.Acquire();
+
+	{
+		JPH_PROFILE("Executing Jobs");
+
+		// Loop over the queue
+		while (head != mTail)
+		{
+			// Exchange any job pointer we find with a nullptr
+			atomic<Job *> &job = mQueue[head & (cQueueLength - 1)];
+			if (job.load() != nullptr)
+			{
+				Job *job_ptr = job.exchange(nullptr);
+				if (job_ptr != nullptr)
+				{
+					// And execute it
+					job_ptr->Execute();
+					job_ptr->Release();
+				}
+			}
+			head++;
+		}
+	}
 }
 
 JPH_NAMESPACE_END

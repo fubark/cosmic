@@ -1,3 +1,2074 @@
+diff --git a/Jolt/Core/Core.h b/Jolt/Core/Core.h
+index ee2e83db..83e249cd 100644
+--- a/Jolt/Core/Core.h
++++ b/Jolt/Core/Core.h
+@@ -16,6 +16,8 @@
+ 	#define JPH_PLATFORM_ANDROID
+ #elif defined(__linux__)
+ 	#define JPH_PLATFORM_LINUX
++#elif defined(__wasm__)
++	#define JPH_PLATFORM_LINUX
+ #elif defined(__APPLE__)
+     #include <TargetConditionals.h>
+     #if defined(TARGET_OS_IPHONE) && !TARGET_OS_IPHONE
+@@ -95,10 +97,34 @@
+ 	#define JPH_CPU_ARM64
+ 	#define JPH_USE_NEON
+ 	#define JPH_CPU_ADDRESS_BITS 64
++#elif defined(__wasm__)
++	#define JPH_CPU_WASM
++    #define JPH_SINGLE_THREAD
++	#define JPH_CPU_ADDRESS_BITS 32
+ #else
+ 	#error Unsupported CPU architecture
+ #endif
+ 
++#if defined(JPH_NO_SIMD)
++    #undef JPH_USE_SSE
++    #undef JPH_USE_AVX
++    #undef JPH_USE_AVX2
++    #undef JPH_USE_AVX512
++    #undef JPH_USE_SSE4_1
++    #undef JPH_USE_SSE4_2
++    #undef JPH_USE_TZCNT
++    #undef JPH_USE_LZCNT
++    #undef JPH_USE_F16C
++#endif
++#if defined(JPH_SINGLE_THREAD)
++    // Provide stubs before libc++ includes them.
++    #include <Jolt/atomic.h>
++    #include <Jolt/condition_variable.h>
++    #include <Jolt/mutex.h>
++    #include <Jolt/shared_mutex.h>
++    #include <Jolt/thread.h>
++#endif
++
+ // Pragmas to store / restore the warning state and to disable individual warnings
+ #ifdef JPH_COMPILER_CLANG
+ #define JPH_PRAGMA(x)					_Pragma(#x)
+@@ -190,6 +216,9 @@
+ 		#define JPH_BREAKPOINT		__asm volatile ("int $0x3")
+ 	#elif defined(JPH_CPU_ARM64)
+ 		#define JPH_BREAKPOINT		__builtin_trap()
++    #elif defined(__wasm__)
++extern "C" void panic();
++        #define JPH_BREAKPOINT      panic()
+ 	#endif
+ #else
+ 	#error Unknown platform
+diff --git a/Jolt/Core/FPControlWord.h b/Jolt/Core/FPControlWord.h
+index 660b3df2..99e42e22 100644
+--- a/Jolt/Core/FPControlWord.h
++++ b/Jolt/Core/FPControlWord.h
+@@ -63,7 +63,20 @@ private:
+ 
+ #else
+ 
+-#error Unsupported CPU architecture
++/// Helper class that needs to be put on the stack to update the state of the floating point control word.
++/// This state is kept per thread.
++template <uint Value, uint Mask>
++class FPControlWord : public NonCopyable {
++private:
++	uint mPrevState;	
++public:
++    FPControlWord() {
++		mPrevState = 0;
++	}
++
++    ~FPControlWord() {
++	}
++};
+ 
+ #endif
+ 
+diff --git a/Jolt/Core/FPFlushDenormals.h b/Jolt/Core/FPFlushDenormals.h
+index 161dca8c..b503388d 100644
+--- a/Jolt/Core/FPFlushDenormals.h
++++ b/Jolt/Core/FPFlushDenormals.h
+@@ -24,7 +24,7 @@ class FPFlushDenormals : public FPControlWord<FP_FZ, FP_FZ> { };
+ 
+ #else
+ 
+-#error Unsupported CPU architecture
++class FPFlushDenormals : public FPControlWord<0, 0> {};
+ 
+ #endif
+ 
+diff --git a/Jolt/Core/FixedSizeFreeList.h b/Jolt/Core/FixedSizeFreeList.h
+index ae538a95..5df18d7c 100644
+--- a/Jolt/Core/FixedSizeFreeList.h
++++ b/Jolt/Core/FixedSizeFreeList.h
+@@ -7,7 +7,7 @@
+ #include <Jolt/Core/Mutex.h>
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <atomic>
++#include <Jolt/atomic.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+diff --git a/Jolt/Core/JobSystem.h b/Jolt/Core/JobSystem.h
+index 9efa58cd..7ca3aa9f 100644
+--- a/Jolt/Core/JobSystem.h
++++ b/Jolt/Core/JobSystem.h
+@@ -10,7 +10,7 @@
+ #include <Jolt/Core/StaticArray.h>
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <atomic>
++#include <Jolt/atomic.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+@@ -140,6 +140,9 @@ public:
+ 	/// Wait for a set of jobs to be finished, note that only 1 thread can be waiting on a barrier at a time
+ 	virtual void			WaitForJobs(Barrier *inBarrier) = 0;
+ 
++    virtual void RunJobs(int inThreadIndex) = 0;
++
++
+ protected:
+ 	/// A class that contains information for a single unit of work
+ 	class Job
+diff --git a/Jolt/Core/JobSystemThreadPool.cpp b/Jolt/Core/JobSystemThreadPool.cpp
+index 29107a5d..f18c78d9 100644
+--- a/Jolt/Core/JobSystemThreadPool.cpp
++++ b/Jolt/Core/JobSystemThreadPool.cpp
+@@ -254,6 +254,9 @@ JobSystemThreadPool::JobSystemThreadPool(uint inMaxJobs, uint inMaxBarriers, int
+ 
+ void JobSystemThreadPool::StartThreads(int inNumThreads)
+ {
++#if defined(JPH_SINGLE_THREAD)
++	inNumThreads = 1;
++#endif
+ 	// Auto detect number of threads
+ 	if (inNumThreads < 0)
+ 		inNumThreads = thread::hardware_concurrency() - 1;
+@@ -273,8 +276,13 @@ void JobSystemThreadPool::StartThreads(int inNumThreads)
+ 	// Start running threads
+ 	JPH_ASSERT(mThreads.empty());
+ 	mThreads.reserve(inNumThreads);
++#if defined(JPH_SINGLE_THREAD)
++	for (int i = 0; i < inNumThreads; ++i)
++		mThreads.emplace_back();
++#else
+ 	for (int i = 0; i < inNumThreads; ++i)
+ 		mThreads.emplace_back([this, i] { ThreadMain(i); });
++#endif
+ }
+ 
+ JobSystemThreadPool::~JobSystemThreadPool()
+@@ -565,4 +573,33 @@ void JobSystemThreadPool::ThreadMain(int inThreadIndex)
+ 	JPH_PROFILE_THREAD_END();
+ }
+ 
++void JobSystemThreadPool::RunJobs(int inThreadIndex) {
++	atomic<uint> &head = mHeads[inThreadIndex];
++
++	// Wait for jobs
++	mSemaphore.Acquire();
++
++	{
++		JPH_PROFILE("Executing Jobs");
++
++		// Loop over the queue
++		while (head != mTail)
++		{
++			// Exchange any job pointer we find with a nullptr
++			atomic<Job *> &job = mQueue[head & (cQueueLength - 1)];
++			if (job.load() != nullptr)
++			{
++				Job *job_ptr = job.exchange(nullptr);
++				if (job_ptr != nullptr)
++				{
++					// And execute it
++					job_ptr->Execute();
++					job_ptr->Release();
++				}
++			}
++			head++;
++		}
++	}
++}
++
+ JPH_NAMESPACE_END
+diff --git a/Jolt/Core/JobSystemThreadPool.h b/Jolt/Core/JobSystemThreadPool.h
+index aff436b1..019e4923 100644
+--- a/Jolt/Core/JobSystemThreadPool.h
++++ b/Jolt/Core/JobSystemThreadPool.h
+@@ -7,9 +7,9 @@
+ #include <Jolt/Core/FixedSizeFreeList.h>
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <thread>
+-#include <mutex>
+-#include <condition_variable>
++#include <Jolt/thread.h>
++#include <Jolt/mutex.h>
++#include <Jolt/condition_variable.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+@@ -42,6 +42,7 @@ public:
+ 	virtual Barrier *		CreateBarrier() override;
+ 	virtual void			DestroyBarrier(Barrier *inBarrier) override;
+ 	virtual void			WaitForJobs(Barrier *inBarrier) override;
++    virtual void RunJobs(int inThreadIndex) override;
+ 
+ 	/// Change the max concurrency after initialization
+ 	void					SetNumThreads(int inNumThreads)					{ StopThreads(); StartThreads(inNumThreads); }
+diff --git a/Jolt/Core/LockFreeHashMap.h b/Jolt/Core/LockFreeHashMap.h
+index 1ebe5efd..22e52ca0 100644
+--- a/Jolt/Core/LockFreeHashMap.h
++++ b/Jolt/Core/LockFreeHashMap.h
+@@ -6,7 +6,7 @@
+ #include <Jolt/Core/NonCopyable.h>
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <atomic>
++#include <Jolt/atomic.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+diff --git a/Jolt/Core/Mutex.h b/Jolt/Core/Mutex.h
+index a4f01369..db3792e9 100644
+--- a/Jolt/Core/Mutex.h
++++ b/Jolt/Core/Mutex.h
+@@ -7,9 +7,9 @@
+ #include <Jolt/Core/NonCopyable.h>
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <mutex>
+-#include <shared_mutex>
+-#include <thread>
++#include <Jolt/mutex.h>
++#include <Jolt/shared_mutex.h>
++#include <Jolt/thread.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+diff --git a/Jolt/Core/Reference.h b/Jolt/Core/Reference.h
+index 8f099460..19ae56f0 100644
+--- a/Jolt/Core/Reference.h
++++ b/Jolt/Core/Reference.h
+@@ -4,7 +4,7 @@
+ #pragma once
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <atomic>
++#include <Jolt/atomic.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+diff --git a/Jolt/Core/TickCounter.h b/Jolt/Core/TickCounter.h
+index 39ae3c0e..dc79bfa5 100644
+--- a/Jolt/Core/TickCounter.h
++++ b/Jolt/Core/TickCounter.h
+@@ -30,6 +30,8 @@ JPH_INLINE uint64 GetProcessorTickCount()
+ 	uint64 val;
+     asm volatile("mrs %0, cntvct_el0" : "=r" (val));
+ 	return val;
++#elif defined(JPH_CPU_WASM)
++	return 0;
+ #else
+ 	#error Undefined
+ #endif
+diff --git a/Jolt/Math/Mat44.inl b/Jolt/Math/Mat44.inl
+index 30d3fa6c..f683814a 100644
+--- a/Jolt/Math/Mat44.inl
++++ b/Jolt/Math/Mat44.inl
+@@ -236,7 +236,11 @@ Mat44 Mat44::operator * (Mat44Arg inM) const
+ 		result.mCol[i].mValue = t;
+ 	}
+ #else
+-	#error Unsupported CPU architecture
++    for (int i = 0; i < 4; ++i) {
++        Vec4 c = inM.mCol[i].mValue;
++        result.mCol[i] = (mCol[0] * Vec4::sReplicate(c.mValue.x)) + (mCol[1] * Vec4::sReplicate(c.mValue.y)) +
++            (mCol[2] * Vec4::sReplicate(c.mValue.z)) + (mCol[3] * Vec4::sReplicate(c.mValue.w));
++    }
+ #endif
+ 	return result;
+ }
+@@ -256,7 +260,9 @@ Vec3 Mat44::operator * (Vec3Arg inV) const
+ 	t = vaddq_f32(t, mCol[3].mValue); // Don't combine this with the first mul into a fused multiply add, causes precision issues
+ 	return Vec3::sFixW(t);
+ #else
+-	#error Unsupported CPU architecture
++    Vec4 t = (mCol[0] * Vec4::sReplicate(inV.mValue.x)) + (mCol[1] * Vec4::sReplicate(inV.mValue.y)) +
++        (mCol[2] * Vec4::sReplicate(inV.mValue.z)) + mCol[3];
++    return Vec3::sFixW(t.mValue);
+ #endif
+ }
+ 
+@@ -275,7 +281,8 @@ Vec4 Mat44::operator * (Vec4Arg inV) const
+ 	t = vmlaq_f32(t, mCol[3].mValue, vdupq_laneq_f32(inV.mValue, 3));
+ 	return t;
+ #else
+-	#error Unsupported CPU architecture
++    return mCol[0] * Vec4::sReplicate(inV.mValue.x) + mCol[1] * Vec4::sReplicate(inV.mValue.y) +
++        mCol[2] * Vec4::sReplicate(inV.mValue.z) + mCol[3] * Vec4::sReplicate(inV.mValue.w);
+ #endif
+ }
+ 
+@@ -292,7 +299,9 @@ Vec3 Mat44::Multiply3x3(Vec3Arg inV) const
+ 	t = vmlaq_f32(t, mCol[2].mValue, vdupq_laneq_f32(inV.mValue, 2));
+ 	return Vec3::sFixW(t);
+ #else
+-	#error Unsupported CPU architecture
++    Vec4 t = (mCol[0] * Vec4::sReplicate(inV.mValue.x)) + (mCol[1] * Vec4::sReplicate(inV.mValue.y)) +
++        (mCol[2] * Vec4::sReplicate(inV.mValue.z));
++    return Vec3::sFixW(t.mValue);
+ #endif
+ }
+ 
+@@ -336,7 +345,11 @@ Mat44 Mat44::Multiply3x3(Mat44Arg inM) const
+ 		result.mCol[i].mValue = t;
+ 	}
+ #else
+-	#error Unsupported CPU architecture
++    for (int i = 0; i < 3; ++i) {
++        Vec4 c = inM.mCol[i].mValue;
++        result.mCol[i] = (mCol[0] * Vec4::sReplicate(c.mValue.x)) + (mCol[1] * Vec4::sReplicate(c.mValue.y)) +
++            (mCol[2] * Vec4::sReplicate(c.mValue.z));
++    }
+ #endif
+ 	result.mCol[3] = Vec4(0, 0, 0, 1);
+ 	return result;
+@@ -453,7 +466,12 @@ Mat44 Mat44::Transposed() const
+ 	result.mCol[3].mValue = tmp4.val[1];
+ 	return result;
+ #else
+-	#error Unsupported CPU architecture
++    Mat44 result;
++    result.mCol[0] = Vec4(mCol[0].mValue.x, mCol[1].mValue.x, mCol[2].mValue.x, mCol[3].mValue.x);
++    result.mCol[1] = Vec4(mCol[0].mValue.y, mCol[1].mValue.y, mCol[2].mValue.y, mCol[3].mValue.y);
++    result.mCol[2] = Vec4(mCol[0].mValue.z, mCol[1].mValue.z, mCol[2].mValue.z, mCol[3].mValue.z);
++    result.mCol[3] = Vec4(mCol[0].mValue.w, mCol[1].mValue.w, mCol[2].mValue.w, mCol[3].mValue.w);
++    return result;
+ #endif
+ }
+ 
+@@ -481,7 +499,10 @@ Mat44 Mat44::Transposed3x3() const
+ 	result.mCol[1].mValue = tmp3.val[1];
+ 	result.mCol[2].mValue = tmp4.val[0];
+ #else
+-	#error Unsupported CPU architecture
++    Mat44 result;
++    result.mCol[0] = Vec4(mCol[0].mValue.x, mCol[1].mValue.x, mCol[2].mValue.x, 0);
++    result.mCol[1] = Vec4(mCol[0].mValue.y, mCol[1].mValue.y, mCol[2].mValue.y, 0);
++    result.mCol[2] = Vec4(mCol[0].mValue.z, mCol[1].mValue.z, mCol[2].mValue.z, 0);
+ #endif
+ 	result.mCol[3] = Vec4(0, 0, 0, 1);
+ 	return result;
+@@ -642,7 +663,146 @@ Mat44 Mat44::Inversed() const
+ 	result.mCol[3].mValue = vmulq_f32(det, minor3);
+ 	return result;
+ #else
+-	#error Undefined CPU architecture
++    float inv[16];
++
++    float m0 = mCol[0].mValue.x;
++    float m1 = mCol[1].mValue.x;
++    float m2 = mCol[2].mValue.x;
++    float m3 = mCol[3].mValue.x;
++    float m4 = mCol[0].mValue.y;
++    float m5 = mCol[1].mValue.y;
++    float m6 = mCol[2].mValue.y;
++    float m7 = mCol[3].mValue.y;
++    float m8 = mCol[0].mValue.z;
++    float m9 = mCol[1].mValue.z;
++    float m10 = mCol[2].mValue.z;
++    float m11 = mCol[3].mValue.z;
++    float m12 = mCol[0].mValue.w;
++    float m13 = mCol[1].mValue.w;
++    float m14 = mCol[2].mValue.w;
++    float m15 = mCol[3].mValue.w;
++
++    inv[0] = m5  * m10 * m15 - 
++             m5  * m11 * m14 - 
++             m9  * m6  * m15 + 
++             m9  * m7  * m14 +
++             m13 * m6  * m11 - 
++             m13 * m7  * m10;
++
++    inv[4] = -m4  * m10 * m15 + 
++              m4  * m11 * m14 + 
++              m8  * m6  * m15 - 
++              m8  * m7  * m14 - 
++              m12 * m6  * m11 + 
++              m12 * m7  * m10;
++
++    inv[8] = m4  * m9 * m15 - 
++             m4  * m11 * m13 - 
++             m8  * m5 * m15 + 
++             m8  * m7 * m13 + 
++             m12 * m5 * m11 - 
++             m12 * m7 * m9;
++
++    inv[12] = -m4  * m9 * m14 + 
++               m4  * m10 * m13 +
++               m8  * m5 * m14 - 
++               m8  * m6 * m13 - 
++               m12 * m5 * m10 + 
++               m12 * m6 * m9;
++
++    inv[1] = -m1  * m10 * m15 + 
++              m1  * m11 * m14 + 
++              m9  * m2 * m15 - 
++              m9  * m3 * m14 - 
++              m13 * m2 * m11 + 
++              m13 * m3 * m10;
++
++    inv[5] = m0  * m10 * m15 - 
++             m0  * m11 * m14 - 
++             m8  * m2 * m15 + 
++             m8  * m3 * m14 + 
++             m12 * m2 * m11 - 
++             m12 * m3 * m10;
++
++    inv[9] = -m0  * m9 * m15 + 
++              m0  * m11 * m13 + 
++              m8  * m1 * m15 - 
++              m8  * m3 * m13 - 
++              m12 * m1 * m11 + 
++              m12 * m3 * m9;
++
++    inv[13] = m0  * m9 * m14 - 
++              m0  * m10 * m13 - 
++              m8  * m1 * m14 + 
++              m8  * m2 * m13 + 
++              m12 * m1 * m10 - 
++              m12 * m2 * m9;
++
++    inv[2] = m1  * m6 * m15 - 
++             m1  * m7 * m14 - 
++             m5  * m2 * m15 + 
++             m5  * m3 * m14 + 
++             m13 * m2 * m7 - 
++             m13 * m3 * m6;
++
++    inv[6] = -m0  * m6 * m15 + 
++              m0  * m7 * m14 + 
++              m4  * m2 * m15 - 
++              m4  * m3 * m14 - 
++              m12 * m2 * m7 + 
++              m12 * m3 * m6;
++
++    inv[10] = m0  * m5 * m15 - 
++              m0  * m7 * m13 - 
++              m4  * m1 * m15 + 
++              m4  * m3 * m13 + 
++              m12 * m1 * m7 - 
++              m12 * m3 * m5;
++
++    inv[14] = -m0  * m5 * m14 + 
++               m0  * m6 * m13 + 
++               m4  * m1 * m14 - 
++               m4  * m2 * m13 - 
++               m12 * m1 * m6 + 
++               m12 * m2 * m5;
++
++    inv[3] = -m1 * m6 * m11 + 
++              m1 * m7 * m10 + 
++              m5 * m2 * m11 - 
++              m5 * m3 * m10 - 
++              m9 * m2 * m7 + 
++              m9 * m3 * m6;
++
++    inv[7] = m0 * m6 * m11 - 
++             m0 * m7 * m10 - 
++             m4 * m2 * m11 + 
++             m4 * m3 * m10 + 
++             m8 * m2 * m7 - 
++             m8 * m3 * m6;
++
++    inv[11] = -m0 * m5 * m11 + 
++               m0 * m7 * m9 + 
++               m4 * m1 * m11 - 
++               m4 * m3 * m9 - 
++               m8 * m1 * m7 + 
++               m8 * m3 * m5;
++
++    inv[15] = m0 * m5 * m10 - 
++              m0 * m6 * m9 - 
++              m4 * m1 * m10 + 
++              m4 * m2 * m9 + 
++              m8 * m1 * m6 - 
++              m8 * m2 * m5;
++
++    float det = m0 * inv[0] + m1 * inv[4] + m2 * inv[8] + m3 * inv[12];
++    det = 1.0f / det;
++    
++    Mat44 result;
++    result.mCol[0] = Vec4(inv[0], inv[4], inv[8], inv[12]) * det;
++    result.mCol[1] = Vec4(inv[1], inv[5], inv[9], inv[13]) * det;
++    result.mCol[2] = Vec4(inv[2], inv[6], inv[10], inv[14]) * det;
++    result.mCol[3] = Vec4(inv[3], inv[7], inv[11], inv[15]) * det;
++    return result;
+ #endif
+ }
+ 
+@@ -791,7 +951,33 @@ Mat44 Mat44::Adjointed3x3() const
+ 	result.mCol[3].mValue = v0001;
+ 	return result;
+ #else
+-	#error Undefined CPU architecture
++    float inv[9];
++    float m0 = mCol[0].mValue.x;
++    float m1 = mCol[1].mValue.x;
++    float m2 = mCol[2].mValue.x;
++    float m3 = mCol[0].mValue.y;
++    float m4 = mCol[1].mValue.y;
++    float m5 = mCol[2].mValue.y;
++    float m6 = mCol[0].mValue.z;
++    float m7 = mCol[1].mValue.z;
++    float m8 = mCol[2].mValue.z;
++
++    inv[0] = m4*m8 - m5*m7;
++    inv[1] = m2*m7 - m1*m8;
++    inv[2] = m1*m5 - m2*m4;
++    inv[3] = m5*m6 - m3*m8;
++    inv[4] = m0*m8 - m2*m6;
++    inv[5] = m2*m3 - m0*m5;
++    inv[6] = m3*m7 - m4*m6;
++    inv[7] = m1*m6 - m0*m7;
++    inv[8] = m0*m4 - m1*m3;
++
++    Mat44 result;
++    result.mCol[0] = Vec4(inv[0], inv[3], inv[6], 0);
++    result.mCol[1] = Vec4(inv[1], inv[4], inv[7], 0);
++    result.mCol[2] = Vec4(inv[2], inv[5], inv[8], 0);
++    result.mCol[3] = Vec4(0, 0, 0, 1);
++    return result;
+ #endif
+ }
+ 
+@@ -938,7 +1124,36 @@ Mat44 Mat44::Inversed3x3() const
+ 	result.mCol[3].mValue = v0001;
+ 	return result;
+ #else
+-	#error Undefined CPU architecture
++    float inv[9];
++    float m0 = mCol[0].mValue.x;
++    float m1 = mCol[1].mValue.x;
++    float m2 = mCol[2].mValue.x;
++    float m3 = mCol[0].mValue.y;
++    float m4 = mCol[1].mValue.y;
++    float m5 = mCol[2].mValue.y;
++    float m6 = mCol[0].mValue.z;
++    float m7 = mCol[1].mValue.z;
++    float m8 = mCol[2].mValue.z;
++
++    inv[0] = m4*m8 - m5*m7;
++    inv[1] = m2*m7 - m1*m8;
++    inv[2] = m1*m5 - m2*m4;
++    inv[3] = m5*m6 - m3*m8;
++    inv[4] = m0*m8 - m2*m6;
++    inv[5] = m2*m3 - m0*m5;
++    inv[6] = m3*m7 - m4*m6;
++    inv[7] = m1*m6 - m0*m7;
++    inv[8] = m0*m4 - m1*m3;
++
++    float det = m0*inv[0] + m1*inv[3] + m2*inv[6];
++    det = 1.0f / det;
++
++    Mat44 result;
++    result.mCol[0] = Vec4(inv[0], inv[3], inv[6], 0) * det;
++    result.mCol[1] = Vec4(inv[1], inv[4], inv[7], 0) * det;
++    result.mCol[2] = Vec4(inv[2], inv[5], inv[8], 0) * det;
++    result.mCol[3] = Vec4(0, 0, 0, 1);
++    return result;
+ #endif
+ }
+ 
+diff --git a/Jolt/Math/Math.h b/Jolt/Math/Math.h
+index 673e37ca..8899f343 100644
+--- a/Jolt/Math/Math.h
++++ b/Jolt/Math/Math.h
+@@ -109,6 +109,10 @@ inline uint CountTrailingZeros(uint32 inValue)
+ 	#endif
+ #elif defined(JPH_CPU_ARM64)
+ 	return __builtin_clz(__builtin_bitreverse32(inValue));
++#elif defined(JPH_CPU_WASM)
++    if (inValue == 0)
++        return 32;
++    return __builtin_ctz(inValue);
+ #else
+ 	#error Undefined
+ #endif
+@@ -133,6 +137,10 @@ inline uint CountLeadingZeros(uint32 inValue)
+ 	#endif
+ #elif defined(JPH_CPU_ARM64)
+ 	return __builtin_clz(inValue);
++#elif defined(JPH_CPU_WASM)
++    if (inValue == 0)
++        return 32;
++    return __builtin_clz(inValue);
+ #else
+ 	#error Undefined
+ #endif
+diff --git a/Jolt/Math/UVec4.h b/Jolt/Math/UVec4.h
+index 53ca3304..9a126e87 100644
+--- a/Jolt/Math/UVec4.h
++++ b/Jolt/Math/UVec4.h
+@@ -18,7 +18,7 @@ public:
+ #elif defined(JPH_USE_NEON)
+ 	using Type = uint32x4_t;
+ #else
+-	#error Undefined
++    using Type = struct { uint32 x; uint32 y; uint32 z; uint32 w; };
+ #endif
+ 
+ 	/// Constructor
+@@ -97,7 +97,10 @@ public:
+ 	JPH_INLINE uint32			GetZ() const										{ return vgetq_lane_u32(mValue, 2); }
+ 	JPH_INLINE uint32			GetW() const										{ return vgetq_lane_u32(mValue, 3); }
+ #else
+-	#error Undefined
++	JPH_INLINE uint32			GetX() const										{ return mU32[0]; }
++	JPH_INLINE uint32			GetY() const										{ return mU32[1]; }
++	JPH_INLINE uint32			GetZ() const										{ return mU32[2]; }
++	JPH_INLINE uint32			GetW() const										{ return mU32[3]; }
+ #endif
+ 
+ 	/// Set individual components
+diff --git a/Jolt/Math/UVec4.inl b/Jolt/Math/UVec4.inl
+index 9d12b7df..1a48c86f 100644
+--- a/Jolt/Math/UVec4.inl
++++ b/Jolt/Math/UVec4.inl
+@@ -12,7 +12,7 @@ UVec4::UVec4(uint32 inX, uint32 inY, uint32 inZ, uint32 inW)
+ 	uint32x2_t zw = vcreate_u32(static_cast<uint64>(inZ) | (static_cast<uint64>(inW) << 32));
+ 	mValue = vcombine_u32(xy, zw);
+ #else
+-	#error Undefined CPU architecture
++    mValue = { inX, inY, inZ, inW };
+ #endif
+ }
+ 
+@@ -34,7 +34,7 @@ UVec4 UVec4::Swizzle() const
+ #elif defined(JPH_USE_NEON)
+ 	return __builtin_shufflevector(mValue, mValue, SwizzleX, SwizzleY, SwizzleZ, SwizzleW);
+ #else
+-	#error Unsupported CPU architecture
++    return { mU32[SwizzleX], mU32[SwizzleY], mU32[SwizzleZ], mU32[SwizzleW] };
+ #endif
+ }
+ 
+@@ -45,7 +45,7 @@ UVec4 UVec4::sZero()
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_n_u32(0);
+ #else
+-	#error Unsupported CPU architecture
++    return { 0, 0, 0, 0 };
+ #endif
+ }
+ 
+@@ -56,7 +56,7 @@ UVec4 UVec4::sReplicate(uint32 inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_n_u32(inV);
+ #else
+-	#error Unsupported CPU architecture
++    return { inV, inV, inV, inV };
+ #endif
+ }
+ 
+@@ -67,7 +67,7 @@ UVec4 UVec4::sLoadInt(const uint32 *inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vsetq_lane_u32(*inV, vdupq_n_u32(0), 0);
+ #else
+-	#error Unsupported CPU architecture
++    return { *inV, 0, 0, 0 };
+ #endif
+ }
+ 
+@@ -78,7 +78,7 @@ UVec4 UVec4::sLoadInt4(const uint32 *inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vld1q_u32(inV);
+ #else
+-	#error Unsupported CPU architecture
++    return { inV[0], inV[1], inV[2], inV[3] };
+ #endif
+ }
+ 
+@@ -89,7 +89,7 @@ UVec4 UVec4::sLoadInt4Aligned(const uint32 *inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vld1q_u32(inV); // ARM doesn't make distinction between aligned or not
+ #else
+-	#error Unsupported CPU architecture
++    return { inV[0], inV[1], inV[2], inV[3] };
+ #endif
+ }
+ 
+@@ -138,7 +138,12 @@ UVec4 UVec4::sEquals(UVec4Arg inV1, UVec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vceqq_u32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return {
++        (inV1.mValue.x == inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y == inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z == inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w == inV2.mValue.w) ? 0xFFFFFFFF : 0
++    };
+ #endif
+ }
+ 
+@@ -163,7 +168,7 @@ UVec4 UVec4::sOr(UVec4Arg inV1, UVec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vorrq_u32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { inV1.mValue.x | inV2.mValue.x, inV1.mValue.y | inV2.mValue.y, inV1.mValue.z | inV2.mValue.z, inV1.mValue.w | inV2.mValue.w };
+ #endif
+ }
+ 
+@@ -174,7 +179,7 @@ UVec4 UVec4::sXor(UVec4Arg inV1, UVec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return veorq_u32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { inV1.mValue.x ^ inV2.mValue.x, inV1.mValue.y ^ inV2.mValue.y, inV1.mValue.z ^ inV2.mValue.z, inV1.mValue.w ^ inV2.mValue.w };
+ #endif
+ }
+ 
+@@ -185,7 +190,7 @@ UVec4 UVec4::sAnd(UVec4Arg inV1, UVec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vandq_u32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { inV1.mValue.x & inV2.mValue.x, inV1.mValue.y & inV2.mValue.y, inV1.mValue.z & inV2.mValue.z, inV1.mValue.w & inV2.mValue.w };
+ #endif
+ }
+ 
+@@ -197,7 +202,7 @@ UVec4 UVec4::sNot(UVec4Arg inV1)
+ #elif defined(JPH_USE_NEON)
+ 	return vmvnq_u32(inV1.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { ~inV1.mValue.x, ~inV1.mValue.y, ~inV1.mValue.z, ~inV1.mValue.w };
+ #endif
+ }
+ 
+@@ -236,7 +241,7 @@ UVec4 UVec4::operator + (UVec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vaddq_u32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.x + inV2.mValue.x, mValue.y + inV2.mValue.y, mValue.z + inV2.mValue.z, mValue.w + inV2.mValue.w };
+ #endif
+ }
+ 
+@@ -247,7 +252,7 @@ UVec4 &UVec4::operator += (UVec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vaddq_u32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = { mValue.x + inV2.mValue.x, mValue.y + inV2.mValue.y, mValue.z + inV2.mValue.z, mValue.w + inV2.mValue.w };
+ #endif
+ 	return *this;
+ }
+@@ -259,7 +264,7 @@ UVec4 UVec4::SplatX() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_u32(mValue, 0);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.x, mValue.x, mValue.x, mValue.x };
+ #endif
+ }
+ 
+@@ -270,7 +275,7 @@ UVec4 UVec4::SplatY() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_u32(mValue, 1);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.y, mValue.y, mValue.y, mValue.y };
+ #endif
+ }
+ 
+@@ -281,7 +286,7 @@ UVec4 UVec4::SplatZ() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_u32(mValue, 2);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.z, mValue.z, mValue.z, mValue.z };
+ #endif
+ }
+ 
+@@ -292,7 +297,7 @@ UVec4 UVec4::SplatW() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_u32(mValue, 3);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.w, mValue.w, mValue.w, mValue.w };
+ #endif
+ }
+ 
+@@ -303,7 +308,7 @@ Vec4 UVec4::ToFloat() const
+ #elif defined(JPH_USE_NEON)
+ 	return vcvtq_f32_s32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { static_cast<float>(mValue.x), static_cast<float>(mValue.y), static_cast<float>(mValue.z), static_cast<float>(mValue.w) };
+ #endif
+ }
+ 
+@@ -314,7 +319,7 @@ Vec4 UVec4::ReinterpretAsFloat() const
+ #elif defined(JPH_USE_NEON)
+ 	return vreinterpretq_f32_s32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return { reinterpret_cast<const float&>(mValue.x), reinterpret_cast<const float&>(mValue.y), reinterpret_cast<const float&>(mValue.z), reinterpret_cast<const float&>(mValue.w) };
+ #endif
+ }
+ 
+@@ -325,7 +330,10 @@ void UVec4::StoreInt4(uint32 *outV) const
+ #elif defined(JPH_USE_NEON)
+ 	vst1q_u32(outV, mValue);
+ #else
+-	#error Unsupported CPU architecture
++    outV[0] = mValue.x;
++    outV[1] = mValue.y;
++    outV[2] = mValue.z;
++    outV[3] = mValue.w;
+ #endif
+ }
+ 
+@@ -336,7 +344,10 @@ void UVec4::StoreInt4Aligned(uint32 *outV) const
+ #elif defined(JPH_USE_NEON)
+ 	vst1q_u32(outV, mValue); // ARM doesn't make distinction between aligned or not
+ #else
+-	#error Unsupported CPU architecture
++    outV[0] = mValue.x;
++    outV[1] = mValue.y;
++    outV[2] = mValue.z;
++    outV[3] = mValue.w;
+ #endif
+ }
+ 
+@@ -347,7 +358,11 @@ int UVec4::CountTrues() const
+ #elif defined(JPH_USE_NEON)
+     return vaddvq_u32(vshrq_n_u32(mValue, 31));
+ #else
+-	#error Unsupported CPU architecture
++    int count = (mValue.x >> 31) & 1;
++    count += (mValue.y >> 31) & 1;
++    count += (mValue.z >> 31) & 1;
++    count += (mValue.w >> 31) & 1;
++    return count;
+ #endif
+ }
+ 
+@@ -359,7 +374,20 @@ int UVec4::GetTrues() const
+     int32x4_t shift = { 0, 1, 2, 3 };
+     return vaddvq_u32(vshlq_u32(vshrq_n_u32(mValue, 31), shift));
+ #else
+-	#error Unsupported CPU architecture
++    int res = 0;
++    if (mValue.x & 1 << 31) {
++        res += 0b1;
++    }
++    if (mValue.y & 1 << 31) {
++        res += 0b10;
++    }
++    if (mValue.z & 1 << 31) {
++        res += 0b100;
++    }
++    if (mValue.w & 1 << 31) {
++        res += 0b1000;
++    }
++    return res;
+ #endif
+ }
+ 
+@@ -393,7 +421,7 @@ UVec4 UVec4::LogicalShiftLeft() const
+ #elif defined(JPH_USE_NEON)
+ 	return vshlq_n_u32(mValue, Count);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.x << Count, mValue.y << Count, mValue.z << Count, mValue.w << Count };
+ #endif
+ }
+ 
+@@ -407,7 +435,7 @@ UVec4 UVec4::LogicalShiftRight() const
+ #elif defined(JPH_USE_NEON)
+ 	return vshrq_n_u32(mValue, Count);
+ #else
+-	#error Unsupported CPU architecture
++    return { mValue.x >> Count, mValue.y >> Count, mValue.z >> Count, mValue.w >> Count };
+ #endif
+ }
+ 
+@@ -421,7 +449,12 @@ UVec4 UVec4::ArithmeticShiftRight() const
+ #elif defined(JPH_USE_NEON)
+ 	return vshrq_n_s32(mValue, Count);
+ #else
+-	#error Unsupported CPU architecture
++    return {
++		mValue.x & (1 << 31) ? ~(~mValue.x >> Count) : mValue.x >> Count,
++		mValue.y & (1 << 31) ? ~(~mValue.y >> Count) : mValue.y >> Count,
++		mValue.z & (1 << 31) ? ~(~mValue.z >> Count) : mValue.z >> Count,
++		mValue.w & (1 << 31) ? ~(~mValue.w >> Count) : mValue.w >> Count
++    };
+ #endif
+ }
+ 
+@@ -434,7 +467,12 @@ UVec4 UVec4::Expand4Uint16Lo() const
+ 	int16x4_t zero = vdup_n_s16(0);
+ 	return vcombine_s16(vzip1_s16(value, zero), vzip2_s16(value, zero));
+ #else
+-	#error Unsupported CPU architecture
++    return {
++        mValue.x & 0xFFFF,
++        mValue.x >> 16,
++        mValue.y & 0xFFFF,
++        mValue.y >> 16,
++    };
+ #endif
+ }
+ 
+@@ -447,7 +485,12 @@ UVec4 UVec4::Expand4Uint16Hi() const
+ 	int16x4_t zero = vdup_n_s16(0);
+ 	return vcombine_s16(vzip1_s16(value, zero), vzip2_s16(value, zero));
+ #else
+-	#error Unsupported CPU architecture
++    return {
++        mValue.z & 0xFFFF,
++        mValue.z >> 16,
++        mValue.w & 0xFFFF,
++        mValue.w >> 16,
++    };
+ #endif
+ }
+ 
+diff --git a/Jolt/Math/Vec3.h b/Jolt/Math/Vec3.h
+index f8a60721..2d311552 100644
+--- a/Jolt/Math/Vec3.h
++++ b/Jolt/Math/Vec3.h
+@@ -22,7 +22,7 @@ public:
+ #elif defined(JPH_USE_NEON)
+ 	using Type = float32x4_t;
+ #else
+-	#error Undefined
++    using Type = Vec4::Type;
+ #endif
+ 
+ 	/// Constructor
+@@ -115,7 +115,9 @@ public:
+ 	JPH_INLINE float			GetY() const									{ return vgetq_lane_f32(mValue, 1); }
+ 	JPH_INLINE float			GetZ() const									{ return vgetq_lane_f32(mValue, 2); }
+ #else
+-	#error Undefined
++	JPH_INLINE float			GetX() const									{ return mF32[0]; }
++	JPH_INLINE float			GetY() const									{ return mF32[1]; }
++	JPH_INLINE float			GetZ() const									{ return mF32[2]; }
+ #endif
+ 	
+ 	/// Set individual components
+diff --git a/Jolt/Math/Vec3.inl b/Jolt/Math/Vec3.inl
+index 6f17e61c..e6338123 100644
+--- a/Jolt/Math/Vec3.inl
++++ b/Jolt/Math/Vec3.inl
+@@ -55,7 +55,7 @@ Vec3::Vec3(const Float3 &inV)
+     float32x2_t zz = vdup_n_f32(inV.z); // Assure Z and W are the same
+     mValue = vcombine_f32(xy, zz);
+ #else
+-	#error Undefined CPU architecture
++    mValue = { inV.x, inV.y, inV.z, inV.z };
+ #endif
+ }
+ 
+@@ -68,7 +68,7 @@ Vec3::Vec3(float inX, float inY, float inZ)
+ 	uint32x2_t zz = vcreate_f32(static_cast<uint64>(*reinterpret_cast<uint32* >(&inZ)) | (static_cast<uint64>(*reinterpret_cast<uint32 *>(&inZ)) << 32));
+ 	mValue = vcombine_f32(xy, zz);
+ #else
+-	#error Undefined CPU architecture
++    mValue = { inX, inY, inZ, inZ };
+ #endif
+ }
+ 
+@@ -84,7 +84,7 @@ Vec3 Vec3::Swizzle() const
+ #elif defined(JPH_USE_NEON)
+ 	return __builtin_shufflevector(mValue, mValue, SwizzleX, SwizzleY, SwizzleZ, SwizzleZ);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ mF32[SwizzleX], mF32[SwizzleY], mF32[SwizzleZ], mF32[SwizzleZ] };
+ #endif
+ }
+ 
+@@ -95,7 +95,7 @@ Vec3 Vec3::sZero()
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_n_f32(0);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ 0, 0, 0, 0 };
+ #endif
+ }
+ 
+@@ -106,7 +106,7 @@ Vec3 Vec3::sReplicate(float inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_n_f32(inV);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ inV, inV, inV, inV };
+ #endif
+ }
+ 
+@@ -122,7 +122,7 @@ Vec3 Vec3::sLoadFloat3Unsafe(const Float3 &inV)
+ #elif defined(JPH_USE_NEON)
+ 	Type v = vld1q_f32(&inV.x);
+ #else
+-	#error Unsupported CPU architecture
++    Type v = { inV.x, inV.y, inV.z, (&inV.x)[3] };
+ #endif
+ 	return sFixW(v);
+ }
+@@ -134,7 +134,12 @@ Vec3 Vec3::sMin(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vminq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        std::min(inV1.mValue.x, inV2.mValue.x),
++        std::min(inV1.mValue.y, inV2.mValue.y),
++        std::min(inV1.mValue.z, inV2.mValue.z),
++        std::min(inV1.mValue.w, inV2.mValue.w),
++    };
+ #endif
+ }
+ 
+@@ -145,7 +150,12 @@ Vec3 Vec3::sMax(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vmaxq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        std::max(inV1.mValue.x, inV2.mValue.x),
++        std::max(inV1.mValue.y, inV2.mValue.y),
++        std::max(inV1.mValue.z, inV2.mValue.z),
++        std::max(inV1.mValue.w, inV2.mValue.w),
++    };
+ #endif
+ }
+ 
+@@ -161,7 +171,12 @@ UVec4 Vec3::sEquals(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vceqq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x == inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y == inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z == inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w == inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -172,7 +187,12 @@ UVec4 Vec3::sLess(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcltq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x < inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y < inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z < inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w < inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -183,7 +203,12 @@ UVec4 Vec3::sLessOrEqual(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcleq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4::Type{
++        (inV1.mValue.x <= inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y <= inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z <= inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w <= inV2.mValue.w) ? 0xFFFFFFFF : 0
++    };
+ #endif
+ }
+ 
+@@ -194,7 +219,12 @@ UVec4 Vec3::sGreater(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcgtq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4::Type{
++        (inV1.mValue.x > inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y > inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z > inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w > inV2.mValue.w) ? 0xFFFFFFFF : 0
++    };
+ #endif
+ }
+ 
+@@ -205,7 +235,12 @@ UVec4 Vec3::sGreaterOrEqual(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcgeq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4::Type{
++        (inV1.mValue.x >= inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y >= inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z >= inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w >= inV2.mValue.w) ? 0xFFFFFFFF : 0
++    };
+ #endif
+ }
+ 
+@@ -220,7 +255,11 @@ Vec3 Vec3::sFusedMultiplyAdd(Vec3Arg inMul1, Vec3Arg inMul2, Vec3Arg inAdd)
+ #elif defined(JPH_USE_NEON)
+ 	return vmlaq_f32(inAdd.mValue, inMul1.mValue, inMul2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec3(
++        inMul1.mValue.x * inMul2.mValue.x + inAdd.mValue.x,
++        inMul1.mValue.y * inMul2.mValue.y + inAdd.mValue.y,
++        inMul1.mValue.z * inMul2.mValue.z + inAdd.mValue.z
++    );
+ #endif
+ }
+ 
+@@ -250,7 +289,14 @@ Vec3 Vec3::sOr(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vorrq_s32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) | reinterpret_cast<uint32&>(inV2.mValue.x);
++    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) | reinterpret_cast<uint32&>(inV2.mValue.y);
++    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) | reinterpret_cast<uint32&>(inV2.mValue.z);
++    return Vec3(
++        reinterpret_cast<float&>(x),
++        reinterpret_cast<float&>(y),
++        reinterpret_cast<float&>(z)
++    );
+ #endif
+ }
+ 
+@@ -261,7 +307,14 @@ Vec3 Vec3::sXor(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return veorq_s32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) ^ reinterpret_cast<uint32&>(inV2.mValue.x);
++    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) ^ reinterpret_cast<uint32&>(inV2.mValue.y);
++    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) ^ reinterpret_cast<uint32&>(inV2.mValue.z);
++    return Vec3(
++        reinterpret_cast<float&>(x),
++        reinterpret_cast<float&>(y),
++        reinterpret_cast<float&>(z)
++    );
+ #endif
+ }
+ 
+@@ -272,7 +325,14 @@ Vec3 Vec3::sAnd(Vec3Arg inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vandq_s32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) & reinterpret_cast<uint32&>(inV2.mValue.x);
++    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) & reinterpret_cast<uint32&>(inV2.mValue.y);
++    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) & reinterpret_cast<uint32&>(inV2.mValue.z);
++    return Vec3(
++        reinterpret_cast<float&>(x),
++        reinterpret_cast<float&>(y),
++        reinterpret_cast<float&>(z)
++    );
+ #endif
+ }
+ 
+@@ -314,7 +374,12 @@ Vec3 Vec3::operator * (Vec3Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vmulq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        mValue.x * inV2.mValue.x,
++        mValue.y * inV2.mValue.y,
++        mValue.z * inV2.mValue.z,
++        mValue.w * inV2.mValue.w,
++    };
+ #endif
+ }
+ 
+@@ -325,7 +390,12 @@ Vec3 Vec3::operator * (float inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vmulq_n_f32(mValue, inV2);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        mValue.x * inV2,
++        mValue.y * inV2,
++        mValue.z * inV2,
++        mValue.w * inV2,
++    };
+ #endif
+ }
+ 
+@@ -336,7 +406,12 @@ Vec3 operator * (float inV1, Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vmulq_n_f32(inV2.mValue, inV1);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec3::Type{
++        inV1 * inV2.mValue.x,
++        inV1 * inV2.mValue.y,
++        inV1 * inV2.mValue.z,
++        inV1 * inV2.mValue.w,
++    };
+ #endif
+ }
+ 
+@@ -347,7 +422,12 @@ Vec3 Vec3::operator / (float inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vdivq_f32(mValue, vdupq_n_f32(inV2));
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        mValue.x / inV2,
++        mValue.y / inV2,
++        mValue.z / inV2,
++        mValue.w / inV2,
++    };
+ #endif
+ }
+ 
+@@ -358,7 +438,12 @@ Vec3 &Vec3::operator *= (float inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vmulq_n_f32(mValue, inV2);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x * inV2,
++        mValue.y * inV2,
++        mValue.z * inV2,
++        mValue.w * inV2,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -370,7 +455,12 @@ Vec3 &Vec3::operator *= (Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vmulq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x * inV2.mValue.x,
++        mValue.y * inV2.mValue.y,
++        mValue.z * inV2.mValue.z,
++        mValue.w * inV2.mValue.w,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -382,7 +472,12 @@ Vec3 &Vec3::operator /= (float inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vdivq_f32(mValue, vdupq_n_f32(inV2));
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x / inV2,
++        mValue.y / inV2,
++        mValue.z / inV2,
++        mValue.w / inV2,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -394,7 +489,12 @@ Vec3 Vec3::operator + (Vec3Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vaddq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        mValue.x + inV2.mValue.x,
++        mValue.y + inV2.mValue.y,
++        mValue.z + inV2.mValue.z,
++        mValue.w + inV2.mValue.w,
++    };
+ #endif
+ }
+ 
+@@ -405,7 +505,12 @@ Vec3 &Vec3::operator += (Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vaddq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x + inV2.mValue.x,
++        mValue.y + inV2.mValue.y,
++        mValue.z + inV2.mValue.z,
++        mValue.w + inV2.mValue.w,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -417,7 +522,12 @@ Vec3 Vec3::operator - () const
+ #elif defined(JPH_USE_NEON)
+ 	return vnegq_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        -mValue.x,
++        -mValue.y,
++        -mValue.z,
++        -mValue.w,
++    };
+ #endif
+ }
+ 
+@@ -428,7 +538,12 @@ Vec3 Vec3::operator - (Vec3Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vsubq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        mValue.x - inV2.mValue.x,
++        mValue.y - inV2.mValue.y,
++        mValue.z - inV2.mValue.z,
++        mValue.w - inV2.mValue.w,
++    };
+ #endif
+ }
+ 
+@@ -439,7 +554,12 @@ Vec3 &Vec3::operator -= (Vec3Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vsubq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x - inV2.mValue.x,
++        mValue.y - inV2.mValue.y,
++        mValue.z - inV2.mValue.z,
++        mValue.w - inV2.mValue.w,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -452,7 +572,12 @@ Vec3 Vec3::operator / (Vec3Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vdivq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{
++        mValue.x / inV2.mValue.x,
++        mValue.y / inV2.mValue.y,
++        mValue.z / inV2.mValue.z,
++        mValue.w / inV2.mValue.w,
++    };
+ #endif
+ }
+ 
+@@ -463,7 +588,7 @@ Vec4 Vec3::SplatX() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 0);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(mValue.x, mValue.x, mValue.x, mValue.x);
+ #endif
+ }
+ 
+@@ -474,7 +599,7 @@ Vec4 Vec3::SplatY() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 1);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ mValue.y, mValue.y, mValue.y, mValue.y };
+ #endif
+ }
+ 
+@@ -485,7 +610,7 @@ Vec4 Vec3::SplatZ() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 2);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ mValue.z, mValue.z, mValue.z, mValue.z };
+ #endif
+ }
+ 
+@@ -508,7 +633,7 @@ Vec3 Vec3::Abs() const
+ #elif defined(JPH_USE_NEON)
+ 	return vabsq_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec3(abs(mValue.x), abs(mValue.y), abs(mValue.z));
+ #endif
+ }
+ 
+@@ -534,7 +659,13 @@ Vec3 Vec3::Cross(Vec3Arg inV2) const
+     Type t3 = vsubq_f32(t1, t2);
+     return __builtin_shufflevector(t3, t3, 1, 2, 0, 0); // Assure Z and W are the same
+ #else
+-	#error Unsupported CPU architecture
++    float z = mValue.x * inV2.mValue.y - mValue.y * inV2.mValue.x;
++    return Type{
++        mValue.y * inV2.mValue.z - mValue.z * inV2.mValue.y,
++        mValue.z * inV2.mValue.x - mValue.x * inV2.mValue.z,
++        z,
++        z,
++    };
+ #endif
+ }
+ 
+@@ -623,7 +754,11 @@ Vec3 Vec3::Sqrt() const
+ #elif defined(JPH_USE_NEON)
+ 	return vsqrtq_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec3(
++        sqrt(mValue.x),
++        sqrt(mValue.y),
++        sqrt(mValue.z)
++    );
+ #endif
+ }
+ 
+@@ -684,7 +819,7 @@ bool Vec3::IsNaN() const
+ 	uint32x4_t is_equal = vceqq_f32(mValue, mValue); // If a number is not equal to itself it's a NaN
+ 	return vaddvq_u32(vandq_u32(is_equal, mask)) != 3;
+ #else
+-	#error Unsupported CPU architecture
++    return isnan(mValue.x) || isnan(mValue.y) || isnan(mValue.z);
+ #endif
+ }
+ 
+@@ -701,7 +836,9 @@ void Vec3::StoreFloat3(Float3 *outV) const
+     vst1_f32(&outV->x, xy);
+     vst1q_lane_f32(&outV->z, mValue, 2);
+ #else
+-	#error Unsupported CPU architecture
++    outV->x = mValue.x;
++    outV->y = mValue.y;
++    outV->z = mValue.z;
+ #endif
+ }
+ 
+@@ -712,7 +849,12 @@ UVec4 Vec3::ToInt() const
+ #elif defined(JPH_USE_NEON)
+ 	return vcvtq_u32_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        static_cast<uint32>(mValue.x),
++        static_cast<uint32>(mValue.y),
++        static_cast<uint32>(mValue.z),
++        static_cast<uint32>(mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -723,7 +865,12 @@ UVec4 Vec3::ReinterpretAsInt() const
+ #elif defined(JPH_USE_NEON)
+ 	return vreinterpretq_u32_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        reinterpret_cast<const uint32&>(mValue.x),
++        reinterpret_cast<const uint32&>(mValue.y),
++        reinterpret_cast<const uint32&>(mValue.z),
++        reinterpret_cast<const uint32&>(mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -768,7 +915,11 @@ Vec3 Vec3::GetSign() const
+ 	Type one = vdupq_n_f32(1.0f);
+ 	return vorrq_s32(vandq_s32(mValue, minus_one), one);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec3(
++        mValue.x < 0 ? -1.0f : 1.0f,
++        mValue.y < 0 ? -1.0f : 1.0f,
++        mValue.z < 0 ? -1.0f : 1.0f
++    );
+ #endif
+ }
+ 
+diff --git a/Jolt/Math/Vec4.h b/Jolt/Math/Vec4.h
+index 9f5cb6e5..7c984ee6 100644
+--- a/Jolt/Math/Vec4.h
++++ b/Jolt/Math/Vec4.h
+@@ -20,7 +20,7 @@ public:
+ #elif defined(JPH_USE_NEON)
+ 	using Type = float32x4_t;
+ #else
+-	#error Undefined
++    using Type = struct { float x; float y; float z; float w; };
+ #endif
+ 
+ 	/// Constructor
+@@ -108,7 +108,10 @@ public:
+ 	JPH_INLINE float			GetZ() const									{ return vgetq_lane_f32(mValue, 2); }
+ 	JPH_INLINE float			GetW() const									{ return vgetq_lane_f32(mValue, 3); }
+ #else
+-	#error Undefined
++	JPH_INLINE float			GetX() const									{ return mF32[0]; }
++	JPH_INLINE float			GetY() const									{ return mF32[1]; }
++	JPH_INLINE float			GetZ() const									{ return mF32[2]; }
++	JPH_INLINE float			GetW() const									{ return mF32[3]; }
+ #endif
+ 
+ 	/// Set individual components
+diff --git a/Jolt/Math/Vec4.inl b/Jolt/Math/Vec4.inl
+index 8f63605f..c10270d4 100644
+--- a/Jolt/Math/Vec4.inl
++++ b/Jolt/Math/Vec4.inl
+@@ -35,7 +35,7 @@ Vec4::Vec4(float inX, float inY, float inZ, float inW)
+ 	uint32x2_t zw = vcreate_f32(static_cast<uint64>(*reinterpret_cast<uint32* >(&inZ)) | (static_cast<uint64>(*reinterpret_cast<uint32 *>(&inW)) << 32));
+ 	mValue = vcombine_f32(xy, zw);
+ #else
+-	#error Undefined CPU architecture
++    mValue = { inX, inY, inZ, inW };
+ #endif
+ }
+ 
+@@ -52,7 +52,7 @@ Vec4 Vec4::Swizzle() const
+ #elif defined(JPH_USE_NEON)
+ 	return __builtin_shufflevector(mValue, mValue, SwizzleX, SwizzleY, SwizzleZ, SwizzleW);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ mF32[SwizzleX], mF32[SwizzleY], mF32[SwizzleZ], mF32[SwizzleW] };
+ #endif
+ }
+ 
+@@ -63,7 +63,7 @@ Vec4 Vec4::sZero()
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_n_f32(0);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ 0, 0, 0, 0 };
+ #endif
+ }
+ 
+@@ -74,7 +74,7 @@ Vec4 Vec4::sReplicate(float inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_n_f32(inV);
+ #else
+-	#error Unsupported CPU architecture
++    return Type{ inV, inV, inV, inV };
+ #endif
+ }
+ 
+@@ -90,18 +90,17 @@ Vec4 Vec4::sLoadFloat4(const Float4 *inV)
+ #elif defined(JPH_USE_NEON)
+ 	return vld1q_f32(&inV->x);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(inV->x, inV->y, inV->z, inV->w);
+ #endif
+ }
+ 
+-Vec4 Vec4::sLoadFloat4Aligned(const Float4 *inV)
+-{
++Vec4 Vec4::sLoadFloat4Aligned(const Float4 *inV) {
+ #if defined(JPH_USE_SSE)
+ 	return _mm_load_ps(&inV->x);
+ #elif defined(JPH_USE_NEON)
+ 	return vld1q_f32(&inV->x);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(inV->x, inV->y, inV->z, inV->w);
+ #endif
+ }
+ 
+@@ -138,7 +137,12 @@ Vec4 Vec4::sMin(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vminq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        std::min(inV1.mValue.x, inV2.mValue.x),
++        std::min(inV1.mValue.y, inV2.mValue.y),
++        std::min(inV1.mValue.z, inV2.mValue.z),
++        std::min(inV1.mValue.w, inV2.mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -149,7 +153,12 @@ Vec4 Vec4::sMax(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vmaxq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        std::max(inV1.mValue.x, inV2.mValue.x),
++        std::max(inV1.mValue.y, inV2.mValue.y),
++        std::max(inV1.mValue.z, inV2.mValue.z),
++        std::max(inV1.mValue.w, inV2.mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -160,7 +169,12 @@ UVec4 Vec4::sEquals(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vceqq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x == inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y == inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z == inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w == inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -171,7 +185,12 @@ UVec4 Vec4::sLess(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcltq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x < inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y < inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z < inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w < inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -182,7 +201,12 @@ UVec4 Vec4::sLessOrEqual(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcleq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x <= inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y <= inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z <= inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w <= inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -193,7 +217,12 @@ UVec4 Vec4::sGreater(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcgtq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x > inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y > inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z > inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w > inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -204,7 +233,12 @@ UVec4 Vec4::sGreaterOrEqual(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vcgeq_f32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        (inV1.mValue.x >= inV2.mValue.x) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.y >= inV2.mValue.y) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.z >= inV2.mValue.z) ? 0xFFFFFFFF : 0,
++        (inV1.mValue.w >= inV2.mValue.w) ? 0xFFFFFFFF : 0
++    );
+ #endif
+ }
+ 
+@@ -219,7 +253,12 @@ Vec4 Vec4::sFusedMultiplyAdd(Vec4Arg inMul1, Vec4Arg inMul2, Vec4Arg inAdd)
+ #elif defined(JPH_USE_NEON)
+ 	return vmlaq_f32(inAdd.mValue, inMul1.mValue, inMul2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        inMul1.mValue.x * inMul2.mValue.x + inAdd.mValue.x,
++        inMul1.mValue.y * inMul2.mValue.y + inAdd.mValue.y,
++        inMul1.mValue.z * inMul2.mValue.z + inAdd.mValue.z,
++        inMul1.mValue.w * inMul2.mValue.w + inAdd.mValue.w
++    );
+ #endif
+ }
+ 
+@@ -244,7 +283,16 @@ Vec4 Vec4::sOr(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vorrq_s32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) | reinterpret_cast<uint32&>(inV2.mValue.x);
++    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) | reinterpret_cast<uint32&>(inV2.mValue.y);
++    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) | reinterpret_cast<uint32&>(inV2.mValue.z);
++    uint32 w = reinterpret_cast<uint32&>(inV1.mValue.w) | reinterpret_cast<uint32&>(inV2.mValue.w);
++    return Vec4(
++        reinterpret_cast<float&>(x),
++        reinterpret_cast<float&>(y),
++        reinterpret_cast<float&>(z),
++        reinterpret_cast<float&>(w)
++    );
+ #endif
+ }
+ 
+@@ -255,7 +303,16 @@ Vec4 Vec4::sXor(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return veorq_s32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) ^ reinterpret_cast<uint32&>(inV2.mValue.x);
++    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) ^ reinterpret_cast<uint32&>(inV2.mValue.y);
++    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) ^ reinterpret_cast<uint32&>(inV2.mValue.z);
++    uint32 w = reinterpret_cast<uint32&>(inV1.mValue.w) ^ reinterpret_cast<uint32&>(inV2.mValue.w);
++    return Vec4(
++        reinterpret_cast<float&>(x),
++        reinterpret_cast<float&>(y),
++        reinterpret_cast<float&>(z),
++        reinterpret_cast<float&>(w)
++    );
+ #endif
+ }
+ 
+@@ -266,7 +323,16 @@ Vec4 Vec4::sAnd(Vec4Arg inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vandq_s32(inV1.mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    uint32 x = reinterpret_cast<uint32&>(inV1.mValue.x) & reinterpret_cast<uint32&>(inV2.mValue.x);
++    uint32 y = reinterpret_cast<uint32&>(inV1.mValue.y) & reinterpret_cast<uint32&>(inV2.mValue.y);
++    uint32 z = reinterpret_cast<uint32&>(inV1.mValue.z) & reinterpret_cast<uint32&>(inV2.mValue.z);
++    uint32 w = reinterpret_cast<uint32&>(inV1.mValue.w) & reinterpret_cast<uint32&>(inV2.mValue.w);
++    return Vec4(
++        reinterpret_cast<float&>(x),
++        reinterpret_cast<float&>(y),
++        reinterpret_cast<float&>(z),
++        reinterpret_cast<float&>(w)
++    );
+ #endif
+ }
+ 
+@@ -341,7 +407,7 @@ bool Vec4::IsNaN() const
+ 	uint32x4_t is_equal = vceqq_f32(mValue, mValue); // If a number is not equal to itself it's a NaN
+ 	return vaddvq_u32(vshrq_n_u32(is_equal, 31)) != 4;
+ #else
+-	#error Unsupported CPU architecture
++    return isnan(mValue.x) || isnan(mValue.y) || isnan(mValue.z) || isnan(mValue.w);
+ #endif
+ }
+ 
+@@ -352,7 +418,12 @@ Vec4 Vec4::operator * (Vec4Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vmulq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x * inV2.mValue.x,
++        mValue.y * inV2.mValue.y,
++        mValue.z * inV2.mValue.z,
++        mValue.w * inV2.mValue.w
++    );
+ #endif
+ }
+ 
+@@ -363,7 +434,12 @@ Vec4 Vec4::operator * (float inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vmulq_n_f32(mValue, inV2);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x * inV2,
++        mValue.y * inV2,
++        mValue.z * inV2,
++        mValue.w * inV2
++    );
+ #endif
+ }
+ 
+@@ -375,7 +451,12 @@ Vec4 operator * (float inV1, Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	return vmulq_n_f32(inV2.mValue, inV1);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        inV1 * inV2.mValue.x,
++        inV1 * inV2.mValue.y,
++        inV1 * inV2.mValue.z,
++        inV1 * inV2.mValue.w
++    );
+ #endif
+ }
+ 
+@@ -386,7 +467,12 @@ Vec4 Vec4::operator / (float inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vdivq_f32(mValue, vdupq_n_f32(inV2));
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x / inV2,
++        mValue.y / inV2,
++        mValue.z / inV2,
++        mValue.w / inV2
++    );
+ #endif
+ }
+ 
+@@ -397,7 +483,12 @@ Vec4 &Vec4::operator *= (float inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vmulq_n_f32(mValue, inV2);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x * inV2,
++        mValue.y * inV2,
++        mValue.z * inV2,
++        mValue.w * inV2
++    };
+ #endif
+ 	return *this;
+ }
+@@ -409,7 +500,12 @@ Vec4 &Vec4::operator *= (Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vmulq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x * inV2.mValue.x,
++        mValue.y * inV2.mValue.y,
++        mValue.z * inV2.mValue.z,
++        mValue.w * inV2.mValue.w,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -421,7 +517,12 @@ Vec4 &Vec4::operator /= (float inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vdivq_f32(mValue, vdupq_n_f32(inV2));
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x / inV2,
++        mValue.y / inV2,
++        mValue.z / inV2,
++        mValue.w / inV2,
++    };
+ #endif
+ 	return *this;
+ }
+@@ -433,7 +534,12 @@ Vec4 Vec4::operator + (Vec4Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vaddq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x + inV2.mValue.x,
++        mValue.y + inV2.mValue.y,
++        mValue.z + inV2.mValue.z,
++        mValue.w + inV2.mValue.w
++    );
+ #endif
+ }
+ 
+@@ -444,7 +550,12 @@ Vec4 &Vec4::operator += (Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vaddq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x + inV2.mValue.x,
++        mValue.y + inV2.mValue.y,
++        mValue.z + inV2.mValue.z,
++        mValue.w + inV2.mValue.w
++    };
+ #endif
+ 	return *this;
+ }
+@@ -456,7 +567,12 @@ Vec4 Vec4::operator - () const
+ #elif defined(JPH_USE_NEON)
+ 	return vnegq_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        -mValue.x,
++        -mValue.y,
++        -mValue.z,
++        -mValue.w
++    );
+ #endif
+ }
+ 
+@@ -467,7 +583,12 @@ Vec4 Vec4::operator - (Vec4Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vsubq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x - inV2.mValue.x,
++        mValue.y - inV2.mValue.y,
++        mValue.z - inV2.mValue.z,
++        mValue.w - inV2.mValue.w
++    );
+ #endif
+ }
+ 
+@@ -478,7 +599,12 @@ Vec4 &Vec4::operator -= (Vec4Arg inV2)
+ #elif defined(JPH_USE_NEON)
+ 	mValue = vsubq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    mValue = {
++        mValue.x - inV2.mValue.x,
++        mValue.y - inV2.mValue.y,
++        mValue.z - inV2.mValue.z,
++        mValue.w - inV2.mValue.w
++    };
+ #endif
+ 	return *this;
+ }
+@@ -490,7 +616,12 @@ Vec4 Vec4::operator / (Vec4Arg inV2) const
+ #elif defined(JPH_USE_NEON)
+ 	return vdivq_f32(mValue, inV2.mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x / inV2.mValue.x,
++        mValue.y / inV2.mValue.y,
++        mValue.z / inV2.mValue.z,
++        mValue.w / inV2.mValue.w
++    );
+ #endif
+ }
+ 
+@@ -501,7 +632,7 @@ Vec4 Vec4::SplatX() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 0);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(mValue.x, mValue.x, mValue.x, mValue.x);
+ #endif
+ }
+ 
+@@ -512,7 +643,7 @@ Vec4 Vec4::SplatY() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 1);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(mValue.y, mValue.y, mValue.y, mValue.y);
+ #endif
+ }
+ 
+@@ -523,7 +654,7 @@ Vec4 Vec4::SplatZ() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 2);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(mValue.z, mValue.z, mValue.z, mValue.z);
+ #endif
+ }
+ 
+@@ -534,7 +665,7 @@ Vec4 Vec4::SplatW() const
+ #elif defined(JPH_USE_NEON)
+ 	return vdupq_laneq_f32(mValue, 3);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(mValue.w, mValue.w, mValue.w, mValue.w);
+ #endif
+ }
+ 
+@@ -547,7 +678,7 @@ Vec4 Vec4::Abs() const
+ #elif defined(JPH_USE_NEON)
+ 	return vabsq_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(abs(mValue.x), abs(mValue.y), abs(mValue.z), abs(mValue.w));
+ #endif
+ }
+ 
+@@ -621,7 +752,12 @@ Vec4 Vec4::Sqrt() const
+ #elif defined(JPH_USE_NEON)
+ 	return vsqrtq_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        sqrt(mValue.x),
++        sqrt(mValue.y),
++        sqrt(mValue.z),
++        sqrt(mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -639,7 +775,12 @@ Vec4 Vec4::GetSign() const
+ 	Type one = vdupq_n_f32(1.0f);
+ 	return vorrq_s32(vandq_s32(mValue, minus_one), one);
+ #else
+-	#error Unsupported CPU architecture
++    return Vec4(
++        mValue.x < 0 ? -1.0f : 1.0f,
++        mValue.y < 0 ? -1.0f : 1.0f,
++        mValue.z < 0 ? -1.0f : 1.0f,
++        mValue.w < 0 ? -1.0f : 1.0f
++    );
+ #endif
+ }
+ 
+@@ -663,7 +804,10 @@ void Vec4::StoreFloat4(Float4 *outV) const
+ #elif defined(JPH_USE_NEON)
+     vst1q_f32(&outV->x, mValue);
+ #else
+-	#error Unsupported CPU architecture
++    outV->x = mValue.x;
++    outV->y = mValue.y;
++    outV->z = mValue.z;
++    outV->w = mValue.w;
+ #endif
+ }
+ 
+@@ -674,7 +818,12 @@ UVec4 Vec4::ToInt() const
+ #elif defined(JPH_USE_NEON)
+ 	return vcvtq_u32_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        static_cast<uint32>(mValue.x),
++        static_cast<uint32>(mValue.y),
++        static_cast<uint32>(mValue.z),
++        static_cast<uint32>(mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -685,7 +834,12 @@ UVec4 Vec4::ReinterpretAsInt() const
+ #elif defined(JPH_USE_NEON)
+ 	return vreinterpretq_u32_f32(mValue);
+ #else
+-	#error Unsupported CPU architecture
++    return UVec4(
++        reinterpret_cast<const uint32&>(mValue.x),
++        reinterpret_cast<const uint32&>(mValue.y),
++        reinterpret_cast<const uint32&>(mValue.z),
++        reinterpret_cast<const uint32&>(mValue.w)
++    );
+ #endif
+ }
+ 
+@@ -697,7 +851,20 @@ int Vec4::GetSignBits() const
+     int32x4_t shift = { 0, 1, 2, 3 };
+     return vaddvq_u32(vshlq_u32(vshrq_n_u32(vreinterpretq_u32_f32(mValue), 31), shift));
+ #else
+-	#error Unsupported CPU architecture
++    int res = 0;
++    if (mValue.x < 0) {
++        res |= 1;
++    }
++    if (mValue.y < 0) {
++        res |= 2;
++    }
++    if (mValue.z < 0) {
++        res |= 4;
++    }
++    if (mValue.w < 0) {
++        res |= 8;
++    }
++    return res;
+ #endif
+ }
+ 
 diff --git a/Jolt/Physics/Body/BodyManager.cpp b/Jolt/Physics/Body/BodyManager.cpp
 index e206785a..5fff498a 100644
 --- a/Jolt/Physics/Body/BodyManager.cpp
@@ -28,6 +2099,34 @@ index 9a75de1c..bc685863 100644
  
  	/// Get the list of active bodies. Note: Not thread safe. The active bodies list can change at any moment.
  	const BodyID *					GetActiveBodiesUnsafe() const				{ return mActiveBodies; }
+diff --git a/Jolt/Physics/IslandBuilder.h b/Jolt/Physics/IslandBuilder.h
+index d1a8d8e9..3b9d115c 100644
+--- a/Jolt/Physics/IslandBuilder.h
++++ b/Jolt/Physics/IslandBuilder.h
+@@ -7,7 +7,7 @@
+ #include <Jolt/Core/NonCopyable.h>
+ 
+ JPH_SUPPRESS_WARNINGS_STD_BEGIN
+-#include <atomic>
++#include <Jolt/atomic.h>
+ JPH_SUPPRESS_WARNINGS_STD_END
+ 
+ JPH_NAMESPACE_BEGIN
+diff --git a/Jolt/Physics/PhysicsSystem.cpp b/Jolt/Physics/PhysicsSystem.cpp
+index 4f9ad52d..7399c5c2 100644
+--- a/Jolt/Physics/PhysicsSystem.cpp
++++ b/Jolt/Physics/PhysicsSystem.cpp
+@@ -562,6 +562,10 @@ void PhysicsSystem::Update(float inDeltaTime, int inCollisionSteps, int inIntegr
+ 		barrier->AddJobs(handles.data(), handles.size());
+ 	}
+ 
++    #if defined(JPH_SINGLE_THREAD)
++    inJobSystem->RunJobs(0);
++    #endif
++
+ 	// Wait until all jobs finish
+ 	// Note we don't just wait for the last job. If we would and another job
+ 	// would be scheduled in between there is the possibility of a deadlock.
 diff --git a/Jolt/Physics/PhysicsSystem.h b/Jolt/Physics/PhysicsSystem.h
 index 5196f6b3..fb683ae7 100644
 --- a/Jolt/Physics/PhysicsSystem.h
@@ -40,3 +2139,570 @@ index 5196f6b3..fb683ae7 100644
  
  #ifdef JPH_TRACK_BROADPHASE_STATS
  	/// Trace the accumulated broadphase stats to the TTY
+diff --git a/Jolt/atomic.h b/Jolt/atomic.h
+new file mode 100644
+index 00000000..6ca06c04
+--- /dev/null
++++ b/Jolt/atomic.h
+@@ -0,0 +1,233 @@
++#if defined(JPH_SINGLE_THREAD)
++
++#ifndef _LIBCPP_ATOMIC
++#define _LIBCPP_ATOMIC
++
++// Dummy implementation of atomics for single thread.
++
++namespace std {
++
++typedef enum memory_order {
++    memory_order_relaxed,
++    memory_order_consume,
++    memory_order_acquire,
++    memory_order_release,
++    memory_order_acq_rel,
++    memory_order_seq_cst
++} memory_order;
++
++template <typename T>
++struct atomic_base {
++    using value_type = T;
++protected:
++    T inner;
++
++public:
++    atomic_base(T val) : inner(val) {}
++    atomic_base() = default;
++
++    T load(memory_order order = memory_order_seq_cst) const {
++        return inner;
++    }
++
++    void store(T desired, memory_order order = memory_order_seq_cst) {
++        inner = desired;
++    }
++
++    T fetch_add(T arg, memory_order order = memory_order_seq_cst) {
++        T last = inner;
++        inner += arg;
++        return last;
++    }
++
++    T fetch_sub(T arg, memory_order order = memory_order_seq_cst) {
++        T last = inner;
++        inner -= arg;
++        return last;
++    }
++
++    T fetch_or(T arg, memory_order order = memory_order_seq_cst) {
++        T last = inner;
++        inner = inner | arg;
++        return last;
++    }
++
++    T fetch_and(T arg, memory_order order = memory_order_seq_cst) {
++        T last = inner;
++        inner = inner & arg;
++        return last;
++    }
++
++    T exchange(T desired, memory_order order = memory_order_seq_cst) {
++        T last = inner;
++        inner = desired;
++        return last;
++    }
++
++    bool compare_exchange_weak(T& expected, T desired, memory_order order = memory_order_seq_cst) {
++        if (inner == expected) {
++            inner = desired;
++            return true;
++        } else {
++            expected = inner;
++            return false;
++        }
++    }
++
++    bool compare_exchange_strong(T& expected, T desired, memory_order order = memory_order_seq_cst) {
++        if (inner == expected) {
++            inner = desired;
++            return true;
++        } else {
++            expected = inner;
++            return false;
++        }
++    }
++
++    T operator=(T other) {
++        inner = other;
++        return inner;
++    }
++
++    operator T() const { return inner; }
++};
++
++template <typename T>
++struct atomic : atomic_base<T> {
++    using atomic_base<T>::atomic_base;
++};
++
++template <>
++struct atomic<int> : atomic_base<int> {
++public:
++    using atomic_base<int>::atomic_base;
++
++    int operator++() {
++        this->inner++;
++        return this->inner;
++    }
++
++    unsigned int operator++(int) {
++        unsigned int last = this->inner;
++        this->inner++;
++        return last;
++    }
++
++    unsigned int operator-=(int rhs) {
++        this->inner -= rhs;
++        return this->inner;
++    }
++};
++
++template <>
++struct atomic<unsigned int> : atomic_base<unsigned int> {
++public:
++    using atomic_base<unsigned int>::atomic_base;
++    atomic(int val) {
++        inner = static_cast<unsigned int>(val);
++    }
++
++    unsigned int operator+=(unsigned int rhs) {
++        this->inner += rhs;
++        return this->inner;
++    }
++
++    unsigned int operator-=(int rhs) {
++        this->inner -= rhs;
++        return this->inner;
++    }
++
++    unsigned int operator--() {
++        this->inner--;
++        return this->inner;
++    }
++
++    unsigned int operator++() {
++        this->inner++;
++        return this->inner;
++    }
++
++    unsigned int operator++(int) {
++        unsigned int last = this->inner;
++        this->inner++;
++        return last;
++    }
++};
++
++template <>
++struct atomic<unsigned short> : atomic_base<unsigned short> {
++public:
++    using atomic_base<unsigned short>::atomic_base;
++    atomic(int val) {
++        inner = static_cast<unsigned short>(val);
++    }
++
++    unsigned short operator+=(unsigned int rhs) {
++        this->inner += rhs;
++        return this->inner;
++    }
++
++    unsigned short operator|=(unsigned short rhs) {
++        this->inner |= rhs;
++        return this->inner;
++    }
++
++    unsigned short operator++() {
++        this->inner++;
++        return this->inner;
++    }
++
++    unsigned short operator++(int) {
++        unsigned short last = this->inner;
++        this->inner++;
++        return last;
++    }
++};
++
++template <>
++struct atomic<unsigned char> : atomic_base<unsigned char> {
++public:
++    using atomic_base<unsigned char>::atomic_base;
++    atomic(int val) {
++        inner = static_cast<unsigned char>(val);
++    }
++};
++
++template <>
++struct atomic<long> : atomic_base<long> {
++public:
++    using atomic_base<long>::atomic_base;
++    atomic(int val) {
++        inner = static_cast<long>(val);
++    }
++};
++
++template <>
++struct atomic<unsigned long> : atomic_base<unsigned long> {
++public:
++    using atomic_base<unsigned long>::atomic_base;
++    atomic(int val) {
++        inner = static_cast<unsigned long>(val);
++    }
++
++    unsigned long operator++() {
++        this->inner++;
++        return this->inner;
++    }
++
++    unsigned long operator++(int) {
++        unsigned long last = this->inner;
++        this->inner++;
++        return last;
++    }
++};
++
++extern "C" void atomic_thread_fence(memory_order order);
++
++}
++
++#endif
++
++#else
++#include <atomic>
++#endif
+diff --git a/Jolt/condition_variable.h b/Jolt/condition_variable.h
+new file mode 100644
+index 00000000..9e544309
+--- /dev/null
++++ b/Jolt/condition_variable.h
+@@ -0,0 +1,42 @@
++#if defined(JPH_SINGLE_THREAD)
++#ifndef _WASM_CONDITION_VARIABLE
++#define _WASM_CONDITION_VARIABLE
++
++#include <Jolt/mutex.h>
++
++#define __SIZEOF_PTHREAD_COND_T 48
++
++namespace std {
++
++typedef union {
++    char __size[__SIZEOF_PTHREAD_COND_T];
++} condition_variable_t;
++
++class condition_variable {
++private:
++    condition_variable_t inner;
++public:
++    void notify_one() {
++    }
++
++    void notify_all() {
++    }
++
++    void wait(unique_lock<mutex>& __lock) {
++        wait(__lock);
++    }
++
++    template<typename _Predicate>
++    void wait(unique_lock<mutex>& __lock, _Predicate __p) {
++	    while (!__p()) {
++            wait(__lock);
++        }
++    }
++};
++
++}
++
++#endif
++#else
++#include <condition_variable>
++#endif
+diff --git a/Jolt/mutex.h b/Jolt/mutex.h
+new file mode 100644
+index 00000000..2b12eb78
+--- /dev/null
++++ b/Jolt/mutex.h
+@@ -0,0 +1,108 @@
++#if defined(JPH_SINGLE_THREAD)
++#ifndef _LIBCPP_MUTEX
++#define _LIBCPP_MUTEX
++
++#include <system_error>
++
++#define __SIZEOF_PTHREAD_MUTEX_T 40
++
++namespace std {
++
++typedef union mutex_t {
++    char __size[__SIZEOF_PTHREAD_MUTEX_T];
++    bool locked;
++} mutex_t;
++
++template<typename Mutex>
++class unique_lock {
++private:
++    Mutex*	_M_device;
++    bool		_M_owns;
++public:
++    unique_lock() : _M_device(0), _M_owns(false) {}
++
++    explicit unique_lock(Mutex& __m) : _M_device(std::addressof(__m)), _M_owns(false) {
++	    lock();
++    }
++
++    ~unique_lock() {
++        if (_M_owns)
++            unlock();
++    }
++
++    void lock() {
++	    _M_device->lock();
++	    _M_owns = true;
++	}
++
++    void unlock() {
++	    if (!_M_owns) {
++            throw std::system_error(int(std::errc::operation_not_permitted), std::system_category());
++	    } else if (_M_device) {
++	        _M_device->unlock();
++            _M_owns = false;
++        }
++    }
++};
++
++class mutex {
++public:
++    mutex() {
++        inner.locked = false;
++    }
++
++    bool try_lock() {
++        if (inner.locked) {
++            return false;
++        } else {
++            inner.locked = true;
++            return true;
++        }
++    }
++
++    void lock() {
++        while (inner.locked) {}
++        inner.locked = true;
++    }
++
++    void unlock() {
++        inner.locked = false;
++    }
++private:
++    mutex_t inner;
++};
++
++template<typename Mutex>
++class lock_guard {
++public:
++    explicit lock_guard(Mutex& __m) : _M_device(__m) {
++        _M_device.lock();
++    }
++ 
++    //lock_guard(Mutex& __m, adopt_lock_t) : _M_device(__m)
++    //{ } // calling thread owns mutex
++ 
++    ~lock_guard() {
++        _M_device.unlock();
++    }
++ 
++    lock_guard(const lock_guard&) = delete;
++    lock_guard& operator=(const lock_guard&) = delete;
++private:
++    Mutex&  _M_device;
++};
++
++struct once_flag {
++    constexpr once_flag() noexcept;
++
++    once_flag(const once_flag&) = delete;
++    once_flag& operator=(const once_flag&) = delete;
++};
++
++}
++
++#endif
++
++#else
++#include <mutex>
++#endif
+diff --git a/Jolt/shared_mutex.h b/Jolt/shared_mutex.h
+new file mode 100644
+index 00000000..cb4b4901
+--- /dev/null
++++ b/Jolt/shared_mutex.h
+@@ -0,0 +1,91 @@
++#if defined(JPH_SINGLE_THREAD)
++#ifndef _WASM_SHARED_MUTEX
++#define _WASM_SHARED_MUTEX
++
++#define __SIZEOF_PTHREAD_RWLOCK_T 56
++
++typedef union shared_mutex_t {
++    char __size[__SIZEOF_PTHREAD_RWLOCK_T];
++    struct {
++        bool locked;
++        bool shared;
++    } lock;
++} shared_mutex_t;
++
++template<typename Mutex>
++class shared_lock {
++private:
++    Mutex*	_M_pm;
++    bool		_M_owns;
++
++public:
++    shared_lock() : _M_pm(nullptr), _M_owns(false) { }
++
++    explicit shared_lock(Mutex& __m) : _M_pm(std::addressof(__m)), _M_owns(true) {
++        __m.lock_shared();
++    }
++    
++    ~shared_lock() {
++        if (_M_owns)
++            _M_pm->unlock_shared();
++    }
++};
++
++class shared_mutex {
++private:
++    shared_mutex_t inner;
++
++public:
++    shared_mutex() {
++        inner.lock = { false, false };
++    }
++
++    void lock() {
++        while (inner.lock.locked) {}
++        inner.lock.locked = true;
++        inner.lock.shared = false;
++    }
++
++    void unlock() {
++        if (inner.lock.locked) {
++            inner.lock.locked = false;
++        }
++    }
++
++    bool try_lock() {
++        if (inner.lock.locked) {
++            return false;
++        } else {
++            inner.lock.locked = true;
++            inner.lock.shared = false;
++            return true;
++        }
++    }
++
++    void lock_shared() {
++        while (inner.lock.locked) {}
++        inner.lock.locked = true;
++        inner.lock.shared = true;
++    }
++
++    bool try_lock_shared() {
++        if (inner.lock.locked) {
++            return false;
++        } else {
++            inner.lock.locked = true;
++            inner.lock.shared = true;
++            return true;
++        }
++    }
++
++    void unlock_shared() {
++        if (inner.lock.shared && inner.lock.locked) {
++            inner.lock.locked = false;
++        }
++    }
++};
++
++#endif
++#else
++#include <shared_mutex>
++#endif
+diff --git a/Jolt/thread.h b/Jolt/thread.h
+new file mode 100644
+index 00000000..e7389a26
+--- /dev/null
++++ b/Jolt/thread.h
+@@ -0,0 +1,51 @@
++#if defined(JPH_SINGLE_THREAD)
++#ifndef _LIBCPP_THREAD
++#define _LIBCPP_THREAD
++
++#include <chrono>
++
++typedef unsigned long int pthread_t;
++
++class thread {
++public:
++    class id {
++        pthread_t _M_thread;
++    public:
++        id(pthread_t __id) : _M_thread(__id) {}
++        id() : _M_thread() {}
++
++        inline bool operator==(id __y) {
++            return _M_thread == __y._M_thread;
++        }
++
++        inline bool operator!=(id __y) {
++            return _M_thread != __y._M_thread;
++        }
++    };
++    thread() noexcept = default;
++    static unsigned int hardware_concurrency() {
++        return 1;
++    }
++    bool joinable() const {
++        return false;
++    }
++    void join() {
++    }
++private:
++    id _M_id;
++};
++
++namespace this_thread {
++    inline thread::id get_id() {
++        return thread::id(1);
++    }
++
++    template<class Rep, class Period>
++    void sleep_for(const std::chrono::duration<Rep, Period>& sleep_duration) {
++    }
++}
++
++#endif
++#else
++#include <thread>
++#endif
+diff --git a/UnitTests/Math/UVec4Tests.cpp b/UnitTests/Math/UVec4Tests.cpp
+index c0003bf5..75a45307 100644
+--- a/UnitTests/Math/UVec4Tests.cpp
++++ b/UnitTests/Math/UVec4Tests.cpp
+@@ -130,6 +130,7 @@ TEST_SUITE("UVec4Tests")
+ 
+ 		CHECK(UVec4(0x80000000U, 0x40000000U, 0x20000000U, 0x10000000U).LogicalShiftRight<1>() == UVec4(0x40000000U, 0x20000000U, 0x10000000U, 0x08000000U));
+ 		CHECK(UVec4(0x80000000U, 0x40000000U, 0x20000000U, 0x10000000U).ArithmeticShiftRight<1>() == UVec4(0xC0000000U, 0x20000000U, 0x10000000U, 0x08000000U));
++		CHECK(UVec4(0x80000000U, 0x40000000U, 0x20000000U, 0x10000000U).ArithmeticShiftRight<2>() == UVec4(0xE0000000U, 0x10000000U, 0x08000000U, 0x04000000U));
+ 		CHECK(UVec4(0x40000000U, 0x20000000U, 0x10000000U, 0x08000001U).LogicalShiftLeft<1>() == UVec4(0x80000000U, 0x40000000U, 0x20000000U, 0x10000002U));
+ 	}
+ 

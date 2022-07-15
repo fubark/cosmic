@@ -16,6 +16,8 @@
 	#define JPH_PLATFORM_ANDROID
 #elif defined(__linux__)
 	#define JPH_PLATFORM_LINUX
+#elif defined(__wasm__)
+	#define JPH_PLATFORM_LINUX
 #elif defined(__APPLE__)
     #include <TargetConditionals.h>
     #if defined(TARGET_OS_IPHONE) && !TARGET_OS_IPHONE
@@ -95,8 +97,32 @@
 	#define JPH_CPU_ARM64
 	#define JPH_USE_NEON
 	#define JPH_CPU_ADDRESS_BITS 64
+#elif defined(__wasm__)
+	#define JPH_CPU_WASM
+    #define JPH_SINGLE_THREAD
+	#define JPH_CPU_ADDRESS_BITS 32
 #else
 	#error Unsupported CPU architecture
+#endif
+
+#if defined(JPH_NO_SIMD)
+    #undef JPH_USE_SSE
+    #undef JPH_USE_AVX
+    #undef JPH_USE_AVX2
+    #undef JPH_USE_AVX512
+    #undef JPH_USE_SSE4_1
+    #undef JPH_USE_SSE4_2
+    #undef JPH_USE_TZCNT
+    #undef JPH_USE_LZCNT
+    #undef JPH_USE_F16C
+#endif
+#if defined(JPH_SINGLE_THREAD)
+    // Provide stubs before libc++ includes them.
+    #include <Jolt/atomic.h>
+    #include <Jolt/condition_variable.h>
+    #include <Jolt/mutex.h>
+    #include <Jolt/shared_mutex.h>
+    #include <Jolt/thread.h>
 #endif
 
 // Pragmas to store / restore the warning state and to disable individual warnings
@@ -190,6 +216,9 @@
 		#define JPH_BREAKPOINT		__asm volatile ("int $0x3")
 	#elif defined(JPH_CPU_ARM64)
 		#define JPH_BREAKPOINT		__builtin_trap()
+    #elif defined(__wasm__)
+extern "C" void panic();
+        #define JPH_BREAKPOINT      panic()
 	#endif
 #else
 	#error Unknown platform

@@ -358,10 +358,10 @@ int UVec4::CountTrues() const
 #elif defined(JPH_USE_NEON)
     return vaddvq_u32(vshrq_n_u32(mValue, 31));
 #else
-    int count = CountBits(mValue.x);
-    count += CountBits(mValue.y);
-    count += CountBits(mValue.z);
-    count += CountBits(mValue.w);
+    int count = (mValue.x >> 31) & 1;
+    count += (mValue.y >> 31) & 1;
+    count += (mValue.z >> 31) & 1;
+    count += (mValue.w >> 31) & 1;
     return count;
 #endif
 }
@@ -449,10 +449,11 @@ UVec4 UVec4::ArithmeticShiftRight() const
 #elif defined(JPH_USE_NEON)
 	return vshrq_n_s32(mValue, Count);
 #else
-    return { (mValue.x >> Count) | (mValue.x & (1 << 31)),
-        (mValue.y >> Count) | (mValue.y & (1 << 31)),
-        (mValue.z >> Count) | (mValue.z & (1 << 31)),
-        (mValue.w >> Count) | (mValue.w & (1 << 31))
+    return {
+		mValue.x & (1 << 31) ? ~(~mValue.x >> Count) : mValue.x >> Count,
+		mValue.y & (1 << 31) ? ~(~mValue.y >> Count) : mValue.y >> Count,
+		mValue.z & (1 << 31) ? ~(~mValue.z >> Count) : mValue.z >> Count,
+		mValue.w & (1 << 31) ? ~(~mValue.w >> Count) : mValue.w >> Count
     };
 #endif
 }

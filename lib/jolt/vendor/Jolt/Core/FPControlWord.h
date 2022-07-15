@@ -63,7 +63,20 @@ private:
 
 #else
 
-#error Unsupported CPU architecture
+/// Helper class that needs to be put on the stack to update the state of the floating point control word.
+/// This state is kept per thread.
+template <uint Value, uint Mask>
+class FPControlWord : public NonCopyable {
+private:
+	uint mPrevState;	
+public:
+    FPControlWord() {
+		mPrevState = 0;
+	}
+
+    ~FPControlWord() {
+	}
+};
 
 #endif
 
