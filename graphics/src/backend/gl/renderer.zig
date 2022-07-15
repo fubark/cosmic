@@ -106,14 +106,6 @@ pub const Renderer = struct {
         self.pipelines.deinit();
     }
 
-    pub fn pushVertex(self: *Renderer, vert: TexShaderVertex) void {
-        self.mesh.addVertex(&vert);
-    }
-
-    pub fn pushDeltaIndices(self: *Renderer, start: u16, indices: []const u16) void {
-        self.mesh.addDeltaIndices(start, indices);
-    }
-
     pub fn pushTex3D(self: *Renderer, mvp: Mat4, tex_id: TextureId) void {
         const gl_tex_id = self.image_store.getTexture(tex_id).inner.tex_id;
         self.setDepthTest(true);
@@ -132,8 +124,8 @@ pub const Renderer = struct {
 
     pub fn ensurePushMeshData(self: *Renderer, verts: []const TexShaderVertex, indexes: []const u16) void {
         self.ensureUnusedBuffer(verts.len, indexes.len);
-        const vert_start = self.mesh.addVertices(verts);
-        self.mesh.addDeltaIndices(vert_start, indexes);
+        const vert_start = self.mesh.pushVertexes(verts);
+        self.mesh.pushDeltaIndexes(vert_start, indexes);
     }
 
     /// Ensures that the buffer has enough space.
@@ -142,10 +134,6 @@ pub const Renderer = struct {
             // Currently, draw calls reset the mesh so data that proceeds the current buffer belongs to the same draw call.
             stdx.panic("buffer limit");
         }
-    }
-
-    pub fn getCurrentIndexId(self: Renderer) u16 {
-        return self.mesh.getNextIndexId();
     }
 
     fn pushCurrentElements(self: *Renderer) void {

@@ -4,13 +4,8 @@ const t = stdx.testing;
 const graphics = @import("../../graphics.zig");
 
 pub const TexShaderVertex = struct {
-    pos: struct {
-        x: f32,
-        y: f32,
-        z: f32,
-        // TODO: Might be able to remove w and set to 1 in shader.
-        w: f32,
-    },
+    // TODO: Might be able to remove w and set to 1 in shader.
+    pos: stdx.math.Vec4,
 
     /// Used for lighting.
     normal: struct {

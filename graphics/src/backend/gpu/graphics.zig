@@ -697,24 +697,24 @@ pub const Graphics = struct {
         const start_idx = self.batcher.mesh.getNextIndexId();
         if (Backend == .OpenGL) {
             vert.setXYZ(-1, 1, -1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXYZ(1, 1, -1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXYZ(1, -1, -1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXYZ(-1, -1, -1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
         } else {
             vert.setXYZ(-1, -1, 1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXYZ(1, -1, 1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXYZ(1, 1, 1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXYZ(-1, 1, 1);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
         }
-        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+        self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
         self.batcher.endCmdForce();
     }
 
@@ -735,25 +735,25 @@ pub const Graphics = struct {
         // top left
         vert.setXY(x, y);
         vert.setUV(0, 0);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // top right
         vert.setXY(x + width, y);
         vert.setUV(1, 0);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom right
         vert.setXY(x + width, y + height);
         vert.setUV(1, 1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom left
         vert.setXY(x, y + height);
         vert.setUV(0, 1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // add rect
-        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+        self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
     pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
@@ -783,9 +783,9 @@ pub const Graphics = struct {
         var cos = @cos(start_rad);
         var sin = @sin(start_rad);
         vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         const rad_per_n = sweep_rad / @intToFloat(f32, n);
         var cur_vert_idx = self.batcher.mesh.getNextIndexId();
@@ -797,12 +797,12 @@ pub const Graphics = struct {
             cos = @cos(rad);
             sin = @sin(rad);
             vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
 
             // Add arc sector.
-            self.batcher.mesh.addQuad(cur_vert_idx - 1, cur_vert_idx + 1, cur_vert_idx, cur_vert_idx - 2);
+            self.batcher.mesh.pushQuadIndexes(cur_vert_idx - 1, cur_vert_idx + 1, cur_vert_idx, cur_vert_idx - 2);
             cur_vert_idx += 2;
         }
     }
@@ -818,14 +818,14 @@ pub const Graphics = struct {
         const center = self.batcher.mesh.getNextIndexId();
         vert.setUV(0.5, 0.5);
         vert.setXY(x, y);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // Add first circle vertex.
         var cos = @cos(start_rad);
         var sin = @sin(start_rad);
         vert.setUV(0.5 + cos, 0.5 + sin);
         vert.setXY(x + cos * radius, y + sin * radius);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         const rad_per_tri = sweep_rad / @intToFloat(f32, num_tri);
         var last_vert_idx = center + 1;
@@ -838,11 +838,11 @@ pub const Graphics = struct {
             sin = @sin(rad);
             vert.setUV(0.5 + cos, 0.5 + sin);
             vert.setXY(x + cos * radius, y + sin * radius);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
 
             // Add triangle.
             const next_idx = last_vert_idx + 1;
-            self.batcher.mesh.addTriangle(center, last_vert_idx, next_idx);
+            self.batcher.mesh.pushTriangle(center, last_vert_idx, next_idx);
             last_vert_idx = next_idx;
         }
     }
@@ -878,14 +878,14 @@ pub const Graphics = struct {
         const center = self.batcher.mesh.getNextIndexId();
         vert.setUV(0.5, 0.5);
         vert.setXY(x, y);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // Add first circle vertex.
         var cos = @cos(start_rad);
         var sin = @sin(start_rad);
         vert.setUV(0.5 + cos, 0.5 + sin);
         vert.setXY(x + cos * h_radius, y + sin * v_radius);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         const rad_per_tri = sweep_rad / @intToFloat(f32, n);
         var last_vert_idx = center + 1;
@@ -898,7 +898,7 @@ pub const Graphics = struct {
             sin = @sin(rad);
             vert.setUV(0.5 + cos, 0.5 + sin);
             vert.setXY(x + cos * h_radius, y + sin * v_radius);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
 
             // Add triangle.
             const next_idx = last_vert_idx + 1;
@@ -949,9 +949,9 @@ pub const Graphics = struct {
         var cos = @cos(start_rad);
         var sin = @sin(start_rad);
         vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         const rad_per_n = sweep_rad / @intToFloat(f32, n);
         var cur_vert_idx = self.batcher.mesh.getNextIndexId();
@@ -963,9 +963,9 @@ pub const Graphics = struct {
             cos = @cos(rad);
             sin = @sin(rad);
             vert.setXY(x + cos * inner_h_rad, y + sin * inner_v_rad);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
             vert.setXY(x + cos * outer_h_rad, y + sin * outer_v_rad);
-            self.batcher.mesh.addVertex(&vert);
+            self.batcher.mesh.pushVertex(vert);
 
             // Add arc sector.
             self.batcher.mesh.addQuad(cur_vert_idx + 1, cur_vert_idx - 1, cur_vert_idx - 2, cur_vert_idx);
@@ -1062,13 +1062,13 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
         vert.setXY(x1, y1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x2, y2);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x3, y3);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x4, y4);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
@@ -1271,7 +1271,7 @@ pub const Graphics = struct {
                 gpu_vert.setXY(verts[i*2], verts[i*2+1]);
                 // log.debug("{},{}", .{gpu_vert.pos_x, gpu_vert.pos_y});
                 gpu_vert.setUV(0, 0);
-                _ = self.batcher.mesh.addVertex(&gpu_vert);
+                _ = self.batcher.mesh.pushVertex(gpu_vert);
             }
             const elems = tess2.tessGetElements(tess);
             i = 0;
@@ -1670,12 +1670,12 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
         vert.setXYZ(x1, y1, z1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXYZ(x2, y2, z2);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXYZ(x3, y3, z3);
-        self.batcher.mesh.addVertex(&vert);
-        self.batcher.mesh.addTriangle(start_idx, start_idx + 1, start_idx + 2);
+        self.batcher.mesh.pushVertex(vert);
+        self.batcher.mesh.pushTriangle(start_idx, start_idx + 1, start_idx + 2);
     }
 
     pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
@@ -1688,12 +1688,12 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
         vert.setXY(x1, y1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x2, y2);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(x3, y3);
-        self.batcher.mesh.addVertex(&vert);
-        self.batcher.mesh.addTriangle(start_idx, start_idx + 1, start_idx + 2);
+        self.batcher.mesh.pushVertex(vert);
+        self.batcher.mesh.pushTriangle(start_idx, start_idx + 1, start_idx + 2);
     }
 
     /// Assumes pts are in ccw order.
@@ -1709,15 +1709,15 @@ pub const Graphics = struct {
 
         // Add first two vertices.
         vert.setXY(pts[0].x, pts[0].y);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
         vert.setXY(pts[1].x, pts[1].y);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         var i: u16 = 2;
         while (i < pts.len) : (i += 1) {
             vert.setXY(pts[i].x, pts[i].y);
-            self.batcher.mesh.addVertex(&vert);
-            self.batcher.mesh.addTriangle(start_idx, start_idx + i - 1, start_idx + i);
+            self.batcher.mesh.pushVertex(vert);
+            self.batcher.mesh.pushTriangle(start_idx, start_idx + i - 1, start_idx + i);
         }
     }
 
@@ -1761,7 +1761,7 @@ pub const Graphics = struct {
         while (i < nverts) : (i += 1) {
             gpu_vert.setXY(verts[i*2], verts[i*2+1]);
             gpu_vert.setUV(0, 0);
-            _ = self.batcher.mesh.addVertex(&gpu_vert);
+            _ = self.batcher.mesh.pushVertex(gpu_vert);
         }
         const elems = tess2.tessGetElements(tess);
         i = 0;
@@ -1779,13 +1779,8 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn pushMaterial(self: *Self, material: graphics.Material) u32 {
-        const id = self.batcher.mesh.cur_materials_buf_size;
-        self.batcher.mesh.addMaterial(material);
-        return id;
-    }
-
-    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material_id: u32) void {
+    /// Vertices are duped so that each side reflects light without interpolating the normals.
+    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
         self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
@@ -1796,102 +1791,49 @@ pub const Graphics = struct {
         self.batcher.normal = xform.toRotationMat();
 
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
-        self.batcher.mesh.addMatrix(xform.mat);
+        self.batcher.mesh.pushMatrix(xform.mat);
 
-        self.batcher.material_idx = material_id;
+        self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
+        self.batcher.mesh.pushMaterial(material);
 
-        self.batcher.ensureUnusedBuffer(8, 36);
-        const vert_start = self.batcher.mesh.getNextIndexId();
+        self.batcher.ensureUnusedBuffer(6*4, 6*6);
         var vert: TexShaderVertex = undefined;
         vert.setColor(Color.White);
         vert.setUV(0, 0);
-        // far top-left
-        vert.setXYZ(-0.5, 0.5, -0.5);
-        vert.setNormal(comptime Vec3.init(-1, 1, -1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // far top-right
-        vert.setXYZ(0.5, 0.5, -0.5);
-        vert.setNormal(comptime Vec3.init(1, 1, -1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // far bottom-right
-        vert.setXYZ(0.5, -0.5, -0.5);
-        vert.setNormal(comptime Vec3.init(1, -1, -1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // far bottom-left
-        vert.setXYZ(-0.5, -0.5, -0.5);
-        vert.setNormal(comptime Vec3.init(-1, -1, -1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // near top-left
-        vert.setXYZ(-0.5, 0.5, 0.5);
-        vert.setNormal(comptime Vec3.init(-1, 1, 1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // near top-right
-        vert.setXYZ(0.5, 0.5, 0.5);
-        vert.setNormal(comptime Vec3.init(1, 1, 1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // near bottom-right
-        vert.setXYZ(0.5, -0.5, 0.5);
-        vert.setNormal(comptime Vec3.init(1, -1, 1).normalize());
-        self.batcher.mesh.addVertex(&vert);
-        // near bottom-left
-        vert.setXYZ(-0.5, -0.5, 0.5);
-        vert.setNormal(comptime Vec3.init(-1, -1, 1).normalize());
-        self.batcher.mesh.addVertex(&vert);
+        const far_top_left = Vec4.init(-0.5, 0.5, -0.5, 1.0);
+        const far_top_right = Vec4.init(0.5, 0.5, -0.5, 1.0);
+        const far_bot_right = Vec4.init(0.5, -0.5, -0.5, 1.0);
+        const far_bot_left = Vec4.init(-0.5, -0.5, -0.5, 1.0);
+        const near_top_left = Vec4.init(-0.5, 0.5, 0.5, 1.0);
+        const near_top_right = Vec4.init(0.5, 0.5, 0.5, 1.0);
+        const near_bot_right = Vec4.init(0.5, -0.5, 0.5, 1.0);
+        const near_bot_left = Vec4.init(-0.5, -0.5, 0.5, 1.0);
 
-        // far face
-        self.batcher.mesh.addIndex(vert_start);
-        self.batcher.mesh.addIndex(vert_start+1);
-        self.batcher.mesh.addIndex(vert_start+2);
-        self.batcher.mesh.addIndex(vert_start);
-        self.batcher.mesh.addIndex(vert_start+2);
-        self.batcher.mesh.addIndex(vert_start+3);
+        // Far face.
+        vert.setNormal(Vec3.init(0, 0, -1));
+        self.batcher.mesh.pushQuad(far_top_right, far_top_left, far_bot_left, far_bot_right, vert);
 
-        // left face
-        self.batcher.mesh.addIndex(vert_start);
-        self.batcher.mesh.addIndex(vert_start+3);
-        self.batcher.mesh.addIndex(vert_start+4);
-        self.batcher.mesh.addIndex(vert_start+4);
-        self.batcher.mesh.addIndex(vert_start+3);
-        self.batcher.mesh.addIndex(vert_start+7);
+        // Left face.
+        vert.setNormal(Vec3.init(-1, 0, 0));
+        self.batcher.mesh.pushQuad(far_top_left, near_top_left, near_bot_left, far_bot_left, vert);
 
-        // right face
-        self.batcher.mesh.addIndex(vert_start+1);
-        self.batcher.mesh.addIndex(vert_start+5);
-        self.batcher.mesh.addIndex(vert_start+2);
-        self.batcher.mesh.addIndex(vert_start+5);
-        self.batcher.mesh.addIndex(vert_start+6);
-        self.batcher.mesh.addIndex(vert_start+2);
+        // Right face.
+        vert.setNormal(Vec3.init(1, 0, 0));
+        self.batcher.mesh.pushQuad(near_top_right, far_top_right, far_bot_right, near_bot_right, vert);
 
-        // near face
-        self.batcher.mesh.addIndex(vert_start+4);
-        self.batcher.mesh.addIndex(vert_start+7);
-        self.batcher.mesh.addIndex(vert_start+5);
-        self.batcher.mesh.addIndex(vert_start+5);
-        self.batcher.mesh.addIndex(vert_start+7);
-        self.batcher.mesh.addIndex(vert_start+6);
+        // Near face.
+        vert.setNormal(Vec3.init(0, 0, 1));
+        self.batcher.mesh.pushQuad(near_top_left, near_top_right, near_bot_right, near_bot_left, vert);
 
-        // bottom face
-        self.batcher.mesh.addIndex(vert_start+7);
-        self.batcher.mesh.addIndex(vert_start+3);
-        self.batcher.mesh.addIndex(vert_start+2);
-        self.batcher.mesh.addIndex(vert_start+2);
-        self.batcher.mesh.addIndex(vert_start+6);
-        self.batcher.mesh.addIndex(vert_start+7);
+        // Bottom face.
+        vert.setNormal(Vec3.init(0, -1, 0));
+        self.batcher.mesh.pushQuad(far_bot_right, far_bot_left, near_bot_left, near_bot_right, vert);
 
-        // top face
-        self.batcher.mesh.addIndex(vert_start);
-        self.batcher.mesh.addIndex(vert_start+4);
-        self.batcher.mesh.addIndex(vert_start+1);
-        self.batcher.mesh.addIndex(vert_start+1);
-        self.batcher.mesh.addIndex(vert_start+4);
-        self.batcher.mesh.addIndex(vert_start+5);
+        // Top face.
+        vert.setNormal(Vec3.init(0, 1, 0));
+        self.batcher.mesh.pushQuad(far_top_left, far_top_right, near_top_right, near_top_left, vert);
 
         self.batcher.beginMvp(cur_mvp);
-    }
-
-    pub inline fn drawSingleCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
-        const mat_id = self.pushMaterial(material);
-        self.drawCuboidPbr3D(xform, mat_id);
     }
 
     pub fn drawScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
@@ -1934,9 +1876,9 @@ pub const Graphics = struct {
         for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(color);
-            self.batcher.mesh.addVertex(&new_vert);
+            self.batcher.mesh.pushVertex(new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
+        self.batcher.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
     }
 
@@ -1961,12 +1903,12 @@ pub const Graphics = struct {
         for (mesh.verts) |vert, i| {
             var new_vert = vert;
             new_vert.setColor(Color.Blue);
-            self.batcher.mesh.addVertex(&new_vert);
+            self.batcher.mesh.pushVertex(new_vert);
             new_vert.setColor(Color.Red);
             new_vert.setXYZ(new_vert.pos_x + new_vert.normal.x * norm_len, new_vert.pos_y + new_vert.normal.y * norm_len, new_vert.pos_z + new_vert.normal.z * norm_len);
-            self.batcher.mesh.addVertex(&new_vert);
-            self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i));
-            self.batcher.mesh.addIndex(vert_start + 2*@intCast(u16, i) + 1);
+            self.batcher.mesh.pushVertex(new_vert);
+            self.batcher.mesh.pushIndex(vert_start + 2*@intCast(u16, i));
+            self.batcher.mesh.pushIndex(vert_start + 2*@intCast(u16, i) + 1);
         }
 
         self.batcher.beginMvp(cur_mvp);
@@ -2004,10 +1946,10 @@ pub const Graphics = struct {
         self.batcher.normal = xform.toRotationUniformScaleMat();
 
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
-        self.batcher.mesh.addMatrix(xform.mat);
+        self.batcher.mesh.pushMatrix(xform.mat);
 
         self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
-        self.batcher.mesh.addMaterial(mat);
+        self.batcher.mesh.pushMaterial(mat);
 
         self.batcher.ensurePushMeshData(mesh.verts, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
@@ -2029,10 +1971,10 @@ pub const Graphics = struct {
         self.batcher.normal = xform.toRotationUniformScaleMat();
 
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
-        self.batcher.mesh.addMatrix(xform.mat);
+        self.batcher.mesh.pushMatrix(xform.mat);
 
         self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
-        self.batcher.mesh.addMaterial(mesh.material);
+        self.batcher.mesh.pushMaterial(mesh.material);
 
         self.batcher.pushMeshData(mesh.verts, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
@@ -2085,7 +2027,7 @@ pub const Graphics = struct {
             }
                 
             self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
-            self.batcher.mesh.addMatrix(mesh_model.mat);
+            self.batcher.mesh.pushMatrix(mesh_model.mat);
 
             // Compute normal matrix for lighting.
             self.batcher.normal = mesh_model.toRotationUniformScaleMat();
@@ -2117,7 +2059,7 @@ pub const Graphics = struct {
                             xform.applyTransform(joint_mat);
                             cur_id = joint_node.parent;
                         }
-                        self.batcher.mesh.addMatrix(xform.mat);
+                        self.batcher.mesh.pushMatrix(xform.mat);
                         self.tmp_joint_idxes[i] = @intCast(u16, mat_idx + i);
                     }
                 } else {
@@ -2135,7 +2077,7 @@ pub const Graphics = struct {
                         // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
                         new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
                         new_vert.joints.compact.joint_1 = self.tmp_joint_idxes[new_vert.joints.components.joint_2] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_3]) << 16);
-                        self.batcher.mesh.addVertex(&new_vert);
+                        self.batcher.mesh.pushVertex(new_vert);
                     }
                 } else {
                     for (prim.verts) |vert| {
@@ -2143,17 +2085,17 @@ pub const Graphics = struct {
                         if (fill) {
                             new_vert.setColor(self.cur_fill_color);
                         }
-                        self.batcher.mesh.addVertex(&new_vert);
+                        self.batcher.mesh.pushVertex(new_vert);
                     }
                 }
-                self.batcher.mesh.addDeltaIndices(vert_start, prim.indexes);
+                self.batcher.mesh.pushDeltaIndexes(vert_start, prim.indexes);
 
                 if (custom_mat) |material| {
                     self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
-                    self.batcher.mesh.addMaterial(material);
+                    self.batcher.mesh.pushMaterial(material);
                 } else {
                     self.batcher.material_idx = self.batcher.mesh.cur_materials_buf_size;
-                    self.batcher.mesh.addMaterial(prim.material);
+                    self.batcher.mesh.pushMaterial(prim.material);
                 }
 
                 self.endCmd();
@@ -2180,16 +2122,16 @@ pub const Graphics = struct {
 
         self.batcher.beginMvp(vp);
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
-        self.batcher.mesh.addMatrix(xform.mat);
+        self.batcher.mesh.pushMatrix(xform.mat);
 
         self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
         const vert_start = self.batcher.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(self.cur_fill_color);
-            self.batcher.mesh.addVertex(&new_vert);
+            self.batcher.mesh.pushVertex(new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
+        self.batcher.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
 
         self.batcher.beginMvp(cur_mvp);
     }
@@ -2211,7 +2153,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(vp);
 
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
-        self.batcher.mesh.addMatrix(xform.mat);
+        self.batcher.mesh.pushMatrix(xform.mat);
 
         // TODO: stroke color should pushed as a constant.
         self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
@@ -2219,9 +2161,9 @@ pub const Graphics = struct {
         for (mesh.verts) |vert| {
             var new_vert = vert;
             new_vert.setColor(self.cur_stroke_color);
-            self.batcher.mesh.addVertex(&new_vert);
+            self.batcher.mesh.pushVertex(new_vert);
         }
-        self.batcher.mesh.addDeltaIndices(vert_start, mesh.indexes);
+        self.batcher.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
 
         self.batcher.beginMvp(cur_mvp);
     }
@@ -2260,25 +2202,25 @@ pub const Graphics = struct {
         // top left
         vert.setXY(x, y);
         vert.setUV(u_start, v_start);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // top right
         vert.setXY(x + width, y);
         vert.setUV(u_end, v_start);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom right
         vert.setXY(x + width, y + height);
         vert.setUV(u_end, v_end);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom left
         vert.setXY(x, y + height);
         vert.setUV(u_start, v_end);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // add rect
-        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+        self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
     pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
@@ -2294,25 +2236,25 @@ pub const Graphics = struct {
         // top left
         vert.setXY(x, y);
         vert.setUV(0, 0);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // top right
         vert.setXY(x + width, y);
         vert.setUV(1, 0);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom right
         vert.setXY(x + width, y + height);
         vert.setUV(1, 1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom left
         vert.setXY(x, y + height);
         vert.setUV(0, 1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // add rect
-        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+        self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
@@ -2328,25 +2270,25 @@ pub const Graphics = struct {
         // top left
         vert.setXY(x, y);
         vert.setUV(0, 0);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // top right
         vert.setXY(x + @intToFloat(f32, img.width), y);
         vert.setUV(1, 0);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom right
         vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
         vert.setUV(1, 1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // bottom left
         vert.setXY(x, y + @intToFloat(f32, img.height));
         vert.setUV(0, 1);
-        self.batcher.mesh.addVertex(&vert);
+        self.batcher.mesh.pushVertex(vert);
 
         // add rect
-        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+        self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
     /// Binds an image to the write buffer. 

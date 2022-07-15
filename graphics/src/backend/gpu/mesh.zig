@@ -1,5 +1,8 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const Vec3 = stdx.math.Vec3;
+const Vec4 = stdx.math.Vec4;
+const Mat4 = stdx.math.Mat4;
 const gl = @import("gl");
 
 const graphics = @import("../../graphics.zig");
@@ -25,14 +28,12 @@ pub const Mesh = struct {
     vert_buf: []TexShaderVertex,
     cur_vert_buf_size: u32,
 
-    mats_buf: []stdx.math.Mat4,
+    mats_buf: []Mat4,
     cur_mats_buf_size: u32,
     materials_buf: []graphics.Material,
     cur_materials_buf_size: u32,
 
-    const Self = @This();
-
-    pub fn init(alloc: std.mem.Allocator, mats_buf: []stdx.math.Mat4, materials_buf: []graphics.Material) Self {
+    pub fn init(alloc: std.mem.Allocator, mats_buf: []Mat4, materials_buf: []graphics.Material) Mesh {
         const vertex_buf = alloc.alloc(TexShaderVertex, StartVertexBufferSize) catch unreachable;
         const index_buf = alloc.alloc(u16, StartIndexBufferSize) catch unreachable;
         return Mesh{
@@ -49,35 +50,35 @@ pub const Mesh = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: Mesh) void {
         self.alloc.free(self.vert_buf);
         self.alloc.free(self.index_buf);
     }
 
-    pub fn reset(self: *Self) void {
+    pub fn reset(self: *Mesh) void {
         self.cur_vert_buf_size = 0;
         self.cur_index_buf_size = 0;
         self.cur_mats_buf_size = 0;
         self.cur_materials_buf_size = 0;
     }
 
-    pub fn addMatrix(self: *Self, mat: stdx.math.Mat4) void {
+    pub fn pushMatrix(self: *Mesh, mat: Mat4) void {
         self.mats_buf[self.cur_mats_buf_size] = mat;
         self.cur_mats_buf_size += 1;
     }
 
-    pub fn addMaterial(self: *Self, material: graphics.Material) void {
+    pub fn pushMaterial(self: *Mesh, material: graphics.Material) void {
         self.materials_buf[self.cur_materials_buf_size] = material;
         self.cur_materials_buf_size += 1;
     }
 
-    pub fn addVertex(self: *Self, vert: *const TexShaderVertex) void {
-        self.vert_buf[self.cur_vert_buf_size] = vert.*;
+    pub fn pushVertex(self: *Mesh, vert: TexShaderVertex) void {
+        self.vert_buf[self.cur_vert_buf_size] = vert;
         self.cur_vert_buf_size += 1;
     }
 
     // Assumes enough capacity.
-    pub fn addVertexGetIndex(self: *Self, vert: *TexShaderVertex) u16 {
+    pub fn pushVertexGetIndex(self: *Mesh, vert: *TexShaderVertex) u16 {
         const idx = self.cur_vert_buf_size;
         self.vert_buf[self.cur_vert_buf_size] = vert.*;
         self.cur_vert_buf_size += 1;
@@ -85,7 +86,7 @@ pub const Mesh = struct {
     }
 
     // Returns the id of the first vertex added.
-    pub fn addVertices(self: *Self, verts: []const TexShaderVertex) u16 {
+    pub fn pushVertexes(self: *Mesh, verts: []const TexShaderVertex) u16 {
         const first_idx = self.cur_vert_buf_size;
         for (verts) |it| {
             self.vert_buf[self.cur_vert_buf_size] = it;
@@ -94,23 +95,23 @@ pub const Mesh = struct {
         return @intCast(u16, first_idx);
     }
 
-    pub fn getNextIndexId(self: *const Self) u16 {
+    pub fn getNextIndexId(self: *const Mesh) u16 {
         return @intCast(u16, self.cur_vert_buf_size);
     }
 
-    pub fn addIndex(self: *Self, idx: u16) void {
+    pub fn pushIndex(self: *Mesh, idx: u16) void {
         self.index_buf[self.cur_index_buf_size] = idx;
         self.cur_index_buf_size += 1;
     }
 
-    pub fn addDeltaIndices(self: *Self, offset: u16, deltas: []const u16) void {
+    pub fn pushDeltaIndexes(self: *Mesh, offset: u16, deltas: []const u16) void {
         for (deltas) |it| {
-            self.addIndex(offset + it);
+            self.pushIndex(offset + it);
         }
     }
 
     /// Assumes triangle in cw order. Pushes as ccw triangle.
-    pub fn addTriangle(self: *Self, v1: u16, v2: u16, v3: u16) void {
+    pub fn pushTriangle(self: *Mesh, v1: u16, v2: u16, v3: u16) void {
         self.index_buf[self.cur_index_buf_size] = v1;
         self.index_buf[self.cur_index_buf_size + 1] = v3;
         self.index_buf[self.cur_index_buf_size + 2] = v2;
@@ -118,7 +119,22 @@ pub const Mesh = struct {
     }
 
     /// Assumes clockwise order of verts but pushes ccw triangles.
-    pub fn addQuad(self: *Self, idx1: u16, idx2: u16, idx3: u16, idx4: u16) void {
+    pub fn pushQuad(self: *Mesh, v0: Vec4, v1: Vec4, v2: Vec4, v3: Vec4, base: TexShaderVertex) void {
+        var vert = base;
+        const start = @intCast(u16, self.cur_vert_buf_size);
+        vert.pos = v0;
+        self.pushVertex(vert);
+        vert.pos = v1;
+        self.pushVertex(vert);
+        vert.pos = v2;
+        self.pushVertex(vert);
+        vert.pos = v3;
+        self.pushVertex(vert);
+        self.pushQuadIndexes(start, start + 1, start + 2, start + 3);
+    }
+
+    /// Assumes clockwise order of verts but pushes ccw triangles.
+    pub fn pushQuadIndexes(self: *Mesh, idx1: u16, idx2: u16, idx3: u16, idx4: u16) void {
         // First triangle.
         self.index_buf[self.cur_index_buf_size] = idx1;
         self.index_buf[self.cur_index_buf_size + 1] = idx4;
@@ -132,12 +148,12 @@ pub const Mesh = struct {
     }
 
     // Add vertex data that should be together.
-    pub fn addVertexData(self: *Self, comptime num_verts: usize, comptime num_indices: usize, vdata: *VertexData(num_verts, num_indices)) void {
-        const first_idx = self.addVertices(&vdata.verts);
-        self.addDeltaIndices(first_idx, &vdata.indices);
+    pub fn pushVertexData(self: *Mesh, comptime num_verts: usize, comptime num_indices: usize, vdata: *VertexData(num_verts, num_indices)) void {
+        const first_idx = self.pushVertexes(&vdata.verts);
+        self.pushDeltaIndexes(first_idx, &vdata.indices);
     }
 
-    pub fn ensureUnusedBuffer(self: *Self, vert_inc: usize, index_inc: usize) bool {
+    pub fn ensureUnusedBuffer(self: *Mesh, vert_inc: usize, index_inc: usize) bool {
         if (self.cur_vert_buf_size + vert_inc > self.vert_buf.len) {
             // Grow buffer.
             var new_size = @floatToInt(u32, @intToFloat(f32, self.cur_vert_buf_size + vert_inc) * 1.5);

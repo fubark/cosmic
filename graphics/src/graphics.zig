@@ -1126,23 +1126,10 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn pushMaterial(self: *Self, material: Material) MaterialId {
+    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: Material) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.pushMaterial(&self.impl, material),
-            else => unsupported(),
-        }
-    }
-
-    pub fn drawSingleCuboidPbr3D(self: *Self, xform: Transform, material: Material) void {
-        switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawSingleCuboidPbr3D(&self.impl, xform, material),
-            else => unsupported(),
-        }
-    }
-
-    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, mat_id: MaterialId) void {
-        switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawCuboidPbr3D(&self.impl, xform, mat_id),
+            .OpenGL => gl.Graphics.drawCuboidPbr3D(&self.new_impl, xform, material),
+            .Vulkan => gpu.Graphics.drawCuboidPbr3D(&self.impl, xform, material),
             else => unsupported(),
         }
     }

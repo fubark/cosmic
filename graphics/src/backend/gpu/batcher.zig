@@ -187,6 +187,7 @@ pub const Batcher = struct {
             .end_pos = undefined,
             .end_color = undefined,
             .inner = .{
+                .mesh = undefined,
                 .ctx = vk_ctx,
                 .renderer = renderer,
                 .cur_frame = undefined,
@@ -401,7 +402,7 @@ pub const Batcher = struct {
         self.mesh.reset();
 
         // Push the identity matrix onto index 0 for draw calls that don't need a model matrix.
-        self.mesh.addMatrix(Transform.initIdentity().mat);
+        self.mesh.pushMatrix(Transform.initIdentity().mat);
 
         const cmd_buf = self.inner.cur_frame.main_cmd_buf;
         gvk.command.beginCommandBuffer(cmd_buf);
@@ -520,10 +521,10 @@ pub const Batcher = struct {
         for (verts) |v| {
             gpu_vert.setXY(v.x, v.y);
             gpu_vert.setUV(0, 0);
-            _ = self.mesh.addVertex(&gpu_vert);
+            _ = self.mesh.pushVertex(gpu_vert);
         }
         for (idxes) |i| {
-            self.mesh.addIndex(vert_offset_id + i);
+            self.mesh.pushIndex(vert_offset_id + i);
         }
     }
 
@@ -535,22 +536,22 @@ pub const Batcher = struct {
         for (data.vertex_buf[0..data.vertex_len]) |pos| {
             vert.setXY(pos.x, pos.y);
             vert.setUV(0, 0);
-            _ = self.mesh.addVertex(&vert);
+            _ = self.mesh.pushVertex(vert);
         }
         for (data.index_buf[0..data.index_len]) |id| {
-            self.mesh.addIndex(vert_offset_id + id);
+            self.mesh.pushIndex(vert_offset_id + id);
         }
     }
 
     // Caller must check if there is enough buffer space prior.
     pub fn pushVertexData(self: *Batcher, comptime num_verts: usize, comptime num_indices: usize, data: *VertexData(num_verts, num_indices)) void {
-        self.mesh.addVertexData(num_verts, num_indices, data);
+        self.mesh.pushVertexData(num_verts, num_indices, data);
     }
 
     pub fn ensurePushMeshData(self: *Batcher, verts: []const TexShaderVertex, indexes: []const u16) void {
         self.ensureUnusedBuffer(verts.len, indexes.len);
-        const vert_start = self.mesh.addVertices(verts);
-        self.mesh.addDeltaIndices(vert_start, indexes);
+        const vert_start = self.mesh.pushVertexes(verts);
+        self.mesh.pushDeltaIndexes(vert_start, indexes);
     }
 
     pub fn endCmdForce(self: *Batcher) void {
