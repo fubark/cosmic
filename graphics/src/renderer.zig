@@ -37,7 +37,9 @@ pub const Renderer = struct {
             .Vulkan => {
                 self.swapchain.initVK(alloc, win);
 
-                self.inner.vk = gvk.Renderer.init(alloc, win, self.swapchain);
+                self.inner.vk = gvk.Renderer.init(alloc, win, self.swapchain) catch |err| {
+                    stdx.panicFmt("{}", .{ err });
+                };
                 const vk_ctx = gvk.VkContext.init(alloc, win);
                 self.inner.ctx = vk_ctx;
 

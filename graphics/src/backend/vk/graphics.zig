@@ -14,6 +14,7 @@ const log = stdx.log.scoped(.vk);
 
 const renderer_ = @import("renderer.zig");
 pub const Renderer = renderer_.Renderer;
+pub const MaxActiveFrames = renderer_.MaxActiveFrames;
 pub const Frame = renderer_.Frame;
 
 pub const shader = @import("shader.zig");
@@ -832,7 +833,7 @@ pub fn createDescriptorPool(device: vk.VkDevice) vk.VkDescriptorPool {
         // For Camera struct.
         vk.VkDescriptorPoolSize{
             .@"type" = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1 * gpu.MaxActiveFrames,
+            .descriptorCount = 1 * MaxActiveFrames,
         },
     };
 

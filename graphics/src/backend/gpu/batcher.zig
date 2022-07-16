@@ -57,7 +57,9 @@ const VkFrame = struct {
     host_cam_buf: *graphics.gpu.ShaderCamera,
 };
 
-/// The batcher should be the primary way for consumer to push draw data/calls. It is responsible for:
+// TODO: 3D rendering code in batcher will be moved out into backend specific Renderers.
+//       Batcher will be renamed to Batcher2D and sit ontop of a Renderer with the goal to batch 2d graphics calls (vector graphics and text) from the Graphics context.
+/// Batcher is responsible for:
 /// 1. Pushing various vertex/index data formats into a mesh buffer. 
 /// 2. Automatically ending the current batch command when necessary. eg. Change to shader, texture, mvp, or reaching a buffer limit.
 pub const Batcher = struct {
@@ -166,7 +168,7 @@ pub const Batcher = struct {
         renderer: *gvk.Renderer,
         pipelines: gvk.Pipelines,
         image_store: *graphics.gpu.ImageStore
-    ) void {
+    ) !void {
         new.* = .{
             .mesh = undefined,
             .cmds = std.ArrayList(DrawCmd).init(alloc),
@@ -199,7 +201,7 @@ pub const Batcher = struct {
                 .mats_desc_set = mats_desc_set,
                 .materials_buf = materials_buf,
                 .materials_desc_set = materials_desc_set,
-                .batcher_frames = alloc.alloc(VkFrame, gpu.MaxActiveFrames) catch fatal(),
+                .batcher_frames = try alloc.alloc(VkFrame, gvk.MaxActiveFrames),
                 .cur_tex_desc_set = undefined,
                 .host_vert_buf = undefined,
                 .host_index_buf = undefined,

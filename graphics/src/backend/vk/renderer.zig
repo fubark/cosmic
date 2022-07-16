@@ -3,9 +3,36 @@ const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const vk = @import("vk");
 const platform = @import("platform");
+const glslang = @import("glslang");
+
 const graphics = @import("../../graphics.zig");
 const gvk = graphics.vk;
 const gpu = graphics.gpu;
+
+/// Having 2 frames "in flight" to draw on allows the cpu and gpu to work in parallel. More than 2 is not recommended right now.
+/// This doesn't have to match the number of swap chain images/framebuffers. This indicates the max number of frames that can be active at any moment.
+/// Once this limit is reached, the cpu will block until the gpu is done with the oldest frame.
+/// Currently used explicitly by the Vulkan implementation.
+pub const MaxActiveFrames = 2;
+
+var inited_global = false;
+
+fn initGlobal() !void {
+    if (!inited_global) {
+        const res = glslang.glslang_initialize_process();
+        if (res == 0) {
+            return error.GlslangInitFailed;
+        }
+        inited_global = true;
+    }
+}
+
+fn deinitGlobal() void {
+    if (inited_global) {
+        glslang.glslang_finalize_process();
+        inited_global = false;
+    }
+}
 
 /// Resources needed to render a frame.
 pub const Frame = struct {
@@ -62,7 +89,9 @@ pub const Renderer = struct {
     pub const ShadowMapSize = 2048;
     const ShadowMapFormat = vk.VK_FORMAT_D32_SFLOAT; // 16bit depth value. May need to increase.
 
-    pub fn init(alloc: std.mem.Allocator, win: *platform.Window, swapchain: graphics.SwapChain) Renderer {
+    pub fn init(alloc: std.mem.Allocator, win: *platform.Window, swapchain: graphics.SwapChain) !Renderer {
+        try initGlobal();
+
         const physical = win.impl.inner.physical_device;
         const device = win.impl.inner.device;
         const queue_family = win.impl.inner.queue_family;
@@ -73,8 +102,8 @@ pub const Renderer = struct {
             .device = device,
             .cmd_pool = gvk.command.createCommandPool(device, queue_family),
             .desc_pool = gvk.createDescriptorPool(device),
-            .frames = alloc.alloc(Frame, gpu.MaxActiveFrames) catch fatal(),
-            .framebuffers = alloc.alloc(vk.VkFramebuffer, num_framebuffers) catch fatal(),
+            .frames = try alloc.alloc(Frame, MaxActiveFrames),
+            .framebuffers = try alloc.alloc(vk.VkFramebuffer, num_framebuffers),
             .fb_size = swapchain.impl.buf_dim,
             .main_pass = gvk.renderpass.createRenderPass(device, swapchain.impl.buf_format),
             .linear_sampler = gvk.image.createTextureSampler(device, .{ .linear_filter = true }),
@@ -90,7 +119,7 @@ pub const Renderer = struct {
 
         ret.shadow_pass = gvk.renderpass.createShadowRenderPass(device, ShadowMapFormat);
 
-        const cmd_bufs = gvk.command.createCommandBuffers(alloc, device, ret.cmd_pool, gpu.MaxActiveFrames * 2);
+        const cmd_bufs = gvk.command.createCommandBuffers(alloc, device, ret.cmd_pool, MaxActiveFrames * 2);
         defer alloc.free(cmd_bufs);
         for (ret.frames) |*frame, i| {
             frame.main_cmd_buf = cmd_bufs[i * 2];
@@ -150,6 +179,8 @@ pub const Renderer = struct {
         vk.destroyRenderPass(device, self.shadow_pass, null);
         vk.destroySampler(device, self.shadow_sampler, null);
         vk.destroyDescriptorSetLayout(device, self.shadowmap_desc_set_layout, null);
+
+        deinitGlobal();
     }
 
     pub fn beginSingleTimeCommands(self: Renderer) vk.VkCommandBuffer {

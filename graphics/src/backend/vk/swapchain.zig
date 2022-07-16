@@ -14,9 +14,9 @@ pub const SwapChain = struct {
 
     swapchain: vk.VkSwapchainKHR,
 
-    image_available_semas: [gpu.MaxActiveFrames]vk.VkSemaphore,
-    render_finished_semas: [gpu.MaxActiveFrames]vk.VkSemaphore,
-    inflight_fences: [gpu.MaxActiveFrames]vk.VkFence,
+    image_available_semas: [gvk.MaxActiveFrames]vk.VkSemaphore,
+    render_finished_semas: [gvk.MaxActiveFrames]vk.VkSemaphore,
+    inflight_fences: [gvk.MaxActiveFrames]vk.VkFence,
 
     images: []vk.VkImage,
     image_views: []vk.VkImageView,
@@ -203,7 +203,7 @@ pub const SwapChain = struct {
         };
         const res = vk.queuePresentKHR(self.present_queue, &present_info);
         vk.assertSuccess(res);
-        self.cur_frame_idx = (self.cur_frame_idx + 1) % gpu.MaxActiveFrames;
+        self.cur_frame_idx = (self.cur_frame_idx + 1) % gvk.MaxActiveFrames;
     }
 };
 
@@ -224,7 +224,7 @@ fn createSyncObjects(swapchain: *SwapChain) void {
 
     var i: usize = 0;
     var res: vk.VkResult = undefined;
-    while (i < gpu.MaxActiveFrames) : (i += 1) {
+    while (i < gvk.MaxActiveFrames) : (i += 1) {
         res = vk.createSemaphore(device, &sema_info, null, &swapchain.image_available_semas[i]);
         vk.assertSuccess(res);
         res = vk.createSemaphore(device, &sema_info, null, &swapchain.render_finished_semas[i]);

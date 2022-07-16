@@ -73,12 +73,6 @@ const vera_ttf = @embedFile("../../../../assets/vera.ttf");
 const IsWasm = builtin.target.isWasm();
 const NullId = std.math.maxInt(u32);
 
-/// Having 2 frames "in flight" to draw on allows the cpu and gpu to work in parallel. More than 2 is not recommended right now.
-/// This doesn't have to match the number of swap chain images/framebuffers. This indicates the max number of frames that can be active at any moment.
-/// Once this limit is reached, the cpu will block until the gpu is done with the oldest frame.
-/// Currently used explicitly by the Vulkan implementation.
-pub const MaxActiveFrames = 2;
-
 /// Should be agnostic to viewport dimensions so it can be reused to draw on different viewports.
 pub const Graphics = struct {
     alloc: std.mem.Allocator,
@@ -154,7 +148,7 @@ pub const Graphics = struct {
     const Self = @This();
 
     pub fn initGL(self: *Self, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
-        try self.initDefault(alloc, dpr);
+        self.initDefault(alloc, dpr);
         self.initCommon(alloc);
         self.batcher = Batcher.initGL(alloc, renderer, &self.image_store);
     }
@@ -165,7 +159,7 @@ pub const Graphics = struct {
         const fb_size = renderer.fb_size;
         const pass = renderer.main_pass;
 
-        try self.initDefault(alloc, dpr);
+        self.initDefault(alloc, dpr);
         self.inner.ctx = vk_ctx;
         self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
@@ -206,7 +200,7 @@ pub const Graphics = struct {
         self.inner.pipelines.shadow_pipeline = try gvk.createShadowPipeline(alloc, device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
         self.inner.pipelines.anim_shadow_pipeline = try gvk.createAnimShadowPipeline(alloc, device, shadow_pass, shadow_dim, self.inner.tex_desc_set_layout, self.inner.mats_desc_set_layout);
 
-        self.batcher = Batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
+        try self.batcher.initVK(alloc, vert_buf, index_buf, mats_buf, mats_desc_set, materials_buf, materials_desc_set, vk_ctx, renderer, self.inner.pipelines, &self.image_store);
         for (self.batcher.inner.batcher_frames) |frame| {
             frame.host_cam_buf.light_color = self.light_color;
             frame.host_cam_buf.light_vec = self.light_vec;
