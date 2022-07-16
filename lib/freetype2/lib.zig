@@ -15,6 +15,9 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
     step.addIncludeDir(srcPath() ++ "/include");
     step.addIncludeDir(srcPath() ++ "/vendor/include");
+    if (step.target.getCpuArch().isWasm()) {
+        step.addIncludeDir(srcPath() ++ "/../wasm/include");
+    }
     step.linkLibC();
 }
 
