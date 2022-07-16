@@ -198,6 +198,10 @@ pub const Vec4 = struct {
     pub fn div(self: Vec4, s: f32) Vec4 {
         return Vec4.init(self.x / s, self.y / s, self.z / s, self.w / s);
     }
+
+    pub fn divW(self: Vec4) Vec4 {
+        return Vec4.init(self.x / self.w, self.y / self.w, self.z / self.w, 1);
+    }
 };
 
 pub const Vec2 = struct {

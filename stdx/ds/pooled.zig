@@ -1,6 +1,8 @@
 const std = @import("std");
 const stdx = @import("../stdx.zig");
+const fatal = stdx.fatal;
 const t = stdx.testing;
+const log = stdx.log.scoped(.pooled);
 
 /// Keeps items closer together in memory without moving them due to a second list that tracks free slots for inserting new items.
 /// Each handle id does not change and can be used to reference the same item.
@@ -94,9 +96,9 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
         // Returns the id of the item.
         pub fn add(self: *Self, item: T) !Id {
             const new_id = self.id_gen.getNextId();
-            errdefer self.id_gen.deleteId(new_id);
 
             if (new_id >= self.data.items.len) {
+                errdefer self.id_gen.deleteId(new_id);
                 try self.data.resize(new_id + 1);
                 try self.data_exists.resize(new_id + 1);
             }
@@ -187,11 +189,11 @@ test "PooledHandleList" {
 /// Uses a fifo id buffer to get the next id if not empty, otherwise it uses the next id counter.
 pub fn PoolIdGenerator(comptime T: type) type {
     return struct {
-        const Self = @This();
-
         start_id: T,
         next_default_id: T,
         next_ids: std.fifo.LinearFifo(T, .Dynamic),
+
+        const Self = @This();
 
         pub fn init(alloc: std.mem.Allocator, start_id: T) Self {
             return .{
@@ -225,7 +227,7 @@ pub fn PoolIdGenerator(comptime T: type) type {
         }
 
         pub fn deleteId(self: *Self, id: T) void {
-            self.next_ids.writeItem(id) catch unreachable;
+            self.next_ids.writeItem(id) catch fatal();
         }
 
         pub fn deinit(self: Self) void {

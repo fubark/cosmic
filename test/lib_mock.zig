@@ -575,3 +575,19 @@ export fn cgltf_accessor_read_index() void {}
 export fn cgltf_accessor_read_float() void {}
 export fn glslang_finalize_process() void {}
 export fn glslang_initialize_process() void {}
+
+export fn glslang_default_resource() void {}
+export fn glslang_shader_create() void {}
+export fn glslang_shader_preprocess() void {}
+export fn glslang_shader_get_info_log() void {}
+export fn glslang_shader_get_info_debug_log() void {}
+export fn glslang_shader_delete() void {}
+export fn glslang_shader_parse() void {}
+export fn glslang_program_create() void {}
+export fn glslang_program_add_shader() void {}
+export fn glslang_program_link() void {}
+export fn glslang_program_delete() void {}
+export fn glslang_program_SPIRV_generate() void {}
+export fn glslang_program_SPIRV_get_size() void {}
+export fn glslang_program_SPIRV_get() void {}
+export fn glslang_program_SPIRV_get_messages() void {}
