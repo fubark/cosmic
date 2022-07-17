@@ -1218,14 +1218,16 @@ pub const Graphics = struct {
     /// Draws a wireframe around the mesh with the current stroke color.
     pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.strokeMesh3D(&self.impl, xform, verts, indexes),
+            .OpenGL => gl.Graphics.strokeMesh3D(&self.new_impl, xform, verts, indexes),
+            .Vulkan => gpu.Graphics.strokeMesh3D(&self.impl, xform, verts, indexes),
             else => unsupported(),
         }
     }
 
     pub fn strokeScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.strokeScene3D(&self.impl, xform, scene),
+            .OpenGL => gl.Graphics.strokeScene3D(&self.new_impl, xform, scene),
+            .Vulkan => gpu.Graphics.strokeScene3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }

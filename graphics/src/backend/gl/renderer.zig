@@ -1,4 +1,6 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const Mat4 = stdx.math.Mat4;
 const Mat3 = stdx.math.Mat3;
@@ -89,6 +91,8 @@ pub const Renderer = struct {
         // Disable depth test by default.
         gl.disable(gl.GL_DEPTH_TEST);
         self.depth_test = false;
+
+        gl.disable(gl.GL_POLYGON_OFFSET_FILL);
     }
 
     pub fn deinit(self: Renderer, alloc: std.mem.Allocator) void {
@@ -112,6 +116,19 @@ pub const Renderer = struct {
         self.pipelines.tex.bind(mvp, gl_tex_id);
         gl.bindVertexArray(self.pipelines.tex.shader.vao_id);
         self.pushCurrentElements();
+    }
+
+    pub fn pushTexWireframe3D(self: *Renderer, mvp: Mat4, tex_id: TextureId) void {
+        // Only supported on Desktop atm.
+        if (!IsWasm) {
+            const gl_tex_id = self.image_store.getTexture(tex_id).inner.tex_id;
+            gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE);
+            self.setDepthTest(true);
+            self.pipelines.tex.bind(mvp, gl_tex_id);
+            gl.bindVertexArray(self.pipelines.tex.shader.vao_id);
+            self.pushCurrentElements();
+            gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL);
+        }
     }
 
     pub fn pushTexPbr3D(self: *Renderer, mvp: Mat4, model: Mat4, normal: Mat3, mat: graphics.Material, light: gpu.ShaderCamera, tex_id: TextureId) void {

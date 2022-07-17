@@ -61,10 +61,12 @@ extern "graphics" fn jsGlUniform4fv(location: i32, value_ptr: *const f32) void;
 extern "graphics" fn jsGlBufferData(target: u32, data_ptr: ?*const u8, data_size: u32, usage: u32) void;
 extern "graphics" fn jsGlDrawElements(mode: u32, num_indices: u32, index_type: u32, index_offset: u32) void;
 extern "graphics" fn jsGlCreateRenderbuffer() u32;
+extern "graphics" fn jsGlPolygonOffset(factor: f32, units: f32) void;
 extern "graphics" fn jsGlFramebufferRenderbuffer(target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32) void;
 extern "graphics" fn jsGlFramebufferTexture2D(target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) void;
 extern "graphics" fn jsGlViewport(x: i32, y: i32, width: i32, height: i32) void;
 extern "graphics" fn jsGlClear(mask: u32) void;
+extern "graphics" fn jsGlLineWidth(width: f32) void;
 extern "graphics" fn jsGlBlendFunc(sfactor: u32, dfactor: u32) void;
 extern "graphics" fn jsGlBlitFramebuffer(srcX0: i32, srcY0: i32, srcX1: i32, srcY1: i32, dstX0: i32, dstY0: i32, dstX1: i32, dstY1: i32, mask: u32, filter: u32) void;
 extern "graphics" fn jsGlBlendEquation(mode: u32) void;
@@ -126,6 +128,14 @@ pub inline fn deleteTextures(n: c.GLsizei, textures: [*c]const c.GLuint) void {
         }
     } else {
         c.glDeleteTextures(n, textures);
+    }
+}
+
+pub inline fn lineWidth(width: c.GLfloat) void {
+    if (IsWasm) {
+        jsGlLineWidth(width);
+    } else {
+        c.glLineWidth(width);
     }
 }
 
@@ -497,7 +507,15 @@ pub inline fn polygonMode(face: c.GLenum, mode: c.GLenum) void {
     if (IsWasm) {
         @compileError("unsupported");
     } else {
-        sdl.glPolygonMode(face, mode);
+        c.glPolygonMode(face, mode);
+    }
+}
+
+pub inline fn polygonOffset(factor: c.GLfloat, units: c.GLfloat) void {
+    if (IsWasm) {
+        jsGlPolygonOffset(factor, units);
+    } else {
+        c.glPolygonOffset(factor, units);
     }
 }
 

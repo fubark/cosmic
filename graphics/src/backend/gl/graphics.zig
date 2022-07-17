@@ -110,6 +110,31 @@ pub const Graphics = struct {
         self.renderer.pushTexPbr3D(vp.mat, xform.mat, normal, mat, light, tex_id);
     }
 
+    pub fn strokeScene3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene) void {
+        for (scene.mesh_nodes) |id| {
+            const node = scene.nodes[id];
+            for (node.primitives) |prim| {
+                self.strokeMesh3D(xform, prim);
+            }
+        }
+    }
+
+    pub fn strokeMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
+        self.gpu_ctx.batcher.endCmd();
+        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        const mvp = xform.getAppliedTransform(vp);
+
+        self.renderer.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
+        const vert_start = self.mesh.getNextIndexId();
+        for (mesh.verts) |vert| {
+            var new_vert = vert;
+            new_vert.setColor(self.gpu_ctx.cur_stroke_color);
+            self.mesh.pushVertex(new_vert);
+        }
+        self.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
+        self.renderer.pushTexWireframe3D(mvp.mat, self.gpu_ctx.white_tex.tex_id);
+    }
+
     /// Vertices are duped so that each side reflects light without interpolating the normals.
     pub fn drawCuboidPbr3D(self: *Graphics, xform: Transform, material: graphics.Material) void {
         const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);

@@ -595,18 +595,6 @@ pub const Batcher = struct {
                         self.inner.renderer.pipelines.plane.bind(self.mvp.mat);
                         gl.bindVertexArray(self.inner.renderer.pipelines.plane.shader.vao_id);
                     },
-                    .Wireframe => {
-                        if (!IsWasm) {
-                            gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE);
-                            self.inner.renderer.setDepthTest(true);
-                            self.inner.renderer.pipelines.tex.bind(self.mvp.mat, self.inner.cur_gl_tex_id);
-                            gl.bindVertexArray(self.inner.renderer.pipelines.tex.shader.vao_id);
-                            gl.polygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL);
-                        } else {
-                            // Only supported on Desktop atm.
-                            return;
-                        }
-                    },
                     .Anim3D => stdx.panic("anim 3d"),
                     .AnimPbr3D => stdx.panic("anim pbr 3d"),
                     .Normal => stdx.panic("normal"),
@@ -624,6 +612,7 @@ pub const Batcher = struct {
                     },
                     .Tex3D,
                     .TexPbr3D,
+                    .Wireframe,
                     .Custom => unsupported(),
                 }
 
@@ -639,9 +628,6 @@ pub const Batcher = struct {
                 gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, num_indexes * 2), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
                 gl.drawElements(gl.GL_TRIANGLES, num_indexes, self.mesh.index_buffer_type, 0);
-
-                // Unbind vao.
-                gl.bindVertexArray(0);
             },
             .Vulkan => {
                 const cmd_buf = self.inner.cur_frame.main_cmd_buf;
