@@ -19,23 +19,21 @@ pub const Text = struct {
     tlo: graphics.TextLayout,
     use_layout: bool,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *Text, c: *ui.InitContext) void {
         self.tlo = graphics.TextLayout.init(c.alloc);
         self.use_layout = false;
     }
 
     pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+        const self = node.getWidget(Text);
         self.tlo.deinit();
     }
 
-    pub fn build(_: *Self, _: *ui.BuildContext) ui.FrameId {
+    pub fn build(_: *Text, _: *ui.BuildContext) ui.FrameId {
         return ui.NullFrameId;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Text, c: *ui.LayoutContext) ui.LayoutSize {
         if (self.props.text != null) {
             const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
 
@@ -55,8 +53,8 @@ pub const Text = struct {
         }
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
-        const g = c.g;
+    pub fn render(self: *Text, c: *ui.RenderContext) void {
+        const g = c.gctx;
         const alo = c.getAbsLayout();
 
         if (self.props.text != null) {

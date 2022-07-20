@@ -1018,7 +1018,7 @@ pub const Module = struct {
 
 pub const RenderContext = struct {
     common: *CommonContext,
-    g: *Graphics,
+    gctx: *Graphics,
 
     /// Elapsed time since the last render.
     delta_ms: f32,
@@ -1028,9 +1028,9 @@ pub const RenderContext = struct {
 
     const Self = @This();
 
-    fn init(common: *CommonContext, g: *Graphics) Self {
+    fn init(common: *CommonContext, gctx: *Graphics) Self {
         return .{
-            .g = g,
+            .gctx = gctx,
             .common = common,
             .node = undefined,
             .delta_ms = 0,
@@ -1057,7 +1057,7 @@ pub const RenderContext = struct {
     }
 
     pub inline fn getGraphics(self: *Self) *Graphics {
-        return self.g;
+        return self.gctx;
     }
 
     pub usingnamespace MixinContextNodeReadOps(Self);

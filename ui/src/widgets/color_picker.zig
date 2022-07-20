@@ -83,8 +83,8 @@ pub const ColorPicker = struct {
 
     pub fn render(self: *Self, ctx: *ui.RenderContext) void {
         const preview_alo = self.preview.getAbsLayout();
-        ctx.g.setFillColor(self.color);
-        ctx.g.fillRect(preview_alo.x, preview_alo.y, preview_alo.width, preview_alo.height);
+        ctx.gctx.setFillColor(self.color);
+        ctx.gctx.fillRect(preview_alo.x, preview_alo.y, preview_alo.width, preview_alo.height);
     }
 };
 
@@ -223,7 +223,7 @@ const ColorPickerPopover = struct {
 
     pub fn renderCustom(self: *Self, ctx: *ui.RenderContext) void {
         // const alo = ctx.getAbsLayout();
-        const g = ctx.g;
+        const g = ctx.gctx;
 
         // Render children so palette box resolves it's abs pos.
         ctx.renderChildren();
@@ -277,7 +277,7 @@ const ColorPickerPopover = struct {
     fn postPopoverRender(ptr: ?*anyopaque, c: *ui.RenderContext) void {
         const self = stdx.mem.ptrCastAlign(*Self, ptr);
         const palette_alo = self.palette.getAbsLayout();
-        const g = c.g;
+        const g = c.gctx;
 
         // Draw the palette cursor.
         const cursor_x = palette_alo.x + palette_alo.width * self.palette_xratio;

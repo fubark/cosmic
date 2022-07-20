@@ -242,15 +242,15 @@ pub const ModalOverlay = struct {
             const child_x = alo.x + child_lo.x;
             const child_y = alo.y + child_lo.y;
 
-            const g = c.g;
-            g.setFillColor(self.props.bg_color);
-            g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
+            const gctx = c.gctx;
+            gctx.setFillColor(self.props.bg_color);
+            gctx.fillRect(child_x, child_y, child_lo.width, child_lo.height);
 
             c.renderChildren();
 
-            g.setStrokeColor(self.props.border_color);
-            g.setLineWidth(2);
-            g.drawRect(child_x, child_y, child_lo.width, child_lo.height);
+            gctx.setStrokeColor(self.props.border_color);
+            gctx.setLineWidth(2);
+            gctx.drawRect(child_x, child_y, child_lo.width, child_lo.height);
         }
     }
 };
@@ -336,7 +336,7 @@ pub const PopoverOverlay = struct {
             const child_x = alo.x + child_lo.x;
             const child_y = alo.y + child_lo.y;
 
-            const g = c.g;
+            const g = c.gctx;
             g.setFillColor(self.props.bg_color);
             g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
             if (self.to_left) {

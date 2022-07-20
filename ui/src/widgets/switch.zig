@@ -56,7 +56,7 @@ pub const Switch = struct {
     }
 
     pub fn render(self: *Switch, c: *ui.RenderContext) void {
-        const g = c.g;
+        const g = c.gctx;
         const alo = c.getAbsLayout();
 
         if (self.is_set) {

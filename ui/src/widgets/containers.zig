@@ -14,14 +14,12 @@ pub const Padding = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Padding, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Padding, c: *ui.LayoutContext) ui.LayoutSize {
         var pad_top = self.props.pad_top orelse self.props.padding;
         var pad_right = self.props.pad_right orelse self.props.padding;
         var pad_bottom = self.props.pad_bottom orelse self.props.padding;
@@ -106,14 +104,12 @@ pub const Center = struct {
         hcenter: bool = true,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Center, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Center, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         if (self.props.child == ui.NullFrameId) {
@@ -153,14 +149,12 @@ pub const Stretch = struct {
         aspect_ratio: f32 = 1,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Stretch, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Stretch, c: *ui.LayoutContext) ui.LayoutSize {
         var cstr = c.getSizeConstraint();
         switch (self.props.method) {
             .WidthAndKeepRatio => cstr.height = cstr.width / self.props.aspect_ratio,
@@ -206,20 +200,18 @@ pub const ZStack = struct {
     /// Ordered by z-index desc.
     child_event_ordering: std.ArrayList(*ui.Node),
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *ZStack, c: *ui.InitContext) void {
         self.ordered_children = std.ArrayList(u32).init(c.alloc);
         self.child_event_ordering = std.ArrayList(*ui.Node).init(c.alloc);
     }
 
     pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+        const self = node.getWidget(ZStack);
         self.ordered_children.deinit();
         self.child_event_ordering.deinit();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ZStack, c: *ui.BuildContext) ui.FrameId {
         // Ordering is determined at build step.
         self.ordered_children.ensureTotalCapacity(self.props.children.len) catch @panic("error");
         self.ordered_children.items.len = 0;
@@ -234,7 +226,7 @@ pub const ZStack = struct {
     }
 
     pub fn postUpdate(node: *ui.Node) void {
-        const self = node.getWidget(Self);
+        const self = node.getWidget(ZStack);
 
         // Child event ordering is z-index desc.
         self.child_event_ordering.ensureTotalCapacity(self.props.children.len) catch @panic("error");
@@ -248,11 +240,11 @@ pub const ZStack = struct {
     }
 
     /// Return ordering sorted by z-index desc.
-    pub fn childEventOrdering(self: *Self) []const u32 {
+    pub fn childEventOrdering(self: *ZStack) []const u32 {
         return self.child_event_ordering.items;
     }
 
-    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+    pub fn renderCustom(self: *ZStack, c: *ui.RenderContext) void {
         const node = c.node;
 
         // Rendered by z-index asc.
