@@ -28,10 +28,8 @@ pub const Renderer = struct {
         else => void,
     },
 
-    const Self = @This();
-
     /// Creates a renderer that targets a window.
-    pub fn init(self: *Self, alloc: std.mem.Allocator, win: *platform.Window) void {
+    pub fn init(self: *Renderer, alloc: std.mem.Allocator, win: *platform.Window) void {
         self.win = win;
         switch (Backend) {
             .Vulkan => {
@@ -55,21 +53,22 @@ pub const Renderer = struct {
         }
     }
 
-    pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *Renderer, alloc: std.mem.Allocator) void {
         // Deinit swapchain first to make sure there aren't any pending resources in use.
         self.swapchain.deinit(alloc);
         self.gctx.deinit();
-        if (Backend == .Vulkan) {
-            self.inner.vk.deinit(alloc);
+        switch (Backend) {
+            .Vulkan => self.inner.vk.deinit(alloc),
+            else => {},
         }
     }
 
-    pub fn getGraphics(self: *Self) *graphics.Graphics {
+    pub fn getGraphics(self: *Renderer) *graphics.Graphics {
         return &self.gctx;
     }
     
     /// Start of frame with a camera view.
-    pub inline fn beginFrame(self: *Self, cam: graphics.Camera) void {
+    pub inline fn beginFrame(self: *Renderer, cam: graphics.Camera) void {
         self.swapchain.beginFrame();
         switch (Backend) {
             .Vulkan => {
@@ -88,7 +87,7 @@ pub const Renderer = struct {
     }
 
     /// End of frame, flush to framebuffer.
-    pub inline fn endFrame(self: *Self) void {
+    pub inline fn endFrame(self: *Renderer) void {
         switch (Backend) {
             .Vulkan => {
                 const frame_res = gpu.Graphics.endFrameVK(&self.gctx.impl);

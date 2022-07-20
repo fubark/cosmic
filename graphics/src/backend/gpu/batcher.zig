@@ -113,7 +113,7 @@ pub const Batcher = struct {
             // Directional light shadow cast view * proj.
             light_cast_vp: Transform,
         },
-        else => @compileError("unsupported"),
+        else => void,
     },
     image_store: *graphics.gpu.ImageStore,
 

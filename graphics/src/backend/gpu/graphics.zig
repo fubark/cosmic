@@ -79,7 +79,6 @@ pub const Graphics = struct {
 
     white_tex: image.ImageTex,
     inner: switch (Backend) {
-        .OpenGL => void,
         .Vulkan => struct {
             ctx: VkContext,
             renderer: *gvk.Renderer,
@@ -89,7 +88,7 @@ pub const Graphics = struct {
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_frame: gvk.Frame,
         },
-        else => @compileError("unsupported"),
+        else => void,
     },
     batcher: Batcher,
     font_cache: FontCache,
@@ -896,7 +895,7 @@ pub const Graphics = struct {
 
             // Add triangle.
             const next_idx = last_vert_idx + 1;
-            self.batcher.mesh.addTriangle(center, last_vert_idx, next_idx);
+            self.batcher.mesh.pushTriangle(center, last_vert_idx, next_idx);
             last_vert_idx = next_idx;
         }
     }
@@ -962,7 +961,7 @@ pub const Graphics = struct {
             self.batcher.mesh.pushVertex(vert);
 
             // Add arc sector.
-            self.batcher.mesh.addQuad(cur_vert_idx + 1, cur_vert_idx - 1, cur_vert_idx - 2, cur_vert_idx);
+            self.batcher.mesh.pushQuadIndexes(cur_vert_idx + 1, cur_vert_idx - 1, cur_vert_idx - 2, cur_vert_idx);
             cur_vert_idx += 2;
         }
     }
@@ -1003,7 +1002,7 @@ pub const Graphics = struct {
             .y1 = y1,
         };
         self.vec2_helper_buf.clearRetainingCapacity();
-        stroke.strokeQuadBez(&self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.cur_line_width_half, self.cur_stroke_color);
+        stroke.strokeQuadBez(self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.cur_line_width_half, self.cur_stroke_color);
     }
 
     pub fn drawQuadraticBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
@@ -1031,7 +1030,7 @@ pub const Graphics = struct {
         };
         self.qbez_helper_buf.clearRetainingCapacity();
         self.vec2_helper_buf.clearRetainingCapacity();
-        stroke.strokeCubicBez(&self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.cur_line_width_half, self.cur_stroke_color);
+        stroke.strokeCubicBez(self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.cur_line_width_half, self.cur_stroke_color);
     }
 
     pub fn drawCubicBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
@@ -1063,7 +1062,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushVertex(vert);
         vert.setXY(x4, y4);
         self.batcher.mesh.pushVertex(vert);
-        self.batcher.mesh.addQuad(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+        self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
     pub fn fillSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {

@@ -43,16 +43,16 @@ fn strokePath(mesh: *Mesh, pts: []const Vec2, half_width: f32, color: Color) voi
 
         const start_idx = mesh.getNextIndexId();
         vert.setXY(left_pt.x, left_pt.y);
-        _ = mesh.addVertex(&vert);
+        _ = mesh.pushVertex(vert);
         vert.setXY(pt.x, pt.y);
-        _ = mesh.addVertex(&vert);
+        _ = mesh.pushVertex(vert);
         vert.setXY(right_pt.x, right_pt.y);
-        _ = mesh.addVertex(&vert);
+        _ = mesh.pushVertex(vert);
 
         // Left side quad.
-        mesh.addQuad(start_idx, start_idx + 1, start_idx + 4, start_idx + 3);
+        mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 4, start_idx + 3);
         // Right side quad.
-        mesh.addQuad(start_idx+1, start_idx + 2, start_idx + 5, start_idx + 4);
+        mesh.pushQuadIndexes(start_idx+1, start_idx + 2, start_idx + 5, start_idx + 4);
         last_uvec = uvec;
     }
     {
@@ -63,11 +63,11 @@ fn strokePath(mesh: *Mesh, pts: []const Vec2, half_width: f32, color: Color) voi
         const pt = pts[i];
 
         vert.setXY(left_pt.x, left_pt.y);
-        _ = mesh.addVertex(&vert);
+        _ = mesh.pushVertex(vert);
         vert.setXY(pt.x, pt.y);
-        _ = mesh.addVertex(&vert);
+        _ = mesh.pushVertex(vert);
         vert.setXY(right_pt.x, right_pt.y);
-        _ = mesh.addVertex(&vert);
+        _ = mesh.pushVertex(vert);
     }
 }
 

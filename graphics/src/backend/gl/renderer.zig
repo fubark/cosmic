@@ -106,6 +106,7 @@ pub const Renderer = struct {
 
         alloc.free(self.mats_buf);
         alloc.free(self.materials_buf);
+        self.mesh.deinit();
 
         self.pipelines.deinit();
     }
