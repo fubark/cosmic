@@ -4,12 +4,7 @@ const Color = graphics.Color;
 const platform = @import("platform");
 
 const ui = @import("../ui.zig");
-const widgets = ui.widgets;
-const MouseArea = widgets.MouseArea;
-const Row = widgets.Row;
-const Flex = widgets.Flex;
-const Sized = widgets.Sized;
-const Text = widgets.Text;
+const w = ui.widgets;
 const log = stdx.log.scoped(.switch_);
 
 pub const Switch = struct {
@@ -22,40 +17,37 @@ pub const Switch = struct {
     is_set: bool,
     anim: ui.SimpleTween,
 
-    const Self = @This();
     const Width = 60;
     const Height = 30;
     const InnerPadding = 5;
     const InnerRadius = (Height - InnerPadding * 2) / 2;
 
-    pub fn init(self: *Self, _: *ui.InitContext) void {
+    pub fn init(self: *Switch, _: *ui.InitContext) void {
         self.is_set = self.props.init_val;
         self.anim = ui.SimpleTween.init(100);
         self.anim.finish();
     }
     
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Switch, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *Switch, _: platform.MouseUpEvent) void {
                 self_.toggle();
             }
         };
 
-        const d = c.decl;
-        return d(MouseArea, .{
-            .onClick = c.funcExt(self, S.onClick),
-            .child = d(Sized, .{
+        return w.MouseArea(.{ .onClick = c.funcExt(self, S.onClick) },
+            w.Sized(.{
                 .width = Width,
                 .height = Height,
-            }),
-        });
+            }, ui.NullFrameId),
+        );
     }
 
-    pub fn isSet(self: Self) bool {
+    pub fn isSet(self: Switch) bool {
         return self.is_set;
     }
 
-    pub fn toggle(self: *Self) void {
+    pub fn toggle(self: *Switch) void {
         self.is_set = !self.is_set;
         self.anim.reset();
         if (self.props.onChange) |cb| {
@@ -63,7 +55,7 @@ pub const Switch = struct {
         }
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
+    pub fn render(self: *Switch, c: *ui.RenderContext) void {
         const g = c.g;
         const alo = c.getAbsLayout();
 

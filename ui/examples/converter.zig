@@ -5,62 +5,52 @@ const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const Row = ui.widgets.Row;
-const Text = ui.widgets.Text;
-const Padding = ui.widgets.Padding;
-const Center = ui.widgets.Center;
-const TextField = ui.widgets.TextField;
+const w = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    tc_field: ui.WidgetRef(TextField),
-    tf_field: ui.WidgetRef(TextField),
+    tc_field: ui.WidgetRef(w.TextFieldUI),
+    tf_field: ui.WidgetRef(w.TextFieldUI),
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onChangeTc(self_: *Self, text: []const u8) void {
+            fn onChangeTc(self_: *App, text: []const u8) void {
                 const tc = std.fmt.parseFloat(f32, text) catch return;
                 self_.tf_field.getWidget().setValueFmt("{d:.2}", .{ tc * 9/5 + 32 });
             }
-            fn onChangeTf(self_: *Self, text: []const u8) void {
+            fn onChangeTf(self_: *App, text: []const u8) void {
                 const tf = std.fmt.parseFloat(f32, text) catch return;
                 self_.tc_field.getWidget().setValueFmt("{d:.2}", .{ (tf - 32) * 5 / 9 });
             }
         };
-
-        return c.decl(Center, .{
-            .child = c.decl(Row, .{
-                .expand = false,
-                .children = c.list(.{
-                    c.decl(TextField, .{
-                        .bind = &self.tc_field,
-                        .width = 200,
-                        .onChangeEnd = c.funcExt(self, S.onChangeTc),
-                    }),
-                    c.decl(Padding, .{
-                        .child = c.decl(Text, .{
-                            .text = "Celsius =",
-                            .color = Color.White,
-                        }),
-                    }),
-                    c.decl(TextField, .{
-                        .bind = &self.tf_field,
-                        .width = 200,
-                        .onChangeEnd = c.funcExt(self, S.onChangeTf),
-                    }),
-                    c.decl(Padding, .{
-                        .child = c.decl(Text, .{
-                            .text = "Fahrenheit",
-                            .color = Color.White,
-                        }),
-                    }),
+        return w.Center(.{}, 
+            w.Row(.{ .expand = false }, &.{
+                w.TextField(.{
+                    .bind = &self.tc_field,
+                    .width = 200,
+                    .onChangeEnd = c.funcExt(self, S.onChangeTc),
                 }),
+                w.Padding(.{}, 
+                    w.Text(.{
+                        .text = "Celsius =",
+                        .color = Color.White,
+                    }),
+                ),
+                w.TextField(.{
+                    .bind = &self.tf_field,
+                    .width = 200,
+                    .onChangeEnd = c.funcExt(self, S.onChangeTf),
+                }),
+                w.Padding(.{}, 
+                    w.Text(.{
+                        .text = "Fahrenheit",
+                        .color = Color.White,
+                    }),
+                ),
             }),
-        });
+        );
     }
 };
 

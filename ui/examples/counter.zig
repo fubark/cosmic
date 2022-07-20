@@ -6,11 +6,7 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const Row = ui.widgets.Row;
-const Text = ui.widgets.Text;
-const TextButton = ui.widgets.TextButton;
-const Padding = ui.widgets.Padding;
-const Center = ui.widgets.Center;
+const w = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -18,40 +14,35 @@ const log = stdx.log.scoped(.main);
 pub const App = struct {
     counter: u32,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, _: *ui.InitContext) void {
+    pub fn init(self: *App, _: *ui.InitContext) void {
         self.counter = 0;
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *App, _: platform.MouseUpEvent) void {
                 self_.counter += 1;
             }
         };
-
-        return c.decl(Center, .{
-            .child = c.decl(Row, .{
-                .expand = false,
-                .children = c.list(.{
-                    c.decl(Padding, .{
-                        .padding = 10,
-                        .pad_left = 30,
-                        .pad_right = 30,
-                        .child = c.decl(Text, .{
-                            .text = c.fmt("{}", .{self.counter}),
-                            .color = Color.White,
-                        }),
+        return w.Center(.{}, 
+            w.Row(.{ .expand = false }, &.{
+                w.Padding(.{
+                    .padding = 10,
+                    .pad_left = 30,
+                    .pad_right = 30,
+                }, 
+                    w.Text(.{
+                        .text = c.fmt("{}", .{self.counter}),
+                        .color = Color.White,
                     }),
-                    c.decl(TextButton, .{
-                        .text = "Count",
-                        .onClick = c.funcExt(self, S.onClick),
-                        .corner_radius = 10,
-                    }),
+                ),
+                w.TextButton(.{
+                    .text = "Count",
+                    .onClick = c.funcExt(self, S.onClick),
+                    .corner_radius = 10,
                 }),
             }),
-        });
+        );
     }
 };
 

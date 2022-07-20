@@ -7,21 +7,7 @@ const Window = platform.Window;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const TextEditor = ui.widgets.TextEditor;
-const TextButton = ui.widgets.TextButton;
-const Column = ui.widgets.Column;
-const Row = ui.widgets.Row;
-const Text = ui.widgets.Text;
-const Flex = ui.widgets.Flex;
-const Button = ui.widgets.Button;
-const Padding = ui.widgets.Padding;
-const Stretch = ui.widgets.Stretch;
-const ColorPicker = ui.widgets.ColorPicker;
-const SwitchOption = ui.widgets.SwitchOption;
-const FileDialog = ui.widgets.FileDialog;
-const SliderOption = ui.widgets.SliderOption;
-const Slider = ui.widgets.Slider;
-const Root = ui.widgets.Root;
+const w = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -33,23 +19,21 @@ const tamzen9_otb = @embedFile("../../assets/tamzen5x9r.otb");
 
 pub const App = struct {
     alloc: std.mem.Allocator,
-    text_editor: ui.WidgetRef(TextEditor),
-    size_slider: ui.WidgetRef(Slider),
+    text_editor: ui.WidgetRef(w.TextEditorUI),
+    size_slider: ui.WidgetRef(w.SliderUI),
 
     text_color: Color,
     bg_color: Color,
     text_wrap: bool,
 
-    root: *Root,
+    root: *w.Root,
     file_m: u32,
     cwd: []const u8,
     ctx: *ui.CommonContext,
 
     font_family: graphics.FontFamily,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *App, c: *ui.InitContext) void {
         self.* = .{
             .alloc = c.alloc,
             .root = c.getRoot(),
@@ -69,39 +53,39 @@ pub const App = struct {
     }
 
     pub fn deinit(node: *ui.Node, alloc: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+        const self = node.getWidget(App);
         alloc.free(self.cwd);
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onSliderChange(self_: *Self, value: i32) void {
+            fn onSliderChange(self_: *App, value: i32) void {
                 self_.text_editor.getWidget().setFontSize(@intToFloat(f32, value));
             }
 
-            fn onFgPreviewChange(self_: *Self, color: Color) void {
+            fn onFgPreviewChange(self_: *App, color: Color) void {
                 self_.text_color = color;
             }
 
-            fn onFgResult(self_: *Self, color: Color, save: bool) void {
+            fn onFgResult(self_: *App, color: Color, save: bool) void {
                 _ = save;
                 self_.text_color = color;
             }
 
-            fn onBgPreviewChange(self_: *Self, color: Color) void {
+            fn onBgPreviewChange(self_: *App, color: Color) void {
                 self_.bg_color = color;
             }
 
-            fn onBgResult(self_: *Self, color: Color, save: bool) void {
+            fn onBgResult(self_: *App, color: Color, save: bool) void {
                 _ = save;
                 self_.bg_color = color;
             }
 
-            fn onTextWrapChange(self_: *Self, is_set: bool) void {
+            fn onTextWrapChange(self_: *App, is_set: bool) void {
                 self_.text_wrap = is_set;
             }
 
-            fn onOpenFont(self_: *Self, path: []const u8) void {
+            fn onOpenFont(self_: *App, path: []const u8) void {
                 const font_data = std.fs.cwd().readFileAlloc(self_.alloc, path, 1e8) catch @panic("error");
                 defer self_.alloc.free(font_data);
                 const g = self_.ctx.getGraphics();
@@ -110,81 +94,65 @@ pub const App = struct {
             }
 
             fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
-                const self_ = stdx.mem.ptrCastAlign(*Self, ptr);
-                return c_.decl(FileDialog, .{
+                const self_ = stdx.mem.ptrCastAlign(*App, ptr);
+                return w.FileDialog(.{
                     .init_cwd = self_.cwd,
                     .onResult = c_.funcExt(self_, onOpenFont),
                 });
             }
 
-            fn onLoadFontClick(self_: *Self, _: platform.MouseUpEvent) void {
+            fn onLoadFontClick(self_: *App, _: platform.MouseUpEvent) void {
                 self_.file_m = self_.root.showModal(self_, buildFileDialog, .{});
             }
         };
 
-        const size_slider = ui.WidgetProps(Slider){
+        const size_slider = ui.WidgetProps(w.SliderUI){
             .init_val = 20,
             .min_val = 1,
             .max_val = 200,
             .onChange = c.closure(self, S.onSliderChange),
         };
 
-        return c.decl(Row, .{
-            .children = c.list(.{
-                c.decl(Flex, .{
-                    .flex = 3,
-                    .child = c.decl(Column, .{
-                        .children = c.list(.{
-                            c.decl(Stretch, .{
-                                .child = c.decl(Padding, .{
-                                    .padding = 10,
-                                    .child = c.decl(TextEditor, .{
-                                        .bind = &self.text_editor,
-                                        // .font_family = "Tamzen",
-                                        .font_family = self.font_family,
-                                        .init_val = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built from scratch with no dependencies.",
-                                        .text_color = self.text_color,
-                                        .bg_color = self.bg_color,
-                                    }),
-                                }),
+        return w.Row(.{}, &.{
+            w.Flex(.{ .flex = 3 },
+                w.Column(.{}, &.{
+                    w.Stretch(.{},
+                        w.Padding(.{ .padding = 10 }, 
+                            w.TextEditor(.{
+                                .bind = &self.text_editor,
+                                // .font_family = "Tamzen",
+                                .font_family = self.font_family,
+                                .init_val = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built on top of Freetype and OpenGL/Vulkan.",
+                                .text_color = self.text_color,
+                                .bg_color = self.bg_color,
                             }),
-                        }),
-                    }),
+                        ),
+                    ),
                 }),
-                c.decl(Flex, .{
-                    .flex = 1,
-                    .child = c.decl(Column, .{
-                        .spacing = 10,
-                        .children = c.list(.{
-                            c.decl(SliderOption, .{
-                                .label = "Size",
-                                .slider = size_slider,
-                            }),
-                            c.decl(ColorPicker, .{
-                                .label = "Text Color",
-                                .init_val = self.text_color,
-                                .onPreviewChange = c.funcExt(self, S.onFgPreviewChange),
-                                .onResult = c.funcExt(self, S.onFgResult),
-                            }),
-                            c.decl(ColorPicker, .{
-                                .label = "Bg Color",
-                                .init_val = self.bg_color,
-                                .onPreviewChange = c.funcExt(self, S.onBgPreviewChange),
-                                .onResult = c.funcExt(self, S.onBgResult),
-                            }),
-                            c.decl(SwitchOption, .{
-                                .label = "Text Wrap (TODO)",
-                                .init_val = false,
-                                .onChange = c.funcExt(self, S.onTextWrapChange),
-                            }),
-                            c.decl(TextButton, .{
-                                .text = "Load Font",
-                                .onClick = c.funcExt(self, S.onLoadFontClick),
-                            }),
-                        }),
+            ),
+            w.Flex(.{ .flex = 1 },
+                w.Column(.{ .spacing = 10 }, &.{ 
+                    w.SliderOption(.{ .label = "Size", .slider = size_slider }),
+                    w.ColorPicker(.{
+                        .label = "Text Color",
+                        .init_val = self.text_color,
+                        .onPreviewChange = c.funcExt(self, S.onFgPreviewChange),
+                        .onResult = c.funcExt(self, S.onFgResult),
                     }),
+                    w.ColorPicker(.{
+                        .label = "Bg Color",
+                        .init_val = self.bg_color,
+                        .onPreviewChange = c.funcExt(self, S.onBgPreviewChange),
+                        .onResult = c.funcExt(self, S.onBgResult),
+                    }),
+                    w.SwitchOption(.{
+                        .label = "Text Wrap (TODO)",
+                        .init_val = false,
+                        .onChange = c.funcExt(self, S.onTextWrapChange),
+                    }),
+                    w.TextButton(.{ .text = "Load Font", .onClick = c.funcExt(self, S.onLoadFontClick) }),
                 }),
-            }),
+            ),
         });
     }
 };

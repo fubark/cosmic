@@ -38,6 +38,9 @@ pub const TextMeasureId = usize;
 pub const IntervalId = u32;
 const log = stdx.log.scoped(.module);
 
+/// Using a global BuildContext makes widget declarations more idiomatic.
+pub var gbuild_ctx: *BuildContext = undefined;
+
 pub fn getWidgetIdByType(comptime Widget: type) WidgetTypeId {
     return @ptrToInt(GenWidgetVTable(Widget));
 }
@@ -580,6 +583,9 @@ pub const Module = struct {
         self.build_ctx.resetBuffer();
         self.common.arena_allocator.deinit();
         self.common.arena_allocator.state = .{};
+
+        // Update global build context for idiomatic widget declarations.
+        gbuild_ctx = &self.build_ctx;
 
         // TODO: Provide a different context for the bootstrap function since it doesn't have a frame or node. Currently uses the BuildContext.
         self.build_ctx.prepareCall(undefined, undefined);
@@ -2030,6 +2036,8 @@ pub const BuildContext = struct {
     // the start index and size as the key.
     frame_props: ds.DynamicArrayList(u32, u8),
 
+    /// Temporary frame id buffer.
+    frameid_buf: std.ArrayListUnmanaged(FrameId),
     u8_buf: std.ArrayList(u8),
 
     // Current node.
@@ -2049,6 +2057,7 @@ pub const BuildContext = struct {
             .frame_lists = std.ArrayList(FrameId).init(alloc),
             .frame_props = ds.DynamicArrayList(u32, u8).init(alloc),
             .u8_buf = std.ArrayList(u8).init(alloc),
+            .frameid_buf = .{},
             .node = undefined,
             .frame_id = undefined,
         };
@@ -2058,6 +2067,7 @@ pub const BuildContext = struct {
         self.frames.deinit();
         self.frame_lists.deinit();
         self.frame_props.deinit();
+        self.frameid_buf.deinit(self.alloc);
         self.u8_buf.deinit();
     }
 
@@ -2089,6 +2099,21 @@ pub const BuildContext = struct {
         }
         const InnerFn = stdx.meta.FnAfterFirstParam(@TypeOf(user_fn));
         return Function(InnerFn).initContext(ctx_ptr, user_fn);
+    }
+
+    /// Returned slice should be used immediately. eg. Pass into a build widget function.
+    pub fn tempRange(self: *Self, count: usize, ctx: anytype, build_fn: fn(@TypeOf(ctx), *BuildContext, u32) FrameId) []const FrameId {
+        self.frameid_buf.resize(self.alloc, count) catch fatal();
+        var cur: u32 = 0;
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            const frame_id = build_fn(ctx, self, @intCast(u32, i));
+            if (frame_id != NullFrameId) {
+                self.frameid_buf.items[cur] = frame_id;
+                cur += 1;
+            }
+        }
+        return self.frameid_buf.items[0..cur];
     }
 
     pub fn range(self: *Self, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *BuildContext, u32) FrameId) FrameListPtr {
@@ -2129,7 +2154,14 @@ pub const BuildContext = struct {
 
     /// Short-hand for createFrame.
     pub inline fn decl(self: *Self, comptime Widget: type, props: anytype) FrameId {
-        return self.createFrame(Widget, props);
+        const HasProps = comptime WidgetHasProps(Widget);
+        if (HasProps) {
+            var widget_props: WidgetProps(Widget) = undefined;
+            setWidgetProps(Widget, &widget_props, props);
+            return self.createFrame(Widget, &widget_props, props);
+        } else {
+            return self.createFrame(Widget, {}, props);
+        }
     }
 
     pub inline fn list(self: *Self, tuple_or_slice: anytype) FrameListPtr {
@@ -2201,9 +2233,33 @@ pub const BuildContext = struct {
         return self.frame_lists.items[ptr.id..end_idx];
     }
 
-    fn createFrame(self: *Self, comptime Widget: type, build_props: anytype) FrameId {
+    pub fn createFrame(self: *Self, comptime Widget: type, props: ?*WidgetProps(Widget), build_props: anytype) FrameId {
         // log.warn("createFrame {}", .{build_props});
         const BuildProps = @TypeOf(build_props);
+
+        const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
+        const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
+
+        const props_ptr = b: {
+            const HasProps = comptime WidgetHasProps(Widget);
+            if (HasProps) {
+                break :b self.frame_props.append(props.?.*) catch unreachable;
+            } else {
+                break :b FramePropsPtr.init(0, 0);
+            }
+        };
+        const vtable = GenWidgetVTable(Widget);
+        const frame = Frame.init(vtable, id, bind, props_ptr, FrameListPtr.init(0, 0));
+        const frame_id = @intCast(FrameId, @intCast(u32, self.frames.items.len));
+        self.frames.append(frame) catch unreachable;
+
+        // log.warn("created frame {}", .{frame_id});
+        return frame_id;
+    }
+
+    pub fn validateBuildProps(comptime Widget: type, build_props: anytype) void {
+        const BuildProps = @TypeOf(build_props);
+        const HasProps = comptime WidgetHasProps(Widget);
 
         if (@hasField(BuildProps, "bind")) {
             if (stdx.meta.FieldType(BuildProps, .bind) != *WidgetRef(Widget)) {
@@ -2220,78 +2276,59 @@ pub const BuildContext = struct {
                 @compileError("Expected widget props type to spread.");
             }
         }
-        const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
-        const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
 
-        const props_ptr = b: {
-            const HasProps = comptime WidgetHasProps(Widget);
-
-            // First use comptime to get a list of valid fields to be copied to props.
-            const ValidFields = comptime b2: {
-                var res: []const std.builtin.TypeInfo.StructField = &.{};
-                for (std.meta.fields(BuildProps)) |f| {
-                    // Skip special fields.
-                    if (string.eq("id", f.name)) {
-                        continue;
-                    } else if (string.eq("bind", f.name)) {
-                        continue;
-                    } else if (string.eq("spread", f.name)) {
-                        continue;
-                    } else if (!HasProps) {
-                        @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);
-                    } else if (@hasField(WidgetProps(Widget), f.name)) {
-                        res = res ++ &[_]std.builtin.TypeInfo.StructField{f};
-                    } else {
-                        @compileError(f.name ++ " isn't declared in " ++ @typeName(Widget) ++ ".Props");
-                    }
-                }
-                break :b2 res;
-            };
-            _ = ValidFields;
-
-            if (HasProps) {
-                var props: WidgetProps(Widget) = undefined;
-
-                if (@hasField(BuildProps, "spread")) {
-                    props = build_props.spread;
-                    // When spreading provided props, don't overwrite with default values.
-                    inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
-                        if (@hasField(BuildProps, Field.name)) {
-                            @field(props, Field.name) = @field(build_props, Field.name);
-                        }
-                    }
+        comptime {
+            // var res: []const std.builtin.TypeInfo.StructField = &.{};
+            inline for (std.meta.fields(BuildProps)) |f| {
+                // Skip special fields.
+                if (string.eq("id", f.name)) {
+                    continue;
+                } else if (string.eq("bind", f.name)) {
+                    continue;
+                } else if (string.eq("spread", f.name)) {
+                    continue;
+                } else if (!HasProps) {
+                    @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);
+                } else if (@hasField(WidgetProps(Widget), f.name)) {
+                    // res = res ++ &[_]std.builtin.TypeInfo.StructField{f};
                 } else {
-                    inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
-                        if (@hasField(BuildProps, Field.name)) {
-                            @field(props, Field.name) = @field(build_props, Field.name);
-                        } else {
-                            if (Field.default_value) |def| {
-                                // Set default value.
-                                @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
-                            } else {
-                                @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
-                            }
-                        }
+                    @compileError(f.name ++ " isn't declared in " ++ @typeName(Widget) ++ ".Props");
+                }
+            }
+            // return res;
+        }
+    }
+
+    pub fn setWidgetProps(comptime Widget: type, props: *WidgetProps(Widget), build_props: anytype) void {
+        const BuildProps = @TypeOf(build_props);
+        validateBuildProps(Widget, build_props);
+        if (@hasField(BuildProps, "spread")) {
+            props.* = build_props.spread;
+            // When spreading provided props, don't overwrite with default values.
+            inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
+                if (@hasField(BuildProps, Field.name)) {
+                    @field(props, Field.name) = @field(build_props, Field.name);
+                }
+            }
+        } else {
+            inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
+                if (@hasField(BuildProps, Field.name)) {
+                    @field(props, Field.name) = @field(build_props, Field.name);
+                } else {
+                    if (Field.default_value) |def| {
+                        // Set default value.
+                        @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
+                    } else {
+                        @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
                     }
                 }
-
-                // Then inline the copy statements.
-                // inline for (ValidFields) |f| {
-                //     @field(props, f.name) = @field(build_props, f.name);
-                // }
-                // log.warn("set frame props", .{});
-                break :b self.frame_props.append(props) catch unreachable;
-            } else {
-                break :b FramePropsPtr.init(0, 0);
             }
-        };
-        const vtable = GenWidgetVTable(Widget);
-        const frame = Frame.init(vtable, id, bind, props_ptr, FrameListPtr.init(0, 0));
-        const frame_id = @intCast(FrameId, @intCast(u32, self.frames.items.len));
-        self.frames.append(frame) catch unreachable;
-
-        // log.warn("created frame {}", .{frame_id});
-        return frame_id;
+        }
+        // Then inline the copy statements.
+        // inline for (ValidFields) |f| {
+        //     @field(props, f.name) = @field(build_props, f.name);
+        // }
+        // log.warn("set frame props", .{});
     }
 };
 
@@ -2303,7 +2340,7 @@ const TestModule = struct {
     const Self = @This();
 
     pub fn init(self: *Self) void {
-        self.g.init(t.alloc, 1);
+        self.g.init(t.alloc, 1) catch fatal();
         self.mod.init(t.alloc, &self.g);
         self.size = LayoutSize.init(800, 600);
     }
@@ -2568,7 +2605,7 @@ test "Widget instance lifecycle." {
 
 test "Module.update creates or updates existing node" {
     var g: graphics.Graphics = undefined;
-    g.init(t.alloc, 1);
+    try g.init(t.alloc, 1);
     defer g.deinit();
 
     const Foo = struct {
@@ -2743,7 +2780,8 @@ pub fn WidgetProps(comptime Widget: type) type {
     if (WidgetHasProps(Widget)) {
         return std.meta.fieldInfo(Widget, .props).field_type;
     } else {
-        @compileError(@typeName(Widget) ++ " doesn't have props field.");
+        return void;
+        // @compileError(@typeName(Widget) ++ " doesn't have props field.");
     }
 }
 

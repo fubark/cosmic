@@ -7,16 +7,7 @@ const MouseUpEvent = platform.MouseUpEvent;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const Row = ui.widgets.Row;
-const Column = ui.widgets.Column;
-const Text = ui.widgets.Text;
-const TextButton = ui.widgets.TextButton;
-const TextField = ui.widgets.TextField;
-const Flex = ui.widgets.Flex;
-const Padding = ui.widgets.Padding;
-const Center = ui.widgets.Center;
-const Sized = ui.widgets.Sized;
-const ScrollList = ui.widgets.ScrollList;
+const w = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -26,20 +17,18 @@ pub const App = struct {
     alloc: std.mem.Allocator,
     filter: []const u8,
 
-    list: ui.WidgetRef(ScrollList),
-    first_tf: ui.WidgetRef(TextField),
-    last_tf: ui.WidgetRef(TextField),
+    list: ui.WidgetRef(w.ScrollListUI),
+    first_tf: ui.WidgetRef(w.TextFieldUI),
+    last_tf: ui.WidgetRef(w.TextFieldUI),
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *App, c: *ui.InitContext) void {
         self.buf = std.ArrayList([]const u8).init(c.alloc);
         self.alloc = c.alloc;
         self.filter = "";
     }
 
     pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+        const self = node.getWidget(App);
         for (self.buf.items) |str| {
             self.alloc.free(str);
         }
@@ -47,9 +36,9 @@ pub const App = struct {
         self.buf.deinit();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClickCreate(self_: *Self, _: MouseUpEvent) void {
+            fn onClickCreate(self_: *App, _: MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
                 const last_w = self_.last_tf.getWidget();
                 const first = if (first_w.getValue().len == 0) "Foo" else first_w.getValue();
@@ -58,7 +47,7 @@ pub const App = struct {
                 self_.buf.append(new_name) catch unreachable;
             }
 
-            fn onClickDelete(self_: *Self, _: MouseUpEvent) void {
+            fn onClickDelete(self_: *App, _: MouseUpEvent) void {
                 const selected_idx = self_.list.getWidget().getSelectedIdx();
                 if (selected_idx != ui.NullId) {
                     self_.alloc.free(self_.buf.items[selected_idx]);
@@ -66,7 +55,7 @@ pub const App = struct {
                 }
             }
 
-            fn onClickUpdate(self_: *Self, _: MouseUpEvent) void {
+            fn onClickUpdate(self_: *App, _: MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
                 const last_w = self_.last_tf.getWidget();
                 const selected_idx = self_.list.getWidget().getSelectedIdx();
@@ -79,130 +68,95 @@ pub const App = struct {
                 }
             }
 
-            fn onChangeSearch(self_: *Self, val: []const u8) void {
+            fn onChangeSearch(self_: *App, val: []const u8) void {
                 self_.alloc.free(self_.filter);
                 self_.filter = self_.alloc.dupe(u8, val) catch unreachable;
             }
 
-            fn buildItem(self_: *Self, c_: *ui.BuildContext, i: u32) ui.FrameId {
+            fn buildItem(self_: *App, _: *ui.BuildContext, i: u32) ui.FrameId {
                 if (std.mem.startsWith(u8, self_.buf.items[i], self_.filter)) {
-                    return c_.decl(Text, .{ .text = self_.buf.items[i] });
+                    return w.Text(.{ .text = self_.buf.items[i] });
                 } else {
                     return ui.NullFrameId;
                 }
             }
         };
 
-        const d = c.decl;
-
-        const left_side = d(Column, .{
-            .children = c.list(.{
-                d(Flex, .{
-                    .child = d(Sized, .{
-                        .width = 300,
-                        .child = d(ScrollList, .{
-                            .bind = &self.list,
-                            .children = c.range(self.buf.items.len, self, S.buildItem),
-                        }),
-                    }),
-                }),
-            }),
+        const left_side = w.Column(.{}, &.{
+            w.Flex(.{}, 
+                w.Sized(.{ .width = 300 },
+                    w.ScrollList(.{ .bind = &self.list },
+                        c.tempRange(self.buf.items.len, self, S.buildItem),
+                    ),
+                ),
+            ),
         });
 
-        const right_side = d(Column, .{
-            .spacing = 20,
-            .children = c.list(.{
-                d(Row, .{
-                    .children = c.list(.{
-                        d(Padding, .{
-                            .child = d(Text, .{ .text = "First: ", .color = Color.White }),
-                        }),
-                        d(Flex, .{
-                            .child = d(TextField, .{
-                                .bind = &self.first_tf,
-                            }),
-                        }),
+        const right_side = w.Column(.{ .spacing = 20 }, &.{
+            w.Row(.{}, &.{
+                w.Padding(.{}, 
+                    w.Text(.{ .text = "First: ", .color = Color.White }),
+                ),
+                w.Flex(.{}, 
+                    w.TextField(.{ .bind = &self.first_tf }),
+                ),
+            }),
+            w.Row(.{}, &.{
+                w.Padding(.{}, 
+                    w.Text(.{ .text = "Last: ", .color = Color.White }),
+                ),
+                w.Flex(.{},
+                    w.TextField(.{ .bind = &self.last_tf }),
+                ),
+            }),
+            w.Row(.{ .spacing = 10 }, &.{
+                w.Flex(.{},
+                    w.TextButton(.{
+                        .text = "Create",
+                        .corner_radius = 10,
+                        .onClick = c.funcExt(self, S.onClickCreate),
                     }),
-                }),
-                d(Row, .{
-                    .children = c.list(.{
-                        d(Padding, .{
-                            .child = d(Text, .{ .text = "Last: ", .color = Color.White }),
-                        }),
-                        d(Flex, .{
-                            .child = d(TextField, .{
-                                .bind = &self.last_tf,
-                            }),
-                        }),
+                ),
+                w.Flex(.{},
+                    w.TextButton(.{
+                        .text = "Update",
+                        .corner_radius = 10,
+                        .onClick = c.funcExt(self, S.onClickUpdate),
                     }),
-                }),
-                d(Row, .{
-                    .spacing = 10,
-                    .children = c.list(.{
-                        d(Flex, .{
-                            .child = d(TextButton, .{
-                                .text = "Create",
-                                .corner_radius = 10,
-                                .onClick = c.funcExt(self, S.onClickCreate),
-                            }),
-                        }),
-                        d(Flex, .{
-                            .child = d(TextButton, .{
-                                .text = "Update",
-                                .corner_radius = 10,
-                                .onClick = c.funcExt(self, S.onClickUpdate),
-                            }),
-                        }),
-                        d(Flex, .{
-                            .child = d(TextButton, .{
-                                .text = "Delete",
-                                .corner_radius = 10,
-                                .onClick = c.funcExt(self, S.onClickDelete),
-                            }),
-                        }),
+                ),
+                w.Flex(.{}, 
+                    w.TextButton(.{
+                        .text = "Delete",
+                        .corner_radius = 10,
+                        .onClick = c.funcExt(self, S.onClickDelete),
                     }),
-                }),
+                ),
             })
         });
 
-        return d(Center, .{
-            .child = d(Sized, .{
-                .width = 600,
-                .height = 500,
-                .child = d(Column, .{
-                    .expand = false,
-                    .children = c.list(.{
-                        d(Padding, .{
-                            .padding = 0,
-                            .pad_bottom = 20,
-                            .child = d(Row, .{
-                                .children = c.list(.{
-                                    d(Padding, .{
-                                        .padding = 10,
-                                        .child = d(Text, .{
-                                            .text = c.fmt("Search: ({} Entries)", .{self.buf.items.len}),
-                                            .color = Color.White,
-                                        }),
-                                    }),
-                                    d(Flex, .{
-                                        .child = d(TextField, .{
-                                            .onChangeEnd = c.funcExt(self, S.onChangeSearch),
-                                        }),
-                                    })
+        return w.Center(.{},
+            w.Sized(.{ .width = 600, .height = 500 }, 
+                w.Column(.{ .expand = false }, &.{
+                    w.Padding(.{ .padding = 0, .pad_bottom = 20 },
+                        w.Row(.{}, &.{
+                            w.Padding(.{ .padding = 10 },
+                                w.Text(.{
+                                    .text = c.fmt("Search: ({} Entries)", .{self.buf.items.len}),
+                                    .color = Color.White,
                                 }),
-                            }),
+                            ),
+                            w.Flex(.{}, 
+                                w.TextField(.{ .onChangeEnd = c.funcExt(self, S.onChangeSearch) }),
+                            )
                         }),
-                        d(Row, .{
-                            .spacing = 10,
-                            .children = c.list(.{
-                                left_side,
-                                right_side,
-                            }),
-                        }),
+                    ),
+                    w.Row(.{ .spacing = 10 }, &.{
+                        left_side,
+                        right_side,
                     }),
                 }),
-            }),
-        });
+            ),
+        );
     }
 };
 
