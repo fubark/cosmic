@@ -2,8 +2,7 @@ const std = @import("std");
 const stdx = @import("../stdx.zig");
 const t = stdx.testing;
 
-/// Always keeps items packed and uses a hashmap to access items by handle id.
-/// Fast for iteration.
+/// Always keeps items packed for fast iteration and uses a hashmap to access items by handle id.
 pub fn DenseHandleList(comptime Id: type, comptime T: type) type {
     return struct {
         id_list: std.ArrayListUnmanaged(Id),

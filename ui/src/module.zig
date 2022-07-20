@@ -1726,14 +1726,14 @@ pub const ModuleCommon = struct {
 
     // TODO: Use one buffer for all the handlers.
     /// Keyboard handlers.
-    key_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)),
-    key_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)),
+    key_up_event_subs: ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)),
+    key_down_event_subs: ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)),
 
     /// Mouse handlers.
-    mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)),
+    mouse_up_event_subs: ds.PooledHandleSLLBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)),
     global_mouse_up_list: std.ArrayList(u32),
-    mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
-    mouse_scroll_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)),
+    mouse_down_event_subs: ds.PooledHandleSLLBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
+    mouse_scroll_event_subs: ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     /// Mouse move events fire far more frequently so it's better to just iterate a list and skip hit test.
     /// TODO: Implement a compact tree of nodes for mouse events.
     mouse_move_event_subs: std.ArrayList(Subscriber(platform.MouseMoveEvent)),
@@ -1780,13 +1780,13 @@ pub const ModuleCommon = struct {
             .default_font_gid = g.getDefaultFontGroupId(),
             .interval_sessions = ds.PooledHandleList(u32, IntervalSession).init(alloc),
 
-            .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
-            .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
-            .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)).init(alloc),
+            .key_up_event_subs = ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
+            .key_down_event_subs = ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
+            .mouse_up_event_subs = ds.PooledHandleSLLBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)).init(alloc),
             .global_mouse_up_list = std.ArrayList(u32).init(alloc),
-            .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)).init(alloc),
+            .mouse_down_event_subs = ds.PooledHandleSLLBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)).init(alloc),
             .mouse_move_event_subs = std.ArrayList(Subscriber(platform.MouseMoveEvent)).init(alloc),
-            .mouse_scroll_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
+            .mouse_scroll_event_subs = ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
 
             .next_post_layout_cbs = std.ArrayList(ClosureIface(fn () void)).init(alloc),

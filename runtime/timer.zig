@@ -24,7 +24,7 @@ pub const Timer = struct {
     // Keys are in milliseconds relative to the watch start time. (This avoids having to update the timeout.)
     map: std.AutoHashMap(u32, GroupNode),
 
-    ll_buf: stdx.ds.CompactSinglyLinkedListBuffer(u32, Node),
+    ll_buf: stdx.ds.PooledHandleSLLBuffer(u32, Node),
 
     // Relative timeout in ms from watch start time that is currently set for the uv timer.
     // If a new timeout is set at or past this value, we don't need to reset the timer.
@@ -49,7 +49,7 @@ pub const Timer = struct {
             .heap = std.PriorityQueue(u32, void, compare).init(alloc, {}),
             .watch = try std.time.Timer.start(),
             .map = std.AutoHashMap(u32, GroupNode).init(alloc),
-            .ll_buf = stdx.ds.CompactSinglyLinkedListBuffer(u32, Node).init(alloc),
+            .ll_buf = stdx.ds.PooledHandleSLLBuffer(u32, Node).init(alloc),
             .active_timeout = std.math.maxInt(u32),
             .ctx = rt.context,
             .receiver = rt.global.toValue(),

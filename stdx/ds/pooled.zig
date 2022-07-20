@@ -1,7 +1,9 @@
 const std = @import("std");
+
 const stdx = @import("../stdx.zig");
 const fatal = stdx.fatal;
 const t = stdx.testing;
+const compact = @import("compact.zig");
 const log = stdx.log.scoped(.pooled);
 
 /// Keeps items closer together in memory without moving them due to a second list that tracks free slots for inserting new items.
@@ -244,4 +246,177 @@ test "PoolIdGenerator" {
     gen.deleteId(1);
     try t.eq(gen.getNextId(), 1);
     try t.eq(gen.getNextId(), 3);
+}
+
+pub fn NullHandleId(comptime Id: type) Id {
+    return std.math.maxInt(Id);
+}
+
+/// Holds linked lists of items in a compact buffer. Does not keep track of list heads.
+pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
+    const Null = comptime NullHandleId(Id);
+    const OptId = Id;
+    return struct {
+        const Self = @This();
+
+        pub const Node = compact.CompactSinglyLinkedListNode(Id, T);
+
+        nodes: PooledHandleList(Id, Node),
+
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return .{
+                .nodes = PooledHandleList(Id, Node).init(alloc),
+            };
+        }
+
+        pub fn deinit(self: Self) void {
+            self.nodes.deinit();
+        }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.nodes.clearRetainingCapacity();
+        }
+
+        pub fn getNode(self: Self, idx: Id) ?Node {
+            return self.nodes.get(idx);
+        }
+
+        pub fn getNodeNoCheck(self: Self, idx: Id) Node {
+            return self.nodes.getNoCheck(idx);
+        }
+
+        pub fn getNodePtrNoCheck(self: Self, idx: Id) *Node {
+            return self.nodes.getPtrNoCheck(idx);
+        }
+
+        pub fn iterator(self: Self) PooledHandleList(Id, Node).Iterator {
+            return self.nodes.iterator();
+        }
+
+        pub fn iterFirstNoCheck(self: Self) Id {
+            var iter = self.nodes.iterator();
+            _ = iter.next();
+            return iter.cur_id;
+        }
+
+        pub fn iterFirstValueNoCheck(self: Self) T {
+            var iter = self.nodes.iterator();
+            return iter.next().?.data;
+        }
+
+        pub fn size(self: Self) usize {
+            return self.nodes.size();
+        }
+
+        pub fn getLast(self: Self, id: Id) ?Id {
+            if (id == Null) {
+                return null;
+            }
+            if (self.nodes.has(id)) {
+                var cur = id;
+                while (cur != Null) {
+                    const next = self.getNextNoCheck(cur);
+                    if (next == Null) {
+                        return cur;
+                    }
+                    cur = next;
+                }
+                unreachable;
+            } else return null;
+        }
+
+        pub fn get(self: Self, id: Id) ?T {
+            if (self.nodes.has(id)) {
+                return self.nodes.getNoCheck(id).data;
+            } else return null;
+        }
+
+        pub fn getNoCheck(self: Self, idx: Id) T {
+            return self.nodes.getNoCheck(idx).data;
+        }
+
+        pub fn getPtrNoCheck(self: Self, idx: Id) *T {
+            return &self.nodes.getPtrNoCheck(idx).data;
+        }
+
+        pub fn getNextNoCheck(self: Self, id: Id) OptId {
+            return self.nodes.getNoCheck(id).next;
+        }
+
+        pub fn getNext(self: Self, id: Id) ?OptId {
+            if (self.nodes.has(id)) {
+                return self.nodes.getNoCheck(id).next;
+            } else return null;
+        }
+
+        /// Adds a new head node.
+        pub fn add(self: *Self, data: T) !Id {
+            return try self.nodes.add(.{
+                .next = Null,
+                .data = data,
+            });
+        }
+
+        pub fn insertBeforeHead(self: *Self, head_id: Id, data: T) !Id {
+            if (self.nodes.has(head_id)) {
+                return try self.nodes.add(.{
+                    .next = head_id,
+                    .data = data,
+                });
+            } else return error.NoElement;
+        }
+
+        pub fn insertBeforeHeadNoCheck(self: *Self, head_id: Id, data: T) !Id {
+            return try self.nodes.add(.{
+                .next = head_id,
+                .data = data,
+            });
+        }
+
+        pub fn insertAfter(self: *Self, id: Id, data: T) !Id {
+            if (self.nodes.has(id)) {
+                const new = try self.nodes.add(.{
+                    .next = self.nodes.getNoCheck(id).next,
+                    .data = data,
+                });
+                self.nodes.getPtrNoCheck(id).next = new;
+                return new;
+            } else return error.NoElement;
+        }
+
+        pub fn removeAfter(self: *Self, id: Id) !void {
+            if (self.nodes.has(id)) {
+                const next = self.getNextNoCheck(id);
+                if (next != Null) {
+                    const next_next = self.getNextNoCheck(next);
+                    self.nodes.getNoCheck(id).next = next_next;
+                    self.nodes.remove(next);
+                }
+            } else return error.NoElement;
+        }
+
+        pub fn removeAssumeNoPrev(self: *Self, id: Id) !void {
+            if (self.nodes.has(id)) {
+                self.nodes.remove(id);
+            } else return error.NoElement;
+        }
+    };
+}
+
+test "PooledHandleSLLBuffer" {
+    var buf = PooledHandleSLLBuffer(u32, u32).init(t.alloc);
+    defer buf.deinit();
+
+    const head = try buf.add(1);
+    try t.eq(buf.get(head).?, 1);
+    try t.eq(buf.getNoCheck(head), 1);
+    try t.eq(buf.getNode(head).?.data, 1);
+    try t.eq(buf.getNodeNoCheck(head).data, 1);
+
+    const second = try buf.insertAfter(head, 2);
+    try t.eq(buf.getNodeNoCheck(head).next, second);
+    try t.eq(buf.getNoCheck(second), 2);
+
+    try buf.removeAssumeNoPrev(head);
+    try t.eq(buf.get(head), null);
 }
