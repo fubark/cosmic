@@ -52,8 +52,7 @@ pub fn addPackage(step: *std.build.LibExeObjStep, opts: Options) void {
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
-    _ = opts;
-    graphics.buildAndLink(step, .{});
+    graphics.buildAndLink(step, .{.graphics_backend = opts.graphics_backend});
 }
 
 fn srcPath() []const u8 {

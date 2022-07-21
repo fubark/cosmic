@@ -70,6 +70,7 @@ The lib.zig in this ui module provides simple helpers for you add the package, b
 // cosmic repo should be a subdirectory.
 const std = @import("std");
 const ui = @import("cosmic/ui/lib.zig");
+const backend = @import("cosmic/platform/backend.zig");
 
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
@@ -80,8 +81,9 @@ pub fn build(b: *std.build.Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
-    ui.addPackage(exe, .{});
-    ui.buildAndLink(exe, .{});
+    const graphics_backend = backend.getGraphicsBackend(exe);
+    ui.addPackage(exe, .{.graphics_backend = graphics_backend});
+    ui.buildAndLink(exe, .{.graphics_backend = graphics_backend});
 
     exe.setOutputDir("zig-out");
 
