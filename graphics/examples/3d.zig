@@ -7,21 +7,10 @@ const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const platform = @import("platform");
 const graphics = @import("graphics");
-const Transform = graphics.Transform;
+const Transform = stdx.math.Transform;
 const Color = graphics.Color;
 const ui = @import("ui");
-const Row = ui.widgets.Row;
-const Text = ui.widgets.Text;
-const TextButton = ui.widgets.TextButton;
-const Padding = ui.widgets.Padding;
-const Center = ui.widgets.Center;
-const Column = ui.widgets.Column;
-const ColorPicker = ui.widgets.ColorPicker;
-const Sized = ui.widgets.Sized;
-const SliderFloatOption = ui.widgets.SliderFloatOption;
-const SliderFloat = ui.widgets.SliderFloat;
-const SliderFloatOptions = ui.widgets.SliderFloatOptions;
-const SwitchOption = ui.widgets.SwitchOption;
+const w = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -63,87 +52,81 @@ pub const App = struct {
     duck_emissivity: f32,
     enable_shadows: bool,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, _: *ui.InitContext) void {
+    pub fn init(self: *App, _: *ui.InitContext) void {
         self.box_color = Color.Blue;
         self.duck_color = Color.Yellow;
         self.enable_shadows = true;
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onBoxColorPreview(self_: *Self, color: Color) void { self_.box_color = color; }
-            fn onBoxColor(self_: *Self, color: Color, _: bool) void { self_.box_color = color; }
-            fn onDuckColorPreview(self_: *Self, color: Color) void { self_.duck_color = color; }
-            fn onDuckColor(self_: *Self, color: Color, _: bool) void { self_.duck_color = color; }
-            fn onDuckMetallicChange(self_: *Self, val: f32) void { self_.duck_metallic = val; }
-            fn onDuckRoughnessChange(self_: *Self, val: f32) void { self_.duck_roughness = val; }
-            fn onDuckEmissivityChange(self_: *Self, val: f32) void { self_.duck_emissivity = val; }
-            fn onShadowsChange(self_: *Self, val: bool) void { self_.enable_shadows = val; }
+            fn onBoxColorPreview(self_: *App, color: Color) void { self_.box_color = color; }
+            fn onBoxColor(self_: *App, color: Color, _: bool) void { self_.box_color = color; }
+            fn onDuckColorPreview(self_: *App, color: Color) void { self_.duck_color = color; }
+            fn onDuckColor(self_: *App, color: Color, _: bool) void { self_.duck_color = color; }
+            fn onDuckMetallicChange(self_: *App, val: f32) void { self_.duck_metallic = val; }
+            fn onDuckRoughnessChange(self_: *App, val: f32) void { self_.duck_roughness = val; }
+            fn onDuckEmissivityChange(self_: *App, val: f32) void { self_.duck_emissivity = val; }
+            fn onShadowsChange(self_: *App, val: bool) void { self_.enable_shadows = val; }
         };
 
         // Currently zig is unstable with nested structs in anonymous tuples, so declare outside.
-        const metallic_slider = ui.WidgetProps(SliderFloat){
+        const metallic_slider = ui.WidgetProps(w.SliderFloatUI){
             .init_val = 0,
             .min_val = 0,
             .max_val = 1,
             .onChange = c.closure(self, S.onDuckMetallicChange),
         };
 
-        const roughness_slider = ui.WidgetProps(SliderFloat){
+        const roughness_slider = ui.WidgetProps(w.SliderFloatUI){
             .init_val = 0,
             .min_val = 0,
             .max_val = 1,
             .onChange = c.closure(self, S.onDuckRoughnessChange),
         };
 
-        const emissivity_slider = ui.WidgetProps(SliderFloat){
+        const emissivity_slider = ui.WidgetProps(w.SliderFloatUI){
             .init_val = 0,
             .min_val = 0,
             .max_val = 1,
             .onChange = c.closure(self, S.onDuckEmissivityChange),
         };
 
-        return c.decl(Sized, .{
-            .width = 250,
-            .child = c.decl(Column, .{
-                .expand = false,
-                .children = c.list(.{
-                    c.decl(ColorPicker, .{
-                        .label = "Box Color",
-                        .font_size = 14,
-                        .init_val = self.box_color,
-                        .onPreviewChange = c.funcExt(self, S.onBoxColorPreview),
-                        .onResult = c.funcExt(self, S.onBoxColor),
-                    }),
-                    c.decl(ColorPicker, .{
-                        .label = "Duck Color",
-                        .font_size = 14,
-                        .init_val = self.duck_color,
-                        .onPreviewChange = c.funcExt(self, S.onDuckColorPreview),
-                        .onResult = c.funcExt(self, S.onDuckColor),
-                    }),
-                    c.decl(SliderFloatOption, .{
-                        .label = "metallic",
-                        .slider = metallic_slider,
-                    }),
-                    c.decl(SliderFloatOption, .{
-                        .label = "roughness",
-                        .slider = roughness_slider,
-                    }),
-                    c.decl(SliderFloatOption, .{
-                        .label = "emissivity",
-                        .slider = emissivity_slider,
-                    }),
-                    c.decl(SwitchOption, .{
-                        .label = "Enable Shadows",
-                        .init_val = self.enable_shadows,
-                        .onChange = c.funcExt(self, S.onShadowsChange),
-                    }),
+        return w.Sized(.{ .width = 250 }, 
+            w.Column(.{ .expand = false }, &.{
+                w.ColorPicker(.{
+                    .label = "Box Color",
+                    .font_size = 14,
+                    .init_val = self.box_color,
+                    .onPreviewChange = c.funcExt(self, S.onBoxColorPreview),
+                    .onResult = c.funcExt(self, S.onBoxColor),
+                }),
+                w.ColorPicker(.{
+                    .label = "Duck Color",
+                    .font_size = 14,
+                    .init_val = self.duck_color,
+                    .onPreviewChange = c.funcExt(self, S.onDuckColorPreview),
+                    .onResult = c.funcExt(self, S.onDuckColor),
+                }),
+                w.SliderFloatOption(.{
+                    .label = "metallic",
+                    .slider = metallic_slider,
+                }),
+                w.SliderFloatOption(.{
+                    .label = "roughness",
+                    .slider = roughness_slider,
+                }),
+                w.SliderFloatOption(.{
+                    .label = "emissivity",
+                    .slider = emissivity_slider,
+                }),
+                w.SwitchOption(.{
+                    .label = "Enable Shadows",
+                    .init_val = self.enable_shadows,
+                    .onChange = c.funcExt(self, S.onShadowsChange),
                 }),
             }),
-        });
+        );
     }
 };
 
@@ -234,7 +217,7 @@ pub fn main() !void {
 }
 
 fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
-    return c.decl(App, .{});
+    return c.build(App, .{});
 }
 
 var duck_spin: f32 = 0;
@@ -327,7 +310,7 @@ fn update(delta_ms: f32) void {
 
 pub usingnamespace if (IsWasm) struct {
     export fn wasmInit() *const u8 {
-        return helper.wasmInit(&app, "Counter");
+        return helper.wasmInit(&app, "3d");
     }
 
     export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {

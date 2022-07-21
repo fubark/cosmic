@@ -293,7 +293,7 @@ pub const Row = struct {
 
     pub fn render(self: *Self, c: *ui.RenderContext) void {
         _ = self;
-        const g = c.g;
+        const g = c.gctx;
         const alo = c.getAbsLayout();
 
         const props = self.props;

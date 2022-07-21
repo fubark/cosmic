@@ -44,3 +44,12 @@ For desktop font rasterization.
 
 ### cgltf - Load gltf models.
 - https://github.com/jkuhlmann/cgltf (be2ef0f351df3b8c9ef5bdfb7b587b1aebfb4acd)
+
+### jolt - 3D Physics engine.
+- https://github.com/jrouwe/JoltPhysics (8ccd3ce3b6573485c2be422ad06691740043ac0c)
+
+### glslang - GLSL to SPIRV.
+- https://github.com/KhronosGroup/glslang (b2d2c9dd3d77c6adadff37309aa58a181bafc5f9)
+
+### quickjs - A light JS engine.
+- https://github.com/bellard/quickjs (2788d71e823b522b178db3b3660ce93689534e6d)

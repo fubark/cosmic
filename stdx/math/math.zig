@@ -6,6 +6,7 @@ const vec2 = Vec2.init;
 pub const geom = @import("geom.zig");
 
 usingnamespace @import("matrix.zig");
+usingnamespace @import("transform.zig");
 
 pub fn Point2(comptime T: type) type {
     return struct {
@@ -21,10 +22,30 @@ pub fn Point2(comptime T: type) type {
     };
 }
 
+pub fn Point3(comptime T: type) type {
+    return struct {
+        x: T,
+        y: T,
+        z: T,
+
+        pub fn init(x: T, y: T, z: T) @This() {
+            return .{
+                .x = x,
+                .y = y,
+                .z = z,
+            };
+        }
+    };
+}
+
 pub const Vec3 = struct {
     x: f32,
     y: f32,
     z: f32,
+
+    pub const UnitX = init(1, 0, 0);
+    pub const UnitY = init(0, 1, 0);
+    pub const UnitZ = init(0, 0, 1);
 
     pub fn init(x: f32, y: f32, z: f32) Vec3 {
         return .{
@@ -176,6 +197,10 @@ pub const Vec4 = struct {
     /// Component division.
     pub fn div(self: Vec4, s: f32) Vec4 {
         return Vec4.init(self.x / s, self.y / s, self.z / s, self.w / s);
+    }
+
+    pub fn divW(self: Vec4) Vec4 {
+        return Vec4.init(self.x / self.w, self.y / self.w, self.z / self.w, 1);
     }
 };
 

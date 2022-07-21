@@ -18,7 +18,7 @@ const ResizeCallbackItem = struct {
 /// Does not own the underlying buffer and only cares about providing the next available rectangle and triggering resize events.
 /// When the buffer needs to resize, the width and height are doubled and resize callbacks are invoked.
 pub const RectBinPacker = struct {
-    spans: stdx.ds.CompactSinglyLinkedListBuffer(SpanId, Span),
+    spans: stdx.ds.PooledHandleSLLBuffer(SpanId, Span),
 
     /// Current spans from left to right. 
     head: SpanId,
@@ -33,7 +33,7 @@ pub const RectBinPacker = struct {
 
     pub fn init(alloc: std.mem.Allocator, width: u32, height: u32) Self {
         var new = Self{
-            .spans = stdx.ds.CompactSinglyLinkedListBuffer(SpanId, Span).init(alloc),
+            .spans = stdx.ds.PooledHandleSLLBuffer(SpanId, Span).init(alloc),
             .resize_cbs = std.ArrayList(ResizeCallbackItem).init(alloc),
             .width = width,
             .height = height,

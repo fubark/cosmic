@@ -133,7 +133,7 @@ pub fn SliderBase(comptime is_float: bool) type {
         }
 
         pub fn render(self: *Self, ctx: *ui.RenderContext) void {
-            const g = ctx.g;
+            const g = ctx.gctx;
             const alo = ctx.getAbsLayout();
             const gutter_x = alo.x + ThumbWidth/2;
             g.setFillColor(Color.init(40, 40, 40, 255));

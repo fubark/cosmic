@@ -9,8 +9,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
-const Node = ui.Node;
-const Padding = ui.widgets.Padding;
+const w = ui.widgets;
 const log = stdx.log.scoped(.text_field);
 
 const NullId = std.math.maxInt(u32);
@@ -24,7 +23,7 @@ pub const TextField = struct {
         font_id: graphics.FontId = NullId,
         font_size: f32 = 20,
         onChangeEnd: ?Function(fn ([]const u8) void) = null,
-        onKeyDown: ?Function(fn (ui.WidgetRef(Self), KeyDownEvent) void) = null,
+        onKeyDown: ?Function(fn (ui.WidgetRef(w.TextFieldUI), KeyDownEvent) void) = null,
         padding: f32 = 10,
         placeholder: ?[]const u8 = null,
         width: ?f32 = null,
@@ -39,28 +38,25 @@ pub const TextField = struct {
     last_buf_hash: [16]u8,
 
     ctx: *ui.CommonContext,
-    node: *Node,
+    node: *ui.Node,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *TextField, c: *ui.InitContext) void {
         self.buf = stdx.textbuf.TextBuffer.init(c.alloc, "") catch @panic("error");
         self.last_buf_hash = undefined;
-        c.addKeyDownHandler(self, Self.onKeyDown);
-        c.addMouseDownHandler(self, Self.onMouseDown);
+        c.addKeyDownHandler(self, onKeyDown);
+        c.addMouseDownHandler(self, onMouseDown);
         self.ctx = c.common;
         self.node = c.node;
     }
 
-    pub fn deinit(node: *Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
+        const self = node.getWidget(TextField);
         self.buf.deinit();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        return c.decl(Padding, .{
-            .padding = self.props.padding,
-            .child = c.decl(TextFieldInner, .{
+    pub fn build(self: *TextField, c: *ui.BuildContext) ui.FrameId {
+        return w.Padding(.{ .padding = self.props.padding },
+            c.build(TextFieldInner, .{
                 .bind = &self.inner,
                 .text = self.buf.buf.items,
                 .font_size = self.props.font_size,
@@ -68,21 +64,21 @@ pub const TextField = struct {
                 .text_color = self.props.text_color,
                 .placeholder = self.props.placeholder,
             }),
-        });
+        );
     }
 
-    pub fn setValueFmt(self: *Self, comptime format: []const u8, args: anytype) void {
+    pub fn setValueFmt(self: *TextField, comptime format: []const u8, args: anytype) void {
         self.buf.clear();
         self.buf.appendFmt(format, args);
         self.ensureCaretPos();
     }
 
-    pub fn clear(self: *Self) void {
+    pub fn clear(self: *TextField) void {
         self.buf.clear();
         self.ensureCaretPos();
     }
 
-    fn ensureCaretPos(self: *Self) void {
+    fn ensureCaretPos(self: *TextField) void {
         const inner = self.inner.getWidget();
         if (inner.caret_idx > self.buf.num_chars) {
             inner.caret_idx = self.buf.num_chars;
@@ -90,18 +86,18 @@ pub const TextField = struct {
     }
 
     /// Request focus on the TextField.
-    pub fn requestFocus(self: *Self) void {
+    pub fn requestFocus(self: *TextField) void {
         self.ctx.requestFocus(self.node, onBlur);
         const inner = self.inner.getWidget();
         inner.setFocused();
         std.crypto.hash.Md5.hash(self.buf.buf.items, &self.last_buf_hash, .{});
     }
 
-    pub fn getValue(self: Self) []const u8 {
+    pub fn getValue(self: TextField) []const u8 {
         return self.buf.buf.items;
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
+    fn onMouseDown(self: *TextField, e: ui.MouseDownEvent) ui.EventResult {
         const me = e.val;
         self.requestFocus();
 
@@ -112,9 +108,9 @@ pub const TextField = struct {
         return .Continue;
     }
 
-    fn onBlur(node: *Node, ctx: *ui.CommonContext) void {
+    fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
-        const self = node.getWidget(Self);
+        const self = node.getWidget(TextField);
         self.inner.getWidget().focused = false;
         var hash: [16]u8 = undefined;
         std.crypto.hash.Md5.hash(self.buf.buf.items, &hash, .{});
@@ -123,13 +119,13 @@ pub const TextField = struct {
         }
     }
 
-    fn fireOnChangeEnd(self: *Self) void {
+    fn fireOnChangeEnd(self: *TextField) void {
         if (self.props.onChangeEnd) |cb| {
             cb.call(.{ self.buf.buf.items });
         }
     }
 
-    fn getCaretIdx(self: *Self, ctx: *ui.CommonContext, x: f32) u32 {
+    fn getCaretIdx(self: *TextField, ctx: *ui.CommonContext, x: f32) u32 {
         const font_gid = ctx.getFontGroupForSingleFontOrDefault(self.props.font_id);
         var iter = ctx.textGlyphIter(font_gid, self.props.font_size, self.buf.buf.items);
         if (iter.nextCodepoint()) {
@@ -152,11 +148,11 @@ pub const TextField = struct {
         return char_idx;
     }
 
-    fn onKeyDown(self: *Self, e: ui.KeyDownEvent) void {
+    fn onKeyDown(self: *TextField, e: ui.KeyDownEvent) void {
         const ke = e.val;
         // User onKeyDown is fired first. In the future this could let the user cancel the default behavior.
         if (self.props.onKeyDown) |cb| {
-            cb.call(.{ ui.WidgetRef(Self).init(e.ctx.node), ke });
+            cb.call(.{ ui.WidgetRef(TextField).init(e.ctx.node), ke });
         }
 
         const inner = self.inner.getWidget();
@@ -213,7 +209,7 @@ pub const TextField = struct {
         }
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *TextField, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
         const child = c.getNode().children.items[0];
         if (self.props.width) |width| {
@@ -227,7 +223,7 @@ pub const TextField = struct {
         }
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
+    pub fn render(self: *TextField, c: *ui.RenderContext) void {
         _ = self;
         const alo = c.getAbsLayout();
         const g = c.getGraphics();
@@ -264,14 +260,12 @@ pub const TextFieldInner = struct {
 
     focused: bool,
     ctx: *ui.CommonContext,
-    node: *Node,
+    node: *ui.Node,
 
     /// [0,1]
     fixed_in_view: f32,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *TextFieldInner, c: *ui.InitContext) void {
         self.scroll_x = 0;
         self.caret_idx = 0;
         self.caret_pos_x = 0;
@@ -282,31 +276,31 @@ pub const TextFieldInner = struct {
         self.node = c.node;
     }
 
-    pub fn postPropsUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *TextFieldInner) void {
         // Make sure caret_idx is in bounds.
         if (self.caret_idx > self.props.text.len) {
             self.caret_idx = @intCast(u32, self.props.text.len);
         }
     }
 
-    fn setFocused(self: *Self) void {
+    fn setFocused(self: *TextFieldInner) void {
         self.focused = true;
         self.resetCaretAnim();
     }
 
-    fn resetCaretAnim(self: *Self) void {
+    fn resetCaretAnim(self: *TextFieldInner) void {
         self.caret_anim_show = true;
         self.ctx.resetInterval(self.caret_anim_id);
     }
 
-    fn onCaretInterval(self: *Self, e: ui.IntervalEvent) void {
+    fn onCaretInterval(self: *TextFieldInner, e: ui.IntervalEvent) void {
         _ = e;
         self.caret_anim_show = !self.caret_anim_show;
     }
 
-    fn keepCaretFixedInView(self: *Self) void {
+    fn keepCaretFixedInView(self: *TextFieldInner) void {
         const S = struct {
-            fn cb(self_: *Self) void {
+            fn cb(self_: *TextFieldInner) void {
                 self_.scroll_x = self_.caret_pos_x - self_.fixed_in_view * self_.node.layout.width;
                 if (self_.scroll_x < 0) {
                     self_.scroll_x = 0;
@@ -322,9 +316,9 @@ pub const TextFieldInner = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
-    fn keepCaretInView(self: *Self) void {
+    fn keepCaretInView(self: *TextFieldInner) void {
         const S = struct {
-            fn cb(self_: *Self) void {
+            fn cb(self_: *TextFieldInner) void {
                 const layout_width = self_.node.layout.width;
 
                 if (self_.caret_pos_x > self_.scroll_x + layout_width - 2) {
@@ -339,7 +333,7 @@ pub const TextFieldInner = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *TextFieldInner, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
@@ -357,7 +351,7 @@ pub const TextFieldInner = struct {
         return res;
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
+    pub fn render(self: *TextFieldInner, c: *ui.RenderContext) void {
         const alo = c.getAbsLayout();
         const g = c.getGraphics();
 

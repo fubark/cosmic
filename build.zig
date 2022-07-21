@@ -29,8 +29,11 @@ const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
 const maudio = @import("lib/miniaudio/lib.zig");
 const mingw = @import("lib/mingw/lib.zig");
+const qjs = @import("lib/qjs/lib.zig");
 const backend = @import("platform/backend.zig");
 const cgltf = @import("lib/cgltf/lib.zig");
+const jolt = @import("lib/jolt/lib.zig");
+const glslang = @import("lib/glslang/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -58,12 +61,14 @@ const LibH2oPath: ?[]const u8 = null;
 pub fn build(b: *Builder) !void {
     // Options.
     const path = b.option([]const u8, "path", "Path to main file, for: build, run, test-file") orelse "";
+    const vendor_path = b.option([]const u8, "vendor", "Path to vendor.") orelse "";
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const link_graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
     const add_runtime = b.option(bool, "runtime", "Add the runtime package") orelse false;
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
+    const link_qjs = b.option(bool, "qjs", "Link quickjs lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
     const extras_sha = b.option([]const u8, "deps-rev", "Override the extras repo sha.") orelse EXTRAS_REPO_SHA;
@@ -106,6 +111,7 @@ pub fn build(b: *Builder) !void {
         .add_runtime_pkg = add_runtime,
         .link_v8 = v8,
         .link_net = net,
+        .link_qjs = link_qjs,
         .link_lyon = link_lyon,
         .link_tess2 = link_tess2,
         .link_mock = false,
@@ -188,13 +194,22 @@ pub fn build(b: *Builder) !void {
         build_options.addOption([]const u8, "VersionName", VersionName);
         const test_exe = ctx_.createTestFileStep("test/behavior_test.zig", build_options);
         // Set filter so it doesn't run other unit tests (which assume to be linked with lib_mock.zig)
-        test_exe.setFilter("behavior:");
+        // Skip behavior tests for now.
+        test_exe.setFilter("behavior-skip:");
         step.step.dependOn(&test_exe.step);
         b.step("test-behavior", "Run behavior tests").dependOn(&step.step);
     }
 
+    const copy_vendor = ctx.createCopyVendorStep(ctx.path, vendor_path);
+    b.step("copy-vendor", "Copy vendor source to this repo using vendor_files.txt").dependOn(&copy_vendor.step);
+
     const test_file = ctx.createTestFileStep(ctx.path, null);
     b.step("test-file", "Test file with -Dpath").dependOn(&test_file.step);
+
+    const test_jolt = jolt.createTest(b, target, mode, .{}).run();
+    // const test_jolt = jolt.createTest(b, target, mode, .{ .multi_threaded = false, .enable_simd = false }).run();
+    // const test_jolt = jolt.createTest(b, target, mode, .{ .multi_threaded = false }).run();
+    b.step("test-jolt", "Test jolt library.").dependOn(&test_jolt.step);
 
     {
         const step = b.addLog("", .{});
@@ -377,6 +392,7 @@ const BuilderContext = struct {
     add_v8_pkg: bool = false,
     add_runtime_pkg: bool = false,
     link_v8: bool,
+    link_qjs: bool = false,
     link_net: bool,
     link_mock: bool,
     mode: std.builtin.Mode,
@@ -412,43 +428,54 @@ const BuilderContext = struct {
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
 
-        const step = self.builder.addSharedLibrary(name, path, .unversioned);
+        const wasm = self.builder.addSharedLibrary(name, path, .unversioned);
         // const step = self.builder.addStaticLibrary(name, path);
-        self.setBuildMode(step);
-        self.setTarget(step);
+        wasm.setMainPkgPath(".");
+        self.setBuildMode(wasm);
+        self.setTarget(wasm);
 
-        self.addDeps(step) catch unreachable;
+        // Set enough stack size. 128KB.
+        wasm.stack_size = 1024 * 128;
 
-        _ = self.addInstallArtifact(step);
+        const opts_step = self.createDefaultBuildOptions();
+        const pkg = opts_step.getPackage("build_options");
+        wasm.addPackage(pkg);
+
+        const graphics_backend = backend.getGraphicsBackend(wasm);
+        opts_step.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
+
+        self.addDeps(wasm) catch unreachable;
+
+        _ = self.addInstallArtifact(wasm);
         // This is needed for wasm builds or the main .wasm file won't output to the custom directory. 
-        self.setOutputDir(step, step.install_step.?.dest_dir.custom);
+        self.setOutputDir(wasm, wasm.install_step.?.dest_dir.custom);
 
-        self.copyAssets(step);
+        self.copyAssets(wasm);
 
         // Create copy of index.html.
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm-js/index.html"), self.fromRoot("./lib/wasm-js/gen-index.html"));
-        step.step.dependOn(&cp.step);
+        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm/index.html"), self.fromRoot("./lib/wasm/gen-index.html"));
+        wasm.step.dependOn(&cp.step);
 
         // Replace wasm file name in gen-index.html
-        const index_path = self.fromRoot("./lib/wasm-js/gen-index.html");
+        const index_path = self.fromRoot("./lib/wasm/gen-index.html");
         const new_str = std.mem.concat(self.builder.allocator, u8, &.{ "wasmFile = '", name, ".wasm'" }) catch unreachable;
         const replace = ReplaceInFileStep.create(self.builder, index_path, "wasmFile = 'demo.wasm'", new_str);
-        step.step.dependOn(&replace.step);
+        wasm.step.dependOn(&replace.step);
 
         // Install gen-index.html
-        const install_index = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/gen-index.html", "index.html");
-        step.step.dependOn(&install_index.step);
+        const install_index = self.addStepInstallFile(wasm, srcPath() ++ "/lib/wasm/gen-index.html", "index.html");
+        wasm.step.dependOn(&install_index.step);
 
         // graphics.js
-        // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-canvas.js", "graphics.js");
-        const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/graphics-webgl2.js", "graphics.js");
-        step.step.dependOn(&install_graphics.step);
+        // const install_graphics = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm/graphics-canvas.js", "graphics.js");
+        const install_graphics = self.addStepInstallFile(wasm, srcPath() ++ "/lib/wasm/graphics-webgl2.js", "graphics.js");
+        wasm.step.dependOn(&install_graphics.step);
 
         // stdx.js
-        const install_stdx = self.addStepInstallFile(step, srcPath() ++ "/lib/wasm-js/stdx.js", "stdx.js");
-        step.step.dependOn(&install_stdx.step);
+        const install_stdx = self.addStepInstallFile(wasm, srcPath() ++ "/lib/wasm/stdx.js", "stdx.js");
+        wasm.step.dependOn(&install_stdx.step);
 
-        return step;
+        return wasm;
     }
 
     /// dst_rel_path is relative to the step's custom dest directory.
@@ -528,6 +555,12 @@ const BuilderContext = struct {
         return exe;
     }
 
+    fn createCopyVendorStep(self: *Self, path: []const u8, vendor_path: []const u8) *CopyVendorStep {
+        const b = self.builder;
+        const step = CopyVendorStep.create(b, path, vendor_path);
+        return step;
+    }
+
     fn createTestFileStep(self: *Self, path: []const u8, build_options: ?*std.build.OptionsStep) *std.build.LibExeObjStep {
         const step = self.builder.addTest(path);
         self.setBuildMode(step);
@@ -535,6 +568,7 @@ const BuilderContext = struct {
         step.setMainPkgPath(".");
 
         self.addDeps(step) catch unreachable;
+        self.buildLinkMock(step);
 
         const build_opts = build_options orelse self.createDefaultBuildOptions();
         step.addPackage(build_opts.getPackage("build_options"));
@@ -575,7 +609,7 @@ const BuilderContext = struct {
     }
 
     fn isWasmTarget(self: Self) bool {
-        return self.target.getCpuArch() == .wasm32 or self.target.getCpuArch() == .wasm64;
+        return self.target.getCpuArch().isWasm();
     }
 
     fn addDeps(self: *Self, step: *LibExeObjStep) !void {
@@ -603,9 +637,12 @@ const BuilderContext = struct {
         sdl.addPackage(step);
         stb.addStbttPackage(step);
         stb.addStbiPackage(step);
+        stb.addStbPerlinPackage(step);
         freetype.addPackage(step);
         gl.addPackage(step);
         vk.addPackage(step);
+        jolt.addPackage(step);
+        glslang.addPackage(step);
         maudio.addPackage(step);
         lyon.addPackage(step, self.link_lyon);
         tess2.addPackage(step, self.link_tess2);
@@ -634,6 +671,15 @@ const BuilderContext = struct {
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
+            if (step.target.getCpuArch().isWasm()) {
+                jolt.buildAndLink(step, .{ .multi_threaded = false, .enable_simd = false });
+            } else {
+                // Disable building jolt on windows for now.
+                if (!step.target.isWindows()) {
+                    jolt.buildAndLink(step, .{});
+                }
+                glslang.buildAndLink(step);
+            }
         }
         if (self.link_audio) {
             maudio.buildAndLink(step);
@@ -651,6 +697,7 @@ const BuilderContext = struct {
             step.step.dependOn(&zig_v8_repo.step);
             addZigV8(step);
         }
+        qjs.addPackage(step);
         if (self.add_runtime_pkg) {
             runtime.addPackage(step, .{
                 .graphics_backend = graphics_backend,
@@ -661,6 +708,9 @@ const BuilderContext = struct {
         }
         if (self.link_v8) {
             self.linkZigV8(step);
+        }
+        if (self.link_qjs) {
+            qjs.buildAndLink(step, .{});
         }
         if (self.link_mock) {
             self.buildLinkMock(step);
@@ -766,7 +816,9 @@ const BuilderContext = struct {
         });
         gl.addPackage(lib);
         uv.addPackage(lib);
-        addZigV8(lib);
+        if (self.add_v8_pkg) {
+            addZigV8(lib);
+        }
         maudio.addPackage(lib);
         step.linkLibrary(lib);
     }
@@ -781,6 +833,87 @@ fn addZigV8(step: *LibExeObjStep) void {
     step.addPackage(zig_v8_pkg);
     step.linkLibC();
     step.addIncludeDir("./lib/zig-v8/src");
+}
+
+const CopyVendorStep = struct {
+    step: std.build.Step,
+    b: *Builder,
+    path: []const u8,
+    vendor_path: []const u8,
+
+    fn create(b: *Builder, path: []const u8, vendor_path: []const u8) *CopyVendorStep {
+        const new = b.allocator.create(CopyVendorStep) catch unreachable;
+        new.* = .{
+            .step = std.build.Step.init(.custom, b.fmt("copy-vendor", .{}), b.allocator, make),
+            .b = b,
+            .path = b.dupe(path),
+            .vendor_path = b.dupe(vendor_path),
+        };
+        return new;
+    }
+
+    fn make(step: *std.build.Step) anyerror!void {
+        const self = @fieldParentPtr(CopyVendorStep, "step", step);
+
+        const vendor_files_txt = self.b.fmt("{s}/vendor_files.txt", .{self.path});
+        const f = try std.fs.cwd().openFile(vendor_files_txt, .{ .mode = .read_only });
+        defer f.close();
+        const content = try f.readToEndAlloc(self.b.allocator, 1e12);
+        var iter = std.mem.tokenize(u8, content, "\n\r");
+        while (iter.next()) |line| {
+            const src_path = self.b.pathJoin(&.{ self.vendor_path, line });
+            const dst_path = self.b.pathJoin(&.{ self.path, "vendor", line });
+            const stat = try std.fs.cwd().statFile(src_path);
+            if (stat.kind == .Directory) {
+                var src_dir = try std.fs.cwd().openIterableDir(src_path, .{});
+                defer src_dir.close();
+                std.fs.cwd().access(dst_path, .{}) catch |e| {
+                    if (e == error.FileNotFound) {
+                        try std.fs.cwd().makePath(dst_path);
+                    } else return e;
+                };
+                var dst_dir = try std.fs.cwd().openDir(dst_path, .{});
+                defer dst_dir.close();
+                try copyDir(src_dir, dst_dir);
+            } else {
+                const filename = std.fs.path.basename(src_path);
+                var src_dir = try std.fs.cwd().openDir(std.fs.path.dirname(src_path).?, .{});
+                defer src_dir.close();
+                var dst_dir = try std.fs.cwd().openDir(std.fs.path.dirname(dst_path).?, .{});
+                defer dst_dir.close();
+                try src_dir.copyFile(filename, dst_dir, filename, .{});
+            }
+            log.debug("copied {s}", .{line});
+        }
+    }
+};
+
+fn copyDir(src_dir: std.fs.IterableDir, dest_dir: std.fs.Dir) anyerror!void {
+    var iter = src_dir.iterate();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .File => try src_dir.dir.copyFile(entry.name, dest_dir, entry.name, .{}),
+            .Directory => {
+                // log.debug("{s}", .{entry.name});
+                // Create destination directory
+                dest_dir.makeDir(entry.name) catch |e| {
+                    switch (e) {
+                        std.os.MakeDirError.PathAlreadyExists => {},
+                        else => return e,
+                    }
+                };
+                // Open destination directory
+                var dest_entry_dir = try dest_dir.openDir(entry.name, .{ .access_sub_paths = true, .no_follow = true });
+                defer dest_entry_dir.close();
+                // Open directory we're copying files from
+                var src_entry_dir = try src_dir.dir.openIterableDir(entry.name, .{ .access_sub_paths = true, .no_follow = true });
+                defer src_entry_dir.close();
+                // Begin the recursive descent!
+                try copyDir(src_entry_dir, dest_entry_dir);
+            },
+            else => {},
+        }
+    }
 }
 
 const GenMacLibCStep = struct {

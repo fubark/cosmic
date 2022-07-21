@@ -17,13 +17,11 @@ pub const ScrollList = struct {
 
     list: ui.WidgetRef(List),
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        return c.decl(ScrollView, .{
+    pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
+        return c.build(ScrollView, .{
             .enable_hscroll = false,
             .bg_color = self.props.bg_color,
-            .child = c.decl(List, .{
+            .child = c.build(List, .{
                 .bind = &self.list,
                 .bg_color = self.props.bg_color,
                 .children = self.props.children,
@@ -32,7 +30,7 @@ pub const ScrollList = struct {
     }
 
     /// Index of ui.NullId represents no selection.
-    pub fn getSelectedIdx(self: *Self) u32 {
+    pub fn getSelectedIdx(self: *ScrollList) u32 {
         return self.list.getWidget().selected_idx;
     }
 };
@@ -45,15 +43,13 @@ pub const List = struct {
 
     selected_idx: u32,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *List, c: *ui.InitContext) void {
         self.selected_idx = NullId;
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
         c.addKeyDownHandler(self, onKeyDown);
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *List, c: *ui.BuildContext) ui.FrameId {
         return c.fragment(self.props.children);
     }
 
@@ -62,7 +58,7 @@ pub const List = struct {
         _ = node;
     }
 
-    fn onKeyDown(self: *Self, e: ui.KeyDownEvent) void {
+    fn onKeyDown(self: *List, e: ui.KeyDownEvent) void {
         _ = self;
         const ke = e.val;
         switch (ke.code) {
@@ -82,7 +78,7 @@ pub const List = struct {
     }
 
     fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
-        var self = node.getWidget(Self);
+        var self = node.getWidget(List);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             const xf = @intToFloat(f32, e.val.x);
@@ -104,7 +100,7 @@ pub const List = struct {
         return .Continue;
     }
 
-    pub fn postPropsUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *List) void {
         if (self.selected_idx != NullId) {
             if (self.selected_idx >= self.props.children.len) {
                 if (self.props.children.len == 0) {
@@ -116,7 +112,7 @@ pub const List = struct {
         }
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *List, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const node = c.getNode();
 
@@ -140,8 +136,8 @@ pub const List = struct {
         return res;
     }
 
-    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
-        const g = c.g;
+    pub fn renderCustom(self: *List, c: *ui.RenderContext) void {
+        const g = c.gctx;
         const alo = c.getAbsLayout();
         const node = c.node;
 

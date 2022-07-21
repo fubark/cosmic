@@ -30,3 +30,11 @@ test "allocCStrings" {
     try t.eqStr(c_arr[1][0..4], "bar" ++ &[_]u8{0});
     try t.eq(c_arr[2], null);
 }
+ 
+pub fn spanOrEmpty(s: [*c]const u8) []const u8 {
+    if (s == null) {
+        return "";
+    } else {
+        return std.mem.span(s);
+    }
+}

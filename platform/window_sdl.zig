@@ -17,7 +17,7 @@ const Mode = window.Mode;
 const log = stdx.log.scoped(.window_sdl);
 
 const IsWebGL2 = builtin.target.isWasm();
-extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) u8;
+extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) f32;
 
 const IsDesktop = !IsWebGL2;
 
@@ -95,8 +95,9 @@ pub const Window = struct {
             const dpr = jsSetCanvasBuffer(config.width, config.height);
             res.width = @intCast(u32, config.width);
             res.height = @intCast(u32, config.height);
-            res.buf_width = dpr * res.width;
-            res.buf_height = dpr * res.height;
+            // dpr in browsers are integers.
+            res.buf_width = @floatToInt(u32, dpr) * res.width;
+            res.buf_height = @floatToInt(u32, dpr) * res.height;
             res.dpr = dpr;
         }
 
@@ -197,8 +198,8 @@ pub const Window = struct {
             self.buf_width = @intCast(u32, buf_width);
             self.buf_height = @intCast(u32, buf_height);
         } else {
-            self.buf_width = self.dpr * self.width;
-            self.buf_height = self.dpr * self.height;
+            self.buf_width = @floatToInt(u32, self.dpr) * self.width;
+            self.buf_height = @floatToInt(u32, self.dpr) * self.height;
         }
 
         // The default frame buffer already resizes to the window.

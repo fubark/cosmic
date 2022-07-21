@@ -1,11 +1,11 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const Transform = stdx.math.Transform;
 const string = stdx.string;
 const ds = stdx.ds;
 const t = stdx.testing;
 
 const graphics = @import("graphics.zig");
-const Transform = graphics.transform.Transform;
 const Color = graphics.Color;
 const draw_cmd = @import("draw_cmd.zig");
 const DrawCommandList = draw_cmd.DrawCommandList;

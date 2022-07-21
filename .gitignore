@@ -8,7 +8,7 @@
 /lib/zig-v8
 /lib/tracy
 /lib/macos.libc
-/lib/wasm-js/gen-index.html
+/lib/wasm/gen-index.html
 /lib/libc_v8*.a
 /lib/c_v8*.lib
 /lib/extras

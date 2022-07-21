@@ -42,7 +42,7 @@ Clone the cosmic repo which includes:
 - cosmic/lib/sdl: SDL2 source. Used to create a window and OpenGL 3.3 context. Built automatically.
 - cosmic/lib/freetype2: Freetype2 font renderer backend used by default for desktop. Built automatically.
 - cosmic/lib/stb: stb_truetype and stb_image source. Used to rasterize fonts and decode images. Built automatically.
-- cosmic/lib/wasm-js: Wasm/js bootstrap and glue code.
+- cosmic/lib/wasm: Wasm/js bootstrap and glue code.
 ```sh
 git clone https://github.com/fubark/cosmic.git
 cd cosmic
@@ -110,7 +110,7 @@ pub fn main() !void {
 fn update(delta_ms: f32) void {
     const S = struct {
         fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
-            return c.decl(Counter, .{});
+            return c.build(Counter, .{});
         }
     };
     const ui_width = @intToFloat(f32, app.win.getWidth());
@@ -135,13 +135,11 @@ pub const Counter = struct {
     // This is a state variable.
     counter: u32,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *Counter, c: *ui.InitContext) void {
         // Invoked when the widget instance was created but before all it's child widgets.
     }
 
-    pub fn postInit(self: *Self, c: *ui.InitContext) void {
+    pub fn postInit(self: *Counter, c: *ui.InitContext) void {
         // Invoked after the widget instance and it's child widgets were created.
     }
 
@@ -149,27 +147,27 @@ pub const Counter = struct {
         // Invoked when the widget instance is destroyed.
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FrameId {
         // Invoked when the engine wants to know the structure of this Widget.
     }
 
-    pub fn postPropsUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *Counter) void {
         // Invoked when a widget has updated their props from the parent.
     }
 
-    pub fn postUpdate(self: *Self) void {
+    pub fn postUpdate(self: *Counter) void {
         // Invoked when a widget and it's children have finished updating. (They have resolved their instance trees from the diff operation.)
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Counter, c: *ui.LayoutContext) ui.LayoutSize {
         // Invoked when the engine performs layout.
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
+    pub fn render(self: *Counter, c: *ui.RenderContext) void {
         // Invoked to render this widget. Afterwards, the children render steps will be invoked.
     }
 
-    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+    pub fn renderCustom(self: *Counter, c: *ui.RenderContext) void {
         // This supersedes the `render` hook and gives you full control over how the children are rendered.
         // This would be useful if you need post rendering steps or have a different order to render the children.
     }
@@ -179,39 +177,35 @@ pub const Counter = struct {
 ### Declaring Widgets.
 Before any widget instances are created, the engine needs to know the structure of your ui. This is when it invokes the `build` hooks:
 ```zig
+    const w = ui.widgets;
+
     // ... in Counter struct.
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: MouseUpEvent) void {
+            fn onClick(self_: *Counter, _: MouseUpEvent) void {
                 self_.counter += 1;
             }
         };
 
-        return c.decl(Center, .{
-            .child = c.decl(Row, .{
-                .expand = false,
-                .children = c.list(.{
-                    c.decl(Padding, .{
-                        .padding = 10,
-                        .pad_left = 30,
-                        .pad_right = 30,
-                        .child = c.decl(Text, .{
-                            .text = c.fmt("{}", .{self.counter}),
-                            .color = Color.White,
-                        }),
+        return w.Center(.{},
+            w.Row(.{ .expand = false }, &.{
+                w.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
+                    w.Text(.{
+                        .text = c.fmt("{}", .{self.counter}),
+                        .color = Color.White,
                     }),
-                    c.decl(TextButton, .{
-                        .text = "Count",
-                        .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
-                        .corner_radius = 10,
-                    }),
+                ),
+                w.TextButton(.{
+                    .text = "Count",
+                    .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
+                    .corner_radius = 10,
                 }),
             }),
-        });
+        );
     }
 ```
-`build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.decl()` is used to declare a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list()` is used to group together frames.
+`build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.build()` is used to build a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list()` is used to group together frames.
 
 The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
 
@@ -219,17 +213,15 @@ The engine then proceeds to diff the structure provided by `build` against any e
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
 ```zig
 const App = struct {
-    slider: WidgetRef(Slider),
+    slider: WidgetRef(w.SliderUI),
 
-    const Self = @This()
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: MouseUpEvent) void {
+            fn onClick(self_: *App, _: MouseUpEvent) void {
                 std.debug.print("slider value {}", .{self_.slider.getWidget().getValue()});
             }
         };
-        return c.decl(Slider, .{
+        return w.Slider(.{
             .bind = &self.slider,
             .init_val = 30,
         })
@@ -243,12 +235,12 @@ Widgets can add event handlers and request focus for keyboard events:
 const TextField = struct {
     // ...
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *TextField, c: *ui.InitContext) void {
         c.addMouseDownHandler(self, onMouseDown);
         c.addKeyDownHandler(self, onKeyDown);
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) void {
+    fn onMouseDown(self: *TextField, e: ui.MouseDownEvent) void {
         e.ctx.requestFocus(onBlur);
     }
 

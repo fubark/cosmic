@@ -7,8 +7,7 @@ const MouseUpEvent = platform.MouseUpEvent;
 const MouseDownEvent = platform.MouseDownEvent;
 
 const ui = @import("../ui.zig");
-const Padding = ui.widgets.Padding;
-const Text = ui.widgets.Text;
+const w = ui.widgets;
 const log = stdx.log.scoped(.button);
 
 pub const TextButton = struct {
@@ -22,23 +21,21 @@ pub const TextButton = struct {
         text: ?[]const u8,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        return c.decl(Button, .{
+    pub fn build(self: *TextButton, _: *ui.BuildContext) ui.FrameId {
+        return w.Button(.{
             .onClick = self.props.onClick,
             .bg_color = self.props.bg_color,
             .bg_pressed_color = self.props.bg_pressed_color,
             .border_size = self.props.border_size,
             .border_color = self.props.border_color,
             .corner_radius = self.props.corner_radius,
-            .child = c.decl(Padding, .{
-                .padding = 10,
-                .child = c.decl(Text, .{
+        },
+            w.Padding(.{ .padding = 10 },
+                w.Text(.{
                     .text = self.props.text,
                 }),
-            }),
-        });
+            ),
+        );
     }
 };
 

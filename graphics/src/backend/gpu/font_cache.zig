@@ -53,7 +53,7 @@ pub const FontCache = struct {
     render_font_map: std.AutoHashMap(RenderFontKey, RenderFontId),
 
     render_fonts: std.ArrayList(RenderFont),
-    font_groups: ds.CompactUnorderedList(FontGroupId, FontGroup),
+    font_groups: ds.PooledHandleList(FontGroupId, FontGroup),
     fonts_by_lname: ds.OwnedKeyStringHashMap(FontId),
 
     /// For outline glyphs and color bitmaps. Linear filtering enabled.
@@ -74,7 +74,7 @@ pub const FontCache = struct {
             .render_fonts = std.ArrayList(RenderFont).init(alloc),
             .render_font_mru = std.ArrayList(RenderFontDesc).init(alloc),
             .render_font_map = std.AutoHashMap(RenderFontKey, RenderFontId).init(alloc),
-            .font_groups = ds.CompactUnorderedList(FontGroupId, FontGroup).init(alloc),
+            .font_groups = ds.PooledHandleList(FontGroupId, FontGroup).init(alloc),
             .fonts_by_lname = ds.OwnedKeyStringHashMap(FontId).init(alloc),
             .system_fonts = std.ArrayList(FontId).init(alloc),
         };

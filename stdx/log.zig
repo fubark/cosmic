@@ -71,7 +71,12 @@ pub fn err(comptime format: []const u8, args: anytype) void {
     default.err(format, args);
 }
 
-/// Exported for C to call into zig.
-export fn zig_log_debug(msg: [*c]const u8) void {
-    debug("{s}", .{msg});
-} 
+/// Used in C/C++ code to log synchronously.
+const c_log = scoped(.c);
+pub export fn zig_log(buf: [*c]const u8) void {
+    c_log.debug("{s}", .{ buf });
+}
+
+pub export fn zig_log_u32(buf: [*c]const u8, val: u32) void {
+    c_log.debug("{s}: {}", .{ buf, val });
+}

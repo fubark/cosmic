@@ -17,10 +17,10 @@ pub const TextureId = u32;
 
 pub const ImageStore = struct {
     alloc: std.mem.Allocator,
-    images: stdx.ds.CompactUnorderedList(ImageId, Image),
+    images: stdx.ds.PooledHandleList(ImageId, Image),
     gctx: *graphics.gpu.Graphics,
 
-    textures: stdx.ds.CompactUnorderedList(TextureId, Texture),
+    textures: stdx.ds.PooledHandleList(TextureId, Texture),
 
     /// Images are queued for removal due to multiple frames in flight.
     removals: std.ArrayList(RemoveEntry),
@@ -30,8 +30,8 @@ pub const ImageStore = struct {
     pub fn init(alloc: std.mem.Allocator, gctx: *graphics.gpu.Graphics) Self {
         var ret = Self{
             .alloc = alloc,
-            .images = stdx.ds.CompactUnorderedList(ImageId, Image).init(alloc),
-            .textures = stdx.ds.CompactUnorderedList(TextureId, Texture).init(alloc),
+            .images = stdx.ds.PooledHandleList(ImageId, Image).init(alloc),
+            .textures = stdx.ds.PooledHandleList(TextureId, Texture).init(alloc),
             .gctx = gctx,
             .removals = std.ArrayList(RemoveEntry).init(alloc),
         };
@@ -58,7 +58,7 @@ pub const ImageStore = struct {
     /// Cleans up images and their textures that are no longer used.
     pub fn processRemovals(self: *Self) void {
         for (self.removals.items) |*entry, entry_idx| {
-            if (entry.frame_age < gpu.MaxActiveFrames) {
+            if (entry.frame_age < gvk.MaxActiveFrames) {
                 entry.frame_age += 1;
                 continue;
             }

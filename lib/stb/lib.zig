@@ -10,6 +10,17 @@ pub const stbi_pkg = std.build.Pkg{
     .source = .{ .path = srcPath() ++ "/stbi.zig" },
 };
 
+pub const stb_perlin_pkg = std.build.Pkg{
+    .name = "stb_perlin",
+    .source = .{ .path = srcPath() ++ "/stb_perlin.zig" },
+};
+
+pub fn addStbPerlinPackage(step: *std.build.LibExeObjStep) void {
+    step.addPackage(stb_perlin_pkg);
+    step.addIncludeDir(srcPath() ++ "/vendor");
+    step.linkLibC();
+}
+
 pub fn addStbttPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbtt_pkg);
     step.addIncludeDir(srcPath() ++ "/vendor");
@@ -46,6 +57,22 @@ pub fn buildAndLinkStbi(step: *std.build.LibExeObjStep) void {
     const src_files: []const []const u8 = &.{
         srcPath() ++ "/stb_image.c",
         srcPath() ++ "/stb_image_write.c",
+    };
+    lib.addCSourceFiles(src_files, c_flags);
+    step.linkLibrary(lib);
+}
+
+pub fn buildAndLinkStbPerlin(step: *std.build.LibExeObjStep) void {
+    const b = step.builder;
+    const lib = b.addStaticLibrary("stb_perlin", null);
+    lib.setTarget(step.target);
+    lib.setBuildMode(step.build_mode);
+    lib.addIncludeDir(srcPath() ++ "/vendor");
+    lib.linkLibC();
+
+    const c_flags = &[_][]const u8{ "-DSTB_PERLIN_IMPLEMENTATION" };
+    const src_files: []const []const u8 = &.{
+        srcPath() ++ "/stb_perlin.c",
     };
     lib.addCSourceFiles(src_files, c_flags);
     step.linkLibrary(lib);

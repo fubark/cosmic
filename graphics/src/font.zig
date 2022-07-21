@@ -6,7 +6,7 @@ const stbtt = @import("stbtt");
 const graphics = @import("graphics.zig");
 const FontId = graphics.FontId;
 const OpenTypeFont = graphics.OpenTypeFont;
-const log = std.log.scoped(.font);
+const log = stdx.log.scoped(.font);
 
 pub const FontType = enum(u1) {
     /// Scalable font.

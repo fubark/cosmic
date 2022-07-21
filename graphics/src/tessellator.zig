@@ -6,7 +6,7 @@ const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
 const RbTree = stdx.ds.RbTree;
 const dassert = stdx.debug.dassert;
-const CompactSinglyLinkedListBuffer = stdx.ds.CompactSinglyLinkedListBuffer;
+const PooledHandleSLLBuffer = stdx.ds.PooledHandleSLLBuffer;
 
 const trace = stdx.debug.tracy.trace;
 
@@ -31,7 +31,7 @@ pub const Tessellator = struct {
     events: std.ArrayList(Event),
     event_q: EventQueue,
     sweep_edges: RbTree(u16, SweepEdge, Event, compareSweepEdge),
-    deferred_verts: CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode),
+    deferred_verts: PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode),
 
     /// Verts to output.
     /// No duplicate verts will be outputed to reduce size footprint.
@@ -55,7 +55,7 @@ pub const Tessellator = struct {
             .events = std.ArrayList(Event).init(alloc),
             .event_q = undefined,
             .sweep_edges = RbTree(u16, SweepEdge, Event, compareSweepEdge).init(alloc, undefined),
-            .deferred_verts = CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).init(alloc),
+            .deferred_verts = PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).init(alloc),
             .out_verts = std.ArrayList(Vec2).init(alloc),
             .out_idxes = std.ArrayList(u16).init(alloc),
             .cur_x = undefined,
@@ -134,7 +134,7 @@ pub const Tessellator = struct {
             .out_verts = alloc.dupe(Vec2, self.out_verts.items) catch unreachable,
             .out_idxes = alloc.dupe(u16, self.out_idxes.items) catch unreachable,
             .verts = alloc.dupe(InternalVertex, self.verts.items) catch unreachable,
-            .deferred_verts = alloc.dupe(CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items) catch unreachable,
+            .deferred_verts = alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items) catch unreachable,
         };
     }
 
@@ -1823,7 +1823,7 @@ pub const DebugTriangulateStepResult = struct {
     out_verts: []const Vec2,
     out_idxes: []const u16,
     verts: []const InternalVertex,
-    deferred_verts: []const CompactSinglyLinkedListBuffer(DeferredVertexNodeId, DeferredVertexNode).Node,
+    deferred_verts: []const PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node,
 
     pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
         alloc.free(self.sweep_edges);

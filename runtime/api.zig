@@ -507,7 +507,7 @@ pub const cs_files = struct {
     /// List the files in a directory. This is not recursive.
     /// @param path
     pub fn listDir(rt: *RuntimeContext, path: []const u8) ?ManagedSlice(FileEntry) {
-        var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+        var dir = std.fs.cwd().openIterableDir(path, .{}) catch return null;
         defer dir.close();
 
         var iter = dir.iterate();

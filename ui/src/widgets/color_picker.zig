@@ -5,17 +5,7 @@ const Color = graphics.Color;
 const platform = @import("platform");
 
 const ui = @import("../ui.zig");
-const widgets = ui.widgets;
-const Row = widgets.Row;
-const Column = widgets.Column;
-const Flex = widgets.Flex;
-const Slider = widgets.Slider;
-const Sized = widgets.Sized;
-const MouseArea = widgets.MouseArea;
-const Text = widgets.Text;
-const TextButton = widgets.TextButton;
-const Root = widgets.Root;
-const Stretch = widgets.Stretch;
+const w = ui.widgets;
 
 const log = stdx.log.scoped(.color_picker);
 
@@ -30,9 +20,9 @@ pub const ColorPicker = struct {
     },
 
     color: Color,
-    slider: ui.WidgetRef(Slider),
-    preview: ui.WidgetRef(Sized),
-    root: *Root,
+    slider: ui.WidgetRef(w.SliderUI),
+    preview: ui.WidgetRef(w.SizedUI),
+    root: *w.Root,
     node: *ui.Node,
 
     popover_inner: ui.WidgetRef(ColorPickerPopover),
@@ -50,7 +40,7 @@ pub const ColorPicker = struct {
         const S = struct {
             fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
                 const self_ = stdx.mem.ptrCastAlign(*Self, ptr);
-                return c_.decl(ColorPickerPopover, .{
+                return c_.build(ColorPickerPopover, .{
                     .bind = &self_.popover_inner,
                     .init_val = self_.color,
                     .onPreviewChange = self_.props.onPreviewChange,
@@ -73,33 +63,28 @@ pub const ColorPicker = struct {
                 });
             }
         };
-        const d = c.decl;
-        return d(MouseArea, .{
-            .onClick = c.funcExt(self, S.onClick),
-            .child = d(Row, .{
-                .valign = .Center,
-                .children = c.list(.{
-                    d(Flex, .{
-                        .child = d(Text, .{
-                            .text = self.props.label,
-                            .font_size = self.props.font_size,
-                            .color = Color.White,
-                        }),
+        return w.MouseArea(.{ .onClick = c.funcExt(self, S.onClick) },
+            w.Row(.{ .valign = .Center }, &.{
+                w.Flex(.{}, 
+                    w.Text(.{
+                        .text = self.props.label,
+                        .font_size = self.props.font_size,
+                        .color = Color.White,
                     }),
-                    d(Sized, .{
-                        .bind = &self.preview,
-                        .width = 30,
-                        .height = 30,
-                    }),
-                }),
+                ),
+                w.Sized(.{
+                    .bind = &self.preview,
+                    .width = 30,
+                    .height = 30,
+                }, ui.NullFrameId),
             }),
-        });
+        );
     }
 
     pub fn render(self: *Self, ctx: *ui.RenderContext) void {
         const preview_alo = self.preview.getAbsLayout();
-        ctx.g.setFillColor(self.color);
-        ctx.g.fillRect(preview_alo.x, preview_alo.y, preview_alo.width, preview_alo.height);
+        ctx.gctx.setFillColor(self.color);
+        ctx.gctx.fillRect(preview_alo.x, preview_alo.y, preview_alo.width, preview_alo.height);
     }
 };
 
@@ -109,8 +94,8 @@ const ColorPickerPopover = struct {
         onPreviewChange: ?Function(fn (Color) void) = null,
     },
 
-    palette: ui.WidgetRef(Stretch),
-    hue_slider: ui.WidgetRef(Slider),
+    palette: ui.WidgetRef(w.StretchUI),
+    hue_slider: ui.WidgetRef(w.SliderUI),
 
     save_result: bool,
     color: Color,
@@ -208,32 +193,27 @@ const ColorPickerPopover = struct {
                 }
             }
         };
-        return c.decl(Sized, .{
-            .width = 200,
-            .child = c.decl(Column, .{
-                .expand = false,
-                .stretch_width = true,
-                .children = c.list(.{
-                    c.decl(Stretch, .{
-                        .method = .WidthAndKeepRatio,
-                        .aspect_ratio = 1,
-                        .bind = &self.palette,
-                    }),
-                    c.decl(Slider, .{
-                        .min_val = 0,
-                        .max_val = 360,
-                        .init_val = @floatToInt(i32, self.hue),
-                        .bind = &self.hue_slider,
-                        .thumb_color = Color.Transparent,
-                        .onChange = c.funcExt(self, S.onChangeHue),
-                    }),
-                    c.decl(TextButton, .{
-                        .text = "Save",
-                        .onClick = c.funcExt(self, S.onClickSave),
-                    }),
+        return w.Sized(.{ .width = 200 },
+            w.Column(.{ .expand = false, .stretch_width = true }, &.{
+                w.Stretch(.{
+                    .method = .WidthAndKeepRatio,
+                    .aspect_ratio = 1,
+                    .bind = &self.palette,
+                }, ui.NullFrameId),
+                w.Slider(.{
+                    .min_val = 0,
+                    .max_val = 360,
+                    .init_val = @floatToInt(i32, self.hue),
+                    .bind = &self.hue_slider,
+                    .thumb_color = Color.Transparent,
+                    .onChange = c.funcExt(self, S.onChangeHue),
+                }),
+                w.TextButton(.{
+                    .text = "Save",
+                    .onClick = c.funcExt(self, S.onClickSave),
                 }),
             }),
-        });
+        );
     }
 
     fn getValue(self: Self) Color {
@@ -243,7 +223,7 @@ const ColorPickerPopover = struct {
 
     pub fn renderCustom(self: *Self, ctx: *ui.RenderContext) void {
         // const alo = ctx.getAbsLayout();
-        const g = ctx.g;
+        const g = ctx.gctx;
 
         // Render children so palette box resolves it's abs pos.
         ctx.renderChildren();
@@ -297,7 +277,7 @@ const ColorPickerPopover = struct {
     fn postPopoverRender(ptr: ?*anyopaque, c: *ui.RenderContext) void {
         const self = stdx.mem.ptrCastAlign(*Self, ptr);
         const palette_alo = self.palette.getAbsLayout();
-        const g = c.g;
+        const g = c.gctx;
 
         // Draw the palette cursor.
         const cursor_x = palette_alo.x + palette_alo.width * self.palette_xratio;

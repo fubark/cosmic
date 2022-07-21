@@ -4,14 +4,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 const platform = @import("platform");
 const ui = @import("../ui.zig");
-
-const Sized = ui.widgets.Sized;
-const ScrollList = ui.widgets.ScrollList;
-const Text = ui.widgets.Text;
-const Row = ui.widgets.Row;
-const Column = ui.widgets.Column;
-const Flex = ui.widgets.Flex;
-const TextButton = ui.widgets.TextButton;
+const w = ui.widgets;
 
 const log = stdx.log.scoped(.file_dialog);
 
@@ -25,7 +18,7 @@ pub const FileDialog = struct {
     cwd: std.ArrayList(u8),
     files: std.ArrayList(FileItem),
     window: *ui.widgets.ModalOverlay,
-    scroll_list: ui.WidgetRef(ScrollList),
+    scroll_list: ui.WidgetRef(w.ScrollListUI),
 
     const Self = @This();
 
@@ -48,8 +41,8 @@ pub const FileDialog = struct {
 
     pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn buildItem(self_: *Self, c_: *ui.BuildContext, i: u32) ui.FrameId {
-                return c_.decl(Text, .{
+            fn buildItem(self_: *Self, _: *ui.BuildContext, i: u32) ui.FrameId {
+                return w.Text(.{
                     .text = self_.files.items[i].name,
                     .color = Color.White,
                 });
@@ -73,42 +66,32 @@ pub const FileDialog = struct {
                 }
             }
         };
-        return c.decl(Sized, .{
-            .width = 500,
-            .height = 400,
-            .child = c.decl(Column, .{
-                .children = c.list(.{
-                    c.decl(Flex, .{
-                        .stretch_width = true,
-                        .child = c.decl(ScrollList, .{
-                            .bind = &self.scroll_list,
-                            .bg_color = Color.init(50, 50, 50, 255),
-                            .children = c.range(self.files.items.len, self, S.buildItem),
-                        }),
+        return w.Sized(.{ .width = 500, .height = 400 },
+            w.Column(.{}, &.{
+                w.Flex(.{ .stretch_width = true },
+                    w.ScrollList(.{ .bind = &self.scroll_list, .bg_color = Color.init(50, 50, 50, 255) },
+                        c.tempRange(self.files.items.len, self, S.buildItem),
+                    ),
+                ),
+                w.Row(.{ .halign = .Right }, &.{
+                    w.TextButton(.{
+                        .text = "Cancel",
+                        .onClick = c.funcExt(self, S.onClickCancel),
                     }),
-                    c.decl(Row, .{
-                        .halign = .Right,
-                        .children = c.list(.{
-                            c.decl(TextButton, .{
-                                .text = "Cancel",
-                                .onClick = c.funcExt(self, S.onClickCancel),
-                            }),
-                            c.decl(TextButton, .{
-                                .text = "Open",
-                                .onClick = c.funcExt(self, S.onClickSave),
-                            }),
-                        }),
+                    w.TextButton(.{
+                        .text = "Open",
+                        .onClick = c.funcExt(self, S.onClickSave),
                     }),
                 }),
             }),
-        });
+        );
     }
 
     fn gotoDir(self: *Self, cwd: []const u8) void {
         self.cwd.clearRetainingCapacity();
         self.cwd.appendSlice(cwd) catch @panic("error");
 
-        var dir = std.fs.openDirAbsolute(self.cwd.items, .{ .iterate = true }) catch @panic("error");
+        var dir = std.fs.openIterableDirAbsolute(self.cwd.items, .{}) catch @panic("error");
         defer dir.close();
 
         var iter = dir.iterate();

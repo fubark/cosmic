@@ -8,6 +8,8 @@ const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 const Mat4 = math.Mat4;
+const Quaternion = math.Quaternion;
+const Transform = math.Transform;
 const builtin = @import("builtin");
 const t = stdx.testing;
 const sdl = @import("sdl");
@@ -17,9 +19,6 @@ const cgltf = @import("cgltf");
 const NullId = std.math.maxInt(u32);
 const stbi = @import("stbi");
 
-pub const transform = @import("transform.zig");
-pub const Transform = transform.Transform;
-pub const Quaternion = transform.Quaternion;
 pub const svg = @import("svg.zig");
 const SvgPath = svg.SvgPath;
 const draw_cmd = @import("draw_cmd.zig");
@@ -75,6 +74,7 @@ const font_group_ = @import("font_group.zig");
 pub const FontGroup = font_group_.FontGroup;
 pub const FontDesc = font_.FontDesc;
 pub const BitmapFontStrike = font_.BitmapFontStrike;
+pub const perlinNoise = @import("noise.zig").perlinNoise;
 
 pub const canvas = @import("backend/canvas/graphics.zig");
 pub const gpu = @import("backend/gpu/graphics.zig");
@@ -90,37 +90,46 @@ pub const Graphics = struct {
         .OpenGL, .Vulkan => gpu.Graphics,
         .WasmCanvas => canvas.Graphics,
         .Test => testg.Graphics,
-        else => stdx.unsupported(),
+        else => void,
+    },
+    /// Part of migration towards specific backend.
+    new_impl: switch (Backend) {
+        .OpenGL => gl.Graphics,
+        else => void,
     },
     alloc: std.mem.Allocator,
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
-    const Self = @This();
-
-    pub fn init(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
+    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32) !void {
         self.initCommon(alloc);
         switch (Backend) {
-            .OpenGL => gpu.Graphics.initGL(&self.impl, alloc, dpr),
+            .OpenGL => {
+                try gl.Graphics.init(&self.new_impl, alloc);
+                try gpu.Graphics.initGL(&self.impl, alloc, &self.new_impl.renderer, dpr);
+                self.new_impl.gpu_ctx = &self.impl;
+                self.new_impl.renderer.image_store = &self.impl.image_store;
+            },
             .WasmCanvas => canvas.Graphics.init(&self.impl, alloc),
             .Test => testg.Graphics.init(&self.impl, alloc),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *vk.Renderer, vk_ctx: vk.VkContext) void {
+    pub fn initVK(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *vk.Renderer, vk_ctx: vk.VkContext) void {
         self.initCommon(alloc);
-        gpu.Graphics.initVK(&self.impl, alloc, dpr, renderer, vk_ctx);
+        gpu.Graphics.initVK(&self.impl, alloc, dpr, renderer, vk_ctx) catch fatal();
     }
 
-    fn initCommon(self: *Self, alloc: std.mem.Allocator) void {
+    fn initCommon(self: *Graphics, alloc: std.mem.Allocator) void {
         self.* = .{
             .alloc = alloc,
             .path_parser = svg.PathParser.init(alloc),
             .svg_parser = svg.SvgParser.init(alloc),
             .text_buf = std.ArrayList(u8).init(alloc),
             .impl = undefined,
+            .new_impl = undefined,
         };
 
         if (FontRendererBackend == .Freetype) {
@@ -131,19 +140,23 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Graphics) void {
         self.path_parser.deinit();
         self.svg_parser.deinit();
         self.text_buf.deinit();
         switch (Backend) {
-            .OpenGL, .Vulkan => self.impl.deinit(),
+            .OpenGL => {
+                self.impl.deinit();
+                self.new_impl.deinit(self.alloc);
+            },
+            .Vulkan => self.impl.deinit(),
             .WasmCanvas => self.impl.deinit(),
             .Test => {},
             else => stdx.unsupported(),
         }
     }
 
-    pub fn setCamera(self: *Self, cam: Camera) void {
+    pub fn setCamera(self: *Graphics, cam: Camera) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setCamera(&self.impl, cam),
             else => stdx.unsupported(),
@@ -151,7 +164,7 @@ pub const Graphics = struct {
     }
 
     /// Should be called before any meshes that need to be drawn with shadows.
-    pub fn prepareShadows(self: *Self, cam: Camera) void {
+    pub fn prepareShadows(self: *Graphics, cam: Camera) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.prepareShadows(&self.impl, cam),
             else => stdx.unsupported(),
@@ -159,7 +172,7 @@ pub const Graphics = struct {
     }
 
     /// Shifts origin to x units to the right and y units down.
-    pub fn translate(self: *Self, x: f32, y: f32) void {
+    pub fn translate(self: *Graphics, x: f32, y: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.translate(&self.impl, x, y),
             .WasmCanvas => canvas.Graphics.translate(&self.impl, x, y),
@@ -167,7 +180,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn translate3D(self: *Self, x: f32, y: f32, z: f32) void {
+    pub fn translate3D(self: *Graphics, x: f32, y: f32, z: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.translate3D(&self.impl, x, y, z),
             else => stdx.unsupported(),
@@ -176,7 +189,7 @@ pub const Graphics = struct {
 
     // Scales from origin x units horizontally and y units vertically.
     // Negative value flips the axis. Value of 1 does nothing.
-    pub fn scale(self: *Self, x: f32, y: f32) void {
+    pub fn scale(self: *Graphics, x: f32, y: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.scale(&self.impl, x, y),
             .WasmCanvas => canvas.Graphics.scale(&self.impl, x, y),
@@ -185,7 +198,7 @@ pub const Graphics = struct {
     }
 
     /// Rotates 2D origin by radians clockwise.
-    pub fn rotate(self: *Self, rad: f32) void {
+    pub fn rotate(self: *Graphics, rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.rotateZ(&self.impl, rad),
             .WasmCanvas => canvas.Graphics.rotate(&self.impl, rad),
@@ -193,25 +206,25 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn rotateDeg(self: *Self, deg: f32) void {
+    pub fn rotateDeg(self: *Graphics, deg: f32) void {
         self.rotate(math.degToRad(deg));
     }
 
-    pub fn rotateZ(self: *Self, rad: f32) void {
+    pub fn rotateZ(self: *Graphics, rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.rotateZ(&self.impl, rad),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn rotateX(self: *Self, rad: f32) void {
+    pub fn rotateX(self: *Graphics, rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.rotateX(&self.impl, rad),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn rotateY(self: *Self, rad: f32) void {
+    pub fn rotateY(self: *Graphics, rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.rotateY(&self.impl, rad),
             else => stdx.unsupported(),
@@ -219,7 +232,7 @@ pub const Graphics = struct {
     }
 
     // Resets the current transform to identity.
-    pub fn resetTransform(self: *Self) void {
+    pub fn resetTransform(self: *Graphics) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.resetTransform(&self.impl),
             .WasmCanvas => canvas.Graphics.resetTransform(&self.impl),
@@ -227,21 +240,21 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn setClearColor(self: *Self, color: Color) void {
+    pub inline fn setClearColor(self: *Graphics, color: Color) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setClearColor(&self.impl, color),
             else => stdx.unsupported(),
         }
     }
 
-    pub inline fn clear(self: Self) void {
+    pub inline fn clear(self: Graphics) void {
         switch (Backend) {
             .OpenGL => gpu.Graphics.clear(self.impl),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn getFillColor(self: Self) Color {
+    pub fn getFillColor(self: Graphics) Color {
         return switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.getFillColor(self.impl),
             .WasmCanvas => canvas.Graphics.getFillColor(self.impl),
@@ -249,7 +262,7 @@ pub const Graphics = struct {
         };
     }
 
-    pub fn setFillColor(self: *Self, color: Color) void {
+    pub fn setFillColor(self: *Graphics, color: Color) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setFillColor(&self.impl, color),
             .WasmCanvas => canvas.Graphics.setFillColor(&self.impl, color),
@@ -258,14 +271,14 @@ pub const Graphics = struct {
     }
 
     /// Set a linear gradient fill style.
-    pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
+    pub fn setFillGradient(self: *Graphics, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setFillGradient(&self.impl, start_x, start_y, start_color, end_x, end_y, end_color),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn getStrokeColor(self: Self) Color {
+    pub fn getStrokeColor(self: Graphics) Color {
         return switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.getStrokeColor(self.impl),
             .WasmCanvas => canvas.Graphics.getStrokeColor(self.impl),
@@ -273,7 +286,7 @@ pub const Graphics = struct {
         };
     }
 
-    pub fn setStrokeColor(self: *Self, color: Color) void {
+    pub fn setStrokeColor(self: *Graphics, color: Color) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setStrokeColor(&self.impl, color),
             .WasmCanvas => canvas.Graphics.setStrokeColor(&self.impl, color),
@@ -281,7 +294,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getLineWidth(self: Self) f32 {
+    pub fn getLineWidth(self: Graphics) f32 {
         return switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.getLineWidth(self.impl),
             .WasmCanvas => canvas.Graphics.getLineWidth(self.impl),
@@ -289,7 +302,7 @@ pub const Graphics = struct {
         };
     }
 
-    pub fn setLineWidth(self: *Self, width: f32) void {
+    pub fn setLineWidth(self: *Graphics, width: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setLineWidth(&self.impl, width),
             .WasmCanvas => canvas.Graphics.setLineWidth(&self.impl, width),
@@ -297,7 +310,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn fillRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillRect(&self.impl, x, y, width, height),
             .WasmCanvas => canvas.Graphics.fillRect(&self.impl, x, y, width, height),
@@ -305,7 +318,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawRect(&self.impl, x, y, width, height),
             .WasmCanvas => canvas.Graphics.drawRect(&self.impl, x, y, width, height),
@@ -313,7 +326,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+    pub fn fillRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
             .WasmCanvas => canvas.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
@@ -321,7 +334,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+    pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
             .WasmCanvas => canvas.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
@@ -330,7 +343,7 @@ pub const Graphics = struct {
     }
 
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
-    pub fn fillCircleSector(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn fillCircleSector(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillCircleSector(&self.impl, x, y, radius, start_rad, sweep_rad),
             .WasmCanvas => canvas.Graphics.fillCircleSector(&self.impl, x, y, radius, start_rad, sweep_rad),
@@ -338,12 +351,12 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillCircleSectorDeg(self: *Self, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+    pub fn fillCircleSectorDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
         self.fillCircleSector(x, y, radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
-    pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
             .WasmCanvas => canvas.Graphics.drawCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
@@ -351,11 +364,11 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCircleArcDeg(self: *Self, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+    pub fn drawCircleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
         self.drawCircleArc(x, y, radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
-    pub fn fillCircle(self: *Self, x: f32, y: f32, radius: f32) void {
+    pub fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillCircle(&self.impl, x, y, radius),
             .WasmCanvas => canvas.Graphics.fillCircle(&self.impl, x, y, radius),
@@ -363,7 +376,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCircle(self: *Self, x: f32, y: f32, radius: f32) void {
+    pub fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawCircle(&self.impl, x, y, radius),
             .WasmCanvas => canvas.Graphics.drawCircle(&self.impl, x, y, radius),
@@ -371,7 +384,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn fillEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillEllipse(&self.impl, x, y, h_radius, v_radius),
             .WasmCanvas => canvas.Graphics.fillEllipse(&self.impl, x, y, h_radius, v_radius),
@@ -380,7 +393,7 @@ pub const Graphics = struct {
     }
 
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
-    pub fn fillEllipseSector(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn fillEllipseSector(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillEllipseSector(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
             .WasmCanvas => canvas.Graphics.fillEllipseSector(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
@@ -388,11 +401,11 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillEllipseSectorDeg(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+    pub fn fillEllipseSectorDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
         self.fillEllipseSector(x, y, h_radius, v_radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
-    pub fn drawEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawEllipse(&self.impl, x, y, h_radius, v_radius),
             .WasmCanvas => canvas.Graphics.drawEllipse(&self.impl, x, y, h_radius, v_radius),
@@ -401,7 +414,7 @@ pub const Graphics = struct {
     }
 
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
-    pub fn drawEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
             .WasmCanvas => canvas.Graphics.drawEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
@@ -409,11 +422,11 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawEllipseArcDeg(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+    pub fn drawEllipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
         self.drawEllipseArc(x, y, h_radius, v_radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
-    pub fn drawPoint(self: *Self, x: f32, y: f32) void {
+    pub fn drawPoint(self: *Graphics, x: f32, y: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawPoint(&self.impl, x, y),
             .WasmCanvas => canvas.Graphics.drawPoint(&self.impl, x, y),
@@ -421,7 +434,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
+    pub fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawLine(&self.impl, x1, y1, x2, y2),
             .WasmCanvas => canvas.Graphics.drawLine(&self.impl, x1, y1, x2, y2),
@@ -429,7 +442,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCubicBezierCurve(self: *Self, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
+    pub fn drawCubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
             .WasmCanvas => canvas.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
@@ -437,7 +450,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Self, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
+    pub fn drawQuadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
             .WasmCanvas => canvas.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
@@ -446,7 +459,7 @@ pub const Graphics = struct {
     }
 
     /// Assumes pts are in ccw order.
-    pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
+    pub fn fillTriangle(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillTriangle(&self.impl, x1, y1, x2, y2, x3, y3),
             .WasmCanvas => canvas.Graphics.fillTriangle(&self.impl, x1, y1, x2, y2, x3, y3),
@@ -454,14 +467,15 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillTriangle3D(self: *Self, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
+    pub fn fillTriangle3D(self: *Graphics, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillTriangle3D(&self.impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
+            .OpenGL => gl.Graphics.fillTriangle3D(&self.new_impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
+            .Vulkan => gpu.Graphics.fillTriangle3D(&self.impl, x1, y1, z1, x2, y2, z2, x3, y3, z3),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn fillConvexPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn fillConvexPolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillConvexPolygon(&self.impl, pts),
             .WasmCanvas => canvas.Graphics.fillPolygon(&self.impl, pts),
@@ -469,7 +483,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn fillPolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillPolygon(&self.impl, pts),
             .WasmCanvas => canvas.Graphics.fillPolygon(&self.impl, pts),
@@ -477,7 +491,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawPolygon(&self.impl, pts),
             .WasmCanvas => canvas.Graphics.drawPolygon(&self.impl, pts),
@@ -485,7 +499,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn compileSvgContent(self: *Self, alloc: std.mem.Allocator, str: []const u8) !DrawCommandList {
+    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !DrawCommandList {
         return try self.svg_parser.parseAlloc(alloc, str);
     }
 
@@ -493,23 +507,23 @@ pub const Graphics = struct {
     // For small/medium svg content, first parse the svg into a DrawCommandList and reuse that.
     // For large svg content, render into an image and then draw the image.
     // TODO: allow x, y offset
-    pub fn drawSvgContent(self: *Self, str: []const u8) !void {
+    pub fn drawSvgContent(self: *Graphics, str: []const u8) !void {
         const draw_list = try self.svg_parser.parse(str);
         self.executeDrawList(draw_list);
     }
 
     // This will be slower since it will parse the text every time.
-    pub fn fillSvgPathContent(self: *Self, x: f32, y: f32, str: []const u8) !void {
+    pub fn fillSvgPathContent(self: *Graphics, x: f32, y: f32, str: []const u8) !void {
         const path = try self.path_parser.parse(str);
         self.fillSvgPath(x, y, &path);
     }
 
-    pub fn drawSvgPathContent(self: *Self, x: f32, y: f32, str: []const u8) !void {
+    pub fn drawSvgPathContent(self: *Graphics, x: f32, y: f32, str: []const u8) !void {
         const path = try self.path_parser.parse(str);
         self.drawSvgPath(x, y, &path);
     }
 
-    pub fn fillSvgPath(self: *Self, x: f32, y: f32, path: *const SvgPath) void {
+    pub fn fillSvgPath(self: *Graphics, x: f32, y: f32, path: *const SvgPath) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillSvgPath(&self.impl, x, y, path),
             .WasmCanvas => canvas.Graphics.fillSvgPath(&self.impl, x, y, path),
@@ -517,7 +531,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawSvgPath(self: *Self, x: f32, y: f32, path: *const SvgPath) void {
+    pub fn drawSvgPath(self: *Graphics, x: f32, y: f32, path: *const SvgPath) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.strokeSvgPath(&self.impl, x, y, path),
             .WasmCanvas => canvas.Graphics.strokeSvgPath(&self.impl, x, y, path),
@@ -525,7 +539,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawList(self: *Self, _list: DrawCommandList) void {
+    pub fn executeDrawList(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -555,7 +569,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawListLyon(self: *Self, _list: DrawCommandList) void {
+    pub fn executeDrawListLyon(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -589,7 +603,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawListTess2(self: *Self, _list: DrawCommandList) void {
+    pub fn executeDrawListTess2(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -623,7 +637,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setBlendMode(self: *Self, mode: BlendMode) void {
+    pub fn setBlendMode(self: *Graphics, mode: BlendMode) void {
         switch (Backend) {
             .OpenGL => return gpu.Graphics.setBlendMode(&self.impl, mode),
             .WasmCanvas => return canvas.Graphics.setBlendMode(&self.impl, mode),
@@ -631,7 +645,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn createImageFromPathPromise(self: *Self, path: []const u8) stdx.wasm.Promise(Image) {
+    pub fn createImageFromPathPromise(self: *Graphics, path: []const u8) stdx.wasm.Promise(Image) {
         switch (Backend) {
             // Only web wasm is supported.
             .WasmCanvas => return canvas.Graphics.createImageFromPathPromise(&self.impl, path),
@@ -640,7 +654,7 @@ pub const Graphics = struct {
     }
 
     /// Path can be absolute or relative to cwd.
-    pub fn createImageFromPath(self: *Self, path: []const u8) !Image {
+    pub fn createImageFromPath(self: *Graphics, path: []const u8) !Image {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 const data = try std.fs.cwd().readFileAlloc(self.alloc, path, 30e6);
@@ -653,7 +667,7 @@ pub const Graphics = struct {
     }
 
     // Loads an image from various data formats.
-    pub fn createImage(self: *Self, data: []const u8) !Image {
+    pub fn createImage(self: *Graphics, data: []const u8) !Image {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.ImageStore.createImageFromData(&self.impl.image_store, data),
             .WasmCanvas => stdx.panic("unsupported, use createImageFromPathPromise"),
@@ -663,7 +677,7 @@ pub const Graphics = struct {
 
     /// Assumes data is rgba in row major starting from top left of image.
     /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
+    pub fn createImageFromBitmap(self: *Graphics, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 const image = gpu.ImageStore.createImageFromBitmap(&self.impl.image_store, width, height, data, linear_filter);
@@ -673,30 +687,31 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn dumpImageAsBMP(_: Self, data: []const u8, path: [:0]const u8) void {
+    pub fn dumpImageAsBMP(_: Graphics, data: []const u8, path: [:0]const u8) void {
         var src_width: c_int = undefined;
         var src_height: c_int = undefined;
         var channels: c_int = undefined;
+        // Does not alter channels.
         const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 0);
         defer stbi.stbi_image_free(bitmap);
         _ = stbi.stbi_write_bmp(path, src_width, src_height, channels, &bitmap[0]);
     }
 
-    pub inline fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+    pub inline fn bindImageBuffer(self: *Graphics, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL => gpu.Graphics.bindImageBuffer(&self.impl, image_id),
             else => stdx.unsupported(),
         }
     }
 
-    pub inline fn removeImage(self: *Self, image_id: ImageId) void {
+    pub inline fn removeImage(self: *Graphics, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.ImageStore.markForRemoval(&self.impl.image_store, image_id),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
+    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id),
             .WasmCanvas => return canvas.Graphics.drawImage(&self.impl, x, y, image_id),
@@ -704,7 +719,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawImageSized(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
             .WasmCanvas => return canvas.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
@@ -712,14 +727,14 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawSubImage(self: *Graphics, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.drawSubImage(&self.impl, src_x, src_y, src_width, src_height, x, y, width, height, image_id),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn addFallbackFont(self: *Self, font_id: FontId) void {
+    pub fn addFallbackFont(self: *Graphics, font_id: FontId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.addFallbackFont(&self.impl, font_id),
             else => stdx.unsupported(),
@@ -727,7 +742,7 @@ pub const Graphics = struct {
     }
 
     /// Adds .otb bitmap font with data at different font sizes.
-    pub fn addFontOTB(self: *Self, data: []const BitmapFontData) FontId {
+    pub fn addFontOTB(self: *Graphics, data: []const BitmapFontData) FontId {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.addFontOTB(&self.impl, data),
             else => stdx.unsupported(),
@@ -735,7 +750,7 @@ pub const Graphics = struct {
     }
 
     /// Adds outline or color bitmap font from ttf/otf.
-    pub fn addFontTTF(self: *Self, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Graphics, data: []const u8) FontId {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.addFontTTF(&self.impl, data),
             .WasmCanvas => stdx.panic("Unsupported for WasmCanvas. Use addTTF_FontPathForName instead."),
@@ -744,7 +759,7 @@ pub const Graphics = struct {
     }
 
     /// Path can be absolute or relative to cwd.
-    pub fn addFontFromPathTTF(self: *Self, path: []const u8) !FontId {
+    pub fn addFontFromPathTTF(self: *Graphics, path: []const u8) !FontId {
         const MaxFileSize = 20e6;
         const data = try std.fs.cwd().readFileAlloc(self.alloc, path, MaxFileSize);
         defer self.alloc.free(data);
@@ -753,7 +768,7 @@ pub const Graphics = struct {
 
     /// Wasm/Canvas relies on css to load fonts so it doesn't have access to the font family name.
     /// Other backends will just ignore the name arg. 
-    pub fn addFontFromPathCompatTTF(self: *Self, path: []const u8, name: []const u8) !FontId {
+    pub fn addFontFromPathCompatTTF(self: *Graphics, path: []const u8, name: []const u8) !FontId {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 return self.addFontFromPathTTF(path);
@@ -763,14 +778,14 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getFontSize(self: *Self) f32 {
+    pub fn getFontSize(self: *Graphics) f32 {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.getFontSize(self.impl),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn setFontSize(self: *Self, font_size: f32) void {
+    pub fn setFontSize(self: *Graphics, font_size: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.setFontSize(&self.impl, font_size),
             .WasmCanvas => canvas.Graphics.setFontSize(&self.impl, font_size),
@@ -778,7 +793,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setFont(self: *Self, font_id: FontId, font_size: f32) void {
+    pub fn setFont(self: *Graphics, font_id: FontId, font_size: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 gpu.Graphics.setFont(&self.impl, font_id);
@@ -789,7 +804,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setFontGroup(self: *Self, font_gid: FontGroupId, font_size: f32) void {
+    pub fn setFontGroup(self: *Graphics, font_gid: FontGroupId, font_size: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 gpu.Graphics.setFontGroup(&self.impl, font_gid);
@@ -800,7 +815,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setTextAlign(self: *Self, align_: TextAlign) void {
+    pub fn setTextAlign(self: *Graphics, align_: TextAlign) void {
         switch (Backend) {
             .OpenGL, .Vulkan =>  {
                 gpu.Graphics.setTextAlign(&self.impl, align_);
@@ -809,7 +824,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setTextBaseline(self: *Self, baseline: TextBaseline) void {
+    pub fn setTextBaseline(self: *Graphics, baseline: TextBaseline) void {
         switch (Backend) {
             .OpenGL, .Vulkan =>  {
                 gpu.Graphics.setTextBaseline(&self.impl, baseline);
@@ -818,7 +833,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillText(self: *Self, x: f32, y: f32, text: []const u8) void {
+    pub fn fillText(self: *Graphics, x: f32, y: f32, text: []const u8) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillText(&self.impl, x, y, text),
             .WasmCanvas => canvas.Graphics.fillText(&self.impl, x, y, text),
@@ -826,13 +841,13 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillTextFmt(self: *Self, x: f32, y: f32, comptime format: []const u8, args: anytype) void {
+    pub fn fillTextFmt(self: *Graphics, x: f32, y: f32, comptime format: []const u8, args: anytype) void {
         self.text_buf.clearRetainingCapacity();
         std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
         self.fillText(x, y, self.text_buf.items);
     }
 
-    pub fn fillTextExt(self: *Self, x: f32, y: f32, comptime format: []const u8, args: anytype, opts: TextOptions) void {
+    pub fn fillTextExt(self: *Graphics, x: f32, y: f32, comptime format: []const u8, args: anytype, opts: TextOptions) void {
         self.text_buf.clearRetainingCapacity();
         std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
         switch (Backend) {
@@ -842,7 +857,7 @@ pub const Graphics = struct {
     }
 
     /// Measure many text at once.
-    pub fn measureTextBatch(self: *Self, arr: []*TextMeasure) void {
+    pub fn measureTextBatch(self: *Graphics, arr: []*TextMeasure) void {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 for (arr) |measure| {
@@ -856,7 +871,7 @@ pub const Graphics = struct {
     }
 
     /// Measure the char advance between two codepoints.
-    pub fn measureCharAdvance(self: *Self, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
+    pub fn measureCharAdvance(self: *Graphics, font_gid: FontGroupId, font_size: f32, prev_cp: u21, cp: u21) f32 {
         switch (Backend) {
             .OpenGL, .Vulkan => return text_renderer.measureCharAdvance(&self.impl.font_cache, &self.impl, font_gid, font_size, prev_cp, cp),
             .Test => {
@@ -868,7 +883,7 @@ pub const Graphics = struct {
     }
 
     /// Measure some text with a given font.
-    pub fn measureFontText(self: *Self, font_gid: FontGroupId, font_size: f32, str: []const u8, out: *TextMetrics) void {
+    pub fn measureFontText(self: *Graphics, font_gid: FontGroupId, font_size: f32, str: []const u8, out: *TextMetrics) void {
         switch (Backend) {
             .OpenGL, .Vulkan => return self.impl.measureFontText(font_gid, font_size, str, out),
             else => stdx.unsupported(),
@@ -876,7 +891,7 @@ pub const Graphics = struct {
     }
 
     /// Perform text layout and save the results.
-    pub fn textLayout(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8, preferred_width: f32, buf: *TextLayout) void {
+    pub fn textLayout(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8, preferred_width: f32, buf: *TextLayout) void {
         buf.lines.clearRetainingCapacity();
         var iter = self.textGlyphIter(font_gid, size, str);
         var y: f32 = 0;
@@ -951,7 +966,7 @@ pub const Graphics = struct {
     }
 
     /// Return a text glyph iterator over UTF-8 string.
-    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) TextGlyphIterator {
+    pub inline fn textGlyphIter(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8) TextGlyphIterator {
         switch (Backend) {
             .OpenGL, .Vulkan => {
                 return gpu.Graphics.textGlyphIter(&self.impl, font_gid, size, str);
@@ -965,7 +980,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
+    pub inline fn getPrimaryFontVMetrics(self: *Graphics, font_gid: FontGroupId, font_size: f32) VMetrics {
         switch (Backend) {
             .OpenGL, .Vulkan => return FontCache.getPrimaryFontVMetrics(&self.impl.font_cache, font_gid, font_size),
             .WasmCanvas => return canvas.Graphics.getPrimaryFontVMetrics(&self.impl, font_gid, font_size),
@@ -982,14 +997,14 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn getFontVMetrics(self: *Self, font_id: FontId, font_size: f32) VMetrics {
+    pub inline fn getFontVMetrics(self: *Graphics, font_id: FontId, font_size: f32) VMetrics {
         switch (Backend) {
             .OpenGL, .Vulkan => return FontCache.getFontVMetrics(&self.impl.font_cache, font_id, font_size),
             else => stdx.unsupported(),
         }
     }
 
-    pub inline fn getDefaultFontId(self: *Self) FontId {
+    pub inline fn getDefaultFontId(self: *Graphics) FontId {
         switch (Backend) {
             .OpenGL, .Vulkan => return self.impl.default_font_id,
             .Test => return self.impl.default_font_id,
@@ -997,7 +1012,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn getDefaultFontGroupId(self: *Self) FontGroupId {
+    pub inline fn getDefaultFontGroupId(self: *Graphics) FontGroupId {
         switch (Backend) {
             .OpenGL, .Vulkan => return self.impl.default_font_gid,
             .Test => return self.impl.default_font_gid,
@@ -1005,7 +1020,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getFontByName(self: *Self, name: []const u8) ?FontId {
+    pub fn getFontByName(self: *Graphics, name: []const u8) ?FontId {
         switch (Backend) {
             .OpenGL, .Vulkan => return FontCache.getFontId(&self.impl.font_cache, name),
             .WasmCanvas => return canvas.Graphics.getFontByName(&self.impl, name),
@@ -1013,21 +1028,21 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn getFontGroupForSingleFont(self: *Self, font_id: FontId) FontGroupId {
+    pub inline fn getFontGroupForSingleFont(self: *Graphics, font_id: FontId) FontGroupId {
         switch (Backend) {
             .OpenGL, .Vulkan => return FontCache.getOrLoadFontGroup(&self.impl.font_cache, &.{font_id}),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn getFontGroupByFamily(self: *Self, family: FontFamily) FontGroupId {
+    pub fn getFontGroupByFamily(self: *Graphics, family: FontFamily) FontGroupId {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.getOrLoadFontGroupByFamily(&self.impl, family),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn getFontGroupBySingleFontName(self: *Self, name: []const u8) FontGroupId {
+    pub fn getFontGroupBySingleFontName(self: *Graphics, name: []const u8) FontGroupId {
         switch (Backend) {
             .OpenGL, .Vulkan => return FontCache.getOrLoadFontGroupByNameSeq(&self.impl.font_cache, &.{name}).?,
             .WasmCanvas => stdx.panic("TODO"),
@@ -1035,7 +1050,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getOrLoadFontGroupByNameSeq(self: *Self, names: []const []const u8) ?FontGroupId {
+    pub fn getOrLoadFontGroupByNameSeq(self: *Graphics, names: []const []const u8) ?FontGroupId {
         switch (Backend) {
             .OpenGL, .Vulkan => return FontCache.getOrLoadFontGroupByNameSeq(&self.impl.font_cache, names),
             .Test => return self.impl.default_font_gid,
@@ -1043,7 +1058,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn pushState(self: *Self) void {
+    pub fn pushState(self: *Graphics) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.pushState(&self.impl),
             .WasmCanvas => canvas.Graphics.save(&self.impl),
@@ -1051,7 +1066,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn clipRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x, y, width, height),
             .WasmCanvas => canvas.Graphics.clipRect(&self.impl, x, y, width, height),
@@ -1059,7 +1074,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn popState(self: *Self) void {
+    pub fn popState(self: *Graphics) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.popState(&self.impl),
             .WasmCanvas => canvas.Graphics.restore(&self.impl),
@@ -1067,23 +1082,23 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn getViewTransform(self: Self) Transform {
+    pub fn getViewTransform(self: Graphics) Transform {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.getViewTransform(self.impl),
             else => stdx.unsupported(),
         }
     }
 
-    pub inline fn drawPlane(self: *Self) void {
+    pub inline fn drawPlane(self: *Graphics) void {
         switch (Backend) {
-            .Vulkan => gpu.Graphics.drawPlane(&self.impl),
+            .OpenGL, .Vulkan => gpu.Graphics.drawPlane(&self.impl),
             else => stdx.unsupported(),
         }
     }
 
     /// End the current batched draw command.
     /// OpenGL will flush, while Vulkan will record the command.
-    pub inline fn endCmd(self: *Self) void {
+    pub inline fn endCmd(self: *Graphics) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.endCmd(&self.impl),
             .WasmCanvas => {},
@@ -1091,60 +1106,62 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn loadGLTF(self: *Self, alloc: std.mem.Allocator, buf: [] align(8) const u8, opts: GLTFloadOptions) !GLTFhandle {
+    pub fn loadGLTF(self: *Graphics, alloc: std.mem.Allocator, buf: [] align(8) const u8, opts: GLTFloadOptions) !GLTFhandle {
         return GLTFhandle.init(alloc, self, buf, opts);
     }
 
-    pub fn loadGLTFandBuffers(self: *Self, alloc: std.mem.Allocator, buf: [] align(8) const u8, opts: GLTFloadOptions) !GLTFhandle {
+    pub fn loadGLTFandBuffers(self: *Graphics, alloc: std.mem.Allocator, buf: [] align(8) const u8, opts: GLTFloadOptions) !GLTFhandle {
         var ret = try GLTFhandle.init(alloc, self, buf, opts);
         try ret.loadBuffers(alloc);
         return ret;
     }
 
     /// Pushes the mesh without modifying the vertex data.
-    pub fn drawMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
+    pub fn drawMesh3D(self: *Graphics, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawMesh3D(&self.impl, xform, verts, indexes),
             else => unsupported(),
         }
     }
 
-    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: Material) void {
+    pub fn drawCuboidPbr3D(self: *Graphics, xform: Transform, material: Material) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawCuboidPbr3D(&self.impl, xform, material),
+            .OpenGL => gl.Graphics.drawCuboidPbr3D(&self.new_impl, xform, material),
+            .Vulkan => gpu.Graphics.drawCuboidPbr3D(&self.impl, xform, material),
             else => unsupported(),
         }
     }
 
-    pub fn drawScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+    pub fn drawScene3D(self: *Graphics, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawScene3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }
 
-    pub fn drawScenePbr3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+    pub fn drawScenePbr3D(self: *Graphics, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawScenePbr3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }
 
-    pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: GLTFscene, mat: Material) void {
+    pub fn drawScenePbrCustom3D(self: *Graphics, xform: Transform, scene: GLTFscene, mat: Material) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawScenePbrCustom3D(&self.impl, xform, scene, mat),
+            .OpenGL => gl.Graphics.drawScenePbrCustom3D(&self.new_impl, xform, scene, mat),
+            .Vulkan => gpu.Graphics.drawScenePbrCustom3D(&self.impl, xform, scene, mat),
             else => unsupported(),
         }
     }
 
-    pub fn drawTintedScene3D(self: *Self, xform: Transform, scene: GLTFscene, color: Color) void {
+    pub fn drawTintedScene3D(self: *Graphics, xform: Transform, scene: GLTFscene, color: Color) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawTintedScene3D(&self.impl, xform, scene, color),
             else => unsupported(),
         }
     }
 
-    pub fn drawSceneNormals3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+    pub fn drawSceneNormals3D(self: *Graphics, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawSceneNormals3D(&self.impl, xform, scene),
             else => unsupported(),
@@ -1152,42 +1169,44 @@ pub const Graphics = struct {
     }
 
     /// Draws the mesh with the current fill color.
-    pub fn fillMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
+    pub fn fillMesh3D(self: *Graphics, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillMesh3D(&self.impl, xform, verts, indexes),
+            .OpenGL => gl.Graphics.fillMesh3D(&self.new_impl, xform, verts, indexes),
+            .Vulkan => gpu.Graphics.fillMesh3D(&self.impl, xform, verts, indexes),
             else => unsupported(),
         }
     }
 
-    pub fn fillScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+    pub fn fillScene3D(self: *Graphics, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillScene3D(&self.impl, xform, scene),
+            .OpenGL => gl.Graphics.fillScene3D(&self.new_impl, xform, scene),
+            .Vulkan => gpu.Graphics.fillScene3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }
 
-    pub fn fillAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
+    pub fn fillAnimatedMesh3D(self: *Graphics, model_xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, null, true, false),
             else => unsupported(),
         }
     }
 
-    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, mesh: AnimatedMesh) void {
+    pub fn drawAnimatedMesh3D(self: *Graphics, model_xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, model_xform, mesh, null, false, false),
             else => unsupported(),
         }
     }
 
-    pub fn drawAnimatedMeshPbr3D(self: *Self, xform: Transform, mesh: AnimatedMesh) void {
+    pub fn drawAnimatedMeshPbr3D(self: *Graphics, xform: Transform, mesh: AnimatedMesh) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, xform, mesh, null, false, true),
             else => unsupported(),
         }
     }
 
-    pub fn drawAnimatedMeshPbrCustom3D(self: *Self, xform: Transform, mesh: AnimatedMesh, custom_mat: Material) void {
+    pub fn drawAnimatedMeshPbrCustom3D(self: *Graphics, xform: Transform, mesh: AnimatedMesh, custom_mat: Material) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.drawAnimatedMesh3D(&self.impl, xform, mesh, custom_mat, false, true),
             else => unsupported(),
@@ -1195,16 +1214,18 @@ pub const Graphics = struct {
     }
 
     /// Draws a wireframe around the mesh with the current stroke color.
-    pub fn strokeMesh3D(self: *Self, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
+    pub fn strokeMesh3D(self: *Graphics, xform: Transform, verts: []const gpu.TexShaderVertex, indexes: []const u16) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.strokeMesh3D(&self.impl, xform, verts, indexes),
+            .OpenGL => gl.Graphics.strokeMesh3D(&self.new_impl, xform, verts, indexes),
+            .Vulkan => gpu.Graphics.strokeMesh3D(&self.impl, xform, verts, indexes),
             else => unsupported(),
         }
     }
 
-    pub fn strokeScene3D(self: *Self, xform: Transform, scene: GLTFscene) void {
+    pub fn strokeScene3D(self: *Graphics, xform: Transform, scene: GLTFscene) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.strokeScene3D(&self.impl, xform, scene),
+            .OpenGL => gl.Graphics.strokeScene3D(&self.new_impl, xform, scene),
+            .Vulkan => gpu.Graphics.strokeScene3D(&self.impl, xform, scene),
             else => unsupported(),
         }
     }
@@ -1233,9 +1254,7 @@ pub const GLTFhandle = struct {
     image_buffers: std.AutoHashMap(*cgltf.cgltf_image, GLTFimage),
     gctx: *Graphics,
 
-    const Self = @This();
-
-    pub fn init(alloc: std.mem.Allocator, gctx: *Graphics, buf: []const u8, opts: GLTFloadOptions) !Self {
+    pub fn init(alloc: std.mem.Allocator, gctx: *Graphics, buf: []const u8, opts: GLTFloadOptions) !GLTFhandle {
         var gltf_opts = std.mem.zeroInit(cgltf.cgltf_options, .{});
         var data: *cgltf.cgltf_data = undefined;
         const res = cgltf.parse(&gltf_opts, buf.ptr, buf.len, &data);
@@ -1255,7 +1274,7 @@ pub const GLTFhandle = struct {
                     static_buffer_map.put(name, dupe) catch fatal();
                 }
             }
-            return Self{
+            return GLTFhandle{
                 .data = data,
                 .loaded_buffers = false,
                 .static_buffer_map = static_buffer_map,
@@ -1267,7 +1286,7 @@ pub const GLTFhandle = struct {
         }
     }
 
-    pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *GLTFhandle, alloc: std.mem.Allocator) void {
         cgltf.cgltf_free(self.data);
 
         var iter = self.static_buffer_map.valueIterator();
@@ -1293,7 +1312,7 @@ pub const GLTFhandle = struct {
 
     /// Custom loadBuffers since cgltf.cgltf_load_buffers makes it inconvenient to embed static buffers at runtime.
     /// Also loads image buffers which aren't loaded by default.
-    pub fn loadBuffers(self: *Self, alloc: std.mem.Allocator) !void {
+    pub fn loadBuffers(self: *GLTFhandle, alloc: std.mem.Allocator) !void {
         _ = alloc;
         var copts = std.mem.zeroInit(cgltf.cgltf_options, .{});
         if (!self.loaded_buffers) {
@@ -1376,7 +1395,7 @@ pub const GLTFhandle = struct {
         }
     }
 
-    pub fn loadDefaultScene(self: *Self, alloc: std.mem.Allocator, gctx: *Graphics) !GLTFscene {
+    pub fn loadDefaultScene(self: *GLTFhandle, alloc: std.mem.Allocator, gctx: *Graphics) !GLTFscene {
         if (!self.loaded_buffers) {
             return error.BuffersNotLoaded;
         }
@@ -2213,6 +2232,8 @@ pub const Mesh3D = struct {
         alloc.free(self.indexes);
     }
 };
+
+const MaterialId = u32;
 
 pub const Material = struct {
     emissivity: f32,

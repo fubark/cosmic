@@ -7,23 +7,13 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const Column = ui.widgets.Column;
-const Row = ui.widgets.Row;
-const Text = ui.widgets.Text;
-const Padding = ui.widgets.Padding;
-const Center = ui.widgets.Center;
-const TextField = ui.widgets.TextField;
-const Slider = ui.widgets.Slider;
-const Sized = ui.widgets.Sized;
-const ProgressBar = ui.widgets.ProgressBar;
-const TextButton = ui.widgets.TextButton;
-const Flex = ui.widgets.Flex;
+const w = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    progress_bar: ui.WidgetRef(ProgressBar),
+    progress_bar: ui.WidgetRef(w.ProgressBarUI),
 
     duration_secs: f32,
     progress_ms: f32,
@@ -32,9 +22,7 @@ pub const App = struct {
     ctx: *ui.CommonContext,
     node: *ui.Node,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *App, c: *ui.InitContext) void {
         self.step_interval = c.addInterval(Duration.initSecsF(0.01), self, onStep);
         self.progress_ms = 0;
         self.duration_secs = 15;
@@ -42,7 +30,7 @@ pub const App = struct {
         self.node = c.node;
     }
 
-    fn onStep(self: *Self, e: ui.IntervalEvent) void {
+    fn onStep(self: *App, e: ui.IntervalEvent) void {
         self.progress_ms += e.progress_ms;
         if (self.progress_ms >= self.duration_secs * 1000) {
             self.progress_ms = self.duration_secs * 1000;
@@ -52,7 +40,7 @@ pub const App = struct {
         self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
-    fn reset(self: *Self) void {
+    fn reset(self: *App) void {
         if (self.step_interval == null) {
             self.step_interval = self.ctx.addInterval(self.node, Duration.initSecsF(0.01), self, onStep);
         } else {
@@ -62,79 +50,66 @@ pub const App = struct {
         self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onChangeDuration(self_: *Self, val: i32) void {
+            fn onChangeDuration(self_: *App, val: i32) void {
                 const duration_secs = @intToFloat(f32, val);
                 self_.duration_secs = duration_secs;
                 self_.reset();
             }
-            fn onClickReset(self_: *Self, e: platform.MouseUpEvent) void {
+            fn onClickReset(self_: *App, e: platform.MouseUpEvent) void {
                 _ = e;
                 self_.reset();
             }
         };
 
-        return c.decl(Center, .{
-            .child = c.decl(Sized, .{
-                .width = 400,
-                .child = c.decl(Column, .{
-                    .expand = false,
-                    .spacing = 20,
-                    .children = c.list(.{
-                        c.decl(Row, .{
-                            .children = c.list(.{
-                                c.decl(Text, .{
-                                    .text = "Elapsed Time: ",
-                                    .color = Color.White,
-                                }),
-                                c.decl(Flex, .{
-                                    .child = c.decl(ProgressBar, .{
-                                        .bind = &self.progress_bar,
-                                        .max_val = self.duration_secs,
-                                    }),
-                                }),
-                            }),
+        return w.Center(.{}, 
+            w.Sized(.{ .width = 400 },
+                w.Column(.{ .expand = false, .spacing = 20 }, &.{
+                    w.Row(.{}, &.{
+                        w.Text(.{
+                            .text = "Elapsed Time: ",
+                            .color = Color.White,
                         }),
-                        c.decl(Row, .{
-                            .children = c.list(.{
-                                c.decl(Text, .{
-                                    .text = c.fmt("{d:.0}ms", .{self.progress_ms}),
-                                    .color = Color.Blue,
-                                }),
+                        w.Flex(.{}, 
+                            w.ProgressBar(.{
+                                .bind = &self.progress_bar,
+                                .max_val = self.duration_secs,
                             }),
-                        }),
-                        c.decl(Row, .{
-                            .children = c.list(.{
-                                c.decl(Text, .{
-                                    .text = "Duration: ",
-                                    .color = Color.White,
-                                }),
-                                c.decl(Flex, .{
-                                    .child = c.decl(Slider, .{
-                                        .init_val = @floatToInt(i32, self.duration_secs),
-                                        .min_val = 1,
-                                        .max_val = 30,
-                                        .onChange = c.funcExt(self, S.onChangeDuration),
-                                    }),
-                                }),
-                            }),
-                        }),
-                        c.decl(Row, .{
-                            .children = c.list(.{
-                                c.decl(Flex, .{
-                                    .child = c.decl(TextButton, .{
-                                        .text = "Reset",
-                                        .corner_radius = 10,
-                                        .onClick = c.funcExt(self, S.onClickReset),
-                                    }),
-                                }),
-                            }),
+                        ),
+                    }),
+                    w.Row(.{}, &.{
+                        w.Text(.{
+                            .text = c.fmt("{d:.0}ms", .{self.progress_ms}),
+                            .color = Color.Blue,
                         }),
                     }),
+                    w.Row(.{}, &.{
+                        w.Text(.{
+                            .text = "Duration: ",
+                            .color = Color.White,
+                        }),
+                        w.Flex(.{},
+                            w.Slider(.{
+                                .init_val = @floatToInt(i32, self.duration_secs),
+                                .min_val = 1,
+                                .max_val = 30,
+                                .onChange = c.funcExt(self, S.onChangeDuration),
+                            }),
+                        ),
+                    }),
+                    w.Row(.{}, &.{
+                        w.Flex(.{}, 
+                            w.TextButton(.{
+                                .text = "Reset",
+                                .corner_radius = 10,
+                                .onClick = c.funcExt(self, S.onClickReset),
+                            }),
+                        ),
+                    }),
                 }),
-            }),
-        });
+            ),
+        );
     }
 };
 
@@ -150,7 +125,7 @@ pub fn main() !void {
 fn update(delta_ms: f32) void {
     const S = struct {
         fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
-            return c.decl(App, .{});
+            return c.build(App, .{});
         }
     };
     const ui_width = @intToFloat(f32, app.win.getWidth());

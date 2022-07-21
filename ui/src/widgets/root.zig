@@ -69,7 +69,7 @@ pub const Root = struct {
             switch (overlay.tag) {
                 .Popover => {
                     const frame_id = overlay.build_fn(overlay.build_ctx, c);
-                    const wrapper = c.decl(PopoverOverlay, .{
+                    const wrapper = c.build(PopoverOverlay, .{
                         .child = frame_id,
                         .src_node = overlay.src_node,
                         .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.popoverRequestClose),
@@ -78,7 +78,7 @@ pub const Root = struct {
                 },
                 .Modal => {
                     const frame_id = overlay.build_fn(overlay.build_ctx, c);
-                    const wrapper = c.decl(ModalOverlay, .{
+                    const wrapper = c.build(ModalOverlay, .{
                         .child = frame_id,
                         .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.modalRequestClose),
                     });
@@ -88,7 +88,7 @@ pub const Root = struct {
         }
 
         // For now the user's root is the first child so it doesn't need a key.
-        return c.decl(ZStack, .{
+        return c.build(ZStack, .{
             .children = c.list(self.build_buf.items),
         }); 
     }
@@ -242,15 +242,15 @@ pub const ModalOverlay = struct {
             const child_x = alo.x + child_lo.x;
             const child_y = alo.y + child_lo.y;
 
-            const g = c.g;
-            g.setFillColor(self.props.bg_color);
-            g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
+            const gctx = c.gctx;
+            gctx.setFillColor(self.props.bg_color);
+            gctx.fillRect(child_x, child_y, child_lo.width, child_lo.height);
 
             c.renderChildren();
 
-            g.setStrokeColor(self.props.border_color);
-            g.setLineWidth(2);
-            g.drawRect(child_x, child_y, child_lo.width, child_lo.height);
+            gctx.setStrokeColor(self.props.border_color);
+            gctx.setLineWidth(2);
+            gctx.drawRect(child_x, child_y, child_lo.width, child_lo.height);
         }
     }
 };
@@ -336,7 +336,7 @@ pub const PopoverOverlay = struct {
             const child_x = alo.x + child_lo.x;
             const child_y = alo.y + child_lo.y;
 
-            const g = c.g;
+            const g = c.gctx;
             g.setFillColor(self.props.bg_color);
             g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
             if (self.to_left) {

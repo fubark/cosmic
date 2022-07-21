@@ -17,7 +17,7 @@ pub fn getGraphicsBackend(step: *std.build.LibExeObjStep) GraphicsBackend {
     const target = step.target;
     if (step.kind == .@"test") {
         return .Test;
-    } else if (target.getCpuArch() == .wasm32 or target.getCpuArch() == .wasm64) {
+    } else if (target.getCpuArch().isWasm()) {
         // return .WasmCanvas;
         return .OpenGL;
     } else {

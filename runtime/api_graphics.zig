@@ -488,7 +488,7 @@ pub const cs_graphics = struct {
         mat: Mat4,
 
         pub fn interpolate(this: ThisValue(Transform), x: f32, y: f32) Vec2 {
-            const native = graphics.transform.Transform{ .mat = this.val.mat };
+            const native = stdx.math.Transform{ .mat = this.val.mat };
             return native.interpolatePt(vec2(x, y));
         }
     };

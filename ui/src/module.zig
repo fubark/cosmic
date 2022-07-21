@@ -38,6 +38,9 @@ pub const TextMeasureId = usize;
 pub const IntervalId = u32;
 const log = stdx.log.scoped(.module);
 
+/// Using a global BuildContext makes widget declarations more idiomatic.
+pub var gbuild_ctx: *BuildContext = undefined;
+
 pub fn getWidgetIdByType(comptime Widget: type) WidgetTypeId {
     return @ptrToInt(GenWidgetVTable(Widget));
 }
@@ -581,6 +584,9 @@ pub const Module = struct {
         self.common.arena_allocator.deinit();
         self.common.arena_allocator.state = .{};
 
+        // Update global build context for idiomatic widget declarations.
+        gbuild_ctx = &self.build_ctx;
+
         // TODO: Provide a different context for the bootstrap function since it doesn't have a frame or node. Currently uses the BuildContext.
         self.build_ctx.prepareCall(undefined, undefined);
         const user_root_id = bootstrap_fn(bootstrap_ctx, &self.build_ctx);
@@ -592,7 +598,7 @@ pub const Module = struct {
         }
 
         // The user root widget is wrapped by the Root widget to facilitate things like modals and popovers.
-        const root_id = self.build_ctx.decl(ui.widgets.Root, .{ .user_root = user_root_id });
+        const root_id = self.build_ctx.build(ui.widgets.Root, .{ .user_root = user_root_id });
 
         // Since the aim is to do layout in linear time, the tree should be built first.
         // Traverse to see which nodes need to be created/deleted.
@@ -1012,7 +1018,7 @@ pub const Module = struct {
 
 pub const RenderContext = struct {
     common: *CommonContext,
-    g: *Graphics,
+    gctx: *Graphics,
 
     /// Elapsed time since the last render.
     delta_ms: f32,
@@ -1022,9 +1028,9 @@ pub const RenderContext = struct {
 
     const Self = @This();
 
-    fn init(common: *CommonContext, g: *Graphics) Self {
+    fn init(common: *CommonContext, gctx: *Graphics) Self {
         return .{
-            .g = g,
+            .gctx = gctx,
             .common = common,
             .node = undefined,
             .delta_ms = 0,
@@ -1051,7 +1057,7 @@ pub const RenderContext = struct {
     }
 
     pub inline fn getGraphics(self: *Self) *Graphics {
-        return self.g;
+        return self.gctx;
     }
 
     pub usingnamespace MixinContextNodeReadOps(Self);
@@ -1715,19 +1721,19 @@ pub const ModuleCommon = struct {
     arena_alloc: std.mem.Allocator,
 
     g: *Graphics,
-    text_measures: ds.CompactUnorderedList(TextMeasureId, TextMeasure),
-    interval_sessions: ds.CompactUnorderedList(u32, IntervalSession),
+    text_measures: ds.PooledHandleList(TextMeasureId, TextMeasure),
+    interval_sessions: ds.PooledHandleList(u32, IntervalSession),
 
     // TODO: Use one buffer for all the handlers.
     /// Keyboard handlers.
-    key_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)),
-    key_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)),
+    key_up_event_subs: ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)),
+    key_down_event_subs: ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)),
 
     /// Mouse handlers.
-    mouse_up_event_subs: ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)),
+    mouse_up_event_subs: ds.PooledHandleSLLBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)),
     global_mouse_up_list: std.ArrayList(u32),
-    mouse_down_event_subs: ds.CompactSinglyLinkedListBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
-    mouse_scroll_event_subs: ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)),
+    mouse_down_event_subs: ds.PooledHandleSLLBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
+    mouse_scroll_event_subs: ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     /// Mouse move events fire far more frequently so it's better to just iterate a list and skip hit test.
     /// TODO: Implement a compact tree of nodes for mouse events.
     mouse_move_event_subs: std.ArrayList(Subscriber(platform.MouseMoveEvent)),
@@ -1769,18 +1775,18 @@ pub const ModuleCommon = struct {
             .arena_alloc = undefined,
 
             .g = g,
-            .text_measures = ds.CompactUnorderedList(TextMeasureId, TextMeasure).init(alloc),
+            .text_measures = ds.PooledHandleList(TextMeasureId, TextMeasure).init(alloc),
             // .default_font_gid = g.getFontGroupBySingleFontName("Nunito Sans"),
             .default_font_gid = g.getDefaultFontGroupId(),
-            .interval_sessions = ds.CompactUnorderedList(u32, IntervalSession).init(alloc),
+            .interval_sessions = ds.PooledHandleList(u32, IntervalSession).init(alloc),
 
-            .key_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
-            .key_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
-            .mouse_up_event_subs = ds.CompactSinglyLinkedListBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)).init(alloc),
+            .key_up_event_subs = ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
+            .key_down_event_subs = ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
+            .mouse_up_event_subs = ds.PooledHandleSLLBuffer(u32, GlobalSubscriber(platform.MouseUpEvent)).init(alloc),
             .global_mouse_up_list = std.ArrayList(u32).init(alloc),
-            .mouse_down_event_subs = ds.CompactSinglyLinkedListBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)).init(alloc),
+            .mouse_down_event_subs = ds.PooledHandleSLLBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)).init(alloc),
             .mouse_move_event_subs = std.ArrayList(Subscriber(platform.MouseMoveEvent)).init(alloc),
-            .mouse_scroll_event_subs = ds.CompactSinglyLinkedListBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
+            .mouse_scroll_event_subs = ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
 
             .next_post_layout_cbs = std.ArrayList(ClosureIface(fn () void)).init(alloc),
@@ -2020,8 +2026,10 @@ pub const BuildContext = struct {
     arena_alloc: std.mem.Allocator,
     mod: *Module,
 
-    // Temporary buffers used to build Frames in Widget's `build` function.
-    // Cleared on the next update cycle. FrameIds generated are indexes to this buffer.
+    /// Temporary buffers used to build Frames in Widget's `build` function.
+    /// Cleared on the next update cycle. FrameIds generated are indexes to this buffer.
+    /// Currently, frames are pushed into `frames`, `frame_lists`, and `frame_props` in a depth first order from BuildContext.build.
+    /// This may help keep related frames in a subtree together when partial updates is implemented. 
     frames: std.ArrayList(Frame),
     // One ArrayList is used to store multiple frame lists.
     // Appends a complete list and returns the start index and size as the key.
@@ -2030,6 +2038,8 @@ pub const BuildContext = struct {
     // the start index and size as the key.
     frame_props: ds.DynamicArrayList(u32, u8),
 
+    /// Temporary frame id buffer.
+    frameid_buf: std.ArrayListUnmanaged(FrameId),
     u8_buf: std.ArrayList(u8),
 
     // Current node.
@@ -2049,6 +2059,7 @@ pub const BuildContext = struct {
             .frame_lists = std.ArrayList(FrameId).init(alloc),
             .frame_props = ds.DynamicArrayList(u32, u8).init(alloc),
             .u8_buf = std.ArrayList(u8).init(alloc),
+            .frameid_buf = .{},
             .node = undefined,
             .frame_id = undefined,
         };
@@ -2058,6 +2069,7 @@ pub const BuildContext = struct {
         self.frames.deinit();
         self.frame_lists.deinit();
         self.frame_props.deinit();
+        self.frameid_buf.deinit(self.alloc);
         self.u8_buf.deinit();
     }
 
@@ -2089,6 +2101,21 @@ pub const BuildContext = struct {
         }
         const InnerFn = stdx.meta.FnAfterFirstParam(@TypeOf(user_fn));
         return Function(InnerFn).initContext(ctx_ptr, user_fn);
+    }
+
+    /// Returned slice should be used immediately. eg. Pass into a build widget function.
+    pub fn tempRange(self: *Self, count: usize, ctx: anytype, build_fn: fn(@TypeOf(ctx), *BuildContext, u32) FrameId) []const FrameId {
+        self.frameid_buf.resize(self.alloc, count) catch fatal();
+        var cur: u32 = 0;
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            const frame_id = build_fn(ctx, self, @intCast(u32, i));
+            if (frame_id != NullFrameId) {
+                self.frameid_buf.items[cur] = frame_id;
+                cur += 1;
+            }
+        }
+        return self.frameid_buf.items[0..cur];
     }
 
     pub fn range(self: *Self, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *BuildContext, u32) FrameId) FrameListPtr {
@@ -2128,8 +2155,15 @@ pub const BuildContext = struct {
     }
 
     /// Short-hand for createFrame.
-    pub inline fn decl(self: *Self, comptime Widget: type, props: anytype) FrameId {
-        return self.createFrame(Widget, props);
+    pub inline fn build(self: *Self, comptime Widget: type, props: anytype) FrameId {
+        const HasProps = comptime WidgetHasProps(Widget);
+        if (HasProps) {
+            var widget_props: WidgetProps(Widget) = undefined;
+            setWidgetProps(Widget, &widget_props, props);
+            return self.createFrame(Widget, &widget_props, props);
+        } else {
+            return self.createFrame(Widget, {}, props);
+        }
     }
 
     pub inline fn list(self: *Self, tuple_or_slice: anytype) FrameListPtr {
@@ -2201,9 +2235,33 @@ pub const BuildContext = struct {
         return self.frame_lists.items[ptr.id..end_idx];
     }
 
-    fn createFrame(self: *Self, comptime Widget: type, build_props: anytype) FrameId {
+    pub fn createFrame(self: *Self, comptime Widget: type, props: ?*WidgetProps(Widget), build_props: anytype) FrameId {
         // log.warn("createFrame {}", .{build_props});
         const BuildProps = @TypeOf(build_props);
+
+        const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
+        const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
+
+        const props_ptr = b: {
+            const HasProps = comptime WidgetHasProps(Widget);
+            if (HasProps) {
+                break :b self.frame_props.append(props.?.*) catch unreachable;
+            } else {
+                break :b FramePropsPtr.init(0, 0);
+            }
+        };
+        const vtable = GenWidgetVTable(Widget);
+        const frame = Frame.init(vtable, id, bind, props_ptr, FrameListPtr.init(0, 0));
+        const frame_id = @intCast(FrameId, @intCast(u32, self.frames.items.len));
+        self.frames.append(frame) catch unreachable;
+
+        // log.warn("created frame {}", .{frame_id});
+        return frame_id;
+    }
+
+    pub fn validateBuildProps(comptime Widget: type, build_props: anytype) void {
+        const BuildProps = @TypeOf(build_props);
+        const HasProps = comptime WidgetHasProps(Widget);
 
         if (@hasField(BuildProps, "bind")) {
             if (stdx.meta.FieldType(BuildProps, .bind) != *WidgetRef(Widget)) {
@@ -2220,78 +2278,59 @@ pub const BuildContext = struct {
                 @compileError("Expected widget props type to spread.");
             }
         }
-        const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
-        const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
 
-        const props_ptr = b: {
-            const HasProps = comptime WidgetHasProps(Widget);
-
-            // First use comptime to get a list of valid fields to be copied to props.
-            const ValidFields = comptime b2: {
-                var res: []const std.builtin.TypeInfo.StructField = &.{};
-                for (std.meta.fields(BuildProps)) |f| {
-                    // Skip special fields.
-                    if (string.eq("id", f.name)) {
-                        continue;
-                    } else if (string.eq("bind", f.name)) {
-                        continue;
-                    } else if (string.eq("spread", f.name)) {
-                        continue;
-                    } else if (!HasProps) {
-                        @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);
-                    } else if (@hasField(WidgetProps(Widget), f.name)) {
-                        res = res ++ &[_]std.builtin.TypeInfo.StructField{f};
-                    } else {
-                        @compileError(f.name ++ " isn't declared in " ++ @typeName(Widget) ++ ".Props");
-                    }
-                }
-                break :b2 res;
-            };
-            _ = ValidFields;
-
-            if (HasProps) {
-                var props: WidgetProps(Widget) = undefined;
-
-                if (@hasField(BuildProps, "spread")) {
-                    props = build_props.spread;
-                    // When spreading provided props, don't overwrite with default values.
-                    inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
-                        if (@hasField(BuildProps, Field.name)) {
-                            @field(props, Field.name) = @field(build_props, Field.name);
-                        }
-                    }
+        comptime {
+            // var res: []const std.builtin.TypeInfo.StructField = &.{};
+            inline for (std.meta.fields(BuildProps)) |f| {
+                // Skip special fields.
+                if (string.eq("id", f.name)) {
+                    continue;
+                } else if (string.eq("bind", f.name)) {
+                    continue;
+                } else if (string.eq("spread", f.name)) {
+                    continue;
+                } else if (!HasProps) {
+                    @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);
+                } else if (@hasField(WidgetProps(Widget), f.name)) {
+                    // res = res ++ &[_]std.builtin.TypeInfo.StructField{f};
                 } else {
-                    inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
-                        if (@hasField(BuildProps, Field.name)) {
-                            @field(props, Field.name) = @field(build_props, Field.name);
-                        } else {
-                            if (Field.default_value) |def| {
-                                // Set default value.
-                                @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
-                            } else {
-                                @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
-                            }
-                        }
+                    @compileError(f.name ++ " isn't declared in " ++ @typeName(Widget) ++ ".Props");
+                }
+            }
+            // return res;
+        }
+    }
+
+    pub fn setWidgetProps(comptime Widget: type, props: *WidgetProps(Widget), build_props: anytype) void {
+        const BuildProps = @TypeOf(build_props);
+        validateBuildProps(Widget, build_props);
+        if (@hasField(BuildProps, "spread")) {
+            props.* = build_props.spread;
+            // When spreading provided props, don't overwrite with default values.
+            inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
+                if (@hasField(BuildProps, Field.name)) {
+                    @field(props, Field.name) = @field(build_props, Field.name);
+                }
+            }
+        } else {
+            inline for (std.meta.fields(WidgetProps(Widget))) |Field| {
+                if (@hasField(BuildProps, Field.name)) {
+                    @field(props, Field.name) = @field(build_props, Field.name);
+                } else {
+                    if (Field.default_value) |def| {
+                        // Set default value.
+                        @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
+                    } else {
+                        @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
                     }
                 }
-
-                // Then inline the copy statements.
-                // inline for (ValidFields) |f| {
-                //     @field(props, f.name) = @field(build_props, f.name);
-                // }
-                // log.warn("set frame props", .{});
-                break :b self.frame_props.append(props) catch unreachable;
-            } else {
-                break :b FramePropsPtr.init(0, 0);
             }
-        };
-        const vtable = GenWidgetVTable(Widget);
-        const frame = Frame.init(vtable, id, bind, props_ptr, FrameListPtr.init(0, 0));
-        const frame_id = @intCast(FrameId, @intCast(u32, self.frames.items.len));
-        self.frames.append(frame) catch unreachable;
-
-        // log.warn("created frame {}", .{frame_id});
-        return frame_id;
+        }
+        // Then inline the copy statements.
+        // inline for (ValidFields) |f| {
+        //     @field(props, f.name) = @field(build_props, f.name);
+        // }
+        // log.warn("set frame props", .{});
     }
 };
 
@@ -2303,7 +2342,7 @@ const TestModule = struct {
     const Self = @This();
 
     pub fn init(self: *Self) void {
-        self.g.init(t.alloc, 1);
+        self.g.init(t.alloc, 1) catch fatal();
         self.mod.init(t.alloc, &self.g);
         self.size = LayoutSize.init(800, 600);
     }
@@ -2340,11 +2379,11 @@ test "Node removal also removes the children." {
         fn bootstrap(delete: bool, c: *BuildContext) FrameId {
             var child: FrameId = NullFrameId;
             if (!delete) {
-                child = c.decl(A, .{ 
-                    .child = c.decl(B, .{}),
+                child = c.build(A, .{ 
+                    .child = c.build(B, .{}),
                 });
             }
-            return c.decl(A, .{
+            return c.build(A, .{
                 .id = .root,
                 .child = child,
             });
@@ -2368,8 +2407,8 @@ test "User root should not allow fragment frame." {
     const S = struct {
         fn bootstrap(_: void, c: *BuildContext) FrameId {
             const list = c.list(.{
-                c.decl(A, .{}),
-                c.decl(A, .{}),
+                c.build(A, .{}),
+                c.build(A, .{}),
             });
             return c.fragment(list);
         }
@@ -2387,13 +2426,13 @@ test "BuildContext.list() will skip over a NullFrameId item." {
         fn build(_: *@This(), c: *BuildContext) FrameId {
             return c.fragment(c.list(.{
                 NullFrameId,
-                c.decl(B, .{}),
+                c.build(B, .{}),
             }));
         }
     };
     const S = struct {
         fn bootstrap(_: void, c: *BuildContext) FrameId {
-            return c.decl(A, .{
+            return c.build(A, .{
                 .id = .root,
             });
         }
@@ -2421,13 +2460,13 @@ test "Don't allow nested fragment frames." {
     const S = struct {
         fn bootstrap(_: void, c: *ui.BuildContext) FrameId {
             const nested_list = c.list(.{
-                c.decl(B, .{}),
+                c.build(B, .{}),
             });
             const list = c.list(.{
-                c.decl(B, .{}),
+                c.build(B, .{}),
                 c.fragment(nested_list),
             });
-            return c.decl(A, .{
+            return c.build(A, .{
                 .child = c.fragment(list),
             });
         }
@@ -2452,16 +2491,16 @@ test "BuildContext.range" {
     // Test case where a child widget uses BuildContext.list. Check if this causes problems with BuildContext.range.
     const S = struct {
         fn bootstrap(_: void, c: *BuildContext) FrameId {
-            return c.decl(A, .{
+            return c.build(A, .{
                 .id = .root,
                 .children = c.range(1, {}, buildChild),
             });
         }
         fn buildChild(_: void, c: *BuildContext, _: u32) FrameId {
             const list = c.list(.{
-                c.decl(B, .{}),
+                c.build(B, .{}),
             });
-            return c.decl(A, .{ .children = list });
+            return c.build(A, .{ .children = list });
         }
     };
     var mod: TestModule = undefined;
@@ -2497,9 +2536,9 @@ test "Widget instance lifecycle." {
         fn onMouseMove(_: u32, _: MouseMoveEvent) void {}
     };
     const S = struct {
-        fn bootstrap(decl: bool, c: *BuildContext) FrameId {
-            if (decl) {
-                return c.decl(A, .{
+        fn bootstrap(build: bool, c: *BuildContext) FrameId {
+            if (build) {
+                return c.build(A, .{
                     .id = .root,
                 });
             } else {
@@ -2568,7 +2607,7 @@ test "Widget instance lifecycle." {
 
 test "Module.update creates or updates existing node" {
     var g: graphics.Graphics = undefined;
-    g.init(t.alloc, 1);
+    try g.init(t.alloc, 1);
     defer g.deinit();
 
     const Foo = struct {
@@ -2588,9 +2627,9 @@ test "Module.update creates or updates existing node" {
 
         fn build(self: *@This(), c: *BuildContext) FrameId {
             if (self.flag) {
-                return c.decl(Foo, .{});
+                return c.build(Foo, .{});
             } else {
-                return c.decl(Bar, .{});
+                return c.build(Bar, .{});
             }
         }
     };
@@ -2600,11 +2639,11 @@ test "Module.update creates or updates existing node" {
         const S2 = struct {
             fn bootstrap(flag: bool, c: *BuildContext) FrameId {
                 if (flag) {
-                    return c.decl(Foo, .{
+                    return c.build(Foo, .{
                         .id = .root,
                     });
                 } else {
-                    return c.decl(Bar, .{
+                    return c.build(Bar, .{
                         .id = .root,
                     });
                 }
@@ -2625,7 +2664,7 @@ test "Module.update creates or updates existing node" {
         // Different child frame type creates new node.
         const S2 = struct {
             fn bootstrap(_: void, c: *BuildContext) FrameId {
-                return c.decl(Root, .{
+                return c.build(Root, .{
                     .id = .root,
                 });
             }
@@ -2743,7 +2782,8 @@ pub fn WidgetProps(comptime Widget: type) type {
     if (WidgetHasProps(Widget)) {
         return std.meta.fieldInfo(Widget, .props).field_type;
     } else {
-        @compileError(@typeName(Widget) ++ " doesn't have props field.");
+        return void;
+        // @compileError(@typeName(Widget) ++ " doesn't have props field.");
     }
 }
 
