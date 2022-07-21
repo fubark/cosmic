@@ -674,7 +674,10 @@ const BuilderContext = struct {
             if (step.target.getCpuArch().isWasm()) {
                 jolt.buildAndLink(step, .{ .multi_threaded = false, .enable_simd = false });
             } else {
-                jolt.buildAndLink(step, .{});
+                // Disable building jolt on windows for now.
+                if (!step.target.isWindows()) {
+                    jolt.buildAndLink(step, .{});
+                }
                 glslang.buildAndLink(step);
             }
         }
