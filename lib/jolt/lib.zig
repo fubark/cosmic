@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const sdl = @import("../sdl/lib.zig");
 const stdx = @import("../../stdx/lib.zig");
 
 pub const pkg = std.build.Pkg{

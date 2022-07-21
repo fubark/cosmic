@@ -29,6 +29,7 @@ const lyon = @import("lib/clyon/lib.zig");
 const tess2 = @import("lib/tess2/lib.zig");
 const maudio = @import("lib/miniaudio/lib.zig");
 const mingw = @import("lib/mingw/lib.zig");
+const qjs = @import("lib/qjs/lib.zig");
 const backend = @import("platform/backend.zig");
 const cgltf = @import("lib/cgltf/lib.zig");
 const jolt = @import("lib/jolt/lib.zig");
@@ -67,6 +68,7 @@ pub fn build(b: *Builder) !void {
     const add_runtime = b.option(bool, "runtime", "Add the runtime package") orelse false;
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
+    const link_qjs = b.option(bool, "qjs", "Link quickjs lib") orelse false;
     const net = b.option(bool, "net", "Link net libs") orelse false;
     const args = b.option([]const []const u8, "arg", "Append an arg into run step.") orelse &[_][]const u8{};
     const extras_sha = b.option([]const u8, "deps-rev", "Override the extras repo sha.") orelse EXTRAS_REPO_SHA;
@@ -109,6 +111,7 @@ pub fn build(b: *Builder) !void {
         .add_runtime_pkg = add_runtime,
         .link_v8 = v8,
         .link_net = net,
+        .link_qjs = link_qjs,
         .link_lyon = link_lyon,
         .link_tess2 = link_tess2,
         .link_mock = false,
@@ -388,6 +391,7 @@ const BuilderContext = struct {
     add_v8_pkg: bool = false,
     add_runtime_pkg: bool = false,
     link_v8: bool,
+    link_qjs: bool = false,
     link_net: bool,
     link_mock: bool,
     mode: std.builtin.Mode,
@@ -689,6 +693,7 @@ const BuilderContext = struct {
             step.step.dependOn(&zig_v8_repo.step);
             addZigV8(step);
         }
+        qjs.addPackage(step);
         if (self.add_runtime_pkg) {
             runtime.addPackage(step, .{
                 .graphics_backend = graphics_backend,
@@ -699,6 +704,9 @@ const BuilderContext = struct {
         }
         if (self.link_v8) {
             self.linkZigV8(step);
+        }
+        if (self.link_qjs) {
+            qjs.buildAndLink(step, .{});
         }
         if (self.link_mock) {
             self.buildLinkMock(step);
@@ -853,7 +861,7 @@ const CopyVendorStep = struct {
             const dst_path = self.b.pathJoin(&.{ self.path, "vendor", line });
             const stat = try std.fs.cwd().statFile(src_path);
             if (stat.kind == .Directory) {
-                var src_dir = try std.fs.cwd().openDir(src_path, .{ .iterate = true });
+                var src_dir = try std.fs.cwd().openIterableDir(src_path, .{});
                 defer src_dir.close();
                 std.fs.cwd().access(dst_path, .{}) catch |e| {
                     if (e == error.FileNotFound) {
@@ -876,11 +884,11 @@ const CopyVendorStep = struct {
     }
 };
 
-fn copyDir(src_dir: std.fs.Dir, dest_dir: std.fs.Dir) anyerror!void {
+fn copyDir(src_dir: std.fs.IterableDir, dest_dir: std.fs.Dir) anyerror!void {
     var iter = src_dir.iterate();
     while (try iter.next()) |entry| {
         switch (entry.kind) {
-            .File => try src_dir.copyFile(entry.name, dest_dir, entry.name, .{}),
+            .File => try src_dir.dir.copyFile(entry.name, dest_dir, entry.name, .{}),
             .Directory => {
                 // log.debug("{s}", .{entry.name});
                 // Create destination directory
@@ -891,10 +899,10 @@ fn copyDir(src_dir: std.fs.Dir, dest_dir: std.fs.Dir) anyerror!void {
                     }
                 };
                 // Open destination directory
-                var dest_entry_dir = try dest_dir.openDir(entry.name, .{ .access_sub_paths = true, .iterate = true, .no_follow = true });
+                var dest_entry_dir = try dest_dir.openDir(entry.name, .{ .access_sub_paths = true, .no_follow = true });
                 defer dest_entry_dir.close();
                 // Open directory we're copying files from
-                var src_entry_dir = try src_dir.openDir(entry.name, .{ .access_sub_paths = true, .iterate = true, .no_follow = true });
+                var src_entry_dir = try src_dir.dir.openIterableDir(entry.name, .{ .access_sub_paths = true, .no_follow = true });
                 defer src_entry_dir.close();
                 // Begin the recursive descent!
                 try copyDir(src_entry_dir, dest_entry_dir);

@@ -50,3 +50,6 @@ For desktop font rasterization.
 
 ### glslang - GLSL to SPIRV.
 - https://github.com/KhronosGroup/glslang (b2d2c9dd3d77c6adadff37309aa58a181bafc5f9)
+
+### quickjs - A light JS engine.
+- https://github.com/bellard/quickjs (2788d71e823b522b178db3b3660ce93689534e6d)
