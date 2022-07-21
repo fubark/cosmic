@@ -217,7 +217,7 @@ pub fn main() !void {
 }
 
 fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
-    return c.decl(App, .{});
+    return c.build(App, .{});
 }
 
 var duck_spin: f32 = 0;
