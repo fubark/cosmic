@@ -155,8 +155,9 @@ jobs:
 
       # Don't strip aarch64 since it was already code signed.
       # TODO: Look for way to make zig strip before doing the codesign.
+      # strip isn't working like before. Disabled for now.
       - name: Strip (macOS)
-        if: env.BUILD_TARGET == 'x86_64-macos-none' && env.BUILD_MODE == 'release'
+        if: env.BUILD_TARGET == 'x86_64-macos-none' && env.BUILD_MODE == 'release' && false
         run: |
           strip zig-out/${{ env.BUILD_TARGET }}/main/main
 
