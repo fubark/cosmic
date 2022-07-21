@@ -6,6 +6,7 @@
         html, body {
             margin: 0px;
             background-color: #333333;
+            overflow: hidden;
         }
         canvas {
             border: none;
@@ -178,11 +179,10 @@
                 wasm.inputLen += 3
             })
             window.addEventListener('resize', function() {
-                // A bit smaller so it doesn't trigger scrollbars in the browser page.
-                resize(window.innerWidth-4, window.innerHeight-4)
+                resize(window.innerWidth, window.innerHeight)
             })
             // Initially resize to the window size.
-            resize(window.innerWidth-4, window.innerHeight-4)
+            resize(window.innerWidth, window.innerHeight)
             window.requestAnimationFrame(loop)
         }
 
