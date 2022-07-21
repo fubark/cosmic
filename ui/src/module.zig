@@ -598,7 +598,7 @@ pub const Module = struct {
         }
 
         // The user root widget is wrapped by the Root widget to facilitate things like modals and popovers.
-        const root_id = self.build_ctx.decl(ui.widgets.Root, .{ .user_root = user_root_id });
+        const root_id = self.build_ctx.build(ui.widgets.Root, .{ .user_root = user_root_id });
 
         // Since the aim is to do layout in linear time, the tree should be built first.
         // Traverse to see which nodes need to be created/deleted.
@@ -2026,8 +2026,10 @@ pub const BuildContext = struct {
     arena_alloc: std.mem.Allocator,
     mod: *Module,
 
-    // Temporary buffers used to build Frames in Widget's `build` function.
-    // Cleared on the next update cycle. FrameIds generated are indexes to this buffer.
+    /// Temporary buffers used to build Frames in Widget's `build` function.
+    /// Cleared on the next update cycle. FrameIds generated are indexes to this buffer.
+    /// Currently, frames are pushed into `frames`, `frame_lists`, and `frame_props` in a depth first order from BuildContext.build.
+    /// This may help keep related frames in a subtree together when partial updates is implemented. 
     frames: std.ArrayList(Frame),
     // One ArrayList is used to store multiple frame lists.
     // Appends a complete list and returns the start index and size as the key.
@@ -2153,7 +2155,7 @@ pub const BuildContext = struct {
     }
 
     /// Short-hand for createFrame.
-    pub inline fn decl(self: *Self, comptime Widget: type, props: anytype) FrameId {
+    pub inline fn build(self: *Self, comptime Widget: type, props: anytype) FrameId {
         const HasProps = comptime WidgetHasProps(Widget);
         if (HasProps) {
             var widget_props: WidgetProps(Widget) = undefined;
@@ -2377,11 +2379,11 @@ test "Node removal also removes the children." {
         fn bootstrap(delete: bool, c: *BuildContext) FrameId {
             var child: FrameId = NullFrameId;
             if (!delete) {
-                child = c.decl(A, .{ 
-                    .child = c.decl(B, .{}),
+                child = c.build(A, .{ 
+                    .child = c.build(B, .{}),
                 });
             }
-            return c.decl(A, .{
+            return c.build(A, .{
                 .id = .root,
                 .child = child,
             });
@@ -2405,8 +2407,8 @@ test "User root should not allow fragment frame." {
     const S = struct {
         fn bootstrap(_: void, c: *BuildContext) FrameId {
             const list = c.list(.{
-                c.decl(A, .{}),
-                c.decl(A, .{}),
+                c.build(A, .{}),
+                c.build(A, .{}),
             });
             return c.fragment(list);
         }
@@ -2424,13 +2426,13 @@ test "BuildContext.list() will skip over a NullFrameId item." {
         fn build(_: *@This(), c: *BuildContext) FrameId {
             return c.fragment(c.list(.{
                 NullFrameId,
-                c.decl(B, .{}),
+                c.build(B, .{}),
             }));
         }
     };
     const S = struct {
         fn bootstrap(_: void, c: *BuildContext) FrameId {
-            return c.decl(A, .{
+            return c.build(A, .{
                 .id = .root,
             });
         }
@@ -2458,13 +2460,13 @@ test "Don't allow nested fragment frames." {
     const S = struct {
         fn bootstrap(_: void, c: *ui.BuildContext) FrameId {
             const nested_list = c.list(.{
-                c.decl(B, .{}),
+                c.build(B, .{}),
             });
             const list = c.list(.{
-                c.decl(B, .{}),
+                c.build(B, .{}),
                 c.fragment(nested_list),
             });
-            return c.decl(A, .{
+            return c.build(A, .{
                 .child = c.fragment(list),
             });
         }
@@ -2489,16 +2491,16 @@ test "BuildContext.range" {
     // Test case where a child widget uses BuildContext.list. Check if this causes problems with BuildContext.range.
     const S = struct {
         fn bootstrap(_: void, c: *BuildContext) FrameId {
-            return c.decl(A, .{
+            return c.build(A, .{
                 .id = .root,
                 .children = c.range(1, {}, buildChild),
             });
         }
         fn buildChild(_: void, c: *BuildContext, _: u32) FrameId {
             const list = c.list(.{
-                c.decl(B, .{}),
+                c.build(B, .{}),
             });
-            return c.decl(A, .{ .children = list });
+            return c.build(A, .{ .children = list });
         }
     };
     var mod: TestModule = undefined;
@@ -2534,9 +2536,9 @@ test "Widget instance lifecycle." {
         fn onMouseMove(_: u32, _: MouseMoveEvent) void {}
     };
     const S = struct {
-        fn bootstrap(decl: bool, c: *BuildContext) FrameId {
-            if (decl) {
-                return c.decl(A, .{
+        fn bootstrap(build: bool, c: *BuildContext) FrameId {
+            if (build) {
+                return c.build(A, .{
                     .id = .root,
                 });
             } else {
@@ -2625,9 +2627,9 @@ test "Module.update creates or updates existing node" {
 
         fn build(self: *@This(), c: *BuildContext) FrameId {
             if (self.flag) {
-                return c.decl(Foo, .{});
+                return c.build(Foo, .{});
             } else {
-                return c.decl(Bar, .{});
+                return c.build(Bar, .{});
             }
         }
     };
@@ -2637,11 +2639,11 @@ test "Module.update creates or updates existing node" {
         const S2 = struct {
             fn bootstrap(flag: bool, c: *BuildContext) FrameId {
                 if (flag) {
-                    return c.decl(Foo, .{
+                    return c.build(Foo, .{
                         .id = .root,
                     });
                 } else {
-                    return c.decl(Bar, .{
+                    return c.build(Bar, .{
                         .id = .root,
                     });
                 }
@@ -2662,7 +2664,7 @@ test "Module.update creates or updates existing node" {
         // Different child frame type creates new node.
         const S2 = struct {
             fn bootstrap(_: void, c: *BuildContext) FrameId {
-                return c.decl(Root, .{
+                return c.build(Root, .{
                     .id = .root,
                 });
             }

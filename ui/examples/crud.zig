@@ -172,7 +172,7 @@ pub fn main() !void {
 fn update(delta_ms: f32) void {
     const S = struct {
         fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
-            return c.decl(App, .{});
+            return c.build(App, .{});
         }
     };
     const ui_width = @intToFloat(f32, app.win.getWidth());

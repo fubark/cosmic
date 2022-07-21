@@ -35,7 +35,7 @@ fn SliderOptionBase(comptime is_float: bool) type {
                 ),
                 w.Flex(.{ .flex = 3, }, 
                     w.Padding(.{ .pad_left = 20 }, 
-                        c.decl(Inner, .{
+                        c.build(Inner, .{
                             .bind = &self.inner,
                             .spread = self.props.slider,
                         }),

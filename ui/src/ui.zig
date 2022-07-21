@@ -82,7 +82,7 @@ pub const FlexInfo = struct {
 pub fn createDeclFn(comptime Widget: type) fn (*BuildContext, anytype) callconv(.Inline) FrameId {
     const S = struct {
         inline fn decl(c: *BuildContext, props: anytype) FrameId {
-            return c.decl(Widget, props);
+            return c.build(Widget, props);
         }
     };
     return S.decl;

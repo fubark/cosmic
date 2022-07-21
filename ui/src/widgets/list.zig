@@ -18,10 +18,10 @@ pub const ScrollList = struct {
     list: ui.WidgetRef(List),
 
     pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
-        return c.decl(ScrollView, .{
+        return c.build(ScrollView, .{
             .enable_hscroll = false,
             .bg_color = self.props.bg_color,
-            .child = c.decl(List, .{
+            .child = c.build(List, .{
                 .bind = &self.list,
                 .bg_color = self.props.bg_color,
                 .children = self.props.children,

@@ -40,7 +40,7 @@ pub const ColorPicker = struct {
         const S = struct {
             fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
                 const self_ = stdx.mem.ptrCastAlign(*Self, ptr);
-                return c_.decl(ColorPickerPopover, .{
+                return c_.build(ColorPickerPopover, .{
                     .bind = &self_.popover_inner,
                     .init_val = self_.color,
                     .onPreviewChange = self_.props.onPreviewChange,

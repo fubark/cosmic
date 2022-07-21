@@ -80,7 +80,7 @@ pub const SliderFloatOption = genBuildWithNoChild(SliderFloatOptionUI);
 fn genBuildWithNoChild(comptime Widget: type) fn (props: anytype) ui.FrameId {
     const S = struct {
         fn build(props: anytype) ui.FrameId {
-            return module.gbuild_ctx.decl(Widget, props);
+            return module.gbuild_ctx.build(Widget, props);
         }
     };
     return S.build;

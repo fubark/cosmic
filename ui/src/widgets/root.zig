@@ -69,7 +69,7 @@ pub const Root = struct {
             switch (overlay.tag) {
                 .Popover => {
                     const frame_id = overlay.build_fn(overlay.build_ctx, c);
-                    const wrapper = c.decl(PopoverOverlay, .{
+                    const wrapper = c.build(PopoverOverlay, .{
                         .child = frame_id,
                         .src_node = overlay.src_node,
                         .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.popoverRequestClose),
@@ -78,7 +78,7 @@ pub const Root = struct {
                 },
                 .Modal => {
                     const frame_id = overlay.build_fn(overlay.build_ctx, c);
-                    const wrapper = c.decl(ModalOverlay, .{
+                    const wrapper = c.build(ModalOverlay, .{
                         .child = frame_id,
                         .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.modalRequestClose),
                     });
@@ -88,7 +88,7 @@ pub const Root = struct {
         }
 
         // For now the user's root is the first child so it doesn't need a key.
-        return c.decl(ZStack, .{
+        return c.build(ZStack, .{
             .children = c.list(self.build_buf.items),
         }); 
     }

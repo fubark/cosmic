@@ -56,7 +56,7 @@ pub const TextField = struct {
 
     pub fn build(self: *TextField, c: *ui.BuildContext) ui.FrameId {
         return w.Padding(.{ .padding = self.props.padding },
-            c.decl(TextFieldInner, .{
+            c.build(TextFieldInner, .{
                 .bind = &self.inner,
                 .text = self.buf.buf.items,
                 .font_size = self.props.font_size,

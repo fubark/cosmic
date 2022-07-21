@@ -82,11 +82,11 @@ pub const TextEditor = struct {
     }
 
     pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        return c.decl(ScrollView, .{
+        return c.build(ScrollView, .{
             .bind = &self.scroll_view,
             .bg_color = self.props.bg_color,
             .onContentMouseDown = c.funcExt(self, onMouseDown),
-            .child = c.decl(TextEditorInner, .{
+            .child = c.build(TextEditorInner, .{
                 .bind = &self.inner,
                 .editor = self,
             }),
