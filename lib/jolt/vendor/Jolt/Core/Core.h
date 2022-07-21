@@ -201,6 +201,7 @@
 // OS-specific includes
 #if defined(JPH_PLATFORM_WINDOWS)
 	#include <cfloat>
+	#include <excpt.h>
 	#define JPH_BREAKPOINT		__debugbreak()
 #elif defined(JPH_PLATFORM_BLUE) 
 	// Configuration for a popular game console.

@@ -1,5 +1,5 @@
 diff --git a/Jolt/Core/Core.h b/Jolt/Core/Core.h
-index ee2e83db..83e249cd 100644
+index ee2e83db..9bc7b64f 100644
 --- a/Jolt/Core/Core.h
 +++ b/Jolt/Core/Core.h
 @@ -16,6 +16,8 @@
@@ -46,7 +46,16 @@ index ee2e83db..83e249cd 100644
  // Pragmas to store / restore the warning state and to disable individual warnings
  #ifdef JPH_COMPILER_CLANG
  #define JPH_PRAGMA(x)					_Pragma(#x)
-@@ -190,6 +216,9 @@
+@@ -174,6 +200,8 @@
+ 
+ // OS-specific includes
+ #if defined(JPH_PLATFORM_WINDOWS)
++    #include <cfloat>
++    #include <excpt.h>
+ 	#define JPH_BREAKPOINT		__debugbreak()
+ #elif defined(JPH_PLATFORM_BLUE) 
+ 	// Configuration for a popular game console.
+@@ -190,6 +218,9 @@
  		#define JPH_BREAKPOINT		__asm volatile ("int $0x3")
  	#elif defined(JPH_CPU_ARM64)
  		#define JPH_BREAKPOINT		__builtin_trap()
