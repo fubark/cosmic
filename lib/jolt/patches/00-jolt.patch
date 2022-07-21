@@ -57,7 +57,7 @@ index ee2e83db..83e249cd 100644
  #else
  	#error Unknown platform
 diff --git a/Jolt/Core/FPControlWord.h b/Jolt/Core/FPControlWord.h
-index 660b3df2..99e42e22 100644
+index 660b3df2..a8b38c91 100644
 --- a/Jolt/Core/FPControlWord.h
 +++ b/Jolt/Core/FPControlWord.h
 @@ -63,7 +63,20 @@ private:
@@ -70,7 +70,7 @@ index 660b3df2..99e42e22 100644
 +template <uint Value, uint Mask>
 +class FPControlWord : public NonCopyable {
 +private:
-+	uint mPrevState;	
++	uint mPrevState;
 +public:
 +    FPControlWord() {
 +		mPrevState = 0;
@@ -275,7 +275,7 @@ index 39ae3c0e..dc79bfa5 100644
  	#error Undefined
  #endif
 diff --git a/Jolt/Math/Mat44.inl b/Jolt/Math/Mat44.inl
-index 30d3fa6c..f683814a 100644
+index 30d3fa6c..0b5017ee 100644
 --- a/Jolt/Math/Mat44.inl
 +++ b/Jolt/Math/Mat44.inl
 @@ -236,7 +236,11 @@ Mat44 Mat44::operator * (Mat44Arg inM) const
@@ -386,121 +386,121 @@ index 30d3fa6c..f683814a 100644
 +    float m14 = mCol[2].mValue.w;
 +    float m15 = mCol[3].mValue.w;
 +
-+    inv[0] = m5  * m10 * m15 - 
-+             m5  * m11 * m14 - 
-+             m9  * m6  * m15 + 
++    inv[0] = m5  * m10 * m15 -
++             m5  * m11 * m14 -
++             m9  * m6  * m15 +
 +             m9  * m7  * m14 +
-+             m13 * m6  * m11 - 
++             m13 * m6  * m11 -
 +             m13 * m7  * m10;
 +
-+    inv[4] = -m4  * m10 * m15 + 
-+              m4  * m11 * m14 + 
-+              m8  * m6  * m15 - 
-+              m8  * m7  * m14 - 
-+              m12 * m6  * m11 + 
++    inv[4] = -m4  * m10 * m15 +
++              m4  * m11 * m14 +
++              m8  * m6  * m15 -
++              m8  * m7  * m14 -
++              m12 * m6  * m11 +
 +              m12 * m7  * m10;
 +
-+    inv[8] = m4  * m9 * m15 - 
-+             m4  * m11 * m13 - 
-+             m8  * m5 * m15 + 
-+             m8  * m7 * m13 + 
-+             m12 * m5 * m11 - 
++    inv[8] = m4  * m9 * m15 -
++             m4  * m11 * m13 -
++             m8  * m5 * m15 +
++             m8  * m7 * m13 +
++             m12 * m5 * m11 -
 +             m12 * m7 * m9;
 +
-+    inv[12] = -m4  * m9 * m14 + 
++    inv[12] = -m4  * m9 * m14 +
 +               m4  * m10 * m13 +
-+               m8  * m5 * m14 - 
-+               m8  * m6 * m13 - 
-+               m12 * m5 * m10 + 
++               m8  * m5 * m14 -
++               m8  * m6 * m13 -
++               m12 * m5 * m10 +
 +               m12 * m6 * m9;
 +
-+    inv[1] = -m1  * m10 * m15 + 
-+              m1  * m11 * m14 + 
-+              m9  * m2 * m15 - 
-+              m9  * m3 * m14 - 
-+              m13 * m2 * m11 + 
++    inv[1] = -m1  * m10 * m15 +
++              m1  * m11 * m14 +
++              m9  * m2 * m15 -
++              m9  * m3 * m14 -
++              m13 * m2 * m11 +
 +              m13 * m3 * m10;
 +
-+    inv[5] = m0  * m10 * m15 - 
-+             m0  * m11 * m14 - 
-+             m8  * m2 * m15 + 
-+             m8  * m3 * m14 + 
-+             m12 * m2 * m11 - 
++    inv[5] = m0  * m10 * m15 -
++             m0  * m11 * m14 -
++             m8  * m2 * m15 +
++             m8  * m3 * m14 +
++             m12 * m2 * m11 -
 +             m12 * m3 * m10;
 +
-+    inv[9] = -m0  * m9 * m15 + 
-+              m0  * m11 * m13 + 
-+              m8  * m1 * m15 - 
-+              m8  * m3 * m13 - 
-+              m12 * m1 * m11 + 
++    inv[9] = -m0  * m9 * m15 +
++              m0  * m11 * m13 +
++              m8  * m1 * m15 -
++              m8  * m3 * m13 -
++              m12 * m1 * m11 +
 +              m12 * m3 * m9;
 +
-+    inv[13] = m0  * m9 * m14 - 
-+              m0  * m10 * m13 - 
-+              m8  * m1 * m14 + 
-+              m8  * m2 * m13 + 
-+              m12 * m1 * m10 - 
++    inv[13] = m0  * m9 * m14 -
++              m0  * m10 * m13 -
++              m8  * m1 * m14 +
++              m8  * m2 * m13 +
++              m12 * m1 * m10 -
 +              m12 * m2 * m9;
 +
-+    inv[2] = m1  * m6 * m15 - 
-+             m1  * m7 * m14 - 
-+             m5  * m2 * m15 + 
-+             m5  * m3 * m14 + 
-+             m13 * m2 * m7 - 
++    inv[2] = m1  * m6 * m15 -
++             m1  * m7 * m14 -
++             m5  * m2 * m15 +
++             m5  * m3 * m14 +
++             m13 * m2 * m7 -
 +             m13 * m3 * m6;
 +
-+    inv[6] = -m0  * m6 * m15 + 
-+              m0  * m7 * m14 + 
-+              m4  * m2 * m15 - 
-+              m4  * m3 * m14 - 
-+              m12 * m2 * m7 + 
++    inv[6] = -m0  * m6 * m15 +
++              m0  * m7 * m14 +
++              m4  * m2 * m15 -
++              m4  * m3 * m14 -
++              m12 * m2 * m7 +
 +              m12 * m3 * m6;
 +
-+    inv[10] = m0  * m5 * m15 - 
-+              m0  * m7 * m13 - 
-+              m4  * m1 * m15 + 
-+              m4  * m3 * m13 + 
-+              m12 * m1 * m7 - 
++    inv[10] = m0  * m5 * m15 -
++              m0  * m7 * m13 -
++              m4  * m1 * m15 +
++              m4  * m3 * m13 +
++              m12 * m1 * m7 -
 +              m12 * m3 * m5;
 +
-+    inv[14] = -m0  * m5 * m14 + 
-+               m0  * m6 * m13 + 
-+               m4  * m1 * m14 - 
-+               m4  * m2 * m13 - 
-+               m12 * m1 * m6 + 
++    inv[14] = -m0  * m5 * m14 +
++               m0  * m6 * m13 +
++               m4  * m1 * m14 -
++               m4  * m2 * m13 -
++               m12 * m1 * m6 +
 +               m12 * m2 * m5;
 +
-+    inv[3] = -m1 * m6 * m11 + 
-+              m1 * m7 * m10 + 
-+              m5 * m2 * m11 - 
-+              m5 * m3 * m10 - 
-+              m9 * m2 * m7 + 
++    inv[3] = -m1 * m6 * m11 +
++              m1 * m7 * m10 +
++              m5 * m2 * m11 -
++              m5 * m3 * m10 -
++              m9 * m2 * m7 +
 +              m9 * m3 * m6;
 +
-+    inv[7] = m0 * m6 * m11 - 
-+             m0 * m7 * m10 - 
-+             m4 * m2 * m11 + 
-+             m4 * m3 * m10 + 
-+             m8 * m2 * m7 - 
++    inv[7] = m0 * m6 * m11 -
++             m0 * m7 * m10 -
++             m4 * m2 * m11 +
++             m4 * m3 * m10 +
++             m8 * m2 * m7 -
 +             m8 * m3 * m6;
 +
-+    inv[11] = -m0 * m5 * m11 + 
-+               m0 * m7 * m9 + 
-+               m4 * m1 * m11 - 
-+               m4 * m3 * m9 - 
-+               m8 * m1 * m7 + 
++    inv[11] = -m0 * m5 * m11 +
++               m0 * m7 * m9 +
++               m4 * m1 * m11 -
++               m4 * m3 * m9 -
++               m8 * m1 * m7 +
 +               m8 * m3 * m5;
 +
-+    inv[15] = m0 * m5 * m10 - 
-+              m0 * m6 * m9 - 
-+              m4 * m1 * m10 + 
-+              m4 * m2 * m9 + 
-+              m8 * m1 * m6 - 
++    inv[15] = m0 * m5 * m10 -
++              m0 * m6 * m9 -
++              m4 * m1 * m10 +
++              m4 * m2 * m9 +
++              m8 * m1 * m6 -
 +              m8 * m2 * m5;
 +
 +    float det = m0 * inv[0] + m1 * inv[4] + m2 * inv[8] + m3 * inv[12];
 +    det = 1.0f / det;
-+    
++
 +    Mat44 result;
 +    result.mCol[0] = Vec4(inv[0], inv[4], inv[8], inv[12]) * det;
 +    result.mCol[1] = Vec4(inv[1], inv[5], inv[9], inv[13]) * det;
@@ -2428,7 +2428,7 @@ index 00000000..9e544309
 +#endif
 diff --git a/Jolt/mutex.h b/Jolt/mutex.h
 new file mode 100644
-index 00000000..2b12eb78
+index 00000000..c521b83f
 --- /dev/null
 +++ b/Jolt/mutex.h
 @@ -0,0 +1,108 @@
@@ -2512,14 +2512,14 @@ index 00000000..2b12eb78
 +    explicit lock_guard(Mutex& __m) : _M_device(__m) {
 +        _M_device.lock();
 +    }
-+ 
++
 +    //lock_guard(Mutex& __m, adopt_lock_t) : _M_device(__m)
 +    //{ } // calling thread owns mutex
-+ 
++
 +    ~lock_guard() {
 +        _M_device.unlock();
 +    }
-+ 
++
 +    lock_guard(const lock_guard&) = delete;
 +    lock_guard& operator=(const lock_guard&) = delete;
 +private:
@@ -2542,7 +2542,7 @@ index 00000000..2b12eb78
 +#endif
 diff --git a/Jolt/shared_mutex.h b/Jolt/shared_mutex.h
 new file mode 100644
-index 00000000..cb4b4901
+index 00000000..1b554751
 --- /dev/null
 +++ b/Jolt/shared_mutex.h
 @@ -0,0 +1,91 @@
@@ -2572,7 +2572,7 @@ index 00000000..cb4b4901
 +    explicit shared_lock(Mutex& __m) : _M_pm(std::addressof(__m)), _M_owns(true) {
 +        __m.lock_shared();
 +    }
-+    
++
 +    ~shared_lock() {
 +        if (_M_owns)
 +            _M_pm->unlock_shared();
