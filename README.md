@@ -3,7 +3,7 @@
 
 # Cosmic
 
-Cosmic is a general purpose runtime for JavaScript and WASM. It aims to have broad applications by exposing native cross platform APIs: window management, 2D/3D graphics, UI widgets, filesystem, networking, and more. It also aims to streamline software tooling to provide the essentials to help you develop and maintain software.
+The goals for Cosmic is changing and the project description will be updated soon. In the meantime, check out the [graphics](https://github.com/fubark/cosmic/tree/master/graphics) and [ui](https://github.com/fubark/cosmic/tree/master/ui) zig libraries with examples.
 
 ## Progress
 The Cosmic API is subject to change during the Alpha version. After version 1.0, the API will remain backwards compatible until the next major version. Check out the latest [API docs](https://cosmic-js.com/docs).
@@ -11,7 +11,7 @@ The Cosmic API is subject to change during the Alpha version. After version 1.0,
 - WASM/WASI API (*Not started.*)
 
 Here are some Zig libs we have built while working on Cosmic:
-- 2D Graphics ([Source](https://github.com/fubark/cosmic/tree/master/graphics))
+- 2D/3D Graphics ([Source](https://github.com/fubark/cosmic/tree/master/graphics))
 - UI and animation framework. ([Source](https://github.com/fubark/cosmic/tree/master/ui))
 - V8 bindings ([Source](https://github.com/fubark/zig-v8))
 - General purpose text editor. (*In progress*)
