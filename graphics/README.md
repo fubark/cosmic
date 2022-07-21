@@ -87,6 +87,7 @@ The lib.zig in this graphics module provides simple helpers for you add the pack
 // cosmic repo should be a subdirectory.
 const std = @import("std");
 const graphics = @import("cosmic/graphics/lib.zig");
+const backend = @import("cosmic/platform/backend.zig");
 
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
@@ -97,8 +98,9 @@ pub fn build(b: *std.build.Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
-    graphics.addPackage(exe, .{});
-    graphics.buildAndLink(exe, .{});
+    const graphics_backend = backend.getGraphicsBackend(exe);
+    graphics.addPackage(exe, .{.graphics_backend = graphics_backend});
+    graphics.buildAndLink(exe, .{.graphics_backend = graphics_backend});
 
     exe.setOutputDir("zig-out");
 
