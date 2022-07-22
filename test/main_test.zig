@@ -27,8 +27,8 @@ test {
     const platform = @import("../platform/platform.zig");
     t.refAllDecls(platform);
 
-    const main = @import("../runtime/main.zig");
-    t.refAllDecls(main);
+    // const main = @import("../runtime/main.zig");
+    // t.refAllDecls(main);
 
     // const app = @import("../app/main.zig");
     // t.refAllDecls(app);
