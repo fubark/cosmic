@@ -128,7 +128,7 @@ pub const Button = struct {
     }
 
     pub fn render(self: *Self, ctx: *ui.RenderContext) void {
-        const alo = ctx.getAbsLayout();
+        const bounds = ctx.getAbsBounds();
         const g = ctx.getGraphics();
         if (!self.pressed) {
             g.setFillColor(self.props.bg_color);
@@ -136,15 +136,15 @@ pub const Button = struct {
             g.setFillColor(self.props.bg_pressed_color);
         }
         if (self.props.corner_radius > 0) {
-            g.fillRoundRect(alo.x, alo.y, alo.width, alo.height, self.props.corner_radius);
+            ctx.fillRoundBBox(bounds, self.props.corner_radius);
             g.setLineWidth(self.props.border_size);
             g.setStrokeColor(self.props.border_color);
-            g.drawRoundRect(alo.x, alo.y, alo.width, alo.height, self.props.corner_radius);
+            ctx.drawRoundBBox(bounds, self.props.corner_radius);
         } else {
-            g.fillRect(alo.x, alo.y, alo.width, alo.height);
+            ctx.fillBBox(bounds);
             g.setLineWidth(self.props.border_size);
             g.setStrokeColor(self.props.border_color);
-            g.drawRect(alo.x, alo.y, alo.width, alo.height);
+            ctx.drawBBox(bounds);
         }
     }
 };

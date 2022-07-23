@@ -55,7 +55,7 @@ pub const Text = struct {
 
     pub fn render(self: *Text, c: *ui.RenderContext) void {
         const g = c.gctx;
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
 
         if (self.props.text != null) {
             if (self.props.font_id == NullId) {
@@ -66,14 +66,14 @@ pub const Text = struct {
             g.setFillColor(self.props.color);
 
             if (self.use_layout) {
-                var y = alo.y;
+                var y = bounds.min_y;
                 for (self.tlo.lines.items) |line| {
                     const text = self.props.text.?[line.start_idx..line.end_idx];
-                    g.fillText(alo.x, y, text);
+                    g.fillText(bounds.min_x, y, text);
                     y += line.height;
                 }
             } else {
-                g.fillText(alo.x, alo.y, self.props.text.?);
+                g.fillText(bounds.min_x, bounds.min_y, self.props.text.?);
             }
         }
     }

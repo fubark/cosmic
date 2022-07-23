@@ -621,15 +621,19 @@ pub const Graphics = struct {
     }
 
     pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+        self.drawRectBounds(x, y, x + width, y + height);
+    }
+
+    pub fn drawRectBounds(self: *Self, x0: f32, y0: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top border.
-        self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, width + self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.cur_line_width_half, y0 - self.cur_line_width_half, x1 + self.cur_line_width_half, y0 + self.cur_line_width_half, self.cur_stroke_color);
         // Right border.
-        self.fillRectColor(x + width - self.cur_line_width_half, y + self.cur_line_width_half, self.cur_line_width, height - self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x1 - self.cur_line_width_half, y0 + self.cur_line_width_half, x1 + self.cur_line_width_half, y1 - self.cur_line_width_half, self.cur_stroke_color);
         // Bottom border.
-        self.fillRectColor(x - self.cur_line_width_half, y + height - self.cur_line_width_half, width + self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.cur_line_width_half, y1 - self.cur_line_width_half, x1 + self.cur_line_width_half, y1 + self.cur_line_width_half, self.cur_stroke_color);
         // Left border.
-        self.fillRectColor(x - self.cur_line_width_half, y + self.cur_line_width_half, self.cur_line_width, height - self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.cur_line_width_half, y0 + self.cur_line_width_half, x0 + self.cur_line_width_half, y1 - self.cur_line_width_half, self.cur_stroke_color);
     }
 
     // Uses path rendering.
@@ -645,40 +649,48 @@ pub const Graphics = struct {
     }
 
     pub fn fillRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.fillRoundRectBounds(x, y, x + width, y + height, radius);
+    }
+
+    pub fn fillRoundRectBounds(self: *Self, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         // Top left corner.
-        self.fillCircleSectorN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
+        self.fillCircleSectorN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
-        self.fillRect(x, y + radius, radius, height - radius * 2);
+        self.fillRectBounds(x0, y0 + radius, x0 + radius, y1 - radius);
         // Bottom left corner.
-        self.fillCircleSectorN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
+        self.fillCircleSectorN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
         // Middle.
-        self.fillRect(x + radius, y, width - radius * 2, height);
+        self.fillRectBounds(x0 + radius, y0, x1 - radius, y1);
         // Top right corner.
-        self.fillCircleSectorN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
+        self.fillCircleSectorN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
-        self.fillRect(x + width - radius, y + radius, radius, height - radius * 2);
+        self.fillRectBounds(x1 - radius, y0 + radius, x1, y1 - radius);
         // Bottom right corner.
-        self.fillCircleSectorN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
+        self.fillCircleSectorN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
     pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.drawRoundRectBounds(x, y, x + width, y + height, radius);
+    }
+
+    pub fn drawRoundRectBounds(self: *Self, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top left corner.
-        self.drawCircleArcN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
+        self.drawCircleArcN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
-        self.fillRectColor(x - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.cur_line_width_half, y0 + radius, x0 + self.cur_line_width_half, y1 - radius, self.cur_stroke_color);
         // Bottom left corner.
-        self.drawCircleArcN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
+        self.drawCircleArcN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
         // Top.
-        self.fillRectColor(x + radius, y - self.cur_line_width_half, width - radius * 2, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 + radius, y0 - self.cur_line_width_half, x1 - radius, y0 + self.cur_line_width_half, self.cur_stroke_color);
         // Bottom.
-        self.fillRectColor(x + radius, y + height - self.cur_line_width_half, width - radius * 2, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 + radius, y1 - self.cur_line_width_half, x1 - radius, y1 + self.cur_line_width_half, self.cur_stroke_color);
         // Top right corner.
-        self.drawCircleArcN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
+        self.drawCircleArcN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
-        self.fillRectColor(x + width - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
+        self.fillRectBoundsColor(x1 - self.cur_line_width_half, y0 + radius, x1 + self.cur_line_width_half, y1 - radius, self.cur_stroke_color);
         // Bottom right corner.
-        self.drawCircleArcN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
+        self.drawCircleArcN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
     pub fn drawPlane(self: *Self) void {
@@ -712,11 +724,15 @@ pub const Graphics = struct {
     }
 
     pub fn fillRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
-        self.fillRectColor(x, y, width, height, self.cur_fill_color);
+        self.fillRectBoundsColor(x, y, x + width, y + height, self.cur_fill_color);
+    }
+
+    pub fn fillRectBounds(self: *Self, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        self.fillRectBoundsColor(x0, y0, x1, y1, self.cur_fill_color);
     }
 
     // Sometimes we want to override the color (eg. rendering part of a stroke.)
-    fn fillRectColor(self: *Self, x: f32, y: f32, width: f32, height: f32, color: Color) void {
+    fn fillRectBoundsColor(self: *Self, x0: f32, y0: f32, x1: f32, y1: f32, color: Color) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(4, 6);
 
@@ -726,22 +742,22 @@ pub const Graphics = struct {
         const start_idx = self.batcher.mesh.getNextIndexId();
 
         // top left
-        vert.setXY(x, y);
+        vert.setXY(x0, y0);
         vert.setUV(0, 0);
         self.batcher.mesh.pushVertex(vert);
 
         // top right
-        vert.setXY(x + width, y);
+        vert.setXY(x1, y0);
         vert.setUV(1, 0);
         self.batcher.mesh.pushVertex(vert);
 
         // bottom right
-        vert.setXY(x + width, y + height);
+        vert.setXY(x1, y1);
         vert.setUV(1, 1);
         self.batcher.mesh.pushVertex(vert);
 
         // bottom left
-        vert.setXY(x, y + height);
+        vert.setXY(x0, y1);
         vert.setUV(0, 1);
         self.batcher.mesh.pushVertex(vert);
 
@@ -972,13 +988,13 @@ pub const Graphics = struct {
 
     pub fn drawPoint(self: *Self, x: f32, y: f32) void {
         self.batcher.beginTex(self.white_tex);
-        self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x - self.cur_line_width_half, y - self.cur_line_width_half, x + self.cur_line_width_half, y + self.cur_line_width_half, self.cur_stroke_color);
     }
 
     pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
         self.batcher.beginTex(self.white_tex);
         if (x1 == x2) {
-            self.fillRectColor(x1 - self.cur_line_width_half, y1, self.cur_line_width, y2 - y1, self.cur_stroke_color);
+            self.fillRectBoundsColor(x1 - self.cur_line_width_half, y1, x1 + self.cur_line_width_half, y2, self.cur_stroke_color);
         } else {
             const normal = vec2(y2 - y1, x2 - x1).toLength(self.cur_line_width_half);
             self.fillQuad(

@@ -56,15 +56,13 @@ pub const SwitchOption = struct {
 
     inner: ui.WidgetRef(w.SwitchUI),
 
-    const Self = @This();
-
-    pub fn isSet(self: *Self) bool {
+    pub fn isSet(self: *SwitchOption) bool {
         return self.inner.getWidget().isSet();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *SwitchOption, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *SwitchOption, _: platform.MouseUpEvent) void {
                 self_.inner.getWidget().toggle();
             }
         };

@@ -33,7 +33,7 @@ pub const EventDispatcher = event_dispatcher.EventDispatcher;
 pub const EventResult = event_dispatcher.EventResult;
 
 pub fn delay(us: u64) void {
-    if (!builtin.target.isWasm()) {
+    if (comptime !builtin.target.isWasm()) {
         // TODO: How does this compare to std.time.sleep ?
         // std.time.sleep(us * 1000);
         sdl.SDL_Delay(@intCast(u32, us / 1000));
@@ -44,7 +44,7 @@ pub fn delay(us: u64) void {
 }
 
 pub fn captureMouse(capture: bool) void {
-    if (!builtin.target.isWasm()) {
+    if (comptime !builtin.target.isWasm()) {
         _ = sdl.SDL_CaptureMouse(@boolToInt(capture));
     } else {
     }

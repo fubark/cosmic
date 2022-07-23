@@ -8,8 +8,7 @@ const FontGroupId = graphics.FontGroupId;
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
-const Node = ui.Node;
-const ScrollView = ui.widgets.ScrollView;
+const w = ui.widgets;
 const log = stdx.log.scoped(.text_editor);
 
 /// Note: This widget is very incomplete. It could borrow some techniques used in TextField.
@@ -28,7 +27,7 @@ pub const TextEditor = struct {
     caret_line: u32,
     caret_col: u32,
     inner: ui.WidgetRef(TextEditorInner),
-    scroll_view: ui.WidgetRef(ScrollView),
+    scroll_view: ui.WidgetRef(w.ScrollViewUI),
 
     // Current font group used.
     font_gid: FontGroupId,
@@ -38,11 +37,9 @@ pub const TextEditor = struct {
     font_line_offset_y: f32, // y offset to first text line is drawn
 
     ctx: *ui.CommonContext,
-    node: *Node,
+    node: *ui.Node,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *TextEditor, c: *ui.InitContext) void {
         const props = self.props;
 
         self.font_gid = c.getFontGroupByFamily(self.props.font_family);
@@ -70,30 +67,31 @@ pub const TextEditor = struct {
             self.lines.append(line) catch unreachable;
         }
 
-        c.addKeyDownHandler(self, Self.handleKeyDownEvent);
+        c.addKeyDownHandler(self, handleKeyDownEvent);
     }
 
-    pub fn deinit(node: *Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
+        const self = node.getWidget(TextEditor);
         for (self.lines.items) |line| {
             line.deinit();
         }
         self.lines.deinit();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        return c.build(ScrollView, .{
+    pub fn build(self: *TextEditor, c: *ui.BuildContext) ui.FrameId {
+        return w.ScrollView(.{
             .bind = &self.scroll_view,
             .bg_color = self.props.bg_color,
             .onContentMouseDown = c.funcExt(self, onMouseDown),
-            .child = c.build(TextEditorInner, .{
+        },
+            c.build(TextEditorInner, .{
                 .bind = &self.inner,
                 .editor = self,
             }),
-        });
+        );
     }
 
-    pub fn postPropsUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *TextEditor) void {
         const new_font_gid = self.ctx.getFontGroupByFamily(self.props.font_family);
         if (new_font_gid != self.font_gid) {
             self.font_gid = new_font_gid;
@@ -101,13 +99,13 @@ pub const TextEditor = struct {
         }
     }
 
-    fn onMouseDown(self: *Self, e: platform.MouseDownEvent) void {
+    fn onMouseDown(self: *TextEditor, e: platform.MouseDownEvent) void {
         self.requestFocus();
 
         // Map mouse pos to caret pos.
         const scroll_view = self.scroll_view.getWidget();
-        const xf = @intToFloat(f32, e.x) - self.node.abs_pos.x + scroll_view.scroll_x;
-        const yf = @intToFloat(f32, e.y) - self.node.abs_pos.y + scroll_view.scroll_y;
+        const xf = @intToFloat(f32, e.x) - self.node.abs_bounds.min_x + scroll_view.scroll_x;
+        const yf = @intToFloat(f32, e.y) - self.node.abs_bounds.min_y + scroll_view.scroll_y;
         const loc = self.toCaretLoc(self.ctx, xf, yf);
 
         self.caret_line = loc.line_idx;
@@ -116,16 +114,16 @@ pub const TextEditor = struct {
     }
 
     /// Request focus on the TextEditor.
-    pub fn requestFocus(self: *Self) void {
+    pub fn requestFocus(self: *TextEditor) void {
         self.ctx.requestFocus(self.node, onBlur);
         const inner = self.inner.getWidget();
         inner.setFocused();
         // std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
     }
 
-    fn onBlur(node: *Node, ctx: *ui.CommonContext) void {
+    fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
-        const self = node.getWidget(Self);
+        const self = node.getWidget(TextEditor);
         self.inner.getWidget().focused = false;
         // var hash: [16]u8 = undefined;
         // std.crypto.hash.Md5.hash(self.buf.items, &hash, .{});
@@ -134,7 +132,7 @@ pub const TextEditor = struct {
         // }
     }
 
-    fn toCaretLoc(self: *Self, ctx: *ui.CommonContext, x: f32, y: f32) DocLocation {
+    fn toCaretLoc(self: *TextEditor, ctx: *ui.CommonContext, x: f32, y: f32) DocLocation {
         if (y < 0) {
             return .{
                 .line_idx = 0,
@@ -182,7 +180,7 @@ pub const TextEditor = struct {
         };
     }
 
-    fn remeasureText(self: *Self) void {
+    fn remeasureText(self: *TextEditor) void {
         const font_vmetrics = self.ctx.getPrimaryFontVMetrics(self.font_gid, self.font_size);
         // log.warn("METRICS {}", .{font_vmetrics});
         const font_line_height_factor: f32 = 1.2;
@@ -199,40 +197,40 @@ pub const TextEditor = struct {
         }
 
         if (self.inner.binded) {
-            const w = self.inner.getWidget();
-            w.to_caret_width = self.ctx.measureText(self.font_gid, self.font_size, w.to_caret_str).width;
+            const widget = self.inner.getWidget();
+            widget.to_caret_width = self.ctx.measureText(self.font_gid, self.font_size, widget.to_caret_str).width;
         }
     }
 
-    pub fn setFontSize(self: *Self, font_size: f32) void {
+    pub fn setFontSize(self: *TextEditor, font_size: f32) void {
         self.font_size = font_size;
         self.remeasureText();
     }
 
-    fn getCaretBottomY(self: *Self) f32 {
+    fn getCaretBottomY(self: *TextEditor) f32 {
         return @intToFloat(f32, self.caret_line + 1) * @intToFloat(f32, self.font_line_height);
     }
 
-    fn getCaretTopY(self: *Self) f32 {
+    fn getCaretTopY(self: *TextEditor) f32 {
         return @intToFloat(f32, self.caret_line) * @intToFloat(f32, self.font_line_height);
     }
 
-    fn getCaretX(self: *Self) f32 {
+    fn getCaretX(self: *TextEditor) f32 {
         return self.inner.getWidget().to_caret_width;
     }
 
-    fn postLineUpdate(self: *Self, idx: usize) void {
+    fn postLineUpdate(self: *TextEditor, idx: usize) void {
         const line = &self.lines.items[idx];
         line.width = self.ctx.measureText(self.font_gid, self.font_size, line.buf.buf.items).width;
         self.inner.getWidget().resetCaretAnimation();
     }
 
-    fn postCaretUpdate(self: *Self) void {
+    fn postCaretUpdate(self: *TextEditor) void {
         self.inner.getWidget().postCaretUpdate();
 
         // Scroll to caret.
         const S = struct {
-            fn cb(self_: *Self) void {
+            fn cb(self_: *TextEditor) void {
                 const sv = self_.scroll_view.getWidget();
                 const svn = self_.scroll_view.node;
 
@@ -261,7 +259,7 @@ pub const TextEditor = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
-    fn handleKeyDownEvent(self: *Self, e: ui.Event(KeyDownEvent)) void {
+    fn handleKeyDownEvent(self: *TextEditor, e: ui.Event(KeyDownEvent)) void {
         _ = self;
         const c = e.ctx.common;
         const val = e.val;
@@ -380,15 +378,13 @@ pub const TextEditor = struct {
 };
 
 const Line = struct {
-    const Self = @This();
-
     alloc: std.mem.Allocator,
     buf: stdx.textbuf.TextBuffer,
 
     /// Computed width.
     width: f32,
 
-    fn init(alloc: std.mem.Allocator) Self {
+    fn init(alloc: std.mem.Allocator) Line {
         return .{
             .alloc = alloc,
             .buf = stdx.textbuf.TextBuffer.init(alloc, "") catch @panic("error"),
@@ -396,7 +392,7 @@ const Line = struct {
         };
     }
 
-    fn deinit(self: Self) void {
+    fn deinit(self: Line) void {
         self.buf.deinit();
     }
 };
@@ -414,11 +410,9 @@ pub const TextEditorInner = struct {
     ctx: *ui.CommonContext,
     focused: bool,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *TextEditorInner, c: *ui.InitContext) void {
         const props = self.props;
-        self.caret_anim_id = c.addInterval(Duration.initSecsF(0.6), self, Self.handleCaretInterval);
+        self.caret_anim_id = c.addInterval(Duration.initSecsF(0.6), self, handleCaretInterval);
         self.caret_anim_show_toggle = true;
         self.editor = props.editor;
         self.ctx = c.common;
@@ -427,34 +421,34 @@ pub const TextEditorInner = struct {
         self.to_caret_width = 0;
     }
 
-    fn setFocused(self: *Self) void {
+    fn setFocused(self: *TextEditorInner) void {
         self.focused = true;
         self.resetCaretAnimation();
     }
 
-    fn resetCaretAnimation(self: *Self) void {
+    fn resetCaretAnimation(self: *TextEditorInner) void {
         self.caret_anim_show_toggle = true;
         self.ctx.resetInterval(self.caret_anim_id);
     }
 
-    fn postCaretUpdate(self: *Self) void {
+    fn postCaretUpdate(self: *TextEditorInner) void {
         const line = self.editor.lines.items[self.editor.caret_line];
         self.to_caret_str = line.buf.getSubStr(0, self.editor.caret_col);
         self.to_caret_width = self.ctx.measureText(self.props.editor.font_gid, self.props.editor.font_size, self.to_caret_str).width;
     }
 
-    fn handleCaretInterval(self: *Self, e: ui.IntervalEvent) void {
+    fn handleCaretInterval(self: *TextEditorInner, e: ui.IntervalEvent) void {
         _ = e;
         self.caret_anim_show_toggle = !self.caret_anim_show_toggle;
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *TextEditorInner, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         _ = c;
         return ui.NullFrameId;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *TextEditorInner, c: *ui.LayoutContext) ui.LayoutSize {
         _ = c;
         var height: f32 = 0;
         var max_width: f32 = 0;
@@ -468,11 +462,10 @@ pub const TextEditorInner = struct {
         return ui.LayoutSize.init(max_width, height);
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
-        _ = self;
+    pub fn render(self: *TextEditorInner, c: *ui.RenderContext) void {
         const editor = self.editor;
 
-        const lo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
 
         const g = c.getGraphics();
         const line_height = @intToFloat(f32, editor.font_line_height);
@@ -488,7 +481,7 @@ pub const TextEditorInner = struct {
         var i: usize = @intCast(usize, visible_start_idx);
         while (i < visible_end_idx) : (i += 1) {
             const line = editor.lines.items[i];
-            g.fillText(lo.x, lo.y + line_offset_y + @intToFloat(f32, i) * line_height, line.buf.buf.items);
+            g.fillText(bounds.min_x, bounds.min_y + line_offset_y + @intToFloat(f32, i) * line_height, line.buf.buf.items);
         }
 
         if (self.focused) {
@@ -497,7 +490,7 @@ pub const TextEditorInner = struct {
                 g.setFillColor(self.editor.props.text_color);
                 // log.warn("width {d:2}", .{width});
                 const height = self.editor.font_vmetrics.height;
-                g.fillRect(@round(lo.x + self.to_caret_width), lo.y + line_offset_y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);
+                g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);
             }
         }
     }

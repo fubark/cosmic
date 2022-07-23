@@ -26,14 +26,12 @@ pub const Column = struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Column, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         return c.fragment(self.props.children);
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Column, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const cstr = c.getSizeConstraint();
         var vacant_size = cstr;
@@ -150,7 +148,7 @@ pub const Column = struct {
         }
     }
 
-    pub fn render(self: *Self, ctx: *ui.RenderContext) void {
+    pub fn render(self: *Column, ctx: *ui.RenderContext) void {
         _ = self;
         _ = ctx;
         // const g = c.g;
@@ -182,14 +180,12 @@ pub const Row = struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Row, c: *ui.BuildContext) ui.FrameId {
         _ = self;
         return c.fragment(self.props.children);
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Row, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const cstr = c.getSizeConstraint();
         var vacant_size = cstr;
@@ -291,16 +287,15 @@ pub const Row = struct {
         }
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
-        _ = self;
-        const g = c.gctx;
-        const alo = c.getAbsLayout();
+    pub fn render(self: *Row, c: *ui.RenderContext) void {
+        const gctx = c.gctx;
+        const bounds = c.getAbsBounds();
 
         const props = self.props;
 
         if (props.bg_color != null) {
-            g.setFillColor(props.bg_color.?);
-            g.fillRect(alo.x, alo.y, alo.width, alo.height);
+            gctx.setFillColor(props.bg_color.?);
+            c.fillBBox(bounds);
         }
         // TODO: draw border
     }
@@ -317,15 +312,13 @@ pub const Flex = struct {
         stretch_width: bool = false,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Flex, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
     /// Computes the child layout preferring to stretch it and returns the current constraint.
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *Flex, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const cstr = c.getSizeConstraint();
         const node = c.getNode();

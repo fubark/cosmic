@@ -104,7 +104,7 @@ pub const TextField = struct {
         // Map mouse pos to caret pos.
         const inner = self.inner.getWidget();
         const xf = @intToFloat(f32, me.x);
-        inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_pos.x + inner.scroll_x);
+        inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_bounds.min_x + inner.scroll_x);
         return .Continue;
     }
 

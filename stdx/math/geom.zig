@@ -8,23 +8,21 @@ pub const Rect = struct {
 };
 
 pub const BBox = struct {
-    const Self = @This();
-
     min_x: f32,
     min_y: f32,
     max_x: f32,
     max_y: f32,
 
-    pub fn init() Self {
+    pub fn init() BBox {
         return .{
-            .min_x = std.math.inf(f32),
-            .min_y = std.math.inf(f32),
-            .max_x = -std.math.inf(f32),
-            .max_y = -std.math.inf(f32),
+            .min_x = 0,
+            .min_y = 0,
+            .max_x = 0,
+            .max_y = 0,
         };
     }
 
-    pub fn encloseRect(self: *@This(), x: f32, y: f32, width: f32, height: f32) void {
+    pub fn encloseRect(self: *BBox, x: f32, y: f32, width: f32, height: f32) void {
         if (x < self.min_x) {
             self.min_x = x;
         }
@@ -41,11 +39,23 @@ pub const BBox = struct {
         }
     }
 
-    pub fn computeWidth(self: *const Self) f32 {
+    pub fn computeCenterX(self: BBox) f32 {
+        return (self.min_x + self.max_x) * 0.5;
+    }
+
+    pub fn computeCenterY(self: BBox) f32 {
+        return (self.min_y + self.max_y) * 0.5;
+    }
+
+    pub fn computeWidth(self: BBox) f32 {
         return self.max_x - self.min_x;
     }
 
-    pub fn computeHeight(self: *const Self) f32 {
+    pub fn computeHeight(self: BBox) f32 {
         return self.max_y - self.min_y;
+    }
+
+    pub fn containsPt(self: BBox, x: f32, y: f32) bool {
+        return x >= self.min_x and x <= self.max_x and y >= self.min_y and y <= self.max_y;
     }
 };

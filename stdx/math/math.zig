@@ -4,6 +4,7 @@ const stdx = @import("../stdx.zig");
 const t = stdx.testing;
 const vec2 = Vec2.init;
 pub const geom = @import("geom.zig");
+pub const BBox = geom.BBox;
 
 usingnamespace @import("matrix.zig");
 usingnamespace @import("transform.zig");

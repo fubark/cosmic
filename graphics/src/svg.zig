@@ -730,7 +730,7 @@ pub const SvgParser = struct {
 
                     // Fill path.
                     if (state.fill != null) {
-                        if (!std.meta.eql(state.fill, self.cur_fill)) {
+                        if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
                             const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
                                 .rgba = state.fill.?.toU32(),
                             }) catch unreachable;
@@ -792,7 +792,7 @@ pub const SvgParser = struct {
 
             // Fill rect.
             if (state.fill != null) {
-                if (!std.meta.eql(state.fill, self.cur_fill)) {
+                if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
                     const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
                         .rgba = state.fill.?.toU32(),
                     }) catch unreachable;
@@ -834,7 +834,7 @@ pub const SvgParser = struct {
 
                     // Fill polygon.
                     if (state.fill != null) {
-                        if (!std.meta.eql(state.fill, self.cur_fill)) {
+                        if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
                             const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
                                 .rgba = state.fill.?.toU32(),
                             }) catch unreachable;

@@ -52,13 +52,8 @@ pub fn WidgetRef(comptime Widget: type) type {
             return stdx.mem.ptrCastAlign(*Widget, self.node.widget);
         }
 
-        pub inline fn getAbsLayout(self: *Self) Layout {
-            return .{
-                .x = self.node.abs_pos.x,
-                .y = self.node.abs_pos.y,
-                .width = self.node.layout.width,
-                .height = self.node.layout.height,
-            };
+        pub inline fn getAbsBounds(self: *Self) stdx.math.BBox {
+            return self.node.abs_bounds;
         }
 
         pub inline fn getHeight(self: Self) f32 {
@@ -75,8 +70,6 @@ const NullId = stdx.ds.CompactNull(u32);
 
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.
 pub const Node = struct {
-    const Self = @This();
-
     /// The vtable is also used to id the widget instance.
     vtable: *const WidgetVTable,
 
@@ -99,8 +92,8 @@ pub const Node = struct {
     /// x, y are relative to the parent's position.
     layout: Layout,
 
-    /// Absolute position of the node is computed when traversing the render tree.
-    abs_pos: Vec2,
+    /// Absolute bounds of the node is computed when traversing the render tree.
+    abs_bounds: stdx.math.BBox,
 
     // TODO: Use a shared buffer.
     /// The child nodes.
@@ -124,7 +117,7 @@ pub const Node = struct {
 
     has_widget_id: bool,
 
-    pub fn init(self: *Self, alloc: std.mem.Allocator, vtable: *const WidgetVTable, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
+    pub fn init(self: *Node, alloc: std.mem.Allocator, vtable: *const WidgetVTable, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
         self.* = .{
             .vtable = vtable,
             .key = key,
@@ -134,7 +127,7 @@ pub const Node = struct {
             .children = std.ArrayList(*Node).init(alloc),
             .child_event_ordering = undefined,
             .layout = undefined,
-            .abs_pos = undefined,
+            .abs_bounds = stdx.math.BBox.init(),
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
             .mouse_down_list = NullId,
             .mouse_up_list = NullId,
@@ -148,27 +141,27 @@ pub const Node = struct {
     }
 
     /// Caller still owns ordering afterwards.
-    pub fn setChildEventOrdering(self: *Self, ordering: []const *Node) void {
+    pub fn setChildEventOrdering(self: *Node, ordering: []const *Node) void {
         self.child_event_ordering = ordering;
         self.has_child_event_ordering = true;
     }
 
-    pub fn getWidget(self: Self, comptime Widget: type) *Widget {
+    pub fn getWidget(self: Node, comptime Widget: type) *Widget {
         return stdx.mem.ptrCastAlign(*Widget, self.widget);
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Node) void {
         self.children.deinit();
         self.key_to_child.deinit();
     }
 
     /// Returns the number of immediate children.
-    pub fn numChildren(self: *Self) usize {
+    pub fn numChildren(self: *Node) usize {
         return self.children.items.len;
     }
 
     /// Returns the total number of children recursively.
-    pub fn numChildrenR(self: *Self) usize {
+    pub fn numChildrenR(self: *Node) usize {
         var total = self.children.items.len;
         for (self.children.items) |child| {
             total += child.numChildrenR();
@@ -176,13 +169,13 @@ pub const Node = struct {
         return total;
     }
 
-    pub fn getChild(self: *Self, idx: usize) *Node {
+    pub fn getChild(self: *Node, idx: usize) *Node {
         return self.children.items[idx];
     }
 
     /// Compute the absolute position of the node by adding up it's ancestor positions.
     /// This is only accurate if the layout has been computed for this node and upwards.
-    pub fn computeCurrentAbsPos(self: Self) Vec2 {
+    pub fn computeCurrentAbsPos(self: Node) Vec2 {
         if (self.parent) |parent| {
             return parent.computeCurrentAbsPos().add(Vec2.init(self.layout.x, self.layout.y));
         } else {
@@ -190,13 +183,8 @@ pub const Node = struct {
         }
     }
 
-    pub fn getAbsLayout(self: Self) Layout {
-        return .{
-            .x = self.abs_pos.x,
-            .y = self.abs_pos.y,
-            .width = self.layout.width,
-            .height = self.layout.height,
-        };
+    pub fn getAbsBounds(self: Node) stdx.math.BBox {
+        return self.abs_bounds;
     }
 };
 
@@ -233,19 +221,17 @@ pub const WidgetVTable = struct {
 };
 
 pub const LayoutSize = struct {
-    const Self = @This();
-
     width: f32,
     height: f32,
 
-    pub fn init(width: f32, height: f32) @This() {
+    pub fn init(width: f32, height: f32) LayoutSize {
         return .{
             .width = width,
             .height = height,
         };
     }
 
-    pub fn cropTo(self: *Self, max_size: LayoutSize) void {
+    pub fn cropTo(self: *LayoutSize, max_size: LayoutSize) void {
         if (self.width > max_size.width) {
             self.width = max_size.width;
         }
@@ -254,19 +240,19 @@ pub const LayoutSize = struct {
         }
     }
 
-    pub fn cropToWidth(self: *Self, width: f32) void {
+    pub fn cropToWidth(self: *LayoutSize, width: f32) void {
         if (self.width > width) {
             self.width = width;
         }
     }
 
-    pub fn cropToHeight(self: *Self, height: f32) void {
+    pub fn cropToHeight(self: *LayoutSize, height: f32) void {
         if (self.height > height) {
             self.height = height;
         }
     }
 
-    pub fn toIncSize(self: Self, inc_width: f32, inc_height: f32) LayoutSize {
+    pub fn toIncSize(self: LayoutSize, inc_width: f32, inc_height: f32) LayoutSize {
         return .{
             .width = self.width + inc_width,
             .height = self.height + inc_height,

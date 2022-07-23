@@ -26,21 +26,19 @@ pub const Root = struct {
 
     user_root: ui.NodeRef,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *Root, c: *ui.InitContext) void {
         self.overlays = std.ArrayList(OverlayItem).init(c.alloc);
         self.build_buf = std.ArrayList(ui.FrameId).init(c.alloc);
         self.next_id = 1;
     }
 
     pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+        const self = node.getWidget(Root);
         self.overlays.deinit();
         self.build_buf.deinit();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Root, c: *ui.BuildContext) ui.FrameId {
         self.build_buf.ensureTotalCapacity(1 + self.overlays.items.len) catch @panic("error");
         self.build_buf.items.len = 0;
         self.build_buf.appendAssumeCapacity(self.props.user_root);
@@ -93,7 +91,7 @@ pub const Root = struct {
         }); 
     }
 
-    pub fn showPopover(self: *Self, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: PopoverOptions) OverlayId {
+    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: PopoverOptions) OverlayId {
         defer self.next_id += 1;
         _ = self.overlays.append(.{
             .id = self.next_id,
@@ -107,7 +105,7 @@ pub const Root = struct {
         return self.next_id;
     }
 
-    pub fn showModal(self: *Self, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: ModalOptions) OverlayId {
+    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: ModalOptions) OverlayId {
         defer self.next_id += 1;
         _ = self.overlays.append(.{
             .id = self.next_id,
@@ -121,7 +119,7 @@ pub const Root = struct {
         return self.next_id;
     }
 
-    fn getOverlay(self: Self, id: OverlayId) ?OverlayItem {
+    fn getOverlay(self: Root, id: OverlayId) ?OverlayItem {
         for (self.overlays.items) |it| {
             if (it.id == id) {
                 return it;
@@ -130,7 +128,7 @@ pub const Root = struct {
         return null;
     }
 
-    pub fn closePopover(self: *Self, id: OverlayId) void {
+    pub fn closePopover(self: *Root, id: OverlayId) void {
         for (self.overlays.items) |it, i| {
             if (it.tag == .Popover and it.id == id) {
                 _ = self.overlays.orderedRemove(i);
@@ -139,7 +137,7 @@ pub const Root = struct {
         }
     }
 
-    pub fn closeModal(self: *Self, id: OverlayId) void {
+    pub fn closeModal(self: *Root, id: OverlayId) void {
         for (self.overlays.items) |it, i| {
             if (it.tag == .Modal and it.id == id) {
                 _ = self.overlays.orderedRemove(i);
@@ -191,38 +189,36 @@ pub const ModalOverlay = struct {
         onRequestClose: ?stdx.Function(fn () void) = null,
     },
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *ModalOverlay, c: *ui.InitContext) void {
         _ = self;
         c.addMouseDownHandler(self, onMouseDown);
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
+    fn onMouseDown(self: *ModalOverlay, e: ui.MouseDownEvent) ui.EventResult {
         if (self.props.child != ui.NullFrameId) {
             const child = e.ctx.node.children.items[0];
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
 
             // If hit outside of the bounds, request to close.
-            if (xf < child.abs_pos.x or xf > child.abs_pos.x + child.layout.width or yf < child.abs_pos.y or yf > child.abs_pos.y + child.layout.height) {
+            if (!child.abs_bounds.containsPt(xf, yf)) {
                 self.requestClose();
             }
         }
         return .Continue;
     }
 
-    pub fn requestClose(self: *Self) void {
+    pub fn requestClose(self: *ModalOverlay) void {
         if (self.props.onRequestClose) |cb| {
             cb.call(.{});
         }
     }
 
-    pub fn build(self: *Self, _: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ModalOverlay, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *ModalOverlay, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         if (self.props.child != ui.NullFrameId) {
@@ -235,12 +231,12 @@ pub const ModalOverlay = struct {
         return cstr;
     }
 
-    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+    pub fn renderCustom(self: *ModalOverlay, c: *ui.RenderContext) void {
         if (self.props.child != ui.NullFrameId) {
-            const alo = c.getAbsLayout();
+            const bounds = c.getAbsBounds();
             const child_lo = c.node.children.items[0].layout;
-            const child_x = alo.x + child_lo.x;
-            const child_y = alo.y + child_lo.y;
+            const child_x = bounds.min_x + child_lo.x;
+            const child_y = bounds.min_y + child_lo.y;
 
             const gctx = c.gctx;
             gctx.setFillColor(self.props.bg_color);
@@ -272,42 +268,41 @@ pub const PopoverOverlay = struct {
     custom_post_render_ctx: ?*anyopaque,
     custom_post_render: ?fn (?*anyopaque, ctx: *ui.RenderContext) void,
 
-    const Self = @This();
     const MarginFromSource = 20;
     const ArrowSize = 30;
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *PopoverOverlay, c: *ui.InitContext) void {
         _ = self;
         self.custom_post_render = null;
         self.custom_post_render_ctx = null;
         c.addMouseDownHandler(self, onMouseDown);
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
+    fn onMouseDown(self: *PopoverOverlay, e: ui.MouseDownEvent) ui.EventResult {
         if (self.props.child != ui.NullFrameId) {
             const child = e.ctx.node.children.items[0];
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
 
             // If hit outside of the bounds, request to close.
-            if (xf < child.abs_pos.x or xf > child.abs_pos.x + child.layout.width or yf < child.abs_pos.y or yf > child.abs_pos.y + child.layout.height) {
+            if (!child.abs_bounds.containsPt(xf, yf)) {
                 self.requestClose();
             }
         }
         return .Continue;
     }
 
-    pub fn requestClose(self: *Self) void {
+    pub fn requestClose(self: *PopoverOverlay) void {
         if (self.props.onRequestClose) |cb| {
             cb.call(.{});
         }
     }
 
-    pub fn build(self: *Self, _: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *PopoverOverlay, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *PopoverOverlay, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraint();
 
         if (self.props.child != ui.NullFrameId) {
@@ -329,12 +324,12 @@ pub const PopoverOverlay = struct {
         return cstr;
     }
 
-    pub fn renderCustom(self: *Self, c: *ui.RenderContext) void {
+    pub fn renderCustom(self: *PopoverOverlay, c: *ui.RenderContext) void {
         if (self.props.child != ui.NullFrameId) {
-            const alo = c.getAbsLayout();
+            const bounds = c.getAbsBounds();
             const child_lo = c.node.children.items[0].layout;
-            const child_x = alo.x + child_lo.x;
-            const child_y = alo.y + child_lo.y;
+            const child_x = bounds.min_x + child_lo.x;
+            const child_y = bounds.min_y + child_lo.y;
 
             const g = c.gctx;
             g.setFillColor(self.props.bg_color);

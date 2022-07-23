@@ -4,7 +4,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
-const ScrollView = ui.widgets.ScrollView;
+const w = ui.widgets;
 
 const NullId = std.math.maxInt(u32);
 const log = stdx.log.scoped(.list);
@@ -18,15 +18,16 @@ pub const ScrollList = struct {
     list: ui.WidgetRef(List),
 
     pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
-        return c.build(ScrollView, .{
+        return w.ScrollView(.{
             .enable_hscroll = false,
-            .bg_color = self.props.bg_color,
-            .child = c.build(List, .{
+            .bg_color = self.props.bg_color
+        },
+            c.build(List, .{
                 .bind = &self.list,
                 .bg_color = self.props.bg_color,
                 .children = self.props.children,
             }),
-        });
+        );
     }
 
     /// Index of ui.NullId represents no selection.
@@ -83,14 +84,14 @@ pub const List = struct {
             e.ctx.requestFocus(onBlur);
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
-            if (xf >= node.abs_pos.x and xf <= node.abs_pos.x + node.layout.width) {
+            if (xf >= node.abs_bounds.min_x and xf <= node.abs_bounds.max_x) {
                 var i: u32 = 0;
                 while (i < node.children.items.len) : (i += 1) {
                     const child = node.children.items[i];
-                    if (yf < child.abs_pos.y) {
+                    if (yf < child.abs_bounds.min_y) {
                         break;
                     }
-                    if (yf >= child.abs_pos.y and yf <= child.abs_pos.y + child.layout.height) {
+                    if (yf >= child.abs_bounds.min_y and yf <= child.abs_bounds.max_y) {
                         self.selected_idx = i;
                         break;
                     }
@@ -138,11 +139,11 @@ pub const List = struct {
 
     pub fn renderCustom(self: *List, c: *ui.RenderContext) void {
         const g = c.gctx;
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
         const node = c.node;
 
         g.setFillColor(self.props.bg_color);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        c.fillBBox(bounds);
 
         c.renderChildren();
 
@@ -151,7 +152,7 @@ pub const List = struct {
             g.setStrokeColor(Color.Blue);
             g.setLineWidth(2);
             const child = node.children.items[self.selected_idx];
-            g.drawRect(child.abs_pos.x, child.abs_pos.y, alo.width, child.layout.height);
+            g.drawRectBounds(child.abs_bounds.min_x, child.abs_bounds.min_y, bounds.max_x, child.abs_bounds.max_y);
         }
     }
 };

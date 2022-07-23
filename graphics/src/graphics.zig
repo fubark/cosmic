@@ -312,32 +312,60 @@ pub const Graphics = struct {
 
     pub fn fillRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillRect(&self.impl, x, y, width, height),
+            .OpenGL, .Vulkan => gpu.Graphics.fillRectBounds(&self.impl, x, y, x + width, y + height),
             .WasmCanvas => canvas.Graphics.fillRect(&self.impl, x, y, width, height),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn fillRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillRectBounds(&self.impl, x0, y0, x1, y1),
             else => stdx.unsupported(),
         }
     }
 
     pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRect(&self.impl, x, y, width, height),
+            .OpenGL, .Vulkan => gpu.Graphics.drawRectBounds(&self.impl, x, y, x + width, y + height),
             .WasmCanvas => canvas.Graphics.drawRect(&self.impl, x, y, width, height),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawRectBounds(&self.impl, x0, y0, x1, y1),
             else => stdx.unsupported(),
         }
     }
 
     pub fn fillRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.fillRoundRectBounds(&self.impl, x, y, x + width, y + height, radius),
             .WasmCanvas => canvas.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn fillRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillRoundRectBounds(&self.impl, x0, y0, x1, y1, radius),
             else => stdx.unsupported(),
         }
     }
 
     pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRectBounds(&self.impl, x, y, x + width, y + height, radius),
             .WasmCanvas => canvas.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRectBounds(&self.impl, x0, y0, x1, y1, radius),
             else => stdx.unsupported(),
         }
     }
@@ -1070,6 +1098,13 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x, y, width, height),
             .WasmCanvas => canvas.Graphics.clipRect(&self.impl, x, y, width, height),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn clipRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x0, y0, x1 - x0, y1 - y0),
             else => stdx.unsupported(),
         }
     }

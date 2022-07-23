@@ -11,21 +11,18 @@ pub const MouseArea = struct {
 
     pressed: bool,
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *MouseArea, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *MouseArea, c: *ui.InitContext) void {
         self.pressed = false;
         c.addMouseDownHandler(c.node, onMouseDown);
         c.addMouseUpHandler(c.node, onMouseUp);
     }
 
     fn onMouseUp(node: *ui.Node, e: ui.MouseUpEvent) void {
-        var self = node.getWidget(Self);
+        var self = node.getWidget(MouseArea);
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
@@ -37,7 +34,7 @@ pub const MouseArea = struct {
     }
 
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
-        var self = node.getWidget(Self);
+        var self = node.getWidget(MouseArea);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
@@ -47,7 +44,7 @@ pub const MouseArea = struct {
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
-        var self = node.getWidget(Self);
+        var self = node.getWidget(MouseArea);
         self.pressed = false;
     }
 };
