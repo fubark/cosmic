@@ -1,7 +1,9 @@
+const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
+const log = stdx.log.scoped(.render);
 
 pub const ProgressBar = struct {
     props: struct {
@@ -12,38 +14,34 @@ pub const ProgressBar = struct {
 
     value: f32,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *ProgressBar, c: *ui.InitContext) void {
         _ = c;
         self.value = self.props.init_val;
     }
 
-    pub fn setValue(self: *Self, value: f32) void {
+    pub fn setValue(self: *ProgressBar, value: f32) void {
         self.value = value;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *ProgressBar, c: *ui.LayoutContext) ui.LayoutSize {
         _ = self;
         const min_width = 200;
         const min_height = 25;
 
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
         var res = ui.LayoutSize.init(min_width, min_height);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        }
+        res.growToMin(cstr);
         return res;
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
+    pub fn render(self: *ProgressBar, c: *ui.RenderContext) void {
         const g = c.gctx;
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
 
         g.setFillColor(Color.DarkGray);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        c.fillBBox(bounds);
         g.setFillColor(self.props.bar_color);
-        const progress_width = (self.value / self.props.max_val) * alo.width;
-        g.fillRect(alo.x, alo.y, progress_width, alo.height);
+        const progress_width = (self.value / self.props.max_val) * bounds.computeWidth();
+        g.fillRectBounds(bounds.min_x, bounds.min_y, bounds.min_x + progress_width, bounds.max_y);
     }
 };

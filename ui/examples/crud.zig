@@ -27,8 +27,7 @@ pub const App = struct {
         self.filter = "";
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(App);
+    pub fn deinit(self: *App, _: std.mem.Allocator) void {
         for (self.buf.items) |str| {
             self.alloc.free(str);
         }

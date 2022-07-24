@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const module = @import("module.zig");
 pub const Module = module.Module;
 pub const Layout = module.Layout;
@@ -19,6 +21,7 @@ pub const MouseUpEvent = module.MouseUpEvent;
 pub const MouseMoveEvent = module.MouseMoveEvent;
 pub const MouseScrollEvent = module.MouseScrollEvent;
 pub const WidgetProps = module.WidgetProps;
+pub const SizeConstraints = module.SizeConstraints;
 
 const config = @import("config.zig");
 pub const Config = config.Config;
@@ -31,6 +34,7 @@ pub const NullId = @import("std").math.maxInt(u32);
 pub const NullFrameId = frame.NullFrameId;
 pub const FrameListPtr = frame.FrameListPtr;
 pub const FramePropsPtr = frame.FramePropsPtr;
+pub const NoChild = NullId;
 
 const widget = @import("widget.zig");
 pub const Node = widget.Node;
@@ -94,3 +98,8 @@ pub const EventResult = enum(u1) {
     /// Stop the event from propagating to children.
     Stop = 1,
 };
+
+pub const ExpandedWidth = std.math.inf_f32;
+pub const ExpandedHeight = std.math.inf_f32;
+
+pub const OverlayId = @import("widgets/root.zig").OverlayId;

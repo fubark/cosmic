@@ -7,7 +7,7 @@ const ui = @import("../ui.zig");
 const ZStack = ui.widgets.ZStack;
 const log = stdx.log.scoped(.root);
 
-const OverlayId = u32;
+pub const OverlayId = u32;
 
 const RootOverlayHandle = struct {
     root: *Root,
@@ -219,16 +219,18 @@ pub const ModalOverlay = struct {
     }
 
     pub fn layout(self: *ModalOverlay, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
 
         if (self.props.child != ui.NullFrameId) {
             const child = c.node.children.items[0];
-            const child_size = c.computeLayout(child, cstr);
+            const child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
             // Currently always centers.
-            c.setLayout(child, ui.Layout.init((cstr.width - child_size.width) * 0.5, (cstr.height - child_size.height) * 0.5, child_size.width, child_size.height));
+            const x = (cstr.max_width - child_size.width) * 0.5;
+            const y = (cstr.max_height - child_size.height) * 0.5;
+            c.setLayout(child, ui.Layout.init(x, y, child_size.width, child_size.height));
         }
-        return cstr;
+        return cstr.getMaxLayoutSize();
     }
 
     pub fn renderCustom(self: *ModalOverlay, c: *ui.RenderContext) void {
@@ -303,15 +305,15 @@ pub const PopoverOverlay = struct {
     }
 
     pub fn layout(self: *PopoverOverlay, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
 
         if (self.props.child != ui.NullFrameId) {
             const child = c.node.children.items[0];
-            const child_size = c.computeLayout(child, cstr);
+            const child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
             // Position relative to source widget. Source widget layout should already be computed.
             const src_abs_pos = self.props.src_node.computeCurrentAbsPos();
-            if (src_abs_pos.x > cstr.width * 0.5) {
+            if (src_abs_pos.x > cstr.max_width * 0.5) {
                 // Display popover to the left.
                 c.setLayout(child, ui.Layout.init(src_abs_pos.x - child_size.width - MarginFromSource, src_abs_pos.y, child_size.width, child_size.height));
                 self.to_left = true;
@@ -321,7 +323,7 @@ pub const PopoverOverlay = struct {
                 self.to_left = false;
             }
         }
-        return cstr;
+        return cstr.getMaxLayoutSize();
     }
 
     pub fn renderCustom(self: *PopoverOverlay, c: *ui.RenderContext) void {

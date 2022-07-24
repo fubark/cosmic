@@ -70,8 +70,7 @@ pub const TextEditor = struct {
         c.addKeyDownHandler(self, handleKeyDownEvent);
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(TextEditor);
+    pub fn deinit(self: *TextEditor, _: std.mem.Allocator) void {
         for (self.lines.items) |line| {
             line.deinit();
         }

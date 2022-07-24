@@ -39,6 +39,7 @@ pub const TextButton = struct {
     }
 };
 
+/// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
 pub const Button = struct {
     props: struct {
         onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
@@ -53,21 +54,19 @@ pub const Button = struct {
 
     pressed: bool,
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Button, c: *ui.BuildContext) ui.FrameId {
         _ = c;
         return self.props.child;
     }
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *Button, c: *ui.InitContext) void {
         self.pressed = false;
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
         c.addMouseUpHandler(c.node, handleMouseUpEvent);
     }
 
     fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
-        var self = node.getWidget(Self);
+        var self = node.getWidget(Button);
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
@@ -79,7 +78,7 @@ pub const Button = struct {
     }
 
     fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
-        var self = node.getWidget(Self);
+        var self = node.getWidget(Button);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
@@ -89,26 +88,17 @@ pub const Button = struct {
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
-        var self = node.getWidget(Self);
+        var self = node.getWidget(Button);
         self.pressed = false;
     }
 
-    /// Defaults to a fixed size if there is no child widget.
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
-
-        var res: ui.LayoutSize = cstr;
+    pub fn layout(self: *Button, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
         if (self.props.child != ui.NullFrameId) {
             const child_node = c.getNode().children.items[0];
-            var child_size = c.computeLayout(child_node, cstr);
-            child_size.cropTo(cstr);
-            res = child_size;
-            if (c.prefer_exact_width) {
-                res.width = cstr.width;
-            }
-            if (c.prefer_exact_height) {
-                res.height = cstr.height;
-            }
+            const child_size = c.computeLayoutWithMax(child_node, cstr.max_width, cstr.max_height);
+            var res = child_size;
+            res.growToMin(cstr);
             switch (self.props.halign) {
                 .Left => c.setLayout(child_node, ui.Layout.initWithSize(0, 0, child_size)),
                 .Center => c.setLayout(child_node, ui.Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
@@ -116,18 +106,13 @@ pub const Button = struct {
             }
             return res;
         } else {
-            res = ui.LayoutSize.init(150, 40);
-            if (c.prefer_exact_width) {
-                res.width = cstr.width;
-            }
-            if (c.prefer_exact_height) {
-                res.height = cstr.height;
-            }
+            var res = ui.LayoutSize.init(150, 40);
+            res.growToMin(cstr);
             return res;
         }
     }
 
-    pub fn render(self: *Self, ctx: *ui.RenderContext) void {
+    pub fn render(self: *Button, ctx: *ui.RenderContext) void {
         const bounds = ctx.getAbsBounds();
         const g = ctx.getGraphics();
         if (!self.pressed) {

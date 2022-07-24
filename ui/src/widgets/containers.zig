@@ -14,8 +14,7 @@ pub const Padding = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    pub fn build(self: *Padding, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Padding, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
@@ -28,23 +27,21 @@ pub const Padding = struct {
         const h_pad = pad_left + pad_right;
         const v_pad = pad_top + pad_bottom;
 
-        const cstr = c.getSizeConstraint();
-        const node = c.getNode();
-        if (node.children.items.len == 0) {
+        const cstr = c.getSizeConstraints();
+        if (self.props.child == ui.NullFrameId) {
             return ui.LayoutSize.init(h_pad, v_pad);
         }
 
+        const node = c.getNode();
         const child = node.children.items[0];
-        if (!c.prefer_exact_width_or_height) {
-            var child_size = c.computeLayout(child, cstr);
-            c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
-            return child_size.toIncSize(h_pad, v_pad);
-        } else {
-            const child_cstr = cstr.toIncSize(-h_pad, -v_pad);
-            const child_size = c.computeLayoutStretch(child, child_cstr, c.prefer_exact_width, c.prefer_exact_height);
-            c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
-            return child_size.toIncSize(h_pad, v_pad);
-        }
+
+        const min_width = std.math.max(cstr.min_width - h_pad, 0);
+        const min_height = std.math.max(cstr.min_height - v_pad, 0);
+        const max_width = std.math.max(cstr.max_width - h_pad, 0);
+        const max_height = std.math.max(cstr.max_height - v_pad, 0);
+        const child_size = c.computeLayout(child, min_width, min_height, max_width, max_height);
+        c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
+        return child_size.toIncSize(h_pad, v_pad);
     }
 };
 
@@ -59,43 +56,48 @@ pub const Sized = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Sized, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        if (self.props.child != ui.NullFrameId) {
-            var child_cstr = c.getSizeConstraint();
-            var prefer_exact_width = c.prefer_exact_width;
-            var prefer_exact_height = c.prefer_exact_height;
-            if (self.props.width) |width| {
-                child_cstr.width = width;
-                prefer_exact_width = true;
-            }
-            if (self.props.height) |height| {
-                child_cstr.height = height;
-                prefer_exact_height = true;
-            }
-
-            const child = c.getNode().children.items[0];
-            const child_size = c.computeLayoutStretch(child, child_cstr, prefer_exact_width, prefer_exact_height);
-            c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
-
-            var res = ui.LayoutSize.init(0, 0);
-            res.width = self.props.width orelse child_size.width;
-            res.height = self.props.height orelse child_size.height;
-            return res;
-        } else {
-            var res = ui.LayoutSize.init(0, 0);
-            res.width = self.props.width orelse 0;
-            res.height = self.props.height orelse 0;
-            return res;
-        }
+    pub fn layout(self: *Sized, ctx: *ui.LayoutContext) ui.LayoutSize {
+        return sizedWrapChildLayout(ctx, self.props.width, self.props.height, self.props.child);
     }
 };
+
+fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, child_id: ui.FrameId) ui.LayoutSize {
+    if (child_id != ui.NullFrameId) {
+        var child_cstr = ctx.getSizeConstraints();
+        if (m_width) |width| {
+            if (width != ui.ExpandedWidth) {
+                if (width < child_cstr.max_width) {
+                    child_cstr.min_width = width;
+                    child_cstr.max_width = width;
+                }
+            }
+        }
+        if (m_height) |height| {
+            if (height != ui.ExpandedHeight) {
+                if (height < child_cstr.max_height) {
+                    child_cstr.min_height = height;
+                    child_cstr.max_height = height;
+                }
+            }
+        }
+
+        const child = ctx.getNode().children.items[0];
+        const child_size = ctx.computeLayout2(child, child_cstr);
+        ctx.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
+
+        const width = m_width orelse child_size.width;
+        const height = m_height orelse child_size.height;
+        return ui.LayoutSize.init(width, height);
+    } else {
+        const width = m_width orelse 0;
+        const height = m_height orelse 0;
+        return ui.LayoutSize.init(width, height);
+    }
+}
 
 pub const Center = struct {
     props: struct {
@@ -110,22 +112,21 @@ pub const Center = struct {
     }
 
     pub fn layout(self: *Center, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
 
         if (self.props.child == ui.NullFrameId) {
-            return cstr;
+            return cstr.getMaxLayoutSize();
         }
 
         const node = c.getNode();
         const child = node.children.items[0];
-        var child_size = c.computeLayout(child, cstr);
-        child_size.cropTo(cstr);
+        var child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
-        const x = if (self.props.hcenter) (cstr.width - child_size.width)/2 else 0;
-        const y = if (self.props.vcenter) (cstr.height - child_size.height)/2 else 0;
+        const x = if (self.props.hcenter) (cstr.max_width - child_size.width) * 0.5 else 0;
+        const y = if (self.props.vcenter) (cstr.max_height - child_size.height) * 0.5 else 0;
 
         c.setLayout(child, ui.Layout.init(x, y, child_size.width, child_size.height));
-        return cstr;
+        return cstr.getMaxLayoutSize();
     }
 };
 
@@ -149,21 +150,21 @@ pub const Stretch = struct {
         aspect_ratio: f32 = 1,
     },
 
-    pub fn build(self: *Stretch, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Stretch, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
     pub fn layout(self: *Stretch, c: *ui.LayoutContext) ui.LayoutSize {
-        var cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
+        var child_cstr = cstr.getMaxLayoutSize();
         switch (self.props.method) {
-            .WidthAndKeepRatio => cstr.height = cstr.width / self.props.aspect_ratio,
-            .HeightAndKeepRatio => cstr.width = cstr.height * self.props.aspect_ratio,
+            .WidthAndKeepRatio => child_cstr.height = child_cstr.width / self.props.aspect_ratio,
+            .HeightAndKeepRatio => child_cstr.width = child_cstr.height * self.props.aspect_ratio,
             else => {},
         }
 
         if (self.props.child == ui.NullFrameId) {
-            return cstr;
+            return child_cstr;
         }
 
         const h_stretch = self.props.method == .Both or self.props.method == .Width or self.props.method == .WidthAndKeepRatio or self.props.method == .HeightAndKeepRatio;
@@ -171,18 +172,11 @@ pub const Stretch = struct {
 
         const node = c.getNode();
         const child = node.children.items[0];
-        var child_size = c.computeLayoutStretch(child, cstr, h_stretch, v_stretch);
-        child_size.cropTo(cstr);
-
+        const min_width = if (h_stretch) child_cstr.width else 0;
+        const min_height = if (v_stretch) child_cstr.height else 0;
+        const child_size = c.computeLayout(child, min_width, min_height, child_cstr.width, child_cstr.height);
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
-        var res = child_size;
-        if (h_stretch) {
-            res.width = cstr.width;
-        }
-        if (v_stretch) {
-            res.height = cstr.height;
-        }
-        return res;
+        return child_size;
     }
 };
 
@@ -205,8 +199,7 @@ pub const ZStack = struct {
         self.child_event_ordering = std.ArrayList(*ui.Node).init(c.alloc);
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(ZStack);
+    pub fn deinit(self: *ZStack, _: std.mem.Allocator) void {
         self.ordered_children.deinit();
         self.child_event_ordering.deinit();
     }

@@ -4,10 +4,17 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("../ui.zig");
-const Node = ui.Node;
-const FrameListPtr = ui.FrameListPtr;
 
 const log = stdx.log.scoped(.scroll_view);
+
+const ScrollBarVisibility = enum(u2) {
+    /// Scroll bar is not displayed.
+    hidden = 0,
+    /// Scroll bar is displayed when content exceeds bounds.
+    auto = 1,
+    /// Scroll bar is always displayed.
+    visible = 2,
+};
 
 /// By default, scroll view will stretch to it's child. Must be constrained by parent sizer (eg. Sized, Flex) to trigger scrollbars. 
 pub const ScrollView = struct {
@@ -15,7 +22,12 @@ pub const ScrollView = struct {
         child: ui.FrameId = ui.NullFrameId,
         bg_color: Color = Color.Transparent,
         border_color: Color = Color.DarkGray,
+        show_hscroll: ScrollBarVisibility = .auto,
+        show_vscroll: ScrollBarVisibility = .auto,
+        /// Whether scrolling is enabled along the x axis. If false, the child's width is bounded by the ScrollView's width.
         enable_hscroll: bool = true,
+        /// Whether scrolling is enabled along the y axis. If false, the child's height is bounded by the ScrollView's height.
+        enable_vscroll: bool = true,
         show_border: bool = true,
 
         /// Triggered when mouse down hits the content rather than the scrollbars.
@@ -38,7 +50,7 @@ pub const ScrollView = struct {
     dragging_offset: f32,
     dragging_vbar: bool,
 
-    node: *Node,
+    node: *ui.Node,
     scroll_to_bottom_after_layout: bool,
 
     const BarSize = 15;
@@ -174,7 +186,7 @@ pub const ScrollView = struct {
     /// In some cases, it's desirable to change the scroll view after the layout phase (when scroll width/height is updated) and before the render phase.
     /// eg. Scroll to cursor view.
     /// Since layout has already run, the children need to be repositioned.
-    pub fn setScrollPosAfterLayout(self: *ScrollView, node: *Node, scroll_x: f32, scroll_y: f32) void {
+    pub fn setScrollPosAfterLayout(self: *ScrollView, node: *ui.Node, scroll_x: f32, scroll_y: f32) void {
         self.scroll_x = scroll_x;
         self.scroll_y = scroll_y;
         for (node.children.items) |it| {
@@ -184,26 +196,28 @@ pub const ScrollView = struct {
         self.computeEffScrollDims(node.layout.width, node.layout.height);
     }
 
-    /// Take up the same amount of space as it's child or constrained by the parent.
+    /// Take up the same amount of space as it's child and respects parent's constraints.
     /// Updates scroll width and height.
     pub fn layout(self: *ScrollView, c: *ui.LayoutContext) ui.LayoutSize {
-        const node = c.getNode();
-        const size_cstr = ui.LayoutSize.init(std.math.inf(f32), std.math.inf(f32));
-
         self.scroll_height = 0;
         self.scroll_width = 0;
 
+        const cstr = c.getSizeConstraints();
+
         if (self.props.child != ui.NullFrameId) {
+            const node = c.getNode();
             const child = node.children.items[0];
             var child_size: ui.LayoutSize = undefined;
-            if (c.prefer_exact_width and !self.props.enable_hscroll) {
-                if (self.has_vbar) {
-                    child_size = c.computeLayoutStretch(child, ui.LayoutSize.init(c.getSizeConstraint().width - BarSize, std.math.inf(f32)), true, false);
-                } else {
-                    child_size = c.computeLayoutStretch(child, ui.LayoutSize.init(c.getSizeConstraint().width, std.math.inf(f32)), true, false);
-                }
+            if (!self.props.enable_hscroll) {
+                const child_cstr = ui.SizeConstraints{
+                    .min_width = 0,
+                    .min_height = 0,
+                    .max_width = if (self.has_vbar) cstr.max_width - BarSize else cstr.max_width,
+                    .max_height = ui.ExpandedHeight,
+                };
+                child_size = c.computeLayout2(child, child_cstr);
             } else {
-                child_size = c.computeLayout(child, size_cstr);
+                child_size = c.computeLayoutWithMax(child, ui.ExpandedWidth, ui.ExpandedHeight);
             }
             if (child_size.height > self.scroll_height) {
                 self.scroll_height = child_size.height;
@@ -214,18 +228,9 @@ pub const ScrollView = struct {
             c.setLayout(child, ui.Layout.init(-self.scroll_x, -self.scroll_y, child_size.width, child_size.height));
         }
 
-        const cstr = c.getSizeConstraint();
+        // Natural size is child's size.
         var res = ui.LayoutSize.init(self.scroll_width, self.scroll_height);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        } else {
-            res.cropToWidth(cstr.width);
-        }
-        if (c.prefer_exact_height) {
-            res.height = cstr.height;
-        } else {
-            res.cropToHeight(cstr.height);
-        }
+        res.limitToMinMax(cstr);
 
         if (self.scroll_to_bottom_after_layout) {
             if (self.scroll_height > res.height) {
@@ -236,8 +241,8 @@ pub const ScrollView = struct {
 
         var prev_has_vbar = self.has_vbar;
         self.computeEffScrollDims(res.width, res.height);
-        if (!prev_has_vbar and self.has_vbar and c.prefer_exact_width) {
-            // Recompute layout when turning on the vbar when prefer_exact_width is on.
+        if (!prev_has_vbar and self.has_vbar) {
+            // Recompute layout when turning on the vbar.
             return self.layout(c);
         }
 

@@ -145,7 +145,7 @@ pub const Counter = struct {
         // Invoked after the widget instance and it's child widgets were created.
     }
 
-    pub fn deinit(node: *Node, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *Counter, alloc: std.mem.Allocator) void {
         // Invoked when the widget instance is destroyed.
     }
 

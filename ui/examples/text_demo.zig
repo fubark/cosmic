@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const platform = @import("platform");
 const Window = platform.Window;
 const graphics = @import("graphics");
@@ -52,8 +53,7 @@ pub const App = struct {
         self.cwd = c.alloc.dupe(u8, cwd) catch @panic("error");
     }
 
-    pub fn deinit(node: *ui.Node, alloc: std.mem.Allocator) void {
-        const self = node.getWidget(App);
+    pub fn deinit(self: *App, alloc: std.mem.Allocator) void {
         alloc.free(self.cwd);
     }
 
@@ -102,7 +102,7 @@ pub const App = struct {
             }
 
             fn onLoadFontClick(self_: *App, _: platform.MouseUpEvent) void {
-                self_.file_m = self_.root.showModal(self_, buildFileDialog, .{});
+                self_.file_m = self_.root.showModal(self_, buildFileDialog, .{}) catch fatal();
             }
         };
 

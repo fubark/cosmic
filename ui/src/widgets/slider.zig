@@ -109,16 +109,14 @@ pub fn SliderBase(comptime is_float: bool) type {
             self.last_value = self.value;
         }
 
-        pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-            _ = self;
+        pub fn layout(_: *Self, c: *ui.LayoutContext) ui.LayoutSize {
             const min_width: f32 = 200;
             const min_height = Height;
-            const cstr = c.getSizeConstraint();
-            
+            const cstr = c.getSizeConstraints();
+
             var res = ui.LayoutSize.init(min_width, min_height);
-            if (c.prefer_exact_width) {
-                res.width = cstr.width;
-            }
+            res.growToWidth(cstr.min_width);
+            res.cropToWidth(cstr.max_width);
             return res;
         }
 

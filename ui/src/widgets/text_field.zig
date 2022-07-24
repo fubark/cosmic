@@ -49,8 +49,7 @@ pub const TextField = struct {
         self.node = c.node;
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(TextField);
+    pub fn deinit(self: *TextField, _: std.mem.Allocator) void {
         self.buf.deinit();
     }
 
@@ -210,32 +209,31 @@ pub const TextField = struct {
     }
 
     pub fn layout(self: *TextField, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
         const child = c.getNode().children.items[0];
         if (self.props.width) |width| {
-            const child_size = c.computeLayoutStretch(child, ui.LayoutSize.init(width, cstr.height), true, c.prefer_exact_height);
+            const child_size = c.computeLayout(child, width, cstr.min_height, width, cstr.max_height);
             c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
             return child_size;
         } else {
-            const child_size = c.computeLayoutStretch(child, cstr, c.prefer_exact_width, c.prefer_exact_height);
+            const child_size = c.computeLayout2(child, cstr);
             c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
             return child_size;
         }
     }
 
     pub fn render(self: *TextField, c: *ui.RenderContext) void {
-        _ = self;
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
         const g = c.getGraphics();
 
         // Background.
         g.setFillColor(self.props.bg_color);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        c.fillBBox(bounds);
 
         if (c.isFocused() and self.props.focused_show_border) {
             g.setStrokeColor(self.props.focused_border_color);
             g.setLineWidth(2);
-            g.drawRect(alo.x, alo.y, alo.width, alo.height);
+            c.drawBBox(bounds);
         }
     }
 };
@@ -334,7 +332,7 @@ pub const TextFieldInner = struct {
     }
 
     pub fn layout(self: *TextFieldInner, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
 
         const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
         const vmetrics = c.getPrimaryFontVMetrics(font_gid, self.props.font_size);
@@ -343,22 +341,21 @@ pub const TextFieldInner = struct {
         self.caret_pos_x = c.measureText(font_gid, self.props.font_size, self.props.text[0..self.caret_idx]).width;
 
         var res = ui.LayoutSize.init(metrics.width, vmetrics.height);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        } else if (res.width > cstr.width) {
-            res.width = cstr.width;
-        }
+        res.growToWidth(cstr.min_width);
+        res.cropToWidth(cstr.max_width);
         return res;
     }
 
     pub fn render(self: *TextFieldInner, c: *ui.RenderContext) void {
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
         const g = c.getGraphics();
 
-        const needs_clipping = self.scroll_x > 0 or alo.width < self.text_width;
+        const width = bounds.computeWidth();
+
+        const needs_clipping = self.scroll_x > 0 or width < self.text_width;
         if (needs_clipping) {
             g.pushState();
-            g.clipRect(alo.x, alo.y, alo.width, alo.height);
+            c.clipBBox(bounds);
         }
         g.setFillColor(self.props.text_color);
 
@@ -367,19 +364,20 @@ pub const TextFieldInner = struct {
         } else {
             g.setFont(self.props.font_id, self.props.font_size);
         }
-        g.fillText(alo.x - self.scroll_x, alo.y, self.props.text);
+        g.fillText(bounds.min_x - self.scroll_x, bounds.min_y, self.props.text);
 
         if (self.props.text.len == 0) {
             if (self.props.placeholder) |placeholder| {
                 g.setFillColor(Color.init(100, 100, 100, 255));
-                g.fillText(alo.x, alo.y, placeholder);
+                g.fillText(bounds.min_x, bounds.min_y, placeholder);
             }
         }
 
         // Draw caret.
         if (self.focused) {
             if (self.caret_anim_show) {
-                g.fillRect(@round(alo.x - self.scroll_x + self.caret_pos_x), alo.y, 1, alo.height);
+                const x = @round(bounds.min_x - self.scroll_x + self.caret_pos_x);
+                g.fillRectBounds(x, bounds.min_y, x + 1, bounds.max_y);
             }
         }
 

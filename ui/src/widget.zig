@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const stdx = @import("stdx");
 const Vec2 = stdx.math.Vec2;
 
@@ -117,6 +118,8 @@ pub const Node = struct {
 
     has_widget_id: bool,
 
+    debug: if (builtin.mode == .Debug) bool else void,
+
     pub fn init(self: *Node, alloc: std.mem.Allocator, vtable: *const WidgetVTable, parent: ?*Node, key: WidgetKey, widget: *anyopaque) void {
         self.* = .{
             .vtable = vtable,
@@ -137,6 +140,7 @@ pub const Node = struct {
             .has_child_event_ordering = false,
             .id = undefined,
             .has_widget_id = false,
+            .debug = if (builtin.mode == .Debug) false else {},
         };
     }
 
@@ -229,6 +233,41 @@ pub const LayoutSize = struct {
             .width = width,
             .height = height,
         };
+    }
+
+    pub fn growToMin(self: *LayoutSize, cstr: ui.SizeConstraints) void {
+        if (self.width < cstr.min_width) {
+            self.width = cstr.min_width;
+        }
+        if (self.height < cstr.min_height) {
+            self.height = cstr.min_height;
+        }
+    }
+
+    pub fn growToWidth(self: *LayoutSize, width: f32) void {
+        if (self.width < width) {
+            self.width = width;
+        }
+    }
+
+    pub fn growToHeight(self: *LayoutSize, height: f32) void {
+        if (self.height < height) {
+            self.height = height;
+        }
+    }
+
+    pub fn limitToMinMax(self: *LayoutSize, cstr: ui.SizeConstraints) void {
+        self.growToMin(cstr);
+        self.cropToMax(cstr);
+    }
+
+    pub fn cropToMax(self: *LayoutSize, cstr: ui.SizeConstraints) void {
+        if (self.width > cstr.max_width) {
+            self.width = cstr.max_width;
+        }
+        if (self.height > cstr.max_height) {
+            self.height = cstr.max_height;
+        }
     }
 
     pub fn cropTo(self: *LayoutSize, max_size: LayoutSize) void {

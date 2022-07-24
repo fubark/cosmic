@@ -1,4 +1,5 @@
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const Function = stdx.Function;
 const graphics = @import("graphics");
 const Color = graphics.Color;
@@ -83,7 +84,7 @@ pub const ColorPicker = struct {
         self.popover = self.root.showPopover(self.node, self, S.buildPopover, .{
             .close_ctx = self, 
             .close_cb = S.onPopoverClose,
-        });
+        }) catch fatal();
     }
 };
 
@@ -194,7 +195,7 @@ const ColorPickerPopover = struct {
             }
         };
         return w.Sized(.{ .width = 200 },
-            w.Column(.{ .expand = false, .stretch_width = true }, &.{
+            w.Column(.{ .expand_child_width = true }, &.{
                 w.Stretch(.{
                     .method = .WidthAndKeepRatio,
                     .aspect_ratio = 1,

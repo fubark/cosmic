@@ -20,13 +20,14 @@ pub const ScrollList = struct {
     pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
         return w.ScrollView(.{
             .enable_hscroll = false,
-            .bg_color = self.props.bg_color
-        },
-            c.build(List, .{
-                .bind = &self.list,
-                .bg_color = self.props.bg_color,
-                .children = self.props.children,
-            }),
+            .bg_color = self.props.bg_color },
+            w.Stretch(.{ .method = .Width },
+                c.build(List, .{
+                    .bind = &self.list,
+                    .bg_color = self.props.bg_color,
+                    .children = self.props.children,
+                }),
+            ),
         );
     }
 
@@ -36,6 +37,7 @@ pub const ScrollList = struct {
     }
 };
 
+/// Fills maximum space and lays out children in a column.
 pub const List = struct {
     props: struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
@@ -113,16 +115,14 @@ pub const List = struct {
         }
     }
 
-    pub fn layout(self: *List, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
+    pub fn layout(_: *List, c: *ui.LayoutContext) ui.LayoutSize {
         const node = c.getNode();
-
-        const cstr = c.getSizeConstraint();
-        var vacant_size = cstr;
+        const cstr = c.getSizeConstraints();
+        var vacant_size = cstr.getMaxLayoutSize();
         var max_width: f32 = 0;
         var cur_y: f32 = 0;
         for (node.children.items) |child| {
-            const child_size = c.computeLayout(child, vacant_size);
+            const child_size = c.computeLayoutWithMax(child, vacant_size.width, vacant_size.height);
             c.setLayout(child, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
             vacant_size.height -= child_size.height;
             cur_y += child_size.height;
@@ -131,9 +131,7 @@ pub const List = struct {
             }
         }
         var res = ui.LayoutSize.init(max_width, cur_y);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        }
+        res.growToMin(cstr);
         return res;
     }
 

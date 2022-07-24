@@ -24,8 +24,7 @@ pub const Text = struct {
         self.use_layout = false;
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Text);
+    pub fn deinit(self: *Text, _: std.mem.Allocator) void {
         self.tlo.deinit();
     }
 
@@ -37,14 +36,14 @@ pub const Text = struct {
         if (self.props.text != null) {
             const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
 
-            const cstr = c.getSizeConstraint();
-            if (cstr.width == std.math.inf_f32) {
+            const cstr = c.getSizeConstraints();
+            if (cstr.max_width == ui.ExpandedWidth) {
                 const m = c.measureText(font_gid, self.props.font_size, self.props.text.?);
                 self.use_layout = false;
                 return ui.LayoutSize.init(m.width, m.height);
             } else {
                 // Compute text layout. Perform word wrap.
-                c.textLayout(font_gid, self.props.font_size, self.props.text.?, cstr.width, &self.tlo);
+                c.textLayout(font_gid, self.props.font_size, self.props.text.?, cstr.max_width, &self.tlo);
                 self.use_layout = true;
                 return ui.LayoutSize.init(self.tlo.width, self.tlo.height);
             }

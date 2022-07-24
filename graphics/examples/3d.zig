@@ -93,7 +93,7 @@ pub const App = struct {
         };
 
         return w.Sized(.{ .width = 250 }, 
-            w.Column(.{ .expand = false }, &.{
+            w.Column(.{}, &.{
                 w.ColorPicker(.{
                     .label = "Box Color",
                     .font_size = 14,
