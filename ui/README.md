@@ -179,7 +179,7 @@ pub const Counter = struct {
 ### Declaring Widgets.
 Before any widget instances are created, the engine needs to know the structure of your ui. This is when it invokes the `build` hooks:
 ```zig
-    const w = ui.widgets;
+    const u = ui.widgets;
 
     // ... in Counter struct.
 
@@ -190,15 +190,15 @@ Before any widget instances are created, the engine needs to know the structure 
             }
         };
 
-        return w.Center(.{},
-            w.Row(.{ .expand = false }, &.{
-                w.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
-                    w.Text(.{
+        return u.Center(.{},
+            u.Row(.{}, &.{
+                u.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
+                    u.Text(.{
                         .text = c.fmt("{}", .{self.counter}),
                         .color = Color.White,
                     }),
                 ),
-                w.TextButton(.{
+                u.TextButton(.{
                     .text = "Count",
                     .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
                     .corner_radius = 10,
@@ -215,7 +215,7 @@ The engine then proceeds to diff the structure provided by `build` against any e
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
 ```zig
 const App = struct {
-    slider: WidgetRef(w.SliderUI),
+    slider: WidgetRef(u.SliderUI),
 
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
@@ -223,7 +223,7 @@ const App = struct {
                 std.debug.print("slider value {}", .{self_.slider.getWidget().getValue()});
             }
         };
-        return w.Slider(.{
+        return u.Slider(.{
             .bind = &self.slider,
             .init_val = 30,
         })

@@ -25,7 +25,7 @@ pub const App = struct {
             }
         };
         return w.Center(.{}, 
-            w.Row(.{ .expand = false }, &.{
+            w.Row(.{}, &.{
                 w.Padding(.{
                     .padding = 10,
                     .pad_left = 30,

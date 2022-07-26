@@ -3,8 +3,6 @@ const Function = stdx.Function;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const platform = @import("platform");
-const MouseUpEvent = platform.MouseUpEvent;
-const MouseDownEvent = platform.MouseDownEvent;
 
 const ui = @import("../ui.zig");
 const w = ui.widgets;
@@ -12,7 +10,7 @@ const log = stdx.log.scoped(.button);
 
 pub const TextButton = struct {
     props: struct {
-        onClick: ?Function(fn (MouseUpEvent) void) = null,
+        onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -28,8 +26,7 @@ pub const TextButton = struct {
             .bg_pressed_color = self.props.bg_pressed_color,
             .border_size = self.props.border_size,
             .border_color = self.props.border_color,
-            .corner_radius = self.props.corner_radius,
-        },
+            .corner_radius = self.props.corner_radius },
             w.Padding(.{ .padding = 10 },
                 w.Text(.{
                     .text = self.props.text,
@@ -77,7 +74,7 @@ pub const Button = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
+    fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(Button);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);

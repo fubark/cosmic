@@ -26,7 +26,7 @@ pub const App = struct {
             }
         };
         return w.Center(.{}, 
-            w.Row(.{ .expand = false }, &.{
+            w.Row(.{}, &.{
                 w.TextField(.{
                     .bind = &self.tc_field,
                     .width = 200,

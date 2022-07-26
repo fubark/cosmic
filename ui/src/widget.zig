@@ -14,9 +14,19 @@ pub const WidgetUserId = usize;
 pub const WidgetTypeId = usize;
 
 pub const WidgetKey = union(enum) {
-    Idx: usize,
+    /// This is automatically given to a widget by default.
+    ListIdx: usize,
+    /// Key generated from enum literals using stdx.meta.enumLiteralId.
     EnumLiteral: usize,
+    /// Custom id.
+    Id: usize,
 };
+
+pub fn WidgetKeyId(id: usize) WidgetKey {
+    return WidgetKey{
+        .Id = id,
+    };
+}
 
 /// If the user does not have the access to a widget's type, NodeRef still allows capturing the creating Node.
 pub const NodeRef = struct {
@@ -35,33 +45,43 @@ pub const NodeRef = struct {
 /// Although the widget can be obtained from the node, this is more type safe and can provide convenience functions.
 pub fn WidgetRef(comptime Widget: type) type {
     return struct {
-        const Self = @This();
-
         /// Use widget's *anyopaque pointer in node to avoid "depends on itself" when WidgetRef(Widget) is declared in Widget.
         node: *Node = undefined,
 
         binded: bool = false,
 
-        pub fn init(node: *Node) Self {
+        const WidgetRefT = @This();
+
+        pub fn init(node: *Node) WidgetRefT {
             return .{
                 .node = node,
                 .binded = true,
             };
         }
 
-        pub inline fn getWidget(self: Self) *Widget {
+        pub const widget = getWidget;
+
+        pub inline fn getWidget(self: WidgetRefT) *Widget {
             return stdx.mem.ptrCastAlign(*Widget, self.node.widget);
         }
 
-        pub inline fn getAbsBounds(self: *Self) stdx.math.BBox {
+        pub inline fn key(self: WidgetRefT) WidgetKey {
+            return self.node.key;
+        }
+
+        pub inline fn keyId(self: WidgetRefT) usize {
+            return self.node.key.Id;
+        }
+
+        pub inline fn getAbsBounds(self: *WidgetRefT) stdx.math.BBox {
             return self.node.abs_bounds;
         }
 
-        pub inline fn getHeight(self: Self) f32 {
+        pub inline fn getHeight(self: WidgetRefT) f32 {
             return self.node.layout.height;
         }
 
-        pub inline fn getWidth(self: Self) f32 {
+        pub inline fn getWidth(self: WidgetRefT) f32 {
             return self.node.layout.width;
         }
     };

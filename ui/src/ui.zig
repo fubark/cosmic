@@ -4,7 +4,6 @@ const module = @import("module.zig");
 pub const Module = module.Module;
 pub const Layout = module.Layout;
 pub const TextMeasureId = module.TextMeasureId;
-pub const BuildContext = module.BuildContext;
 pub const RenderContext = module.RenderContext;
 pub const LayoutContext = module.LayoutContext;
 pub const EventContext = module.EventContext;
@@ -22,6 +21,9 @@ pub const MouseMoveEvent = module.MouseMoveEvent;
 pub const MouseScrollEvent = module.MouseScrollEvent;
 pub const WidgetProps = module.WidgetProps;
 pub const SizeConstraints = module.SizeConstraints;
+
+const build = @import("build.zig");
+pub const BuildContext = build.BuildContext;
 
 const config = @import("config.zig");
 pub const Config = config.Config;
@@ -41,6 +43,7 @@ pub const Node = widget.Node;
 pub const WidgetTypeId = widget.WidgetTypeId;
 pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
+pub const WidgetKeyId = widget.WidgetKeyId;
 pub const WidgetRef = widget.WidgetRef;
 pub const NodeRef = widget.NodeRef;
 pub const WidgetVTable = widget.WidgetVTable;

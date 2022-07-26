@@ -135,7 +135,7 @@ pub const App = struct {
 
         return w.Center(.{},
             w.Sized(.{ .width = 600, .height = 500 }, 
-                w.Column(.{ .expand = false }, &.{
+                w.Column(.{}, &.{
                     w.Padding(.{ .padding = 0, .pad_bottom = 20 },
                         w.Row(.{}, &.{
                             w.Padding(.{ .padding = 10 },
