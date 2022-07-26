@@ -5,8 +5,6 @@ const std = @import("std");
 // In the future, it might be useful for a library consumer to cache draw calls.
 
 pub const DrawCommandList = struct {
-    const Self = @This();
-
     alloc: ?std.mem.Allocator,
     extra_data: []const f32,
     cmd_data: []const f32,
@@ -15,7 +13,7 @@ pub const DrawCommandList = struct {
     // For commands that have sub commands like SVG path.
     sub_cmds: []const u8,
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: DrawCommandList) void {
         if (self.alloc) |alloc| {
             alloc.free(self.cmd_data);
             alloc.free(self.cmds);
@@ -24,11 +22,11 @@ pub const DrawCommandList = struct {
         }
     }
 
-    pub fn getCommand(self: Self, comptime Tag: DrawCommand, ptr: DrawCommandPtr) DrawCommandData(Tag) {
+    pub fn getCommand(self: DrawCommandList, comptime Tag: DrawCommand, ptr: DrawCommandPtr) DrawCommandData(Tag) {
         return @ptrCast(*const DrawCommandData(Tag), self.cmd_data[ptr.id..][0 .. @sizeOf(DrawCommandData(Tag)) / 4]).*;
     }
 
-    pub fn getExtraData(self: Self, start_id: u32, len: u32) []const f32 {
+    pub fn getExtraData(self: DrawCommandList, start_id: u32, len: u32) []const f32 {
         return self.extra_data[start_id .. start_id + len];
     }
 };

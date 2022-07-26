@@ -45,11 +45,8 @@ pub const Tessellator = struct {
     cur_x: f32,
     cur_y: f32,
     cur_out_vert_idx: u16,
-    cur_polys: []const []const Vec2,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, alloc: std.mem.Allocator) void {
+    pub fn init(self: *Tessellator, alloc: std.mem.Allocator) void {
         self.* = .{
             .verts = std.ArrayList(InternalVertex).init(alloc),
             .events = std.ArrayList(Event).init(alloc),
@@ -61,12 +58,11 @@ pub const Tessellator = struct {
             .cur_x = undefined,
             .cur_y = undefined,
             .cur_out_vert_idx = undefined,
-            .cur_polys = undefined,
         };
         self.event_q = EventQueue.init(alloc, &self.events);
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Tessellator) void {
         self.verts.deinit();
         self.events.deinit();
         self.event_q.deinit();
@@ -76,7 +72,7 @@ pub const Tessellator = struct {
         self.out_idxes.deinit();
     }
 
-    pub fn clearBuffers(self: *Self) void {
+    pub fn clearBuffers(self: *Tessellator) void {
         self.verts.clearRetainingCapacity();
         self.events.clearRetainingCapacity();
         self.event_q.len = 0;
@@ -86,7 +82,7 @@ pub const Tessellator = struct {
         self.out_idxes.clearRetainingCapacity();
     }
 
-    pub fn triangulatePolygon(self: *Self, polygon: []const Vec2) void {
+    pub fn triangulatePolygon(self: *Tessellator, polygon: []const Vec2) void {
         self.triangulatePolygons(&.{polygon});
     }
 
@@ -97,14 +93,27 @@ pub const Tessellator = struct {
     /// This is ported from the JS implementation (tessellator.js) where it is easier to prototype.
     /// Since the number of verts and indexes is not known beforehand, the output is an ArrayList.
     /// TODO: See if inline callbacks would be faster to directly push data to the batcher buffer.
-    pub fn triangulatePolygons(self: *Self, polygons: []const []const Vec2) void {
+    pub fn triangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) void {
         // Construct the initial events by traversing the polygon.
-        self.initEvents(polygons);
+        for (polygons) |polygon| {
+            self.initEvents(polygon);
+        }
+        self.startProcessEvents();
+    }
 
+    /// Uses index slice as polygons.
+    pub fn triangulatePolygons2(self: *Tessellator, pts: []const Vec2, polygons: []const stdx.IndexSlice(u32)) void {
+        for (polygons) |slice| {
+            const polygon = pts[slice.start..slice.end];
+            self.initEvents(polygon);
+        }
+        self.startProcessEvents();
+    }
+
+    fn startProcessEvents(self: *Tessellator) void {
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
         self.cur_out_vert_idx = std.math.maxInt(u16);
-        self.cur_polys = polygons;
 
         // Process events.
         while (self.event_q.removeOrNull()) |e_id| {
@@ -113,16 +122,15 @@ pub const Tessellator = struct {
     }
 
     /// Initializes the events only.
-    pub fn debugTriangulatePolygons(self: *Self, polygons: []const []const Vec2) void {
+    pub fn debugTriangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) void {
         self.initEvents(polygons);
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
         self.cur_out_vert_idx = std.math.maxInt(u16);
-        self.cur_polys = polygons;
     }
 
     /// Process the next event. This can be used with debugTriangulatePolygons.
-    pub fn debugProcessNext(self: *Self, alloc: std.mem.Allocator) ?DebugTriangulateStepResult {
+    pub fn debugProcessNext(self: *Tessellator, alloc: std.mem.Allocator) ?DebugTriangulateStepResult {
         const e_id = self.event_q.removeOrNull() orelse return null;
         self.processEvent(e_id);
 
@@ -138,7 +146,7 @@ pub const Tessellator = struct {
         };
     }
 
-    fn processEvent(self: *Self, e_id: u32) void {
+    fn processEvent(self: *Tessellator, e_id: u32) void {
         const t_ = trace(@src());
         defer t_.end();
         const sweep_edges = &self.sweep_edges;
@@ -379,7 +387,6 @@ pub const Tessellator = struct {
             }
 
             const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
-                log("polygons: {any}", .{self.cur_polys});
                 stdx.panic("expected active edge");
             };
             const active = sweep_edges.getPtrNoCheck(active_id);
@@ -508,99 +515,98 @@ pub const Tessellator = struct {
         }
     }
 
-    inline fn addTriangle(self: *Self, v1_out: u16, v2_out: u16, v3_out: u16) void {
+    inline fn addTriangle(self: *Tessellator, v1_out: u16, v2_out: u16, v3_out: u16) void {
         log("triangle {} {} {}", .{v1_out, v2_out, v3_out});
         self.out_idxes.appendSlice(&.{v1_out, v2_out, v3_out}) catch unreachable;
     }
 
     /// Parses the polygon pts and adds the initial events into the priority queue.
-    fn initEvents(self: *Self, polygons: []const []const Vec2) void {
+    fn initEvents(self: *Tessellator, polygon: []const Vec2) void {
         const t_ = trace(@src());
         defer t_.end();
-        for (polygons) |polygon| {
-            // Find the starting point that is not equal to the last vertex point.
-            // Since we are adding events to a priority queue, we need to make sure each add is final.
-            var start_idx: u16 = 0;
-            const last_pt = polygon[polygon.len-1];
-            while (start_idx < polygon.len) : (start_idx += 1) {
-                const pt = polygon[start_idx];
 
-                // Add internal vertex even though we are skipping events for it to keep the idxes consistent with the input.
-                const v = InternalVertex{
-                    .pos = pt,
-                    .idx = start_idx,
-                };
-                self.verts.append(v) catch unreachable;
+        // Find the starting point that is not equal to the last vertex point.
+        // Since we are adding events to a priority queue, we need to make sure each add is final.
+        var start_idx: u16 = 0;
+        const last_pt = polygon[polygon.len-1];
+        while (start_idx < polygon.len) : (start_idx += 1) {
+            const pt = polygon[start_idx];
 
-                if (@fabs(last_pt.x - pt.x) > 1e-4 or @fabs(last_pt.y - pt.y) > 1e-4) {
-                    break;
-                } else {
-                    self.verts.items[self.verts.items.len-1].idx = NullId;
-                }
+            // Add internal vertex even though we are skipping events for it to keep the idxes consistent with the input.
+            const v = InternalVertex{
+                .pos = pt,
+                .idx = start_idx,
+            };
+            self.verts.append(v) catch unreachable;
+
+            if (@fabs(last_pt.x - pt.x) > 1e-4 or @fabs(last_pt.y - pt.y) > 1e-4) {
+                break;
+            } else {
+                self.verts.items[self.verts.items.len-1].idx = NullId;
+            }
+        }
+
+        var last_v = self.verts.items[start_idx]; // out of bounds
+        var last_v_idx = start_idx;
+
+        var i: u16 = start_idx + 1;
+        while (i < polygon.len) : (i += 1) {
+            const v_idx = @intCast(u16, self.verts.items.len);
+            const v = InternalVertex{
+                .pos = polygon[i],
+                .idx = i,
+            };
+            self.verts.append(v) catch unreachable;
+
+            if (@fabs(last_v.pos.x - v.pos.x) < 1e-4 and @fabs(last_v.pos.y - v.pos.y) < 1e-4) {
+                // Don't connect two vertices that are on top of each other.
+                // Allowing this would require edge cases during event processing to make sure things don't break.
+                // Push the vertex in anyway so there is consistency with the input.
+                self.verts.items[self.verts.items.len-1].idx = NullId;
+                continue;
             }
 
-            var last_v = self.verts.items[start_idx];
-            var last_v_idx = start_idx;
-
-            var i: u16 = start_idx + 1;
-            while (i < polygon.len) : (i += 1) {
-                const v_idx = @intCast(u16, self.verts.items.len);
-                const v = InternalVertex{
-                    .pos = polygon[i],
-                    .idx = i,
-                };
-                self.verts.append(v) catch unreachable;
-
-                if (@fabs(last_v.pos.x - v.pos.x) < 1e-4 and @fabs(last_v.pos.y - v.pos.y) < 1e-4) {
-                    // Don't connect two vertices that are on top of each other.
-                    // Allowing this would require edge cases during event processing to make sure things don't break.
-                    // Push the vertex in anyway so there is consistency with the input.
-                    self.verts.items[self.verts.items.len-1].idx = NullId;
-                    continue;
-                }
-
-                const prev_edge = Edge.init(last_v_idx, last_v, v_idx, v);
-                const event1_idx = @intCast(u32, self.events.items.len);
-                var event1: Event = undefined;
-                var event2: Event = undefined;
-                if (Event.isStartEvent(last_v_idx, prev_edge, self.verts.items)) {
-                    event1 = Event.init(last_v, prev_edge, .Start);
-                    event2 = Event.init(v, prev_edge, .End);
-                    event1.end_event_idx = event1_idx + 1;
-                } else {
-                    event1 = Event.init(last_v, prev_edge, .End);
-                    event2 = Event.init(v, prev_edge, .Start);
-                    event2.end_event_idx = event1_idx;
-                }
-                self.events.append(event1) catch unreachable;
-                self.event_q.add(event1_idx) catch unreachable;
-                self.events.append(event2) catch unreachable;
-                self.event_q.add(event1_idx + 1) catch unreachable;
-                last_v = v;
-                last_v_idx = v_idx;
-            }
-            // Link last pt to start pt.
-            const edge = Edge.init(last_v_idx, last_v, start_idx, self.verts.items[start_idx]);
+            const prev_edge = Edge.init(last_v_idx, last_v, v_idx, v);
             const event1_idx = @intCast(u32, self.events.items.len);
             var event1: Event = undefined;
             var event2: Event = undefined;
-            if (Event.isStartEvent(last_v_idx, edge, self.verts.items)) {
-                event1 = Event.init(last_v, edge, .Start);
-                event2 = Event.init(self.verts.items[start_idx], edge, .End);
+            if (Event.isStartEvent(last_v_idx, prev_edge, self.verts.items)) {
+                event1 = Event.init(last_v, prev_edge, .Start);
+                event2 = Event.init(v, prev_edge, .End);
                 event1.end_event_idx = event1_idx + 1;
             } else {
-                event1 = Event.init(last_v, edge, .End);
-                event2 = Event.init(self.verts.items[start_idx], edge, .Start);
+                event1 = Event.init(last_v, prev_edge, .End);
+                event2 = Event.init(v, prev_edge, .Start);
                 event2.end_event_idx = event1_idx;
             }
             self.events.append(event1) catch unreachable;
             self.event_q.add(event1_idx) catch unreachable;
             self.events.append(event2) catch unreachable;
             self.event_q.add(event1_idx + 1) catch unreachable;
+            last_v = v;
+            last_v_idx = v_idx;
         }
+        // Link last pt to start pt.
+        const edge = Edge.init(last_v_idx, last_v, start_idx, self.verts.items[start_idx]);
+        const event1_idx = @intCast(u32, self.events.items.len);
+        var event1: Event = undefined;
+        var event2: Event = undefined;
+        if (Event.isStartEvent(last_v_idx, edge, self.verts.items)) {
+            event1 = Event.init(last_v, edge, .Start);
+            event2 = Event.init(self.verts.items[start_idx], edge, .End);
+            event1.end_event_idx = event1_idx + 1;
+        } else {
+            event1 = Event.init(last_v, edge, .End);
+            event2 = Event.init(self.verts.items[start_idx], edge, .Start);
+            event2.end_event_idx = event1_idx;
+        }
+        self.events.append(event1) catch unreachable;
+        self.event_q.add(event1_idx) catch unreachable;
+        self.events.append(event2) catch unreachable;
+        self.event_q.add(event1_idx + 1) catch unreachable;
     }
 
-    fn triangulateLeftStep(self: *Self, left: *SweepEdge, vert: InternalVertex) void {
+    fn triangulateLeftStep(self: *Tessellator, left: *SweepEdge, vert: InternalVertex) void {
         if (left.cur_side == .Left) {
             log("same left side", .{});
             left.dumpQueue(self);
@@ -666,7 +672,7 @@ pub const Tessellator = struct {
         }
     }
 
-    fn triangulateRightStep(self: *Self, left: *SweepEdge, vert: InternalVertex) void {
+    fn triangulateRightStep(self: *Tessellator, left: *SweepEdge, vert: InternalVertex) void {
         if (left.cur_side == .Right) {
             log("right side", .{});
             // Same side.
@@ -729,7 +735,7 @@ pub const Tessellator = struct {
     /// Splits two edges at an intersect point.
     /// Assumes sweep edges have not processed their end events so they can be reinserted.
     /// Does not add new events if an event already exists to the intersect point.
-    fn handleIntersectForStartEvent(self: *Self, sweep_edge_a: *SweepEdge, sweep_edge_b: *SweepEdge, intersect: IntersectResult, sweep_vert: Vec2) void {
+    fn handleIntersectForStartEvent(self: *Tessellator, sweep_edge_a: *SweepEdge, sweep_edge_b: *SweepEdge, intersect: IntersectResult, sweep_vert: Vec2) void {
         log("split intersect {}", .{intersect});
 
         // The intersect point must lie after the sweep_vert.
@@ -1039,8 +1045,6 @@ const EventTag = enum(u1) {
 /// This helps end processing since the left edge still exists and contains state information about that fill region.
 /// If both events have non active edges (both Start events), the one that has a lesser x-slope comes first.
 const Event = struct {
-    const Self = @This();
-
     /// The idx of the internal vertex that this event fires on.
     vert_idx: u16,
 
@@ -1061,8 +1065,8 @@ const Event = struct {
     /// this flag is used to invalid an existing end event.
     invalidated: bool,
 
-    fn init(vert: InternalVertex, edge: Edge, tag: EventTag) Self {
-        var new = Self{
+    fn init(vert: InternalVertex, edge: Edge, tag: EventTag) Event {
+        var new = Event{
             .vert_idx = vert.idx,
             .vert_x = vert.pos.x,
             .vert_y = vert.pos.y,
@@ -1108,8 +1112,6 @@ const Side = enum(u1) {
 };
 
 pub const SweepEdge = struct {
-    const Self = @This();
-
     edge: Edge,
     start_event_vert_uniq_idx: u16,
     vert_idx: u16,
@@ -1139,7 +1141,7 @@ pub const SweepEdge = struct {
     interior_is_left: bool,
 
     /// A sweep edge is created from a Start event.
-    fn init(e: Event, verts: []const InternalVertex) Self {
+    fn init(e: Event, verts: []const InternalVertex) SweepEdge {
         const e_vert = verts[e.vert_idx];
         return .{
             .edge = e.edge,
@@ -1159,13 +1161,13 @@ pub const SweepEdge = struct {
         };
     }
 
-    fn enqueueDeferred(self: *Self, vert: InternalVertex, tess: *Tessellator) void {
+    fn enqueueDeferred(self: *SweepEdge, vert: InternalVertex, tess: *Tessellator) void {
         const node = DeferredVertexNode.init(vert);
         self.deferred_queue = tess.deferred_verts.insertBeforeHeadNoCheck(self.deferred_queue, node) catch unreachable;
         self.deferred_queue_size += 1;
     }
 
-    fn verifySize(self: Self, tess: *Tessellator) void {
+    fn verifySize(self: SweepEdge, tess: *Tessellator) void {
         var cur = self.deferred_queue;
         var act_size: u32 = 0;
         while (cur != NullId) {
@@ -1178,7 +1180,7 @@ pub const SweepEdge = struct {
         }
     }
 
-    fn dumpQueue(self: Self, tess: *Tessellator) void {
+    fn dumpQueue(self: SweepEdge, tess: *Tessellator) void {
         var buf: [200]u8 = undefined;
         var buf_stream = std.io.fixedBufferStream(&buf);
         var writer = buf_stream.writer();
@@ -1203,8 +1205,6 @@ pub const SweepEdge = struct {
 /// Since the triangulator does everything in one pass for complex polygons, every monotone polygon span in the sweep edges
 /// needs to keep track of their deferred vertices since the edges are short lived.
 pub const DeferredVertexNode = struct {
-    const Self = @This();
-
     vert_idx: u16,
 
     // Duped vars.
@@ -1212,7 +1212,7 @@ pub const DeferredVertexNode = struct {
     vert_x: f32,
     vert_y: f32,
 
-    fn init(vert: InternalVertex) Self {
+    fn init(vert: InternalVertex) DeferredVertexNode {
         return .{
             .vert_idx = vert.idx,
             .vert_out_idx = vert.out_idx,
@@ -1224,8 +1224,6 @@ pub const DeferredVertexNode = struct {
 
 /// Contains start/end InternalVertex.
 pub const Edge = struct {
-    const Self = @This();
-
     /// Start vertex index.
     start_idx: u16,
     /// End vertex index.
@@ -1245,8 +1243,8 @@ pub const Edge = struct {
     /// TODO: This may not be needed anymore.
     is_horiz: bool,
 
-    fn init(start_idx: u16, start_v: InternalVertex, end_idx: u16, end_v: InternalVertex) Self {
-        var new = Self{
+    fn init(start_idx: u16, start_v: InternalVertex, end_idx: u16, end_v: InternalVertex) Edge {
+        var new = Edge{
             .start_idx = start_idx,
             .end_idx = end_idx,
             .start_pos = start_v.pos,
@@ -1331,7 +1329,7 @@ const IntersectResult = struct {
 
 /// Just check triangle count.
 /// TODO: Verify all triangles take up the entire space.
-fn testLarge(polygon: []const f32, exp_tri_count: u32) !void {
+fn testCount(polygon: []const f32, exp_tri_count: u32) !void {
     var polygon_buf = std.ArrayList(Vec2).init(t.alloc);
     defer polygon_buf.deinit();
     var i: u32 = 0;
@@ -1785,33 +1783,33 @@ test "Rectangle with bottom-left wedge." {
 }
 
 test "Tiger big part." {
-    try testLarge(&.{
+    try testCount(&.{
         -129.83, 103.06,-129.83, 103.06,-128.36, 113.62,-126.60, 118.80,-126.60, 118.80,-127.33, 125.99,-125.81, 135.32,-121.40, 144.40,-121.40, 144.40,-121.18, 151.03,-120.20, 154.80,-120.20, 154.80,-115.56, 161.53,-111.40, 164.00,-111.40, 164.00,-99.95, 166.93,-88.93, 169.12,-88.93, 169.12,-82.12, 176.08,-77.01, 183.74,-74.79, 190.23,-75.00, 196.00,-75.00, 196.00,-76.74, 210.10,-79.00, 214.00,-79.00, 214.00,-73.96, 210.34,-73.22, 211.25,-77.00, 219.60,-81.40, 238.40,-81.40, 238.40,-67.64, 228.08,-66.39, 228.12,-71.40, 235.20,-81.40, 261.20,-81.40, 261.20,-67.93, 249.24,-67.39, 249.03,-69.00, 251.20,-72.20, 260.00,-72.20, 260.00,-53.39, 249.64,-48.97, 248.73,-49.31, 250.85,-59.80, 262.40,-59.80, 262.40,-52.31, 260.54,-47.40, 261.60,-47.40, 261.60,-41.92, 261.27,-41.40, 262.00,-41.40, 262.00,-49.70, 267.43,-57.61, 274.87,-62.93, 282.61,-65.80, 290.80,-65.80, 290.80,-61.30, 286.73,-59.99, 287.03,-60.60, 291.60,-60.20, 303.20,-60.20, 303.20,-58.30, 297.14,-57.37, 298.26,-56.60, 319.20,-56.60, 319.20,-48.49, 312.82,-45.76, 312.03,-45.35, 313.82,-49.00, 322.00,-49.00, 338.80,-49.00, 338.80,-40.26, 330.76,-38.63, 330.61,-40.20, 335.20,-40.20, 335.20,-36.26, 332.85,-34.22, 332.98,-33.27, 335.13,-34.20, 341.60,-34.20, 341.60,-33.94, 345.73,-33.17, 345.79,-30.60, 340.80,-30.60, 340.80,-22.95, 328.26,-20.19, 325.79,-19.29, 327.04,-20.60, 336.40,-20.60, 336.40,-20.14, 345.51,-19.15, 346.31,-16.60, 340.80,-16.60, 340.80,-15.40, 346.50,-12.14, 353.01,-7.00, 358.40,-7.00, 358.40,-6.27, 339.53,-4.46, 332.02,-2.77, 330.70,-0.27, 332.77,4.60, 343.60,8.60, 360.00,8.60, 360.00,10.64, 351.18,11.00, 345.60,19.00, 353.60,19.00, 353.60,28.79, 341.06,31.17, 340.03,31.00, 344.00,31.00, 344.00,25.45, 358.75,25.00, 364.80,25.00, 364.80,43.00, 328.40,43.00, 328.40,43.39, 345.38,44.82, 349.24,46.77, 347.92,51.80, 334.80,51.80, 334.80,54.49, 342.22,55.39, 347.96,54.60, 351.20,54.60, 351.20,60.76, 343.58,61.80, 340.00,61.80, 340.00,64.54, 337.57,66.77, 338.71,69.20, 345.40,69.20, 345.40,71.39, 352.02,72.60, 351.60,72.60, 351.60,75.37, 362.09,76.42, 362.30,77.80, 352.80,77.80, 352.80,77.75, 344.98,75.91, 335.70,72.20, 327.60,72.20, 327.60,72.12, 324.56,70.20, 320.40,70.20, 320.40,75.70, 327.30,77.91, 328.09,78.69, 325.45,76.60, 313.20,76.60, 313.20,89.00, 321.20,89.00, 321.20,82.70, 308.82,81.23, 303.45,81.82, 302.23,84.20, 302.80,84.20, 302.80,83.54, 299.86,84.53, 298.67,87.95, 299.28,97.00, 304.40,97.00, 304.40,91.03, 297.34,90.41, 295.37,91.64, 294.95,98.60, 298.00,98.60, 298.00,101.93, 300.03,102.23, 299.50,99.00, 294.40,99.00, 294.40,94.40, 288.21,95.27, 288.03,106.60, 296.40,106.60, 296.40,116.61, 311.24,119.00, 315.60,119.00, 315.60,108.86, 290.10,104.60, 283.60,104.60, 283.60,108.02, 275.28,114.09, 267.22,121.76, 261.79,130.82, 259.23,141.00, 259.30,154.20, 262.80,154.20, 262.80,157.75, 268.68,160.36, 270.08,162.73, 268.60,165.40, 261.60,165.40, 261.60,170.08, 261.04,176.25, 263.49,182.75, 270.16,189.40, 282.80,189.40, 282.80,192.36, 270.67,192.60, 266.40,192.60, 266.40,198.19, 266.89,198.60, 266.40,198.60, 266.40,210.19, 269.77,213.00, 270.00,213.00, 270.00,217.51, 273.62,219.47, 274.23,220.20, 273.20,220.20, 273.20,225.75, 274.22,227.51, 273.79,227.40, 272.40,227.40, 272.40,234.76, 286.58,236.60, 291.60,239.00, 277.60,241.00, 280.40,241.00, 280.40,242.01, 273.69,241.80, 271.60,241.80, 271.60,242.83, 271.72,249.79, 275.48,257.44, 282.09,263.14, 289.99,266.60, 299.20,268.60, 307.60,268.60, 307.60,272.87, 294.06,273.00, 288.80,273.00, 288.80,277.01, 290.73,278.60, 294.00,278.60, 294.00,280.13, 278.97,279.59, 269.28,277.80, 264.80,277.80, 264.80,281.47, 265.30,283.40, 267.60,283.40, 260.40,283.40, 260.40,289.30, 260.14,290.60, 258.80,290.60, 258.80,293.21, 257.36,295.38, 257.54,297.00, 259.60,297.00, 259.60,293.38, 246.31,293.06, 239.85,294.31, 238.04,296.82, 238.39,303.00, 243.60,303.00, 243.60,306.29, 246.69,307.45, 245.38,306.60, 235.60,306.60, 235.60,302.46, 219.68,301.73, 215.52,303.80, 214.80,303.80, 214.80,303.85, 211.76,302.60, 209.60,302.60, 209.60,301.93, 208.90,303.80, 209.60,303.80, 209.60,305.11, 209.64,305.81, 206.07,303.40, 191.60,303.40, 191.60,304.82, 190.48,304.47, 183.66,297.80, 164.00,297.80, 164.00,298.73, 160.69,296.60, 153.20,296.60, 153.20,303.95, 156.14,307.40, 156.00,307.40, 156.00,307.15, 155.40,303.80, 150.40,303.80, 150.40,295.80, 126.68,293.83, 115.79,294.65, 112.78,296.76, 112.66,302.60, 117.60,302.60, 117.60,307.07, 121.27,309.11, 121.32,309.97, 118.48,308.05, 108.35,308.05, 108.35,300.79, 86.65,299.72, 80.04,-129.83, 103.06,
     }, 227);
 }
 
 // Test points that are close to each other with higher precision.
 test "Tiger whisker." {
-    try testLarge(&.{
+    try testCount(&.{
         -109.01000, 110.07000,-109.01000, 110.07000,-108.34000, 111.97000,-108.34000, 111.97000,-123.56751, 104.91863,-141.35422, 98.68091,-153.21875, 96.99554,-161.26077, 98.11440,-166.87000, 101.68000,-166.87000, 101.68000,-163.45908, 98.55489,-156.28145, 96.28941,-145.48354, 96.58372,-130.09291, 100.65533,-109.00999, 110.07000
     }, 9);
 }
 
 // Tests zig zag shape.
 test "Tiger part." {
-    try testLarge(&.{
+    try testCount(&.{
         -54.20, 176.40,-54.20, 176.40,-51.54, 180.01,-50.04, 187.53,-51.51, 198.82,-57.40, 214.80,-51.00, 212.40,-51.00, 212.40,-52.75, 222.12,-55.00, 226.00,-47.80, 222.80,-47.80, 222.80,-45.85, 227.62,-45.49, 232.20,-47.00, 235.60,-47.00, 235.60,-37.04, 241.57,-32.01, 246.52,-31.00, 250.00,-31.00, 250.00,-28.25, 245.06,-27.27, 239.91,-28.60, 235.60,-28.60, 235.60,-32.06, 232.22,-36.59, 228.60,-38.53, 223.88,-39.00, 214.80,-47.80, 218.00,-47.80, 218.00,-43.55, 209.33,-42.20, 202.80,-50.20, 205.20,-50.20, 205.20,-43.67, 191.40,-41.68, 182.92,-42.47, 178.91,-45.40, 177.20,-45.40, 177.20,-53.55, 176.38,-54.20, 176.40
     }, 29);
 }
 
 test "Tiger whisker #2." {
-    try testLarge(&.{
+    try testCount(&.{
         50.60, 84.00,50.60, 84.00,36.68, 72.16,27.20, 65.81,22.20, 64.00,22.20, 64.00,7.18, 63.89,-7.84, 66.44,-19.01, 71.16,-27.00, 78.00,-27.00, 78.00,-18.60, 70.90,-7.02, 64.99,5.17, 62.33,18.20, 63.20,18.20, 63.20,4.15, 61.23,-7.70, 60.89,-15.80, 62.00,-42.20, 76.00,-45.00, 80.80,-45.00, 80.80,-42.44, 75.17,-37.28, 68.75,-31.28, 64.00,-22.60, 60.00,-22.60, 60.00,-7.92, 58.05,3.78, 58.19,11.00, 60.00,11.00, 60.00,-3.17, 56.40,-14.12, 54.88,-20.60, 55.20,-20.60, 55.20,-30.04, 55.69,-41.27, 58.57,-50.82, 63.73,-57.83, 70.06,-63.80, 79.20,-63.80, 79.20,-60.27, 71.59,-53.70, 63.52,-45.00, 57.60,-45.00, 57.60,-36.54, 53.82,-24.25, 51.26,-11.00, 51.60,-11.00, 51.60,2.14, 54.95,8.60, 57.20,8.60, 57.20,11.58, 58.03,11.26, 56.98,4.20, 52.00,4.20, 52.00,0.05, 47.36,-6.79, 43.57,-15.40, 42.40,-15.40, 42.40,-36.18, 45.32,-52.83, 49.44,-63.12, 53.75,-68.60, 58.00,-68.60, 58.00,-54.94, 48.57,-44.60, 44.00,-44.60, 44.00,-23.74, 37.92,-13.80, 36.80,-13.80, 36.80,8.76, 36.15,18.60, 33.80,18.60, 33.80,12.30, 37.54,10.11, 40.15,10.60, 42.00,10.60, 42.00,18.76, 51.11,20.60, 54.00,20.60, 54.00,28.20, 61.89,48.40, 81.70,50.60, 84.00
     }, 61);
 }
 
 test "Tiger big part #2." {
-    try testLarge(&.{
+    try testCount(&.{
         143.80, 259.60,143.80, 259.60,156.61, 257.34,165.99, 254.14,171.00, 250.80,175.40, 254.40,193.00, 216.00,196.60, 221.20,196.60, 221.20,204.92, 211.13,209.33, 203.27,210.20, 198.40,210.20, 198.40,210.92, 196.01,214.22, 196.97,223.00, 204.40,223.00, 204.40,223.74, 198.82,225.70, 197.45,229.40, 199.60,229.40, 199.60,229.48, 191.67,231.36, 189.69,235.40, 192.00,235.40, 192.00,233.02, 182.21,233.43, 178.04,234.91, 177.19,238.62, 178.91,247.40, 187.60,247.40, 187.60,250.17, 190.36,248.60, 187.20,248.60, 187.20,238.82, 166.34,235.69, 155.55,236.21, 151.81,238.37, 150.90,244.20, 153.60,244.20, 153.60,245.37, 133.23,245.00, 126.40,245.00, 126.40,242.11, 109.37,239.39, 98.81,237.00, 94.40,237.00, 94.40,235.10, 91.16,235.84, 89.80,238.54, 89.93,243.00, 92.80,243.00, 92.80,238.96, 81.92,238.77, 78.05,240.20, 77.49,245.00, 80.80,245.00, 80.80,240.58, 67.71,237.00, 62.80,237.00, 62.80,236.04, 56.18,237.21, 53.39,240.05, 52.95,246.60, 56.40,246.60, 56.40,241.98, 45.41,239.00, 40.80,239.00, 40.80,232.68, 22.48,232.55, 17.75,234.60, 18.00,239.00, 21.60,239.00, 21.60,235.94, 13.32,236.27, 11.21,238.60, 12.00,238.60, 12.00,244.87, 15.98,245.00, 16.00,245.00, 16.00,236.54, 0.65,235.41, -4.10,236.94, -4.65,244.20, 0.40,244.20, 0.40,232.60, -20.40,232.60, -20.40,224.56, -30.47,222.78, -34.51,223.63, -35.63,228.20, -34.40,233.00, -32.80,233.00, -32.80,223.84, -40.87,216.20, -44.40,216.20, -44.40,213.35, -45.94,214.21, -47.98,219.17, -50.41,225.00, -50.40,225.00, -50.40,247.00, -40.80,247.00, -40.80,259.33, -24.93,263.80, -21.60,263.80, -21.60,251.96, -24.82,248.79, -24.16,249.80, -21.20,249.80, -21.20,257.74, -11.96,258.98, -8.44,257.00, -7.60,257.00, -7.60,254.67, -3.13,253.96, 2.58,255.80, 8.40,255.80, 8.40,248.73, 2.56,246.65, 2.15,246.70, 4.49,252.20, 15.60,259.00, 32.00,259.00, 32.00,247.61, 21.93,243.68, 20.11,242.85, 21.48,245.80, 29.20,245.80, 29.20,261.57, 49.78,265.00, 53.20,265.00, 53.20,267.03, 55.03,271.40, 62.40,267.00, 60.40,272.20, 69.20,272.20, 69.20,266.48, 64.35,265.25, 64.72,267.00, 70.40,272.60, 84.80,272.60, 84.80,264.54, 77.74,261.68, 77.09,261.24, 79.97,265.80, 92.40,265.80, 92.40,259.71, 91.77,256.50, 93.34,255.61, 96.92,258.20, 104.40,258.20, 104.40,257.00, 125.60,257.00, 125.60,257.37, 146.74,256.16, 160.73,254.20, 167.20,254.20, 167.20,253.12, 172.65,255.06, 182.19,262.20, 198.40,262.20, 198.40,264.65, 206.19,263.74, 207.59,259.00, 204.00,259.00, 204.00,253.94, 199.29,253.84, 200.28,256.60, 209.20,256.60, 209.20,262.81, 231.18,263.80, 239.20,263.80, 239.20,262.65, 239.33,259.40, 236.80,259.40, 236.80,251.57, 226.52,247.90, 223.71,246.46, 224.22,246.20, 228.40,246.20, 228.40,241.80, 245.20,241.80, 245.20,239.77, 250.25,239.04, 250.56,238.60, 247.20,238.60, 247.20,235.84, 237.79,234.13, 236.00,232.60, 238.00,232.60, 238.00,227.70, 248.46,223.40, 254.00,223.40, 254.00,221.77, 253.32,217.15, 243.71,215.18, 241.23,214.20, 244.00,214.20, 244.00,208.81, 240.31,204.14, 239.64,200.46, 241.80,197.40, 248.00,185.80, 264.40,185.80, 264.40,184.89, 256.37,184.20, 258.00,184.20, 258.00,164.60, 260.78,150.89, 261.06,143.80, 259.60
     }, 157);
 }
@@ -1833,3 +1831,10 @@ pub const DebugTriangulateStepResult = struct {
         alloc.free(self.deferred_verts);
     }
 };
+
+fn dumpPolygon(polygon: []const Vec2) void {
+    log_.debug("Polygon:", .{});
+    for (polygon) |pt| {
+        log_.debug("{}, {}", .{pt.x, pt.y});
+    }
+}

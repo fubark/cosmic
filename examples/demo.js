@@ -108,7 +108,7 @@ w.onUpdate(g => {
 
     // Bigger Svg.
     g.translate(840, 360)
-    g.executeDrawList(tiger_head_draw_list)
+    g.drawCommandList(tiger_head_draw_list)
 
     // Curves.
     g.resetTransform()

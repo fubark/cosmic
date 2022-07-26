@@ -537,7 +537,7 @@ pub const Graphics = struct {
     // TODO: allow x, y offset
     pub fn drawSvgContent(self: *Graphics, str: []const u8) !void {
         const draw_list = try self.svg_parser.parse(str);
-        self.executeDrawList(draw_list);
+        self.drawCommandList(draw_list);
     }
 
     // This will be slower since it will parse the text every time.
@@ -567,7 +567,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawList(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandList(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -597,7 +597,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawListLyon(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandListLyon(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -631,7 +631,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawListTess2(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandListTess2(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {

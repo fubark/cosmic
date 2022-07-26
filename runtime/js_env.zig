@@ -166,7 +166,7 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
         ctx.setConstFuncT(proto, "line", Context.line);
         ctx.setConstFuncT(proto, "svgContent", Context.svgContent);
         ctx.setConstFuncT(proto, "compileSvgContent", Context.compileSvgContent);
-        ctx.setConstFuncT(proto, "executeDrawList", Context.executeDrawList);
+        ctx.setConstFuncT(proto, "drawCommandList", Context.drawCommandList);
         ctx.setConstFuncT(proto, "quadraticBezierCurve", Context.quadraticBezierCurve);
         ctx.setConstFuncT(proto, "cubicBezierCurve", Context.cubicBezierCurve);
         ctx.setConstFuncT(proto, "imageSized", Context.imageSized);
@@ -175,10 +175,10 @@ pub fn initContext(rt: *RuntimeContext, iso: v8.Isolate) v8.Context {
             ctx.setConstFuncT(proto, "debugTriangulateProcessNext", cs_graphics_pkg.debugTriangulateProcessNext);
         }
         if (build_options.has_lyon) {
-            ctx.setConstFuncT(proto, "executeDrawListLyon", cs_graphics_pkg.executeDrawListLyon);
+            ctx.setConstFuncT(proto, "drawCommandListLyon", cs_graphics_pkg.drawCommandListLyon);
         }
         if (build_options.has_tess2) {
-            ctx.setConstFuncT(proto, "executeDrawListTess2", cs_graphics_pkg.executeDrawListTess2);
+            ctx.setConstFuncT(proto, "drawCommandListTess2", cs_graphics_pkg.drawCommandListTess2);
         }
     }
     rt.graphics_class = graphics_class;

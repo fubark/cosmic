@@ -16,21 +16,21 @@ let start, ms
 
 start = timerNow()
 for (var i = 0; i < reps; i += 1) {
-    g.executeDrawList(tiger_head_draw_list)
+    g.drawCommandList(tiger_head_draw_list)
 }
 ms = (timerNow() - start) / 1000000n
 dump(`tiger head (cosmic): ${ms}ms`)
 
 start = timerNow()
 for (var i = 0; i < reps; i += 1) {
-    g.executeDrawListLyon(tiger_head_draw_list)
+    g.drawCommandListLyon(tiger_head_draw_list)
 }
 ms = (timerNow() - start) / 1000000n
 dump(`tiger head (lyon): ${ms}ms`)
 
 start = timerNow()
 for (var i = 0; i < reps; i += 1) {
-    g.executeDrawListTess2(tiger_head_draw_list)
+    g.drawCommandListTess2(tiger_head_draw_list)
 }
 ms = (timerNow() - start) / 1000000n
 dump(`tiger head (tess2): ${ms}ms`)

@@ -133,7 +133,7 @@ pub const Graphics = struct {
     cur_blend_mode: BlendMode,
 
     vec2_helper_buf: std.ArrayList(Vec2),
-    vec2_slice_helper_buf: std.ArrayList([]const Vec2),
+    vec2_slice_helper_buf: std.ArrayList(stdx.IndexSlice(u32)),
     qbez_helper_buf: std.ArrayList(SubQuadBez),
     tessellator: Tessellator,
 
@@ -237,7 +237,7 @@ pub const Graphics = struct {
             .cur_dpr = dpr,
             .cur_dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
-            .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
+            .vec2_slice_helper_buf = std.ArrayList(stdx.IndexSlice(u32)).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
             .tessellator = undefined,
             .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
@@ -1115,7 +1115,10 @@ pub const Graphics = struct {
             switch (cmd) {
                 .MoveTo => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = self.vec2_helper_buf.items.len,
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1131,7 +1134,10 @@ pub const Graphics = struct {
                 },
                 .MoveToRel => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = self.vec2_helper_buf.items.len,
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1249,7 +1255,10 @@ pub const Graphics = struct {
 
         if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
             // Push the current polygon.
-            self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+            self.vec2_slice_helper_buf.append(.{
+                .start = cur_poly_start,
+                .end = self.vec2_helper_buf.items.len,
+            }) catch fatal();
         }
         if (self.vec2_slice_helper_buf.items.len == 0) {
             return;
@@ -1319,7 +1328,10 @@ pub const Graphics = struct {
             switch (cmd) {
                 .MoveTo => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1335,7 +1347,10 @@ pub const Graphics = struct {
                 },
                 .MoveToRel => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1492,7 +1507,10 @@ pub const Graphics = struct {
 
         if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
             // Push the current polygon.
-            self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+            self.vec2_slice_helper_buf.append(.{
+                .start = cur_poly_start,
+                .end = @intCast(u32, self.vec2_helper_buf.items.len),
+            }) catch fatal();
         }
         if (self.vec2_slice_helper_buf.items.len == 0) {
             return;
@@ -1501,7 +1519,7 @@ pub const Graphics = struct {
         if (fill) {
             // dumpPolygons(self.alloc, self.vec2_slice_helper_buf.items);
             self.tessellator.clearBuffers();
-            self.tessellator.triangulatePolygons(self.vec2_slice_helper_buf.items);
+            self.tessellator.triangulatePolygons2(self.vec2_helper_buf.items, self.vec2_slice_helper_buf.items);
             self.setCurrentTexture(self.white_tex);
             const out_verts = self.tessellator.out_verts.items;
             const out_idxes = self.tessellator.out_idxes.items;
