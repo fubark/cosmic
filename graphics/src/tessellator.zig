@@ -546,6 +546,11 @@ pub const Tessellator = struct {
             }
         }
 
+        // Didn't find start point. All points in the polygon are the same.
+        if (start_idx == self.verts.items.len) {
+            return;
+        }
+
         var last_v = self.verts.items[start_idx]; // out of bounds
         var last_v_idx = start_idx;
 
@@ -1364,6 +1369,18 @@ fn testSimple(polygon: []const f32, exp_verts: []const f32, exp_idxes: []const u
     try t.eqSlice(Vec2, tessellator.out_verts.items, exp_verts_buf.items);
     // log("{any}", .{tessellator.out_idxes.items});
     try t.eqSlice(u16, tessellator.out_idxes.items, exp_idxes);
+}
+
+test "One point." {
+    try testCount(&.{
+        0, 0,
+    }, 0);
+}
+
+test "Multiple points that are the same." {
+    try testCount(&.{
+        10, 10, 10, 10, 10, 10,
+    }, 0);
 }
 
 test "One triangle ccw." {
