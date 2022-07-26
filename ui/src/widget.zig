@@ -124,12 +124,15 @@ pub const Node = struct {
     child_event_ordering: []const *Node,
 
     // TODO: It might be better to keep things simple and only allow one callback per event type per node. If the widget wants more they can multiplex in their implementation.
+    // TODO: Instead of storing all these callbacks per node, create trees per event type.
     /// Singly linked lists of events attached to this node. Can be NullId.
     mouse_down_list: u32,
     mouse_up_list: u32,
     mouse_scroll_list: u32,
     key_up_list: u32,
     key_down_list: u32,
+    hover_change_sub: u32, // Only one subscriber.
+    event_state_mask: u8,
 
     // TODO: Should use a shared hashmap from Module.
     key_to_child: std.AutoHashMap(WidgetKey, *Node),
@@ -157,6 +160,8 @@ pub const Node = struct {
             .mouse_scroll_list = NullId,
             .key_up_list = NullId,
             .key_down_list = NullId,
+            .hover_change_sub = NullId,
+            .event_state_mask = 0,
             .has_child_event_ordering = false,
             .id = undefined,
             .has_widget_id = false,

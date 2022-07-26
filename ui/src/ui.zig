@@ -19,6 +19,7 @@ pub const MouseDownEvent = module.MouseDownEvent;
 pub const MouseUpEvent = module.MouseUpEvent;
 pub const MouseMoveEvent = module.MouseMoveEvent;
 pub const MouseScrollEvent = module.MouseScrollEvent;
+pub const HoverChangeEvent = module.HoverChangeEvent;
 pub const WidgetProps = module.WidgetProps;
 pub const SizeConstraints = module.SizeConstraints;
 

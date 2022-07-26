@@ -515,9 +515,56 @@ pub const Module = struct {
         } else return false;
     }
 
-    pub fn processMouseMoveEvent(self: *Self, e: platform.MouseMoveEvent) void {
+    pub fn processMouseMoveEvent(self: *Module, e: platform.MouseMoveEvent) void {
+        // Process global mouse move events.
         for (self.common.mouse_move_event_subs.items) |*it| {
             it.handleEvent(&self.event_ctx, e);
+        }
+
+        // Process events related to mouse move.
+        const xf = @intToFloat(f32, e.x);
+        const yf = @intToFloat(f32, e.y);
+        if (self.root_node) |node| {
+            self.processMouseMoveEventRecurse(node, xf, yf, e);
+        }
+
+        // Check to reset hovered nodes.
+        var i = @intCast(u32, self.common.hovered_nodes.items.len);
+        while (i > 0) {
+            i -= 1;
+            const node =  self.common.hovered_nodes.items[i];
+            if (!node.abs_bounds.containsPt(xf, yf)) {
+                node.event_state_mask &= ~EventStateMasks.hovered;
+                const sub = self.common.hover_change_event_subs.getNoCheck(node.hover_change_sub);
+                sub.handleEvent(&self.event_ctx, .{
+                    .hovered = false,
+                    .x = e.x,
+                    .y = e.y,
+                });
+                _ = self.common.hovered_nodes.swapRemove(i);
+            }
+        }
+    }
+
+    fn processMouseMoveEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseMoveEvent) void {
+        if (node.abs_bounds.containsPt(xf, yf)) {
+            if (node.hover_change_sub != NullId) {
+                // Check if this node is already in hovered state.
+                if (node.event_state_mask & EventStateMasks.hovered == 0) {
+                    self.common.hovered_nodes.append(node) catch fatal();
+                    node.event_state_mask |= EventStateMasks.hovered;
+                }
+                const sub = self.common.hover_change_event_subs.getNoCheck(node.hover_change_sub);
+                sub.handleEvent(&self.event_ctx, .{
+                    .hovered = true,
+                    .x = e.x,
+                    .y = e.y,
+                });
+            }
+            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+            for (event_children) |child| {
+                self.processMouseMoveEventRecurse(child, xf, yf, e);
+            }
         }
     }
 
@@ -1238,6 +1285,10 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
         pub inline fn removeMouseUpHandler(self: *Context, comptime Ctx: type, func: MouseUpHandler(Ctx)) void {
             self.common.removeMouseUpHandler(self.node, Ctx, func);
         }
+
+        pub inline fn setHoverChangeHandler(self: *Context, ctx: anytype, func: HoverChangeHandler(@TypeOf(ctx))) void {
+            self.common.setHoverChangeHandler(self.node, ctx, func);
+        }
     };
 }
 
@@ -1425,6 +1476,13 @@ pub const MouseDownEvent = Event(platform.MouseDownEvent);
 pub const MouseUpEvent = Event(platform.MouseUpEvent);
 pub const MouseMoveEvent = Event(platform.MouseMoveEvent);
 pub const MouseScrollEvent = Event(platform.MouseScrollEvent);
+pub const HoverChangeEvent = Event(HoverChangeEventInner);
+
+const HoverChangeEventInner = struct {
+    x: i16,
+    y: i16,
+    hovered: bool,
+};
 
 fn KeyDownHandler(comptime Context: type) type {
     return fn (Context, KeyDownEvent) void;
@@ -1448,6 +1506,10 @@ fn MouseUpHandler(comptime Context: type) type {
 
 fn MouseScrollHandler(comptime Context: type) type {
     return fn (Context, MouseScrollEvent) void;
+}
+
+fn HoverChangeHandler(comptime Context: type) type {
+    return fn (Context, HoverChangeEvent) void;
 }
 
 /// Does not depend on ModuleConfig so it can be embedded into Widget structs to access common utilities.
@@ -1707,7 +1769,21 @@ pub const CommonContext = struct {
         self.common.has_mouse_move_subs = true;
     }
 
-    pub fn addKeyUpHandler(self: *Self, node: *Node, ctx: anytype, cb: KeyUpHandler(@TypeOf(ctx))) void {
+    pub fn setHoverChangeHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, func: HoverChangeHandler(@TypeOf(ctx))) void {
+        const closure = Closure(@TypeOf(ctx), fn (HoverChangeEvent) void).init(self.alloc, ctx, func).iface();
+        const sub = Subscriber(HoverChangeEventInner){
+            .closure = closure,
+            .node = node,
+        };
+        if (node.hover_change_sub != NullId) {
+            self.common.hover_change_event_subs.getNoCheck(node.hover_change_sub).deinit(self.alloc);
+            self.common.hover_change_event_subs.getPtrNoCheck(node.hover_change_sub).* = sub;
+        } else {
+            node.hover_change_sub = self.common.hover_change_event_subs.add(sub) catch fatal();
+        }
+    }
+
+    pub fn addKeyUpHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, cb: KeyUpHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), fn (KeyUpEvent) void).init(self.alloc, ctx, cb).iface();
         const sub = Subscriber(platform.KeyUpEvent){
             .closure = closure,
@@ -1797,6 +1873,12 @@ pub const ModuleCommon = struct {
     mouse_move_event_subs: std.ArrayList(Subscriber(platform.MouseMoveEvent)),
     has_mouse_move_subs: bool,
 
+    /// Hover change event is more reliable than MouseEnter and MouseExit.
+    /// Once the hovered state is triggered, another event is guaranteed to fire once the element is no longer hovered.
+    /// This is done by tracking the current hovered items and checking their bounds against mouse move events.
+    hover_change_event_subs: stdx.ds.PooledHandleList(u32, Subscriber(HoverChangeEventInner)),
+    hovered_nodes: std.ArrayList(*ui.Node),
+
     /// Currently focused widget.
     focused_widget: ?*ui.Node,
     focused_onblur: BlurHandler,
@@ -1846,6 +1928,8 @@ pub const ModuleCommon = struct {
             .mouse_move_event_subs = std.ArrayList(Subscriber(platform.MouseMoveEvent)).init(alloc),
             .mouse_scroll_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
+            .hover_change_event_subs = stdx.ds.PooledHandleList(u32, Subscriber(HoverChangeEventInner)).init(alloc),
+            .hovered_nodes = std.ArrayList(*ui.Node).init(alloc),
 
             .next_post_layout_cbs = std.ArrayList(ClosureIface(fn () void)).init(alloc),
             // .next_post_render_cbs = std.ArrayList(*ui.Node).init(alloc),
@@ -1926,6 +2010,15 @@ pub const ModuleCommon = struct {
             it.deinit(self.alloc);
         }
         self.mouse_move_event_subs.deinit();
+
+        {
+            var iter = self.hover_change_event_subs.iterator();
+            while (iter.next()) |it| {
+                it.deinit(self.alloc);
+            }
+            self.hover_change_event_subs.deinit();
+        }
+        self.hovered_nodes.deinit();
 
         self.arena_allocator.deinit();
     }
@@ -2526,4 +2619,8 @@ pub fn WidgetProps(comptime Widget: type) type {
 const UpdateError = error {
     NestedFragment,
     UserRootCantBeFragment,
+};
+
+const EventStateMasks = struct {
+    const hovered: u8 = 0b00000001;
 };
