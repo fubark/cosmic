@@ -65,6 +65,7 @@ pub fn build(b: *Builder) !void {
     const filter = b.option([]const u8, "filter", "For tests") orelse "";
     const tracy = b.option(bool, "tracy", "Enable tracy profiling.") orelse false;
     const link_graphics = b.option(bool, "graphics", "Link graphics libs") orelse false;
+    const link_physics = b.option(bool, "physics", "Link physics libs") orelse false;
     const add_runtime = b.option(bool, "runtime", "Add the runtime package") orelse false;
     const audio = b.option(bool, "audio", "Link audio libs") orelse false;
     const v8 = b.option(bool, "v8", "Link v8 lib") orelse false;
@@ -106,6 +107,7 @@ pub fn build(b: *Builder) !void {
         .builder = b,
         .enable_tracy = tracy,
         .link_graphics = link_graphics,
+        .link_physics = link_physics,
         .link_audio = audio,
         .add_v8_pkg = v8,
         .add_runtime_pkg = add_runtime,
@@ -383,6 +385,7 @@ const BuilderContext = struct {
     filter: []const u8,
     enable_tracy: bool,
     link_graphics: bool,
+    link_physics: bool = false,
 
     // For testing, benchmarks.
     link_lyon: bool,
@@ -671,6 +674,11 @@ const BuilderContext = struct {
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
+            if (graphics_backend == .Vulkan) {
+                glslang.buildAndLink(step);
+            }
+        }
+        if (self.link_physics) {
             if (step.target.getCpuArch().isWasm()) {
                 jolt.buildAndLink(step, .{ .multi_threaded = false, .enable_simd = false });
             } else {
@@ -678,13 +686,11 @@ const BuilderContext = struct {
                 if (!step.target.isWindows()) {
                     jolt.buildAndLink(step, .{});
                 }
-                glslang.buildAndLink(step);
             }
         }
         if (self.link_audio) {
             maudio.buildAndLink(step);
         }
-
         if (self.add_v8_pkg or self.link_v8) {
             // Only add zig-v8 package when this flag is set to let unrelated builds continue. eg. graphics/ui examples.
             // Must dependOn before adding the zig-v8 package.

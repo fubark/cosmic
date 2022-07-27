@@ -124,121 +124,120 @@ jobs:
       - name: Get extras.
         run: zig build get-extras ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
 
-      - name: Get prebuilt v8.
-        run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
+      # - name: Get prebuilt v8.
+      #   run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
 
-      # Will fetch zig-v8 if missing.
-      - name: Generate js API supplement.
-        run: zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js" -Dfetch
+      # # Will fetch zig-v8 if missing.
+      # - name: Generate js API supplement.
+      #   run: zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js" -Dfetch
 
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
         if: env.BUILD_TARGET != 'aarch64-macos-none'
-        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch
 
-      - name: Test behavior.
-        if: env.BUILD_TARGET != 'aarch64-macos-none'
-        run: zig build test-behavior ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+      # - name: Test behavior.
+      #   if: env.BUILD_TARGET != 'aarch64-macos-none'
+      #   run: zig build test-behavior ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
-      - name: Build.
-        run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+      # - name: Build.
+      #   run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
-      - name: Test js behavior.
-        if: env.BUILD_TARGET != 'aarch64-macos-none'
-        run: ./zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }} test test/js/test.js
+      # - name: Test js behavior.
+      #   if: env.BUILD_TARGET != 'aarch64-macos-none' && false
+      #   run: ./zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }} test test/js/test.js
 
-      # Remove when zig strip is fixed.
-      - name: Strip (Linux)
-        if: env.BUILD_TARGET == 'x86_64-linux-gnu' && env.BUILD_MODE == 'release'
-        run: |
-          strip zig-out/${{ env.BUILD_TARGET }}/main/main
+      # # Remove when zig strip is fixed.
+      # - name: Strip (Linux)
+      #   if: env.BUILD_TARGET == 'x86_64-linux-gnu' && env.BUILD_MODE == 'release'
+      #   run: |
+      #     strip zig-out/${{ env.BUILD_TARGET }}/main/main
 
-      # Don't strip aarch64 since it was already code signed.
-      # TODO: Look for way to make zig strip before doing the codesign.
-      # strip isn't working like before. Disabled for now.
-      - name: Strip (macOS)
-        if: env.BUILD_TARGET == 'x86_64-macos-none' && env.BUILD_MODE == 'release' && false
-        run: |
-          strip zig-out/${{ env.BUILD_TARGET }}/main/main
+      # # Don't strip aarch64 since it was already code signed.
+      # # TODO: Look for way to make zig strip before doing the codesign.
+      # - name: Strip (macOS)
+      #   if: env.BUILD_TARGET == 'x86_64-macos-none' && env.BUILD_MODE == 'release'
+      #   run: |
+      #     strip zig-out/${{ env.BUILD_TARGET }}/main/main
 
-      # Currently just ad hoc signing.
-      # aarch64 build is automatically signed by zig.
-      - name: Codesign (macOS)
-        if: env.BUILD_TARGET == 'x86_64-macos-none' && env.BUILD_MODE == 'release'
-        run: |
-          codesign --force --deep -s - zig-out/${{ env.BUILD_TARGET }}/main/main
+      # # Currently just ad hoc signing.
+      # # aarch64 build is automatically signed by zig.
+      # - name: Codesign (macOS)
+      #   if: env.BUILD_TARGET == 'x86_64-macos-none' && env.BUILD_MODE == 'release'
+      #   run: |
+      #     codesign --force --deep -s - zig-out/${{ env.BUILD_TARGET }}/main/main
 
-      - name: Copy binary.
-        run: cp
-          zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }}
-          zig-out/${{ env.BUILD_TARGET }}/main/cosmic${{ env.BIN_EXT }}
+      # - name: Copy binary.
+      #   run: cp
+      #     zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }}
+      #     zig-out/${{ env.BUILD_TARGET }}/main/cosmic${{ env.BIN_EXT }}
 
-      - name: Zip. (linux/macos)
-        if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
-        run: |
-          (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
+      # - name: Zip. (linux/macos)
+      #   if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
+      #   run: |
+      #     (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
 
-      - name: Zip. (windows)
-        if: env.BUILD_HOST == 'windows-2019'
-        shell: wsl-bash {0}
-        run: |
-          (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
+      # - name: Zip. (windows)
+      #   if: env.BUILD_HOST == 'windows-2019'
+      #   shell: wsl-bash {0}
+      #   run: |
+      #     (cd zig-out/${{ env.BUILD_TARGET }}/main && zip - cosmic${{env.BIN_EXT}}) > ${{ env.BIN_ZIP }}
 
-      - name: Save artifact.
-        uses: actions/upload-artifact@v2
-        with:
-          name: bin
-          path: |
-            ${{ env.BIN_ZIP }}
+      # - name: Save artifact.
+      #   uses: actions/upload-artifact@v2
+      #   with:
+      #     name: bin
+      #     path: |
+      #       ${{ env.BIN_ZIP }}
 
     outputs:
       version: ${{ env.BUILD_VERSION }}
       short_sha: ${{ env.SHORT_SHA }}
 
-  release:
-    needs: build
-    name: Release
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/download-artifact@v2
-        with:
-          name: bin
+  # release:
+  #   needs: build
+  #   name: Release
+  #   runs-on: ubuntu-20.04
+  #   steps:
+  #     - uses: actions/download-artifact@v2
+  #       with:
+  #         name: bin
 
-      - name: Rename with version.
-        run: |
-          mv cosmic-windows-x64.zip cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-          mv cosmic-linux-x64.zip cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-          mv cosmic-macos-x64.zip cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-          mv cosmic-macos-arm64.zip cosmic-macos-arm64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #     - name: Rename with version.
+  #       run: |
+  #         mv cosmic-windows-x64.zip cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #         mv cosmic-linux-x64.zip cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #         mv cosmic-macos-x64.zip cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #         mv cosmic-macos-arm64.zip cosmic-macos-arm64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
 
-      - name: Github Release.
-        uses: marvinpinto/action-automatic-releases@latest
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: latest
-          prerelease: false
-          title: ${{ needs.build.outputs.version }}
-          files: |
-            cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-            cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-            cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
-            cosmic-macos-arm64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #     - name: Github Release.
+  #       uses: marvinpinto/action-automatic-releases@latest
+  #       with:
+  #         repo_token: ${{ secrets.GITHUB_TOKEN }}
+  #         automatic_release_tag: latest
+  #         prerelease: false
+  #         title: ${{ needs.build.outputs.version }}
+  #         files: |
+  #           cosmic-windows-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #           cosmic-linux-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #           cosmic-macos-x64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
+  #           cosmic-macos-arm64_${{ needs.build.outputs.version }}-${{ needs.build.outputs.short_sha }}.zip
 
-  dispatch:
-    needs: release
-    name: Dispatch doc gen.
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Dispatch doc gen workflow.
-        continue-on-error: true
-        uses: actions/github-script@v5
-        with:
-          github-token: ${{ secrets.PAT }}
-          script: |
-            await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
-              owner: 'fubark',
-              repo: 'cosmic-site',
-              workflow_id: 'gen-docs.yml',
-              // workflow should just exist in master, one of the workflow steps will then checkout gh_pages.
-              ref: 'master'
-            })
+  # dispatch:
+  #   needs: release
+  #   name: Dispatch doc gen.
+  #   runs-on: ubuntu-20.04
+  #   steps:
+  #     - name: Dispatch doc gen workflow.
+  #       continue-on-error: true
+  #       uses: actions/github-script@v5
+  #       with:
+  #         github-token: ${{ secrets.PAT }}
+  #         script: |
+  #           await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+  #             owner: 'fubark',
+  #             repo: 'cosmic-site',
+  #             workflow_id: 'gen-docs.yml',
+  #             // workflow should just exist in master, one of the workflow steps will then checkout gh_pages.
+  #             ref: 'master'
+  #           })
