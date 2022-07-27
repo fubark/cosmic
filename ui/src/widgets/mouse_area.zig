@@ -43,7 +43,7 @@ pub const MouseArea = struct {
     pub fn init(self: *MouseArea, c: *ui.InitContext) void {
         self.pressed = false;
         c.addMouseDownHandler(c.node, onMouseDown);
-        c.addMouseUpHandler(c.node, onMouseUp);
+        c.setMouseUpHandler(c.node, onMouseUp);
     }
 
     fn onMouseUp(node: *ui.Node, e: ui.MouseUpEvent) void {

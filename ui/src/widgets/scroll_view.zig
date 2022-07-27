@@ -86,10 +86,8 @@ pub const ScrollView = struct {
             if (xf >= bounds.thumb_x and xf <= bounds.thumb_x + bounds.thumb_width and yf >= bounds.y and yf <= bounds.y + bounds.height) {
                 self.dragging_hbar = true;
                 self.dragging_offset = xf - bounds.thumb_x;
-                e.ctx.removeMouseMoveHandler(*ScrollView, onMouseMove);
-                e.ctx.removeMouseUpHandler(*ScrollView, onMouseUp);
-                e.ctx.addMouseMoveHandler(self, onMouseMove);
-                e.ctx.addGlobalMouseUpHandler(self, onMouseUp);
+                e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+                e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
                 e.ctx.requestCaptureMouse(true);
                 return .Stop;
             }
@@ -100,10 +98,8 @@ pub const ScrollView = struct {
             if (xf >= bounds.x and xf <= bounds.x + bounds.width and yf >= bounds.thumb_y and yf <= bounds.thumb_y + bounds.height) {
                 self.dragging_vbar = true;
                 self.dragging_offset = yf - bounds.thumb_y;
-                e.ctx.removeMouseMoveHandler(*ScrollView, onMouseMove);
-                e.ctx.removeMouseUpHandler(*ScrollView, onMouseUp);
-                e.ctx.addMouseMoveHandler(self, onMouseMove);
-                e.ctx.addGlobalMouseUpHandler(self, onMouseUp);
+                e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+                e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
                 e.ctx.requestCaptureMouse(true);
                 return .Stop;
             }
@@ -119,8 +115,8 @@ pub const ScrollView = struct {
     fn onMouseUp(self: *ScrollView, e: ui.MouseUpEvent) void {
         self.dragging_hbar = false;
         self.dragging_vbar = false;
-        e.ctx.removeMouseMoveHandler(*ScrollView, onMouseMove);
-        e.ctx.removeMouseUpHandler(*ScrollView, onMouseUp);
+        e.ctx.clearGlobalMouseMoveHandler();
+        e.ctx.clearGlobalMouseUpHandler();
         e.ctx.requestCaptureMouse(false);
     }
 

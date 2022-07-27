@@ -124,14 +124,14 @@ pub const Node = struct {
     child_event_ordering: []const *Node,
 
     // TODO: It might be better to keep things simple and only allow one callback per event type per node. If the widget wants more they can multiplex in their implementation.
-    // TODO: Instead of storing all these callbacks per node, create trees per event type.
+    // TODO: Instead of storing all these callbacks per node, use hashmaps with node id as the key.
     /// Singly linked lists of events attached to this node. Can be NullId.
     mouse_down_list: u32,
-    mouse_up_list: u32,
     mouse_scroll_list: u32,
     key_up_list: u32,
     key_down_list: u32,
     hover_change_sub: u32, // Only one subscriber.
+    event_handler_mask: u8,
     event_state_mask: u8,
 
     // TODO: Should use a shared hashmap from Module.
@@ -153,15 +153,15 @@ pub const Node = struct {
             .children = std.ArrayList(*Node).init(alloc),
             .child_event_ordering = undefined,
             .layout = undefined,
-            .abs_bounds = stdx.math.BBox.init(),
+            .abs_bounds = stdx.math.BBox.initZero(),
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
             .mouse_down_list = NullId,
-            .mouse_up_list = NullId,
             .mouse_scroll_list = NullId,
             .key_up_list = NullId,
             .key_down_list = NullId,
             .hover_change_sub = NullId,
             .event_state_mask = 0,
+            .event_handler_mask = 0,
             .has_child_event_ordering = false,
             .id = undefined,
             .has_widget_id = false,
@@ -214,6 +214,18 @@ pub const Node = struct {
 
     pub fn getAbsBounds(self: Node) stdx.math.BBox {
         return self.abs_bounds;
+    }
+
+    pub inline fn clearHandlerMask(self: *Node, mask: u8) void {
+        self.event_handler_mask &= ~mask;
+    }
+
+    pub inline fn setHandlerMask(self: *Node, mask: u8) void {
+        self.event_handler_mask |= mask;
+    }
+
+    pub inline fn hasHandler(self: Node, mask: u8) bool {
+        return self.event_handler_mask & mask > 0;
     }
 };
 

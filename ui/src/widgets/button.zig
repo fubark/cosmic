@@ -59,7 +59,7 @@ pub const Button = struct {
     pub fn init(self: *Button, c: *ui.InitContext) void {
         self.pressed = false;
         c.addMouseDownHandler(c.node, handleMouseDownEvent);
-        c.addMouseUpHandler(c.node, handleMouseUpEvent);
+        c.setMouseUpHandler(c.node, handleMouseUpEvent);
     }
 
     fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
