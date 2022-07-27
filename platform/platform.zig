@@ -72,3 +72,76 @@ pub const FetchResultEvent = struct {
     fetch_id: u32,
     buf: []const u8,
 };
+
+var system_cursors: [10]?*sdl.SDL_Cursor = .{ null, null, null, null, null, null, null, null, null, null };
+var cur_system_cursor: SystemCursorType = .default;
+pub fn setSystemCursor(cursor_t: SystemCursorType) void {
+    if (cur_system_cursor != cursor_t) {
+        if (comptime !builtin.target.isWasm()) {
+            const idx = @enumToInt(cursor_t);
+            if (system_cursors[idx] == null) {
+                const sdl_cursor: c_uint = switch (cursor_t) {
+                    .default => sdl.SDL_SYSTEM_CURSOR_ARROW,
+                    .crosshair => sdl.SDL_SYSTEM_CURSOR_CROSSHAIR,
+                    .size_nwse => sdl.SDL_SYSTEM_CURSOR_SIZENWSE,
+                    .size_nesw => sdl.SDL_SYSTEM_CURSOR_SIZENESW,
+                    .size_we => sdl.SDL_SYSTEM_CURSOR_SIZEWE,
+                    .size_ns => sdl.SDL_SYSTEM_CURSOR_SIZENS,
+                    .size_all => sdl.SDL_SYSTEM_CURSOR_SIZEALL,
+                    .stop => sdl.SDL_SYSTEM_CURSOR_NO,
+                    .hand => sdl.SDL_SYSTEM_CURSOR_HAND,
+                    .wait => sdl.SDL_SYSTEM_CURSOR_WAIT,
+                };
+                const res = sdl.SDL_CreateSystemCursor(sdl_cursor);
+                if (res == null) {
+                    @panic("error");
+                }
+                system_cursors[idx] = res;
+            }
+            sdl.SDL_SetCursor(system_cursors[idx].?);
+        } else {
+            switch (cursor_t) {
+                .default => jsSetSystemCursor2("auto"),
+                .crosshair => jsSetSystemCursor2("crosshair"),
+                .size_nwse => jsSetSystemCursor2("nwse-resize"),
+                .size_nesw => jsSetSystemCursor2("nesw-resize"),
+                .size_we => jsSetSystemCursor2("ew-resize"),
+                .size_ns => jsSetSystemCursor2("ns-resize"),
+                .size_all => jsSetSystemCursor2("move"),
+                .stop => jsSetSystemCursor2("not-allowed"),
+                .hand => jsSetSystemCursor2("grab"),
+                .wait => jsSetSystemCursor2("wait"),
+            }
+        }
+        cur_system_cursor = cursor_t;
+    }
+}
+
+fn jsSetSystemCursor2(name: []const u8) void {
+    jsSetSystemCursor(name.ptr, name.len);
+}
+
+extern "stdx" fn jsSetSystemCursor(ptr: [*]const u8, len: usize) void;
+
+pub fn deinit() void {
+    if (comptime !builtin.target.isWasm()) {
+        for (system_cursors) |mb_cursor| {
+            if (mb_cursor) |cursor| {
+                sdl.SDL_FreeCursor(cursor);
+            }
+        }
+    }
+}
+
+const SystemCursorType = enum(u4) {
+    default = 0,
+    crosshair = 1,
+    size_nwse = 2,
+    size_nesw = 3,
+    size_we = 4,
+    size_ns = 5,
+    size_all = 6,
+    stop = 7,
+    hand = 8,
+    wait = 9,
+};
