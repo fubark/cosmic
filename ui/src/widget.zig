@@ -28,7 +28,7 @@ pub fn WidgetKeyId(id: usize) WidgetKey {
     };
 }
 
-/// If the user does not have the access to a widget's type, NodeRef still allows capturing the creating Node.
+/// If the user does not have the access to a widget's type, NodeRef still allows capturing the created Node.
 pub const NodeRef = struct {
     node: *Node = undefined,
     binded: bool = false,

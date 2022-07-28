@@ -8,7 +8,7 @@ const Window = platform.Window;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -20,14 +20,14 @@ const tamzen9_otb = @embedFile("../../assets/tamzen5x9r.otb");
 
 pub const App = struct {
     alloc: std.mem.Allocator,
-    text_editor: ui.WidgetRef(w.TextEditorUI),
-    size_slider: ui.WidgetRef(w.SliderUI),
+    text_editor: ui.WidgetRef(u.TextAreaUI),
+    size_slider: ui.WidgetRef(u.SliderUI),
 
     text_color: Color,
     bg_color: Color,
     text_wrap: bool,
 
-    root: *w.Root,
+    root: *u.Root,
     file_m: u32,
     cwd: []const u8,
     ctx: *ui.CommonContext,
@@ -95,7 +95,7 @@ pub const App = struct {
 
             fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
                 const self_ = stdx.mem.ptrCastAlign(*App, ptr);
-                return w.FileDialog(.{
+                return u.FileDialog(.{
                     .init_cwd = self_.cwd,
                     .onResult = c_.funcExt(self_, onOpenFont),
                 });
@@ -106,19 +106,19 @@ pub const App = struct {
             }
         };
 
-        const size_slider = ui.WidgetProps(w.SliderUI){
+        const size_slider = ui.WidgetProps(u.SliderUI){
             .init_val = 20,
             .min_val = 1,
             .max_val = 200,
             .onChange = c.closure(self, S.onSliderChange),
         };
 
-        return w.Row(.{}, &.{
-            w.Flex(.{ .flex = 3 },
-                w.Column(.{}, &.{
-                    w.Stretch(.{},
-                        w.Padding(.{ .padding = 10 }, 
-                            w.TextEditor(.{
+        return u.Row(.{}, &.{
+            u.Flex(.{ .flex = 3 },
+                u.Column(.{}, &.{
+                    u.Stretch(.{},
+                        u.Padding(.{ .padding = 10 }, 
+                            u.TextArea(.{
                                 .bind = &self.text_editor,
                                 // .font_family = "Tamzen",
                                 .font_family = self.font_family,
@@ -130,27 +130,27 @@ pub const App = struct {
                     ),
                 }),
             ),
-            w.Flex(.{ .flex = 1 },
-                w.Column(.{ .spacing = 10 }, &.{ 
-                    w.SliderOption(.{ .label = "Size", .slider = size_slider }),
-                    w.ColorPicker(.{
+            u.Flex(.{ .flex = 1 },
+                u.Column(.{ .spacing = 10 }, &.{ 
+                    u.SliderOption(.{ .label = "Size", .slider = size_slider }),
+                    u.ColorPicker(.{
                         .label = "Text Color",
                         .init_val = self.text_color,
                         .onPreviewChange = c.funcExt(self, S.onFgPreviewChange),
                         .onResult = c.funcExt(self, S.onFgResult),
                     }),
-                    w.ColorPicker(.{
+                    u.ColorPicker(.{
                         .label = "Bg Color",
                         .init_val = self.bg_color,
                         .onPreviewChange = c.funcExt(self, S.onBgPreviewChange),
                         .onResult = c.funcExt(self, S.onBgResult),
                     }),
-                    w.SwitchOption(.{
+                    u.SwitchOption(.{
                         .label = "Text Wrap (TODO)",
                         .init_val = false,
                         .onChange = c.funcExt(self, S.onTextWrapChange),
                     }),
-                    w.TextButton(.{ .text = "Load Font", .onClick = c.funcExt(self, S.onLoadFontClick) }),
+                    u.TextButton(.{ .text = "Load Font", .onClick = c.funcExt(self, S.onLoadFontClick) }),
                 }),
             ),
         });

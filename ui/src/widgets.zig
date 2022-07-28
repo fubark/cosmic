@@ -65,9 +65,9 @@ pub const TextButton = genBuildWithNoChild(TextButtonUI);
 /// Text related.
 pub const TextUI = @import("widgets/text.zig").Text;
 pub const Text = genBuildWithNoChild(TextUI);
-const text_editor = @import("widgets/text_editor.zig");
-pub const TextEditorUI = text_editor.TextEditor;
-pub const TextEditor = genBuildWithNoChild(TextEditorUI);
+const text_area = @import("widgets/text_area.zig");
+pub const TextAreaUI = text_area.TextArea;
+pub const TextArea = genBuildWithNoChild(TextAreaUI);
 const text_field = @import("widgets/text_field.zig");
 pub const TextFieldUI = text_field.TextField;
 pub const TextField = genBuildWithNoChild(TextFieldUI);

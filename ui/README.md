@@ -5,7 +5,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 - [x] Declarative retained mode. Persists widget state and performs fast diffs to reuse existing widget instances.
 - [x] Fast linear time layout algorithm.
 - [x] Widgets defined as plain structs. Easy to navigate with your editor and ZLS.
-- [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextEditor, Color Picker, Popovers, Modals, and more. Collection is still growing.
+- [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextArea, Color Picker, Popovers, Modals, and more. Collection is still growing.
 - [x] Custom widgets. Easily create your own widgets with your own build/layout/render steps.
 - [x] Draw with Canvas API / Vector graphics directly from a custom widget.
 - [x] Register input handlers (mouse, keyboard, etc).
