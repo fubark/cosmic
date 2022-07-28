@@ -132,11 +132,9 @@ pub const BuildContext = struct {
         self.node = node;
     }
 
-    /// Appends formatted string to temporary buffer.
+    /// Uses arena allocator to format text.
     pub fn fmt(self: *BuildContext, comptime format: []const u8, args: anytype) []const u8 {
-        const start = self.u8_buf.items.len;
-        std.fmt.format(self.u8_buf.writer(), format, args) catch unreachable;
-        return self.u8_buf.items[start..];
+        return std.fmt.allocPrint(self.arena_alloc, format, args) catch fatal();
     }
 
     /// Short-hand for createFrame.
