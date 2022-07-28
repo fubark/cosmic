@@ -527,7 +527,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !DrawCommandList {
+    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !svg.SvgRenderData {
         return try self.svg_parser.parseAlloc(alloc, str);
     }
 
@@ -536,8 +536,8 @@ pub const Graphics = struct {
     // For large svg content, render into an image and then draw the image.
     // TODO: allow x, y offset
     pub fn drawSvgContent(self: *Graphics, str: []const u8) !void {
-        const draw_list = try self.svg_parser.parse(str);
-        self.drawCommandList(draw_list);
+        const data = try self.svg_parser.parse(str);
+        self.drawCommandList(data.cmds);
     }
 
     // This will be slower since it will parse the text every time.

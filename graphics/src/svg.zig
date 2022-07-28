@@ -614,6 +614,25 @@ test "SvgParser.parse CR/LF" {
     _ = try parser.parse(svg);
 }
 
+test "SvgParser.parse viewbox" {
+    var parser = SvgParser.init(t.alloc);
+    defer parser.deinit();
+
+    const svg =
+        \\<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 2 24 25">
+        \\  <g>
+        \\    <path fill="none" d="M0 0h24v24H0z"/>
+        \\  </g>
+        \\</svg>
+        ;
+
+    const res = try parser.parse(svg);
+    try t.eq(res.min_x, 1);
+    try t.eq(res.min_y, 2);
+    try t.eq(res.width, 24);
+    try t.eq(res.height, 25);
+}
+
 test "PathParser.parse with continuation of the same command type." {
     const path = "M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm0-9.414l2.828-2.829 1.415 1.415L13.414 12l2.829 2.828-1.415 1.415L12 13.414l-2.828 2.829-1.415-1.415L10.586 12 7.757 9.172l1.415-1.415L12 10.586z";
     const res = try parseSvgPath(t.alloc, path);
@@ -622,6 +641,7 @@ test "PathParser.parse with continuation of the same command type." {
 }
 
 const SvgElement = enum {
+    Svg,
     Group,
     Polygon,
     Path,
@@ -655,6 +675,13 @@ pub const SvgParser = struct {
     str_buf: std.ArrayList(u8),
     state_stack: std.ArrayList(SvgDrawState),
     path_parser: PathParser,
+    last_err: []const u8,
+
+    /// Parsed viewbox.
+    min_x: f32,
+    min_y: f32,
+    width: f32,
+    height: f32,
 
     // Keep track of the current colors set to determine adding FillColor/StrokeColor ops.
     cur_fill: ?Color,
@@ -667,6 +694,7 @@ pub const SvgParser = struct {
 
     pub fn init(alloc: std.mem.Allocator) SvgParser {
         var elem_map = ds.OwnedKeyStringHashMap(SvgElement).init(alloc);
+        elem_map.put("svg", .Svg) catch unreachable;
         elem_map.put("g", .Group) catch unreachable;
         elem_map.put("polygon", .Polygon) catch unreachable;
         elem_map.put("path", .Path) catch unreachable;
@@ -686,6 +714,11 @@ pub const SvgParser = struct {
             .cur_stroke = undefined,
             .cur_transform = undefined,
             .path_parser = PathParser.init(alloc),
+            .last_err = "",
+            .min_x = 0,
+            .min_y = 0,
+            .width = 0,
+            .height = 0,
         };
     }
 
@@ -698,28 +731,41 @@ pub const SvgParser = struct {
         self.str_buf.deinit();
         self.state_stack.deinit();
         self.path_parser.deinit();
+        self.alloc.free(self.last_err);
     }
 
-    pub fn parseAlloc(self: *Self, alloc: std.mem.Allocator, src: []const u8) !DrawCommandList {
+    fn reportError(self: *SvgParser, comptime format: []const u8, args: anytype) void {
+        self.alloc.free(self.last_err);
+        self.last_err = std.fmt.allocPrint(self.alloc, format, args) catch fatal();
+    }
+
+    pub fn parseAlloc(self: *SvgParser, alloc: std.mem.Allocator, src: []const u8) !SvgRenderData {
         const res = try self.parse(src);
-        const new_cmd_data = alloc.alloc(f32, res.cmd_data.len) catch unreachable;
-        std.mem.copy(f32, new_cmd_data, res.cmd_data);
-        const new_extra_data = alloc.alloc(f32, res.extra_data.len) catch unreachable;
-        std.mem.copy(f32, new_extra_data, res.extra_data);
-        const new_cmds = alloc.alloc(DrawCommandPtr, res.cmds.len) catch unreachable;
-        std.mem.copy(DrawCommandPtr, new_cmds, res.cmds);
-        const new_sub_cmds = alloc.alloc(u8, res.sub_cmds.len) catch unreachable;
-        std.mem.copy(u8, new_sub_cmds, res.sub_cmds);
-        return DrawCommandList{
-            .alloc = alloc,
-            .extra_data = new_extra_data,
-            .cmd_data = new_cmd_data,
-            .cmds = new_cmds,
-            .sub_cmds = new_sub_cmds,
+        const cmds = res.cmds;
+        const new_cmd_data = alloc.alloc(f32, cmds.cmd_data.len) catch unreachable;
+        std.mem.copy(f32, new_cmd_data, cmds.cmd_data);
+        const new_extra_data = alloc.alloc(f32, cmds.extra_data.len) catch unreachable;
+        std.mem.copy(f32, new_extra_data, cmds.extra_data);
+        const new_cmds = alloc.alloc(DrawCommandPtr, cmds.cmds.len) catch unreachable;
+        std.mem.copy(DrawCommandPtr, new_cmds, cmds.cmds);
+        const new_sub_cmds = alloc.alloc(u8, cmds.sub_cmds.len) catch unreachable;
+        std.mem.copy(u8, new_sub_cmds, cmds.sub_cmds);
+        return SvgRenderData{
+            .min_x = self.min_x,
+            .min_y = self.min_y,
+            .width = self.width,
+            .height = self.height,
+            .cmds = DrawCommandList{
+                .alloc = alloc,
+                .extra_data = new_extra_data,
+                .cmd_data = new_cmd_data,
+                .cmds = new_cmds,
+                .sub_cmds = new_sub_cmds,
+            },
         };
     }
 
-    pub fn parse(self: *Self, src: []const u8) !DrawCommandList {
+    pub fn parse(self: *SvgParser, src: []const u8) !SvgRenderData {
         self.src = src;
         self.next_ch_idx = 0;
 
@@ -740,15 +786,24 @@ pub const SvgParser = struct {
         self.cur_transform = null;
 
         while (!self.nextAtEnd()) {
-            _ = try self.parseElement();
+            _ = self.parseElement() catch {
+                log.debug("error: {s}", .{self.last_err});
+                return error.ParseError;
+            };
         }
 
-        return DrawCommandList{
-            .alloc = null,
-            .extra_data = self.extra_data.items,
-            .cmd_data = self.cmd_data.buf.items,
-            .cmds = self.cmds.items,
-            .sub_cmds = self.sub_cmds.items,
+        return SvgRenderData{
+            .min_x = self.min_x,
+            .min_y = self.min_y,
+            .width = self.width,
+            .height = self.height,
+            .cmds = DrawCommandList{
+                .alloc = null,
+                .extra_data = self.extra_data.items,
+                .cmd_data = self.cmd_data.buf.items,
+                .cmds = self.cmds.items,
+                .sub_cmds = self.sub_cmds.items,
+            },
         };
     }
 
@@ -859,7 +914,10 @@ pub const SvgParser = struct {
                     var num_verts: u32 = 0;
                     const start_vert_id = @intCast(u32, self.extra_data.items.len);
                     while (iter.next()) |pair| {
-                        const sep_idx = stdx.string.indexOf(pair, ',') orelse return error.ParseError;
+                        const sep_idx = stdx.string.indexOf(pair, ',') orelse {
+                            self.reportError("Expected , in points.", .{});
+                            return error.ParseError;
+                        };
                         const x = try std.fmt.parseFloat(f32, pair[0..sep_idx]);
                         const y = try std.fmt.parseFloat(f32, pair[sep_idx + 1 ..]);
                         self.extra_data.appendSlice(&.{ x, y }) catch unreachable;
@@ -949,6 +1007,22 @@ pub const SvgParser = struct {
             }
             pos += 1;
         }
+    }
+
+    fn parseSvgElement(self: *SvgParser) !void {
+        while (try self.parseAttribute()) |attr| {
+            if (std.ascii.eqlIgnoreCase(attr.key, "viewbox")) {
+                if (attr.value) |value| {
+                    var iter = std.mem.tokenize(u8, value, " ");
+                    self.min_x = try std.fmt.parseFloat(f32, iter.next().?);
+                    self.min_y = try std.fmt.parseFloat(f32, iter.next().?);
+                    self.width = try std.fmt.parseFloat(f32, iter.next().?);
+                    self.height = try std.fmt.parseFloat(f32, iter.next().?);
+                }
+            }
+        }
+        try self.consume('>');
+        try self.parseChildrenAndCloseTag();
     }
 
     // Parses until end element '>' is consumed.
@@ -1109,6 +1183,7 @@ pub const SvgParser = struct {
         self.str_buf.resize(name.len) catch unreachable;
         if (self.elem_map.get(stdx.string.toLower(name, self.str_buf.items))) |elem| {
             switch (elem) {
+                .Svg => try self.parseSvgElement(),
                 .Group => try self.parseGroup(),
                 .Polygon => try self.parsePolygon(),
                 .Path => try self.parsePath(),
@@ -1230,5 +1305,20 @@ pub const SvgParser = struct {
             log.debug("Failed to consume: {c} at {}", .{ ch, self.next_ch_idx });
             return error.ParseError;
         }
+    }
+};
+
+pub const SvgRenderData = struct {
+    /// Viewbox.
+    min_x: f32,
+    min_y: f32,
+    width: f32,
+    height: f32,
+
+    /// Render data.
+    cmds: DrawCommandList,
+
+    pub fn deinit(self: SvgRenderData) void {
+        self.cmds.deinit();
     }
 };
