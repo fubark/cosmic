@@ -30,7 +30,7 @@ pub const Switch = struct {
     
     pub fn build(self: *Switch, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Switch, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *Switch, _: ui.MouseUpEvent) void {
                 self_.toggle();
             }
         };

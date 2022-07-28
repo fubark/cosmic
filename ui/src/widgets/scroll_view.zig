@@ -89,7 +89,7 @@ pub const ScrollView = struct {
                 e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
                 e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
                 e.ctx.requestCaptureMouse(true);
-                return .Stop;
+                return .stop;
             }
         }
 
@@ -101,7 +101,7 @@ pub const ScrollView = struct {
                 e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
                 e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
                 e.ctx.requestCaptureMouse(true);
-                return .Stop;
+                return .stop;
             }
         }
 
@@ -109,7 +109,7 @@ pub const ScrollView = struct {
             cb.call(.{ e.val });
         }
 
-        return .Continue;
+        return .default;
     }
 
     fn onMouseUp(self: *ScrollView, e: ui.MouseUpEvent) void {

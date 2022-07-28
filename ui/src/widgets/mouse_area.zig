@@ -15,22 +15,39 @@ pub const MouseHoverArea = struct {
     }
 
     pub fn init(self: *MouseHoverArea, c: *ui.InitContext) void {
-        _ = self;
-        c.setHoverChangeHandler(c.node, onHoverChange);
+        if (self.props.hitTest.isPresent()) {
+            c.setHoverChangeHandler2(self, onHoverChange, hitTest);
+        } else {
+            c.setHoverChangeHandler(self, onHoverChange);
+        }
     }
 
-    pub fn onHoverChange(node: *ui.Node, e: ui.HoverChangeEvent) void {
-        var self = node.getWidget(MouseHoverArea);
-        if (self.props.onHoverChange) |cb| {
-            cb.call(.{ e.val.hovered, e.val.x, e.val.y });
+    fn onHoverChange(self: *MouseHoverArea, e: ui.HoverChangeEvent) void {
+        if (self.props.onHoverChange.isPresent()) {
+            self.props.onHoverChange.call(.{ e });
         }
+        if (e.hovered) {
+            e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+        } else {
+            e.ctx.clearGlobalMouseMoveHandler();
+        }
+    }
+
+    fn onMouseMove(self: *MouseHoverArea, e: ui.MouseMoveEvent) void {
+        if (self.props.onHoverMove.isPresent()) {
+            self.props.onHoverMove.call(.{ e.val.x, e.val.y });
+        }
+    }
+
+    fn hitTest(self: *MouseHoverArea, x: i16, y: i16) bool {
+        return self.props.hitTest.call(.{ x, y });
     }
 };
 
 /// Provides mouse events for child widget.
 pub const MouseArea = struct {
     props: struct {
-        onClick: ?stdx.Function(fn (platform.MouseUpEvent) void) = null,
+        onClick: stdx.Function(fn (ui.MouseUpEvent) void) = .{},
         child: ui.FrameId = ui.NullFrameId,
     },
 
@@ -51,8 +68,8 @@ pub const MouseArea = struct {
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
-                if (self.props.onClick) |cb| {
-                    cb.call(.{ e.val });
+                if (self.props.onClick.isPresent()) {
+                    self.props.onClick.call(.{ e });
                 }
             }
         }
@@ -64,7 +81,7 @@ pub const MouseArea = struct {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
         }
-        return .Continue;
+        return .default;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {

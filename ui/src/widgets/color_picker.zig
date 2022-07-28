@@ -60,7 +60,7 @@ pub const ColorPicker = struct {
         ctx.fillBBox(preview_bounds);
     }
 
-    fn onClick(self: *ColorPicker, _: platform.MouseUpEvent) void {
+    fn onClick(self: *ColorPicker, _: ui.MouseUpEvent) void {
         const S = struct {
             fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
                 const self_ = stdx.mem.ptrCastAlign(*ColorPicker, ptr);
@@ -121,11 +121,12 @@ const ColorPickerPopover = struct {
         self.window.custom_post_render_ctx = self;
         
         c.addMouseDownHandler(self, onMouseDown);
-        c.addMouseUpHandler(self, onMouseUp);
     }
 
-    fn onMouseUp(self: *ColorPickerPopover, _: ui.MouseUpEvent) void {
+    fn onMouseUp(self: *ColorPickerPopover, e: ui.MouseUpEvent) void {
         self.is_pressed = false;
+        e.ctx.clearGlobalMouseUpHandler();
+        e.ctx.clearGlobalMouseMoveHandler();
     }
 
     fn onMouseDown(self: *ColorPickerPopover, e: ui.MouseDownEvent) ui.EventResult {
@@ -138,8 +139,8 @@ const ColorPickerPopover = struct {
             self.is_pressed = true;
             self.setMouseValue(e.val.x, e.val.y);
 
-            e.ctx.removeMouseMoveHandler(*ColorPickerPopover, onMouseMove);
-            e.ctx.addMouseMoveHandler(self, onMouseMove);
+            e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
+            e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
         }
         return .Continue;
     }
@@ -174,9 +175,10 @@ const ColorPickerPopover = struct {
         }
     }
 
-    fn onBlur(_: *ui.Node, c: *ui.CommonContext) void {
+    fn onBlur(n: *ui.Node, c: *ui.CommonContext) void {
         // const self = node.getWidget(ColorPickerPopover);
-        c.removeMouseMoveHandler(*ColorPickerPopover, onMouseMove);
+        c.clearGlobalMouseMoveHandler(n);
+        c.clearGlobalMouseUpHandler(n);
     }
 
     pub fn build(self: *ColorPickerPopover, c: *ui.BuildContext) ui.FrameId {

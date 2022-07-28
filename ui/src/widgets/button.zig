@@ -80,7 +80,7 @@ pub const Button = struct {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
         }
-        return .Continue;
+        return .default;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {

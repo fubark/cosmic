@@ -62,7 +62,7 @@ pub const SwitchOption = struct {
 
     pub fn build(self: *SwitchOption, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *SwitchOption, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *SwitchOption, _: ui.MouseUpEvent) void {
                 self_.inner.getWidget().toggle();
             }
         };

@@ -55,8 +55,6 @@ pub fn SliderBase(comptime is_float: bool) type {
             var self = node.getWidget(Self);
             if (e.val.button == .Left and self.pressed) {
                 self.pressed = false;
-                e.ctx.removeMouseUpHandler(*ui.Node, handleMouseUpEvent);
-                e.ctx.removeMouseMoveHandler(*ui.Node, handleMouseMoveEvent);
                 self.updateValueFromMouseX(node, e.val.x);
                 if (self.drag_start_value != self.value) {
                     if (self.props.onChange) |cb| {
@@ -67,6 +65,8 @@ pub fn SliderBase(comptime is_float: bool) type {
                     }
                 }
             }
+            e.ctx.clearGlobalMouseUpHandler();
+            e.ctx.clearGlobalMouseMoveHandler();
         }
 
         fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
@@ -75,9 +75,8 @@ pub fn SliderBase(comptime is_float: bool) type {
                 self.pressed = true;
                 self.last_value = self.value;
                 self.drag_start_value = self.value;
-                e.ctx.removeMouseUpHandler(*ui.Node, handleMouseUpEvent);
-                e.ctx.addGlobalMouseUpHandler(node, handleMouseUpEvent);
-                e.ctx.addMouseMoveHandler(node, handleMouseMoveEvent);
+                e.ctx.setGlobalMouseUpHandler(node, handleMouseUpEvent);
+                e.ctx.setGlobalMouseMoveHandler(node, handleMouseMoveEvent);
             }
             return .Continue;
         }

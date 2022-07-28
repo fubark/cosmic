@@ -469,7 +469,7 @@ pub const Module = struct {
             var propagate = true;
             while (cur != NullId) {
                 const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
-                if (sub.handleEvent(&self.event_ctx, e) == .Stop) {
+                if (sub.handleEvent(&self.event_ctx, e) == .stop) {
                     propagate = false;
                     break;
                 }

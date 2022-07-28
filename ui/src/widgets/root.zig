@@ -205,7 +205,7 @@ pub const ModalOverlay = struct {
                 self.requestClose();
             }
         }
-        return .Continue;
+        return .default;
     }
 
     pub fn requestClose(self: *ModalOverlay) void {
@@ -291,7 +291,7 @@ pub const PopoverOverlay = struct {
                 self.requestClose();
             }
         }
-        return .Continue;
+        return .default;
     }
 
     pub fn requestClose(self: *PopoverOverlay) void {
