@@ -2,11 +2,75 @@ const stdx = @import("stdx");
 const platform = @import("platform");
 
 const ui = @import("../ui.zig");
+const log = stdx.log.scoped(.mouse_area);
+
+/// Provides drag events for a child widget.
+/// Once dragging has started, it gets drag focus and will receive dragmove and dragend events outside of its bounds.
+pub const MouseDragArea = struct {
+    props: struct {
+        hitTest: stdx.Function(fn (i16, i16) bool) = .{},
+        onDragStart: stdx.Function(fn (ui.DragStartEvent) void) = .{},
+        onDragMove: stdx.Function(fn (ui.DragMoveEvent) void) = .{},
+        onDragEnd: stdx.Function(fn (i16, i16) void) = .{},
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn init(self: *MouseDragArea, ctx: *ui.InitContext) void {
+        ctx.addMouseDownHandler(self, onMouseDown);
+    }
+
+    pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    fn onMouseDown(self: *MouseDragArea, e: ui.MouseDownEvent) ui.EventResult {
+        if (self.props.hitTest.isPresent()) {
+            if (!self.props.hitTest.call(.{ e.val.x, e.val.y })) {
+                return .default;
+            }
+        }
+        if (self.props.onDragStart.isPresent()) {
+            const start_e = ui.DragStartEvent{
+                .src_x = @floatToInt(u32, e.ctx.node.abs_bounds.min_x),
+                .src_y = @floatToInt(u32, e.ctx.node.abs_bounds.min_y),
+                .x = e.val.x,
+                .y = e.val.y,
+            };
+            self.props.onDragStart.call(.{ start_e });
+        }
+        e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+        e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
+        e.ctx.requestCaptureMouse(true);
+        return .stop;
+    }
+
+    fn onMouseMove(self: *MouseDragArea, e: ui.MouseMoveEvent) void {
+        if (self.props.onDragMove.isPresent()) {
+            const move_e = ui.DragMoveEvent{
+                .ctx = e.ctx,
+                .x = e.val.x,
+                .y = e.val.y,
+            };
+            self.props.onDragMove.call(.{ move_e });
+        }
+    }
+
+    fn onMouseUp(self: *MouseDragArea, e: ui.MouseUpEvent) void {
+        if (self.props.onDragEnd.isPresent()) {
+            self.props.onDragEnd.call(.{ e.val.x, e.val.y });
+        }
+        e.ctx.clearGlobalMouseMoveHandler();
+        e.ctx.clearGlobalMouseUpHandler();
+        e.ctx.requestCaptureMouse(false);
+    }
+};
 
 /// Provides mouse over events for a child widget.
 pub const MouseHoverArea = struct {
     props: struct {
-        onHoverChange: ?stdx.Function(fn (bool, i16, i16) void) = null,
+        hitTest: stdx.Function(fn (i16, i16) bool) = .{},
+        onHoverChange: stdx.Function(fn (ui.HoverChangeEvent) void) = .{},
+        onHoverMove: stdx.Function(fn (i16, i16) void) = .{},
         child: ui.FrameId = ui.NullFrameId,
     },
 
