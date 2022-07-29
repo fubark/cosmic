@@ -89,6 +89,20 @@ pub fn WidgetRef(comptime Widget: type) type {
 
 const NullId = stdx.ds.CompactNull(u32);
 
+pub const NodeStateMasks = struct {
+    /// Indicates the node is currently in a mouse hovered state.
+    pub const hovered: u8 = 0b00000001;
+    /// Indicates the node is already matched to a child index during tree diff.
+    pub const diff_used: u8 = 0b00000010;
+};
+
+pub const EventHandlerMasks = struct {
+    pub const mouseup: u8 = 0b00000001;
+    pub const global_mouseup: u8 = 0b00000010;
+    pub const global_mousemove: u8 = 0b00000100;
+    pub const hoverchange: u8 = 0b00001000;
+};
+
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.
 pub const Node = struct {
     /// The vtable is also used to id the widget instance.
@@ -132,7 +146,7 @@ pub const Node = struct {
     key_down_list: u32,
     hover_change_sub: u32, // Only one subscriber.
     event_handler_mask: u8,
-    event_state_mask: u8,
+    state_mask: u8,
 
     // TODO: Should use a shared hashmap from Module.
     key_to_child: std.AutoHashMap(WidgetKey, *Node),
@@ -160,7 +174,7 @@ pub const Node = struct {
             .key_up_list = NullId,
             .key_down_list = NullId,
             .hover_change_sub = NullId,
-            .event_state_mask = 0,
+            .state_mask = 0,
             .event_handler_mask = 0,
             .has_child_event_ordering = false,
             .id = undefined,
@@ -226,6 +240,18 @@ pub const Node = struct {
 
     pub inline fn hasHandler(self: Node, mask: u8) bool {
         return self.event_handler_mask & mask > 0;
+    }
+
+    pub inline fn clearStateMask(self: *Node, mask: u8) void {
+        self.state_mask &= ~mask;
+    }
+
+    pub inline fn setStateMask(self: *Node, mask: u8) void {
+        self.state_mask |= mask;
+    }
+
+    pub inline fn hasState(self: Node, mask: u8) bool {
+        return self.state_mask & mask > 0;
     }
 };
 

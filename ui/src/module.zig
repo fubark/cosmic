@@ -418,7 +418,7 @@ pub const Module = struct {
             if (node == self.common.last_focused_widget) {
                 self.common.hit_last_focused = true;
             }
-            if (node.hasHandler(EventHandlerMasks.mouseup)) {
+            if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
                 const sub = self.common.node_mouseup_map.get(node).?;
                 sub.handleEvent(&self.event_ctx, e);
             }
@@ -555,7 +555,7 @@ pub const Module = struct {
                     continue;
                 }
             }
-            node.event_state_mask &= ~EventStateMasks.hovered;
+            node.clearStateMask(ui.NodeStateMasks.hovered);
             sub.handleEvent(node, .{
                 .ctx = &self.event_ctx,
                 .x = e.x,
@@ -567,9 +567,9 @@ pub const Module = struct {
     }
 
     fn processMouseMoveEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseMoveEvent) void {
-        if (node.hasHandler(EventHandlerMasks.hoverchange)) {
+        if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
             // Check if this node is already in hovered state.
-            if (node.event_state_mask & EventStateMasks.hovered == 0) {
+            if (!node.hasState(ui.NodeStateMasks.hovered)) {
                 const sub = self.common.node_hoverchange_map.get(node).?;
                 if (sub.hit_test) |hit_test| {
                     if (!hit_test.call(.{ @floatToInt(i16, xf), @floatToInt(i16, yf) })) {
@@ -582,7 +582,7 @@ pub const Module = struct {
                 }
 
                 self.common.hovered_nodes.append(self.alloc, node) catch fatal();
-                node.event_state_mask |= EventStateMasks.hovered;
+                node.setStateMask(ui.NodeStateMasks.hovered);
 
                 sub.handleEvent(node, .{
                     .ctx = &self.event_ctx,
@@ -651,10 +651,12 @@ pub const Module = struct {
         }
     }
 
-    // 1. Run timers/intervals/animations.
-    // 2. Build frames. Diff tree and create/update nodes from frames.
-    // 3. Compute layout.
-    // 4. Run next post layout cbs.
+    /// Assumes input events were processed so callbacks can make changes to widget states before layouts are computed.
+    /// 1. Run timers/intervals/animations.
+    /// 2. Remove marked handlers and nodes.
+    /// 3. Build frames. Diff tree and create/update nodes from frames.
+    /// 4. Compute layout.
+    /// 5. Run next post layout cbs.
     pub fn preUpdate(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FrameId, layout_size: LayoutSize) UpdateError!void {
         self.common.updateIntervals(delta_ms, &self.event_ctx);
 
@@ -801,7 +803,7 @@ pub const Module = struct {
                     try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
                     return;
                 }
-                const frame_key = if (child_frame_.key != null) child_frame_.key.? else ui.WidgetKey{.ListIdx = child_idx};
+                const frame_key = child_frame_.key orelse ui.WidgetKey{.ListIdx = child_idx};
                 if (!std.meta.eql(child_node.key, frame_key)) {
                     try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
                     return;
@@ -861,19 +863,21 @@ pub const Module = struct {
             if (frame.vtable == FragmentVTable) {
                 return error.NestedFragment;
             }
-            const frame_key = if (frame.key != null) frame.key.? else ui.WidgetKey{.ListIdx = child_idx};
+            const frame_key = frame.key orelse ui.WidgetKey{.ListIdx = child_idx};
 
             // Look for an existing child by key.
-            const existing_node_q = parent.key_to_child.get(frame_key); 
-            if (existing_node_q != null and existing_node_q.?.vtable == frame.vtable) {
-                try self.updateExistingNode(parent, frame_id, existing_node_q.?);
+            const existing_node = parent.key_to_child.get(frame_key); 
+            if (existing_node != null and existing_node.?.vtable == frame.vtable) {
+                try self.updateExistingNode(parent, frame_id, existing_node.?);
 
                 // Update the children list as we iterate.
-                if (parent.children.items[child_idx] != existing_node_q.?) {
-                    // Move the unused item to the end so we can delete them afterwards.
+                if (parent.children.items[child_idx] != existing_node.?) {
+                    // Move the unmatched node at the current idx to the end. It can be matched later or removed at the end.
                     parent.children.append(parent.children.items[child_idx]) catch unreachable;
+                    parent.children.items[child_idx] = existing_node.?;
+                    // Mark this node as used so it doesn't get removed later.
+                    existing_node.?.setStateMask(ui.NodeStateMasks.diff_used);
                 }
-                parent.children.items[child_idx] = existing_node_q.?;
             } else {
                 if (parent.children.items.len == child_idx) {
                     // Exceeded the size of the existing children list. Insert the rest from child frames.
@@ -902,7 +906,13 @@ pub const Module = struct {
         // All the unused children were moved to the end so we can delete them all.
         // TODO: deal with different instances with the same key.
         for (parent.children.items[child_idx..]) |it| {
-            self.removeNode(it);
+            if (!it.hasState(ui.NodeStateMasks.diff_used)) {
+                // Only nodes that weren't matched during diff are removed.
+                self.removeNode(it);
+            } else {
+                // Clear the state flag for next update diff.
+                it.clearStateMask(ui.NodeStateMasks.diff_used);
+            }
         }
 
         // Truncate existing children list to frame children list.
@@ -962,19 +972,19 @@ pub const Module = struct {
             cur_id = self.common.mouse_down_event_subs.getNextNoCheck(cur_id);
         }
 
-        if (node.hasHandler(EventHandlerMasks.mouseup)) {
+        if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
             self.common.ctx.clearMouseUpHandler(node);
         }
 
-        if (node.hasHandler(EventHandlerMasks.global_mouseup)) {
+        if (node.hasHandler(ui.EventHandlerMasks.global_mouseup)) {
             self.common.ctx.clearGlobalMouseUpHandler(node);
         }
 
-        if (node.hasHandler(EventHandlerMasks.global_mousemove)) {
+        if (node.hasHandler(ui.EventHandlerMasks.global_mousemove)) {
             self.common.ctx.clearGlobalMouseMoveHandler(node);
         }
 
-        if (node.hasHandler(EventHandlerMasks.hoverchange)) {
+        if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
             self.common.ctx.clearHoverChangeHandler(node);
         }
 
@@ -1620,7 +1630,7 @@ pub const CommonContext = struct {
             res.value_ptr.* = sub;
         } else {
             res.value_ptr.* = sub;
-            node.setHandlerMask(EventHandlerMasks.mouseup);
+            node.setHandlerMask(ui.EventHandlerMasks.mouseup);
         }
     }
 
@@ -1638,7 +1648,7 @@ pub const CommonContext = struct {
             res.value_ptr.* = sub;
             // Insert into global list.
             self.common.global_mouse_up_list.append(self.alloc, node) catch fatal();
-            node.setHandlerMask(EventHandlerMasks.global_mouseup);
+            node.setHandlerMask(ui.EventHandlerMasks.global_mouseup);
         }
     }
 
@@ -1646,7 +1656,7 @@ pub const CommonContext = struct {
         if (self.common.node_global_mousemove_map.getPtr(node)) |sub| {
             if (!sub.to_remove) {
                 sub.to_remove = true;
-                node.clearHandlerMask(EventHandlerMasks.global_mousemove);
+                node.clearHandlerMask(ui.EventHandlerMasks.global_mousemove);
                 self.common.to_remove_handlers.append(self.alloc, .{
                     .event_type = .global_mousemove,
                     .node = node,
@@ -1659,7 +1669,7 @@ pub const CommonContext = struct {
         if (self.common.node_global_mouseup_map.getPtr(node)) |sub| {
             if (!sub.to_remove) {
                 sub.to_remove = true;
-                node.clearHandlerMask(EventHandlerMasks.global_mouseup);
+                node.clearHandlerMask(ui.EventHandlerMasks.global_mouseup);
                 self.common.to_remove_handlers.append(self.alloc, .{
                     .event_type = .global_mouseup,
                     .node = node,
@@ -1672,7 +1682,7 @@ pub const CommonContext = struct {
         if (self.common.node_mouseup_map.getPtr(node)) |sub| {
             if (!sub.to_remove) {
                 sub.to_remove = true;
-                node.clearHandlerMask(EventHandlerMasks.mouseup);
+                node.clearHandlerMask(ui.EventHandlerMasks.mouseup);
                 self.common.to_remove_handlers.append(self.alloc, .{
                     .event_type = .mouseup,
                     .node = node,
@@ -1685,13 +1695,13 @@ pub const CommonContext = struct {
         if (self.common.node_hoverchange_map.getPtr(node)) |sub| {
             if (!sub.to_remove) {
                 sub.to_remove = true;
-                node.clearHandlerMask(EventHandlerMasks.hoverchange);
+                node.clearHandlerMask(ui.EventHandlerMasks.hoverchange);
                 self.common.to_remove_handlers.append(self.alloc, .{
                     .event_type = .hoverchange,
                     .node = node,
                 }) catch fatal();
 
-                if (node.event_state_mask & EventStateMasks.hovered > 0) {
+                if (node.hasState(ui.NodeStateMasks.hovered)) {
                     // Trigger hover end so users can rely on it for teardown logic.
                     sub.handleEvent(node, .{
                         .ctx = &self.common.mod.event_ctx,
@@ -1785,7 +1795,7 @@ pub const CommonContext = struct {
             res.value_ptr.* = sub;
             // Insert into global list.
             self.common.global_mouse_move_list.append(self.alloc, node) catch fatal();
-            node.setHandlerMask(EventHandlerMasks.global_mousemove);
+            node.setHandlerMask(ui.EventHandlerMasks.global_mousemove);
         }
         self.common.has_mouse_move_subs = true;
     }
@@ -1806,7 +1816,7 @@ pub const CommonContext = struct {
             res.value_ptr.* = sub;
         } else {
             res.value_ptr.* = sub;
-            node.setHandlerMask(EventHandlerMasks.hoverchange);
+            node.setHandlerMask(ui.EventHandlerMasks.hoverchange);
         }
     }
 
@@ -2489,7 +2499,7 @@ test "Widget instance lifecycle." {
         fn onKeyUp(_: void, _: ui.KeyUpEvent) void {}
         fn onKeyDown(_: void, _: ui.KeyDownEvent) void {}
         fn onMouseDown(_: void, _: ui.MouseDownEvent) ui.EventResult {
-            return .Continue;
+            return .default;
         }
         fn onMouseUp(_: void, _: ui.MouseUpEvent) void {}
         fn onMouseMove(_: u32, _: ui.MouseMoveEvent) void {}
@@ -2565,10 +2575,6 @@ test "Widget instance lifecycle." {
 }
 
 test "Module.update creates or updates existing node" {
-    var g: graphics.Graphics = undefined;
-    try g.init(t.alloc, 1);
-    defer g.deinit();
-
     const Foo = struct {
     };
 
@@ -2643,9 +2649,57 @@ test "Module.update creates or updates existing node" {
     }
 }
 
-// test "BuildContext.new disallows using a prop that's not declared in Component.Props" {
+test "Diff matches child with key." {
+    const C = struct {};
+    const B = struct {};
+    const A = struct {
+        props: struct {
+            children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        },
+        fn build(self: *@This(), c: *BuildContext) ui.FrameId {
+            return c.fragment(self.props.children);
+        }
+    };
+    {
+        const S = struct {
+            fn bootstrap(step: bool, c: *BuildContext) ui.FrameId {
+                var b = ui.NullFrameId;
+                if (!step) {
+                    b = c.build(B, .{});
+                }
+                return c.build(A, .{
+                    .id = .root,
+                    .children = c.list(.{
+                        b,
+                        c.build(C, .{ .key = ui.WidgetKeyId(1) }),
+                    }),
+                });
+            }
+        };
+        // Removing unrelated child preserves existing child with key.
+        var mod: TestModule = undefined;
+        mod.init();
+        defer mod.deinit();
+
+        try mod.preUpdate(false, S.bootstrap);
+        var root = mod.getNodeByTag(.root).?;
+        try t.eq(root.numChildren(), 2);
+
+        const c = root.getChild(1);
+        try t.eq(c.vtable, GenWidgetVTable(C));
+
+        try mod.preUpdate(true, S.bootstrap);
+        root = mod.getNodeByTag(.root).?;
+        try t.eq(root.numChildren(), 1);
+
+        // Keyed widget is the same instance.
+        try t.eq(c, root.getChild(0));
+    }
+}
+
+// test "BuildContext.build disallows using a prop that's not declared in Widget.props" {
 //     const Foo = struct {
-//         const Props = struct {
+//         props: struct {
 //             bar: usize,
 //         };
 //     };
@@ -2741,15 +2795,4 @@ pub fn WidgetProps(comptime Widget: type) type {
 const UpdateError = error {
     NestedFragment,
     UserRootCantBeFragment,
-};
-
-const EventStateMasks = struct {
-    const hovered: u8 = 0b00000001;
-};
-
-const EventHandlerMasks = struct {
-    const mouseup: u8 = 0b00000001;
-    const global_mouseup: u8 = 0b00000010;
-    const global_mousemove: u8 = 0b00000100;
-    const hoverchange: u8 = 0b00001000;
 };

@@ -46,12 +46,14 @@ pub const NoChild = NullId;
 
 const widget = @import("widget.zig");
 pub const Node = widget.Node;
+pub const NodeRef = widget.NodeRef;
+pub const NodeStateMasks = widget.NodeStateMasks;
+pub const EventHandlerMasks = widget.EventHandlerMasks;
 pub const WidgetTypeId = widget.WidgetTypeId;
 pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
 pub const WidgetKeyId = widget.WidgetKeyId;
 pub const WidgetRef = widget.WidgetRef;
-pub const NodeRef = widget.NodeRef;
 pub const WidgetVTable = widget.WidgetVTable;
 pub const LayoutSize = widget.LayoutSize;
 
