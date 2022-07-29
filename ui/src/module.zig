@@ -217,7 +217,9 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     max_height = child_size.height;
                 }
             }
-            return LayoutSize.init(max_width, max_height);
+            var res = LayoutSize.init(max_width, max_height);
+            res.growToMin(c.cstr);
+            return res;
         }
 
         fn destroy(node: *ui.Node, alloc: std.mem.Allocator) void {
