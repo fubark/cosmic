@@ -20,14 +20,14 @@ pub const Root = struct {
         user_root: ui.FrameId = ui.NullFrameId,
     },
 
-    overlays: std.ArrayList(OverlayItem),
+    overlays: stdx.ds.DenseHandleList(OverlayId, OverlayItem, true),
     build_buf: std.ArrayList(ui.FrameId),
     next_id: OverlayId,
 
     user_root: ui.NodeRef,
 
     pub fn init(self: *Root, c: *ui.InitContext) void {
-        self.overlays = std.ArrayList(OverlayItem).init(c.alloc);
+        self.overlays = stdx.ds.DenseHandleList(OverlayId, OverlayItem, true).init(c.alloc);
         self.build_buf = std.ArrayList(ui.FrameId).init(c.alloc);
         self.next_id = 1;
     }
