@@ -265,7 +265,7 @@ const EventType = enum(u2) {
 };
 
 const EventHandlerRef = struct {
-    event_type: EventType,
+    event_t: EventType,
     node: *ui.Node,
 };
 
@@ -1225,6 +1225,18 @@ pub fn MixinContextEventOps(comptime Context: type) type {
         pub inline fn removeInterval(self: *Context, id: IntervalId) void {
             self.common.removeInterval(id);
         }
+
+        pub inline fn nextPostLayout(self: *Context, ctx: anytype, cb: fn(@TypeOf(ctx)) void) void {
+            self.common.nextPostLayout(ctx, cb);
+        }
+        
+        pub inline fn getCurrentMouseX(self: *Context) i16 {
+            return self.common.getCurrentMouseX();
+        }
+
+        pub inline fn getCurrentMouseY(self: *Context) i16 {
+            return self.common.getCurrentMouseY();
+        }
     };
 }
 
@@ -1680,7 +1692,7 @@ pub const CommonContext = struct {
                 sub.to_remove = true;
                 node.clearHandlerMask(ui.EventHandlerMasks.global_mousemove);
                 self.common.to_remove_handlers.append(self.alloc, .{
-                    .event_type = .global_mousemove,
+                    .event_t = .global_mousemove,
                     .node = node,
                 }) catch fatal();
             }
@@ -1693,7 +1705,7 @@ pub const CommonContext = struct {
                 sub.to_remove = true;
                 node.clearHandlerMask(ui.EventHandlerMasks.global_mouseup);
                 self.common.to_remove_handlers.append(self.alloc, .{
-                    .event_type = .global_mouseup,
+                    .event_t = .global_mouseup,
                     .node = node,
                 }) catch fatal();
             }
@@ -1706,7 +1718,7 @@ pub const CommonContext = struct {
                 sub.to_remove = true;
                 node.clearHandlerMask(ui.EventHandlerMasks.mouseup);
                 self.common.to_remove_handlers.append(self.alloc, .{
-                    .event_type = .mouseup,
+                    .event_t = .mouseup,
                     .node = node,
                 }) catch fatal();
             }
@@ -1719,7 +1731,7 @@ pub const CommonContext = struct {
                 sub.to_remove = true;
                 node.clearHandlerMask(ui.EventHandlerMasks.hoverchange);
                 self.common.to_remove_handlers.append(self.alloc, .{
-                    .event_type = .hoverchange,
+                    .event_t = .hoverchange,
                     .node = node,
                 }) catch fatal();
 
@@ -1811,6 +1823,10 @@ pub const CommonContext = struct {
 
         const res = self.common.node_global_mousemove_map.getOrPut(self.alloc, node) catch fatal();
         if (res.found_existing) {
+            // Check to remove a previous clear handler task.
+            if (res.value_ptr.to_remove) {
+                self.common.cancelRemoveHandler(.global_mousemove, node);
+            }
             res.value_ptr.deinit(self.alloc);
             res.value_ptr.* = sub;
         } else {
@@ -1901,6 +1917,14 @@ pub const CommonContext = struct {
 
     pub fn nextPostLayout(self: *CommonContext, ctx: anytype, cb: fn(@TypeOf(ctx)) void) void {
         return self.common.nextPostLayout(ctx, cb);
+    }
+
+    pub fn getCurrentMouseX(self: *CommonContext) i16 {
+        return self.common.cur_mouse_x;
+    }
+
+    pub fn getCurrentMouseY(self: *CommonContext) i16 {
+        return self.common.cur_mouse_y;
     }
 };
 
@@ -2102,11 +2126,20 @@ pub const ModuleCommon = struct {
         self.arena_allocators[1].deinit();
     }
 
+    fn cancelRemoveHandler(self: *ModuleCommon, event_t: EventType, node: *ui.Node) void {
+        for (self.to_remove_handlers.items) |ref, i| {
+            if (ref.node == node and ref.event_t == event_t) {
+                _ = self.to_remove_handlers.swapRemove(i);
+                break;
+            }
+        }
+    }
+
     /// Removing handlers should only free memory and remove items from lists/maps.
     /// Firing events or accessing widget prop callbacks is undefined since the widget state/props could already be freed.
     fn removeHandlers(self: *ModuleCommon) void {
         for (self.to_remove_handlers.items) |ref| {
-            switch (ref.event_type) {
+            switch (ref.event_t) {
                 .hoverchange => {
                     const sub = self.node_hoverchange_map.get(ref.node).?;
                     sub.deinit(self.alloc);
@@ -2780,6 +2813,41 @@ test "Props memory should still be valid at node destroy time." {
 
     try mod.preUpdate(Options{ .buf = &buf, .decl = false }, S.bootstrap);
     try t.eqStr(buf[0..3], "foo");
+}
+
+test "Setting and clearing an event handler in the same update cycle results in the last state being effective." {
+    const A = struct {
+        some_var: bool,
+
+        pub fn init(self: *@This(), ctx: *InitContext) void {
+            ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+            ctx.clearGlobalMouseMoveHandler();
+            ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+            // Replacing an old handler shouldn't have memory leaks.
+            ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+            ctx.clearGlobalMouseMoveHandler();
+        }
+
+        fn onMouseMove(_: *@This(), _: ui.MouseMoveEvent) void {
+        }
+    };
+
+    const S = struct {
+        fn bootstrap(_: void, c: *BuildContext) ui.FrameId {
+            return c.build(A, .{
+                .id = .root,
+            });
+        }
+    };
+
+    var mod: TestModule = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    try mod.preUpdate({}, S.bootstrap);
+    var root = mod.getNodeByTag(.root).?;
+    try t.eq(root.vtable, GenWidgetVTable(A));
+    try t.eq(root.hasHandler(ui.EventHandlerMasks.global_mousemove), false);
 }
 
 // test "BuildContext.build disallows using a prop that's not declared in Widget.props" {
