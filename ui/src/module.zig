@@ -2279,6 +2279,12 @@ pub const InitContext = struct {
         }
     }
 
+    /// Only available at widget initialization. Forces the node to be in the hovered state.
+    pub fn forceHoveredState(self: *InitContext) void {
+        self.common.common.hovered_nodes.append(self.alloc, self.node) catch fatal();
+        self.node.setStateMask(ui.NodeStateMasks.hovered);
+    }
+
     pub usingnamespace MixinContextInputOps(InitContext);
     pub usingnamespace MixinContextEventOps(InitContext);
     pub usingnamespace MixinContextNodeOps(InitContext);

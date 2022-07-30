@@ -72,11 +72,11 @@ pub const MouseHoverArea = struct {
         onHoverChange: stdx.Function(fn (ui.HoverChangeEvent) void) = .{},
         onHoverMove: stdx.Function(fn (i16, i16) void) = .{},
         child: ui.FrameId = ui.NullFrameId,
-    },
 
-    pub fn build(self: *MouseHoverArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
-    }
+        /// Initializes in the hovered state (but doesn't fire onHoverChange(true)).
+        /// This is useful for the user to rely on onHoverChange(false) for teardown logic.
+        initHovered: bool = false,
+    },
 
     pub fn init(self: *MouseHoverArea, c: *ui.InitContext) void {
         if (self.props.hitTest.isPresent()) {
@@ -84,6 +84,13 @@ pub const MouseHoverArea = struct {
         } else {
             c.setHoverChangeHandler(self, onHoverChange);
         }
+        if (self.props.initHovered) {
+            c.forceHoveredState(); 
+        }
+    }
+
+    pub fn build(self: *MouseHoverArea, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
     }
 
     fn onHoverChange(self: *MouseHoverArea, e: ui.HoverChangeEvent) void {
