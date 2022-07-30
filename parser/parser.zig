@@ -1459,7 +1459,7 @@ pub const NodeId = u32;
 // Index to RuleDecl and special node types.
 pub const NodeTag = u32;
 
-pub const NodeSlice = ds.RelSlice(u32);
+pub const NodeSlice = ds.IndexSlice(u32);
 
 pub fn ParseResult(comptime Config: ParseConfig) type {
     return struct {

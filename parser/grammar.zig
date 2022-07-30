@@ -796,7 +796,7 @@ pub const RuleDecl = struct {
 };
 
 pub const MatchOpId = u32;
-pub const MatchOpSlice = ds.RelSlice(MatchOpId);
+pub const MatchOpSlice = ds.IndexSlice(MatchOpId);
 
 pub const MatchOp = union(enum) {
     MatchOneOrMore: struct {
@@ -915,7 +915,7 @@ pub const TokenDecl = struct {
 };
 
 pub const TokenMatchOpId = u32;
-pub const TokenMatchOpSlice = ds.RelSlice(TokenMatchOpId);
+pub const TokenMatchOpSlice = ds.IndexSlice(TokenMatchOpId);
 
 // eg. [a-zA-Z0-9]
 pub const CharSetRange = struct {
@@ -923,10 +923,10 @@ pub const CharSetRange = struct {
     end_incl: u8,
 };
 const CharSetRangeId = u32;
-pub const CharSetRangeSlice = ds.RelSlice(CharSetRangeId);
+pub const CharSetRangeSlice = ds.IndexSlice(CharSetRangeId);
 
 const CharId = u32;
-pub const CharSlice = ds.RelSlice(CharId);
+pub const CharSlice = ds.IndexSlice(CharId);
 
 pub const TokenMatchOp = union(enum) {
     MatchRule: struct {

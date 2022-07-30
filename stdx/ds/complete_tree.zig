@@ -61,7 +61,7 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
             }
         }
 
-        pub fn getChildrenRange(self: *Self, id: NodeId) ds.RelSlice(NodeId) {
+        pub fn getChildrenRange(self: *Self, id: NodeId) ds.IndexSlice(NodeId) {
             const start = BF * id + 1;
             const end = std.math.min(start + BF, self.nodes.items.len);
             return .{ .start = start, .end = end };
@@ -186,7 +186,7 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
             return buf[0..i];
         }
 
-        pub fn getLeavesRange(self: *Self) ds.RelSlice(NodeId) {
+        pub fn getLeavesRange(self: *Self) ds.IndexSlice(NodeId) {
             const d = self.getDepth();
             if (d == 0) {
                 return .{ .start = 0, .end = 0 };
