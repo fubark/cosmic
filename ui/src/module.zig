@@ -689,8 +689,17 @@ pub const Module = struct {
 
         // Reset the builder buffer before we call any Component.build
         self.build_ctx.resetBuffer();
-        self.common.arena_allocator.deinit();
-        self.common.arena_allocator.state = .{};
+        if (self.common.use_first_arena) {
+            self.common.arena_allocators[0].deinit();
+            self.common.arena_allocators[0].state = .{};
+            self.common.arena_alloc = self.common.arena_allocs[0];
+        } else {
+            self.common.arena_allocators[1].deinit();
+            self.common.arena_allocators[1].state = .{};
+            self.common.arena_alloc = self.common.arena_allocs[1];
+        }
+        self.build_ctx.arena_alloc = self.common.arena_alloc;
+        self.common.use_first_arena = !self.common.use_first_arena;
 
         // Update global build context for idiomatic widget declarations.
         gbuild_ctx = &self.build_ctx;
@@ -1900,8 +1909,13 @@ pub const ModuleCommon = struct {
     alloc: std.mem.Allocator,
     mod: *Module,
 
-    /// Arena allocator that gets freed after each update cycle.
-    arena_allocator: std.heap.ArenaAllocator,
+    /// Arena allocators that get freed after two update cycles.
+    /// Allocations should survive two update cycles so that nodes that have been discarded from tree diff still have valid props memory.
+    /// Two are needed to alternate on each engine update.
+    arena_allocators: [2]std.heap.ArenaAllocator,
+    arena_allocs: [2]std.mem.Allocator,
+    use_first_arena: bool,
+    /// The current arena allocator.
     arena_alloc: std.mem.Allocator,
 
     g: *graphics.Graphics,
@@ -1973,7 +1987,9 @@ pub const ModuleCommon = struct {
         self.* = .{
             .alloc = alloc,
             .mod = mod,
-            .arena_allocator = std.heap.ArenaAllocator.init(alloc),
+            .arena_allocators = .{ std.heap.ArenaAllocator.init(alloc), std.heap.ArenaAllocator.init(alloc) },
+            .arena_allocs = undefined,
+            .use_first_arena = true,
             .arena_alloc = undefined,
 
             .g = g,
@@ -2015,7 +2031,9 @@ pub const ModuleCommon = struct {
             .to_remove_handlers = .{},
             .to_remove_nodes = .{},
         };
-        self.arena_alloc = self.arena_allocator.allocator();
+        self.arena_allocs[0] = self.arena_allocators[0].allocator();
+        self.arena_allocs[1] = self.arena_allocators[1].allocator();
+        self.arena_alloc = self.arena_allocs[0];
     }
 
     fn deinit(self: *ModuleCommon) void {
@@ -2080,7 +2098,8 @@ pub const ModuleCommon = struct {
         self.global_mouse_up_list.deinit(self.alloc);
         self.node_mouseup_map.deinit(self.alloc);
 
-        self.arena_allocator.deinit();
+        self.arena_allocators[0].deinit();
+        self.arena_allocators[1].deinit();
     }
 
     /// Removing handlers should only free memory and remove items from lists/maps.
@@ -2708,6 +2727,59 @@ test "Diff matches child with key." {
         // Keyed widget is the same instance.
         try t.eq(c, root.getChild(0));
     }
+}
+
+test "Props memory should still be valid at node destroy time." {
+    // Arena allocations should survive for two update cycles. 
+    // If not, a tree diff that destroys nodes will have invalidated props memory which is undesirable since
+    // the engine may need to fire cleanup events and call the Widget's deinit function.
+    // In both cases, it should be assumed that props data (eg. closures, strings) are still valid and usable.
+
+    const Options = struct {
+        buf: []u8,
+        decl: bool
+    };
+
+    const A = struct {
+        props: struct {
+            str: []const u8,
+            buf: []u8,
+        },
+
+        pub fn deinit(self: *@This(), _: std.mem.Allocator) void {
+            // str should still point to valid memory.
+            std.mem.copy(u8, self.props.buf, self.props.str);
+        }
+    };
+
+    const S = struct {
+        fn bootstrap(opts: Options, c: *BuildContext) ui.FrameId {
+            if (opts.decl) {
+                return c.build(A, .{
+                    .id = .root,
+                    .str = c.fmt("foo", .{}),
+                    .buf = opts.buf,
+                });
+            } else {
+                return NullFrameId;
+            }
+        }
+    };
+
+    var mod: TestModule = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    var buf: [10]u8 = undefined;
+
+    try mod.preUpdate(Options{ .buf = &buf, .decl = true }, S.bootstrap);
+    var root = mod.getNodeByTag(.root).?;
+    try t.eq(root.vtable, GenWidgetVTable(A));
+    const widget = root.getWidget(A);
+    try t.eqStr(widget.props.str, "foo");
+
+    try mod.preUpdate(Options{ .buf = &buf, .decl = false }, S.bootstrap);
+    try t.eqStr(buf[0..3], "foo");
 }
 
 // test "BuildContext.build disallows using a prop that's not declared in Widget.props" {
