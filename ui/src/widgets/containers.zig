@@ -194,6 +194,8 @@ pub const ZStack = struct {
     /// Ordered by z-index desc.
     child_event_ordering: std.ArrayList(*ui.Node),
 
+    pub const ChildrenCanOverlap = true;
+
     pub fn init(self: *ZStack, c: *ui.InitContext) void {
         self.ordered_children = std.ArrayList(u32).init(c.alloc);
         self.child_event_ordering = std.ArrayList(*ui.Node).init(c.alloc);

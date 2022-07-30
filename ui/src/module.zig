@@ -247,6 +247,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             .layout = layout,
             .destroy = destroy,
             .has_post_update = @hasDecl(Widget, "postUpdate"),
+            .children_can_overlap = @hasDecl(Widget, "ChildrenCanOverlap") and Widget.ChildrenCanOverlap,
             .name = @typeName(Widget),
         };
     };
@@ -423,12 +424,14 @@ pub const Module = struct {
                 sub.handleEvent(&self.event_ctx, e);
             }
             const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+            var stop = false;
             for (event_children) |child| {
                 if (self.processMouseUpEventRecurse(child, xf, yf, e)) {
+                    stop = true;
                     break;
                 }
             }
-            return true;
+            return stop;
         } else return false;
     }
 
@@ -441,7 +444,9 @@ pub const Module = struct {
         self.common.hit_last_focused = false;
         var hit_widget = false;
         if (self.root_node) |node| {
-            _ = self.processMouseDownEventRecurse(node, xf, yf, e, &hit_widget);
+            if (node.abs_bounds.containsPt(xf, yf)) {
+                _ = self.processMouseDownEventRecurse(node, xf, yf, e, &hit_widget);
+            }
         }
         // If the existing focused widget wasn't hit and no other widget requested focus, trigger blur.
         if (self.common.last_focused_widget != null and self.common.last_focused_widget == self.common.focused_widget and !self.common.hit_last_focused) {
@@ -457,40 +462,54 @@ pub const Module = struct {
     }
 
     fn processMouseDownEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseDownEvent, hit_widget: *bool) bool {
-        if (node.abs_bounds.containsPt(xf, yf)) {
-            if (node == self.common.last_focused_widget) {
-                self.common.hit_last_focused = true;
-                hit_widget.* = true;
+        if (node == self.common.last_focused_widget) {
+            self.common.hit_last_focused = true;
+            hit_widget.* = true;
+        }
+        var cur = node.mouse_down_list;
+        if (cur != NullId) {
+            // If there is a handler, assume the event hits the widget.
+            // If the widget performs clearMouseHitFlag() in any of the handlers, the flag is reset so it does not change hit_widget.
+            self.common.widget_hit_flag = true;
+        }
+        var propagate = true;
+        while (cur != NullId) {
+            const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
+            if (sub.handleEvent(&self.event_ctx, e) == .stop) {
+                propagate = false;
+                break;
             }
-            var cur = node.mouse_down_list;
-            if (cur != NullId) {
-                // If there is a handler, assume the event hits the widget.
-                // If the widget performs clearMouseHitFlag() in any of the handlers, the flag is reset so it does not change hit_widget.
-                self.common.widget_hit_flag = true;
-            }
-            var propagate = true;
-            while (cur != NullId) {
-                const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
-                if (sub.handleEvent(&self.event_ctx, e) == .stop) {
-                    propagate = false;
-                    break;
-                }
-                cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
-            }
-            if (self.common.widget_hit_flag) {
-                hit_widget.* = true;
-            }
-            if (!propagate) {
-                return true;
-            }
-            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
-            for (event_children) |child| {
-                if (self.processMouseDownEventRecurse(child, xf, yf, e, hit_widget)) {
-                    break;
-                }
-            }
+            cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
+        }
+        if (self.common.widget_hit_flag) {
+            hit_widget.* = true;
+        }
+        if (!propagate) {
             return true;
-        } else return false;
+        }
+        const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+        if (!node.vtable.children_can_overlap) {
+            // Greedy hit check. Skips siblings.
+            for (event_children) |child| {
+                if (child.abs_bounds.containsPt(xf, yf)) {
+                    if (self.processMouseDownEventRecurse(child, xf, yf, e, hit_widget)) {
+                        propagate = false;
+                    }
+                    break;
+                }
+            }
+        } else {
+            // Continues to hit check siblings until `stop` is received.
+            for (event_children) |child| {
+                if (child.abs_bounds.containsPt(xf, yf)) {
+                    if (self.processMouseDownEventRecurse(child, xf, yf, e, hit_widget)) {
+                        propagate = false;
+                        break;
+                    }
+                }
+            }
+        }
+        return !propagate;
     }
 
     pub fn processMouseScrollEvent(self: *Module, e: platform.MouseScrollEvent) void {
@@ -1610,12 +1629,6 @@ pub const CommonContext = struct {
         if (self.common.focused_widget) |focused_widget| {
             return focused_widget == node;
         } else return false;
-    }
-
-    pub fn clearMouseMoveHandler(self: *CommonContext, node: *ui.Node) void {
-        if (self.common.node_global_mousemove_map.getPtr(node)) |sub| {
-            sub.to_remove = true;
-        }
     }
 
     pub fn setMouseUpHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseUpHandler(@TypeOf(ctx))) void {
