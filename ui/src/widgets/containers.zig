@@ -285,3 +285,36 @@ pub const Container = struct {
         }
     }
 };
+
+/// Takes up max available space and positions child to relative itself.
+pub const Positioned = struct {
+    props: struct {
+        /// Relative x from parent.
+        x: f32,
+        /// Relative y from parent.
+        y: f32,
+        width: ?f32 = null,
+        height: ?f32 = null,
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn build(self: *Positioned, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Positioned, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
+        if (self.props.child == ui.NullFrameId) {
+            return cstr.getMaxLayoutSize();
+        }
+
+        const node = c.getNode();
+        const child = node.children.items[0];
+
+        const max_child_width = self.props.width orelse cstr.max_width - self.props.x;
+        const max_child_height = self.props.height orelse cstr.max_height - self.props.y;
+        const child_size = c.computeLayoutWithMax(child, max_child_width, max_child_height);
+        c.setLayout(child, ui.Layout.init(self.props.x, self.props.y, child_size.width, child_size.height));
+        return cstr.getMaxLayoutSize();
+    }
+};
