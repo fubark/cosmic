@@ -1,5 +1,8 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const graphics = @import("graphics");
+const Color = graphics.Color;
+
 const ui = @import("../ui.zig");
 const log = stdx.log.scoped(.containers);
 
@@ -27,11 +30,11 @@ pub const Padding = struct {
         const h_pad = pad_left + pad_right;
         const v_pad = pad_top + pad_bottom;
 
-        const cstr = c.getSizeConstraints();
         if (self.props.child == ui.NullFrameId) {
             return ui.LayoutSize.init(h_pad, v_pad);
         }
 
+        const cstr = c.getSizeConstraints();
         const node = c.getNode();
         const child = node.children.items[0];
 
@@ -66,36 +69,37 @@ pub const Sized = struct {
 };
 
 fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, child_id: ui.FrameId) ui.LayoutSize {
+    var child_cstr = ctx.getSizeConstraints();
+    if (m_width) |width| {
+        if (width != ui.ExpandedWidth) {
+            if (width < child_cstr.max_width) {
+                child_cstr.min_width = width;
+                child_cstr.max_width = width;
+            }
+        } else {
+            child_cstr.min_width = child_cstr.max_width;
+        }
+    }
+    if (m_height) |height| {
+        if (height != ui.ExpandedHeight) {
+            if (height < child_cstr.max_height) {
+                child_cstr.min_height = height;
+                child_cstr.max_height = height;
+            }
+        } else {
+            child_cstr.min_height = child_cstr.max_height;
+        }
+    }
     if (child_id != ui.NullFrameId) {
-        var child_cstr = ctx.getSizeConstraints();
-        if (m_width) |width| {
-            if (width != ui.ExpandedWidth) {
-                if (width < child_cstr.max_width) {
-                    child_cstr.min_width = width;
-                    child_cstr.max_width = width;
-                }
-            }
-        }
-        if (m_height) |height| {
-            if (height != ui.ExpandedHeight) {
-                if (height < child_cstr.max_height) {
-                    child_cstr.min_height = height;
-                    child_cstr.max_height = height;
-                }
-            }
-        }
-
         const child = ctx.getNode().children.items[0];
         const child_size = ctx.computeLayout2(child, child_cstr);
         ctx.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
 
-        const width = m_width orelse child_size.width;
-        const height = m_height orelse child_size.height;
-        return ui.LayoutSize.init(width, height);
+        var res = child_size;
+        res.growToMin(child_cstr);
+        return res;
     } else {
-        const width = m_width orelse 0;
-        const height = m_height orelse 0;
-        return ui.LayoutSize.init(width, height);
+        return child_cstr.getMinLayoutSize();
     }
 }
 
@@ -250,7 +254,34 @@ pub const ZStack = struct {
     }
 };
 
-// TODO: Container with more comprehensive properties.
-// pub const Container = struct {
-//     const Self = @This();
-// };
+pub const Container = struct {
+    props: struct {
+        bg_color: ?Color = null,
+
+        /// If width is not provided, this container will shrink to the child's width.
+        width: ?f32 = null,
+
+        /// If height is not provided, this container will shrink to the child's height.
+        height: ?f32 = null,
+
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn build(self: *Container, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Container, ctx: *ui.LayoutContext) ui.LayoutSize {
+        return sizedWrapChildLayout(ctx, self.props.width, self.props.height, self.props.child);
+    }
+
+    pub fn render(self: *Container, ctx: *ui.RenderContext) void {
+        const bounds = ctx.getAbsBounds();
+        const gctx = ctx.gctx;
+
+        if (self.props.bg_color) |bg_color| {
+            gctx.setFillColor(bg_color);
+            ctx.fillBBox(bounds);
+        }
+    }
+};
