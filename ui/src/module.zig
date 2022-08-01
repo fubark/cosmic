@@ -39,7 +39,7 @@ pub fn getWidgetIdByType(comptime Widget: type) ui.WidgetTypeId {
 pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
     const gen = struct {
 
-        fn create(alloc: std.mem.Allocator, node: *ui.Node, ctx_ptr: *anyopaque, props_ptr: ?[*]const u8) *anyopaque {
+        fn create(alloc: std.mem.Allocator, ctx_ptr: *anyopaque, props_ptr: ?[*]const u8) *anyopaque {
             const ctx = stdx.mem.ptrCastAlign(*InitContext, ctx_ptr);
 
             const new: *Widget = if (@sizeOf(Widget) > 0) b: {
@@ -61,10 +61,6 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 // Call widget's init to set state.
                 new.init(ctx);
             }
-            // Set bind.
-            if (node.bind) |bind| {
-                stdx.mem.ptrCastAlign(*ui.WidgetRef(Widget), bind).* = ui.WidgetRef(Widget).init(node);
-            }
             if (@sizeOf(Widget) > 0) {
                 return new;
             } else {
@@ -81,12 +77,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.postInit))) {
                     @compileError("Invalid postInit function: " ++ @typeName(@TypeOf(Widget.postInit)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                if (@sizeOf(Widget) == 0) {
-                    const empty: *Widget = undefined;
-                    empty.postInit(ctx);
-                } else {
-                    widget.postInit(ctx);
-                }
+                widget.postInit(ctx);
             }
         }
 
@@ -125,12 +116,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     @compileError("Invalid build function: " ++ @typeName(@TypeOf(Widget.build)) ++ " Widget: " ++ @typeName(Widget));
                 }
             }
-            if (@sizeOf(Widget) == 0) {
-                const empty: *Widget = undefined;
-                return empty.build(ctx);
-            } else {
-                return widget.build(ctx);
-            }
+            return widget.build(ctx);
         }
 
         fn render(node: *ui.Node, ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void {
@@ -218,18 +204,21 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
         }
 
         fn destroy(node: *ui.Node, alloc: std.mem.Allocator) void {
-            if (@sizeOf(Widget) == 0) {
-                if (@hasDecl(Widget, "deinit")) {
-                    const empty: *Widget = undefined;
-                    empty.deinit(alloc);
+            if (node.bind) |bind| {
+                // Unbind.
+                if (node.hasState(ui.NodeStateMasks.bind_func)) {
+                    const bind_func = stdx.mem.ptrCastAlign(*ui.BindNodeFunc, bind);
+                    bind_func.func(bind_func.ctx, node, false);
+                } else {
+                    const ref = stdx.mem.ptrCastAlign(*ui.WidgetRef(Widget), bind);
+                    ref.binded = false;
                 }
-            } else {
-                const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
-                if (@hasDecl(Widget, "deinit")) {
-                    widget.deinit(alloc);
-                }
-                alloc.destroy(widget);
             }
+            const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+            if (@hasDecl(Widget, "deinit")) {
+                widget.deinit(alloc);
+            }
+            alloc.destroy(widget);
         }
 
         const vtable = ui.WidgetVTable{
@@ -1070,7 +1059,6 @@ pub const Module = struct {
             new_node.id = id;
             new_node.has_widget_id = true;
         }
-        new_node.bind = frame.widget_bind;
 
         if (builtin.mode == .Debug) {
             if (frame.debug) {
@@ -1083,8 +1071,20 @@ pub const Module = struct {
         }
 
         self.init_ctx.prepareForNode(new_node);
-        const new_widget = widget_vtable.create(self.alloc, new_node, &self.init_ctx, props_ptr);
+        const new_widget = widget_vtable.create(self.alloc, &self.init_ctx, props_ptr);
         new_node.widget = new_widget;
+
+        // Bind to ref after initializing the widget.
+        if (frame.widget_bind) |bind| {
+            if (frame.is_bind_func) {
+                const bind_func = stdx.mem.ptrCastAlign(*ui.BindNodeFunc, frame.widget_bind);
+                bind_func.func(bind_func.ctx, new_node, true);
+                new_node.setStateMask(ui.NodeStateMasks.bind_func);
+            } else {
+                stdx.mem.ptrCastAlign(*ui.NodeRef, bind).* = ui.NodeRef.init(new_node);
+            }
+            new_node.bind = bind;
+        }
         if (frame.node_binds != null) {
             var mb_cur = frame.node_binds;
             while (mb_cur) |cur| {
@@ -2849,6 +2849,66 @@ test "Setting and clearing an event handler in the same update cycle results in 
     var root = mod.getNodeByTag(.root).?;
     try t.eq(root.vtable, GenWidgetVTable(A));
     try t.eq(root.hasHandler(ui.EventHandlerMasks.global_mousemove), false);
+}
+
+test "WidgetRef binding." {
+    const u = ui.widgets;
+    const A = struct {};
+    const Options = struct {
+        decl: bool,
+        ref: *ui.WidgetRef(A),
+    };
+    const S = struct {
+        fn bootstrap(opts: Options, c: *BuildContext) ui.FrameId {
+            var child = NullFrameId;
+            if (opts.decl) {
+                child = c.build(A, .{ .bind = opts.ref });
+            }
+            return u.Container(.{ .id = .root }, child);
+        }
+    };
+
+    var mod: TestModule = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    var ref: ui.WidgetRef(A) = undefined;
+    try mod.preUpdate(Options{ .decl = true, .ref = &ref }, S.bootstrap);
+    try t.eq(ref.binded, true);
+    try t.eq(ref.node.vtable, GenWidgetVTable(A));
+    try mod.preUpdate(Options{ .decl = false, .ref = &ref }, S.bootstrap);
+    try t.eq(ref.binded, false);
+}
+
+test "NodeRefMap binding." {
+    const u = ui.widgets;
+    const A = struct {};
+    const Options = struct {
+        decl: bool,
+        bind: *ui.BindNodeFunc,
+    };
+    const S = struct {
+        fn bootstrap(opts: Options, c: *BuildContext) ui.FrameId {
+            var child = NullFrameId;
+            if (opts.decl) {
+                child = c.build(A, .{ .bind = opts.bind, .key = ui.WidgetKeyId(10) });
+            }
+            return u.Container(.{ .id = .root }, child);
+        }
+    };
+
+    var mod: TestModule = undefined;
+    mod.init();
+    defer mod.deinit();
+
+    var map: ui.NodeRefMap = undefined;
+    map.init(t.alloc);
+    defer map.deinit();
+    try mod.preUpdate(Options{ .decl = true, .bind = &map.bind }, S.bootstrap);
+    const node = map.getRef(ui.WidgetKeyId(10)).?;
+    try t.eq(node.vtable, GenWidgetVTable(A));
+    try mod.preUpdate(Options{ .decl = false, .bind = &map.bind }, S.bootstrap);
+    try t.eq(map.getRef(ui.WidgetKeyId(10)), null);
 }
 
 // test "BuildContext.build disallows using a prop that's not declared in Widget.props" {

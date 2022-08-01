@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const Vec2 = stdx.math.Vec2;
 
 const ui = @import("ui.zig");
@@ -38,6 +39,51 @@ pub const NodeRef = struct {
             .node = node,
             .binded = true,
         };
+    }
+};
+
+pub const BindNodeFunc = struct {
+    ctx: ?*anyopaque,
+    func: fn (ctx: ?*anyopaque, node: *Node, bind: bool) void,
+};
+
+pub const NodeRefMap = struct {
+    alloc: std.mem.Allocator,
+    map: std.AutoHashMapUnmanaged(WidgetKey, *Node),
+    bind: BindNodeFunc,
+
+    pub fn init(self: *NodeRefMap, alloc: std.mem.Allocator) void {
+        self.* = .{
+            .alloc = alloc,
+            .map = .{},
+            .bind = BindNodeFunc{
+                .ctx = self,
+                .func = bind,
+            },
+        };
+    }
+
+    pub fn deinit(self: *NodeRefMap) void {
+        self.map.deinit(self.alloc);
+    }
+
+    fn bind(ptr: ?*anyopaque, node: *ui.Node, bind_: bool) void {
+        const self = stdx.mem.ptrCastAlign(*NodeRefMap, ptr);
+        if (bind_) {
+            self.map.put(self.alloc, node.key, node) catch fatal();
+        } else {
+            var iter = self.map.iterator();
+            while (iter.next()) |entry| {
+                if (entry.value_ptr.* == node) {
+                    _ = self.map.remove(entry.key_ptr.*);
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn getRef(self: NodeRefMap, key: WidgetKey) ?*Node {
+        return self.map.get(key);
     }
 };
 
@@ -91,9 +137,11 @@ const NullId = stdx.ds.CompactNull(u32);
 
 pub const NodeStateMasks = struct {
     /// Indicates the node is currently in a mouse hovered state.
-    pub const hovered: u8 = 0b00000001;
+    pub const hovered: u8 =   0b00000001;
     /// Indicates the node is already matched to a child index during tree diff.
     pub const diff_used: u8 = 0b00000010;
+    /// Indicates the node's bind ptr is a *BindNodeFunc.
+    pub const bind_func: u8 = 0b00000100;
 };
 
 pub const EventHandlerMasks = struct {
@@ -120,8 +168,7 @@ pub const Node = struct {
     /// Is only defined if has_widget_id = true.
     id: WidgetUserId,
 
-    // TODO: This was added to Node for convenience. Since binding is a one time operation, it shouldn't have to carry over from a Frame.
-    /// Binds the widget to a WidgetRef upon initialization.
+    /// Binds the widget to a WidgetRef upon initialization. This is later used to unbind during the destroy step.
     bind: ?*anyopaque,
 
     /// The final layout is set by it's parent during the layout phase.
@@ -267,7 +314,7 @@ pub const Node = struct {
 pub const WidgetVTable = struct {
 
     /// Creates a new Widget on the heap and returns the pointer.
-    create: fn (alloc: std.mem.Allocator, node: *Node, init_ctx: *anyopaque, props_ptr: ?[*]const u8) *anyopaque,
+    create: fn (alloc: std.mem.Allocator, init_ctx: *anyopaque, props_ptr: ?[*]const u8) *anyopaque,
 
     /// Runs post init on an existing Widget.
     postInit: fn (widget_ptr: *anyopaque, init_ctx: *anyopaque) void,

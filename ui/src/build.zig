@@ -243,6 +243,12 @@ pub const BuildContext = struct {
         if (@hasField(BuildProps, "key")) {
             frame.key = build_props.key;
         }
+        if (@hasField(BuildProps, "bind")) {
+            if (@TypeOf(build_props.bind) == *ui.BindNodeFunc) {
+                frame.is_bind_func = true;
+            }
+        }
+
         if (builtin.mode == .Debug) {
             if (@hasField(BuildProps, "debug")) {
                 if (build_props.debug) {
@@ -262,8 +268,12 @@ pub const BuildContext = struct {
         const HasProps = comptime module.WidgetHasProps(Widget);
 
         if (@hasField(BuildProps, "bind")) {
-            if (stdx.meta.FieldType(BuildProps, .bind) != *ui.WidgetRef(Widget)) {
-                @compileError("Expected bind type to be: " ++ @typeName(*ui.WidgetRef(Widget)));
+            comptime {
+                const IsWidgetRef = stdx.meta.FieldType(BuildProps, .bind) == *ui.WidgetRef(Widget);
+                const IsBindNodeFunction = stdx.meta.FieldType(BuildProps, .bind) != *ui.BindNodeFunc;
+                if (!IsWidgetRef and !IsBindNodeFunction) {
+                    @compileError("Expected bind type to be: " ++ @typeName(*ui.WidgetRef(Widget)) ++ " or *ui.BindNodeFunc");
+                }
             }
         }
         if (@hasField(BuildProps, "id")) {

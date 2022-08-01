@@ -54,6 +54,8 @@ pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
 pub const WidgetKeyId = widget.WidgetKeyId;
 pub const WidgetRef = widget.WidgetRef;
+pub const NodeRefMap = widget.NodeRefMap;
+pub const BindNodeFunc = widget.BindNodeFunc;
 pub const WidgetVTable = widget.WidgetVTable;
 pub const LayoutSize = widget.LayoutSize;
 

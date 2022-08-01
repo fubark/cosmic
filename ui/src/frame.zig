@@ -24,6 +24,7 @@ pub const Frame = struct {
 
     /// Binds to WidgetRef upon initializing Widget instance.
     widget_bind: ?*anyopaque,
+    is_bind_func: bool,
 
     /// Binds to NodeRefs upon initializing Widget instance.
     node_binds: ?*BindNode,
@@ -50,6 +51,7 @@ pub const Frame = struct {
             .id = id,
             .widget_bind = bind,
             .node_binds = null,
+            .is_bind_func = false,
             .props = props,
             .fragment_children = fragment_children,
             .key = null,
