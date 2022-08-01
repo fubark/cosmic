@@ -13,7 +13,7 @@ const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    progress_bar: ui.WidgetRef(w.ProgressBarUI),
+    progress_bar: ui.WidgetRef(w.ProgressBarT),
 
     duration_secs: f32,
     progress_ms: f32,

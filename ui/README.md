@@ -215,7 +215,7 @@ The engine then proceeds to diff the structure provided by `build` against any e
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
 ```zig
 const App = struct {
-    slider: WidgetRef(u.SliderUI),
+    slider: WidgetRef(u.SliderT),
 
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {

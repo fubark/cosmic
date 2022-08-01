@@ -18,7 +18,7 @@ pub const FileDialog = struct {
     cwd: std.ArrayList(u8),
     files: std.ArrayList(FileItem),
     window: *ui.widgets.ModalOverlay,
-    scroll_list: ui.WidgetRef(w.ScrollListUI),
+    scroll_list: ui.WidgetRef(w.ScrollListT),
 
     pub fn init(self: *FileDialog, c: *ui.InitContext) void {
         self.alloc = c.alloc;

@@ -11,8 +11,8 @@ const NullId = std.math.maxInt(u32);
 pub const Text = struct {
     props: struct {
         text: ?[]const u8,
-        font_size: f32 = 20,
-        font_id: graphics.FontId = NullId,
+        fontSize: f32 = 20,
+        fontId: graphics.FontId = NullId,
         color: Color = Color.Black,
     },
 
@@ -34,16 +34,16 @@ pub const Text = struct {
 
     pub fn layout(self: *Text, c: *ui.LayoutContext) ui.LayoutSize {
         if (self.props.text != null) {
-            const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.font_id);
+            const font_gid = c.getFontGroupForSingleFontOrDefault(self.props.fontId);
 
             const cstr = c.getSizeConstraints();
             if (cstr.max_width == ui.ExpandedWidth) {
-                const m = c.measureText(font_gid, self.props.font_size, self.props.text.?);
+                const m = c.measureText(font_gid, self.props.fontSize, self.props.text.?);
                 self.use_layout = false;
                 return ui.LayoutSize.init(m.width, m.height);
             } else {
                 // Compute text layout. Perform word wrap.
-                c.textLayout(font_gid, self.props.font_size, self.props.text.?, cstr.max_width, &self.tlo);
+                c.textLayout(font_gid, self.props.fontSize, self.props.text.?, cstr.max_width, &self.tlo);
                 self.use_layout = true;
                 return ui.LayoutSize.init(self.tlo.width, self.tlo.height);
             }
@@ -57,10 +57,10 @@ pub const Text = struct {
         const bounds = c.getAbsBounds();
 
         if (self.props.text != null) {
-            if (self.props.font_id == NullId) {
-                g.setFont(g.getDefaultFontId(), self.props.font_size);
+            if (self.props.fontId == NullId) {
+                g.setFont(g.getDefaultFontId(), self.props.fontSize);
             } else {
-                g.setFont(self.props.font_id, self.props.font_size);
+                g.setFont(self.props.fontId, self.props.fontSize);
             }
             g.setFillColor(self.props.color);
 

@@ -4,7 +4,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
-const ZStack = ui.widgets.ZStack;
+const u = ui.widgets;
 const log = stdx.log.scoped(.root);
 
 pub const OverlayId = u32;
@@ -190,7 +190,6 @@ pub const ModalOverlay = struct {
     },
 
     pub fn init(self: *ModalOverlay, c: *ui.InitContext) void {
-        _ = self;
         c.addMouseDownHandler(self, onMouseDown);
     }
 

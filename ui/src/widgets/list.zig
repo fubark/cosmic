@@ -100,7 +100,7 @@ pub const List = struct {
                 }
             }
         }
-        return .Continue;
+        return .default;
     }
 
     pub fn postPropsUpdate(self: *List) void {

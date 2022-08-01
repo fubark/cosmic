@@ -110,7 +110,8 @@ pub const Node = struct {
 
     key: WidgetKey,
 
-    // TODO: Document why a parent reference is useful.
+    /// Having a chain of parents helps determine what top level group a source widget belongs to. (eg. Determine which overlay group to add to)
+    /// It also helps compute the abs bounds for a widget before the render step. (eg. For popover placement.)
     parent: ?*Node,
 
     /// Pointer to the widget instance.
@@ -144,8 +145,11 @@ pub const Node = struct {
     mouse_scroll_list: u32,
     key_up_list: u32,
     key_down_list: u32,
-    hover_change_sub: u32, // Only one subscriber.
+
+    /// Indicates which events this widget is currently listening for.
     event_handler_mask: u8,
+
+    /// Various boolean states for the node.
     state_mask: u8,
 
     // TODO: Should use a shared hashmap from Module.
@@ -173,7 +177,6 @@ pub const Node = struct {
             .mouse_scroll_list = NullId,
             .key_up_list = NullId,
             .key_down_list = NullId,
-            .hover_change_sub = NullId,
             .state_mask = 0,
             .event_handler_mask = 0,
             .has_child_event_ordering = false,
@@ -218,12 +221,17 @@ pub const Node = struct {
 
     /// Compute the absolute position of the node by adding up it's ancestor positions.
     /// This is only accurate if the layout has been computed for this node and upwards.
-    pub fn computeCurrentAbsPos(self: Node) Vec2 {
+    pub fn computeAbsPos(self: Node) Vec2 {
         if (self.parent) |parent| {
-            return parent.computeCurrentAbsPos().add(Vec2.init(self.layout.x, self.layout.y));
+            return parent.computeAbsPos().add(Vec2.init(self.layout.x, self.layout.y));
         } else {
             return Vec2.init(self.layout.x, self.layout.y);
         }
+    }
+
+    pub fn computeAbsBounds(self: Node) stdx.math.BBox {
+        const abs_pos = self.computeAbsPos();
+        return stdx.math.BBox.init(abs_pos.x, abs_pos.y, abs_pos.x + self.layout.width, abs_pos.y + self.layout.height);
     }
 
     pub fn getAbsBounds(self: Node) stdx.math.BBox {
@@ -285,6 +293,11 @@ pub const WidgetVTable = struct {
     name: []const u8,
 
     has_post_update: bool,
+
+    /// Whether the children of this widget can have overlapping bounds. eg. ZStack.
+    /// If no children can overlap, mouse events propagate down the widget tree on the first child hit.
+    /// If children can overlap, mouse events continue to check silbing hits until `stop` is returned from a handler.
+    children_can_overlap: bool,
 };
 
 pub const LayoutSize = struct {

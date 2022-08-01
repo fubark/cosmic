@@ -21,8 +21,8 @@ pub const ColorPicker = struct {
     },
 
     color: Color,
-    slider: ui.WidgetRef(w.SliderUI),
-    preview: ui.WidgetRef(w.SizedUI),
+    slider: ui.WidgetRef(w.SliderT),
+    preview: ui.WidgetRef(w.SizedT),
     root: *w.Root,
     node: *ui.Node,
 
@@ -94,8 +94,8 @@ const ColorPickerPopover = struct {
         onPreviewChange: ?Function(fn (Color) void) = null,
     },
 
-    palette: ui.WidgetRef(w.StretchUI),
-    hue_slider: ui.WidgetRef(w.SliderUI),
+    palette: ui.WidgetRef(w.StretchT),
+    hue_slider: ui.WidgetRef(w.SliderT),
 
     save_result: bool,
     color: Color,
@@ -142,7 +142,7 @@ const ColorPickerPopover = struct {
             e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
             e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
         }
-        return .Continue;
+        return .default;
     }
 
     fn setMouseValue(self: *ColorPickerPopover, x: i32, y: i32) void {

@@ -20,8 +20,8 @@ const tamzen9_otb = @embedFile("../../assets/tamzen5x9r.otb");
 
 pub const App = struct {
     alloc: std.mem.Allocator,
-    text_editor: ui.WidgetRef(u.TextAreaUI),
-    size_slider: ui.WidgetRef(u.SliderUI),
+    text_editor: ui.WidgetRef(u.TextAreaT),
+    size_slider: ui.WidgetRef(u.SliderT),
 
     text_color: Color,
     bg_color: Color,
@@ -106,7 +106,7 @@ pub const App = struct {
             }
         };
 
-        const size_slider = ui.WidgetProps(u.SliderUI){
+        const size_slider = ui.WidgetProps(u.SliderT){
             .init_val = 20,
             .min_val = 1,
             .max_val = 200,

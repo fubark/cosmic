@@ -30,7 +30,7 @@ pub const TextArea = struct {
     caret_line: u32,
     caret_col: u32,
     inner: ui.WidgetRef(TextAreaInner),
-    scroll_view: ui.WidgetRef(u.ScrollViewUI),
+    scroll_view: ui.WidgetRef(u.ScrollViewT),
 
     // Current font group used.
     font_gid: FontGroupId,
@@ -88,7 +88,7 @@ pub const TextArea = struct {
         }
     }
 
-    fn onMouseDown(self: *TextArea, e: platform.MouseDownEvent) void {
+    fn onMouseDown(self: *TextArea, e: platform.MouseDownEvent) ui.EventResult {
         self.requestFocus();
 
         // Map mouse pos to caret pos.
@@ -100,6 +100,8 @@ pub const TextArea = struct {
         self.caret_line = loc.line_idx;
         self.caret_col = loc.col_idx;
         self.postCaretUpdate();
+
+        return .stop;
     }
 
     /// Should be called before layout.

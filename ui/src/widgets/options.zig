@@ -12,7 +12,7 @@ pub const SliderOption = SliderOptionBase(false);
 pub const SliderFloatOption = SliderOptionBase(true);
 
 fn SliderOptionBase(comptime is_float: bool) type {
-    const Inner = if (is_float) w.SliderFloatUI else w.SliderUI;
+    const Inner = if (is_float) w.SliderFloatT else w.SliderT;
     const InnerProps = ui.WidgetProps(Inner);
     return struct {
         props: struct {
@@ -54,7 +54,7 @@ pub const SwitchOption = struct {
         onChange: ?stdx.Function(fn (bool) void) = null,
     },
 
-    inner: ui.WidgetRef(w.SwitchUI),
+    inner: ui.WidgetRef(w.SwitchT),
 
     pub fn isSet(self: *SwitchOption) bool {
         return self.inner.getWidget().isSet();

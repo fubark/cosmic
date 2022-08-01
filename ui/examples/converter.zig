@@ -11,8 +11,8 @@ const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    tc_field: ui.WidgetRef(w.TextFieldUI),
-    tf_field: ui.WidgetRef(w.TextFieldUI),
+    tc_field: ui.WidgetRef(w.TextFieldT),
+    tf_field: ui.WidgetRef(w.TextFieldT),
 
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {

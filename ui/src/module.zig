@@ -154,27 +154,28 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.renderCustom))) {
                     @compileError("Invalid renderCustom function: " ++ @typeName(@TypeOf(Widget.renderCustom)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                if (@sizeOf(Widget) == 0) {
-                    const empty: *Widget = undefined;
-                    empty.renderCustom(ctx);
-                } else {
-                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
-                    widget.renderCustom(ctx);
-                }
-            } else if (@hasDecl(Widget, "render")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.render))) {
-                    @compileError("Invalid render function: " ++ @typeName(@TypeOf(Widget.render)) ++ " Widget: " ++ @typeName(Widget));
-                }
-                if (@sizeOf(Widget) == 0) {
-                    const empty: *Widget = undefined;
-                    empty.render(ctx);
-                } else {
+                const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                widget.renderCustom(ctx);
+            } else {
+                if (@hasDecl(Widget, "render")) {
+                    if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.render))) {
+                        @compileError("Invalid render function: " ++ @typeName(@TypeOf(Widget.render)) ++ " Widget: " ++ @typeName(Widget));
+                    }
                     const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
                     widget.render(ctx);
                 }
-                ui_render.defaultRenderChildren(node, ctx);
-            } else {
-                ui_render.defaultRenderChildren(node, ctx);
+                if (@hasDecl(Widget, "postRender")) {
+                    if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.postRender))) {
+                        @compileError("Invalid postRender function: " ++ @typeName(@TypeOf(Widget.render)) ++ " Widget: " ++ @typeName(Widget));
+                    }
+                    const temp = ctx.node;
+                    ui_render.defaultRenderChildren(node, ctx);
+                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                    ctx.node = temp;
+                    widget.postRender(ctx);
+                } else {
+                    ui_render.defaultRenderChildren(node, ctx);
+                }
             }
         }
 
@@ -190,13 +191,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *LayoutContext) LayoutSize, @TypeOf(Widget.layout))) {
                     @compileError("Invalid layout function: " ++ @typeName(@TypeOf(Widget.layout)) ++ " Widget: " ++ @typeName(Widget));
                 }
-
-                if (@sizeOf(Widget) == 0) {
-                    const empty: *Widget = undefined;
-                    return empty.layout(ctx);
-                } else {
-                    return widget.layout(ctx);
-                }
+                return widget.layout(ctx);
             } else {
                 return defaultLayout(ctx);
             }

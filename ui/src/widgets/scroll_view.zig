@@ -31,7 +31,7 @@ pub const ScrollView = struct {
         show_border: bool = true,
 
         /// Triggered when mouse down hits the content rather than the scrollbars.
-        onContentMouseDown: ?stdx.Function(fn (platform.MouseDownEvent) void) = null,
+        onContentMouseDown: ?stdx.Function(fn (platform.MouseDownEvent) ui.EventResult) = null,
     },
 
     /// Internal vars. They should not be modified after the layout phase.
@@ -106,7 +106,7 @@ pub const ScrollView = struct {
         }
 
         if (self.props.onContentMouseDown) |cb| {
-            cb.call(.{ e.val });
+            return cb.call(.{ e.val });
         }
 
         return .default;

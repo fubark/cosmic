@@ -20,7 +20,7 @@ pub const App = struct {
 
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *App, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *App, _: ui.MouseUpEvent) void {
                 self_.counter += 1;
             }
         };

@@ -78,7 +78,7 @@ pub fn SliderBase(comptime is_float: bool) type {
                 e.ctx.setGlobalMouseUpHandler(node, handleMouseUpEvent);
                 e.ctx.setGlobalMouseMoveHandler(node, handleMouseMoveEvent);
             }
-            return .Continue;
+            return .default;
         }
 
         fn updateValueFromMouseX(self: *Self, node: *ui.Node, mouse_x: i16) void {

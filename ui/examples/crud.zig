@@ -17,9 +17,9 @@ pub const App = struct {
     alloc: std.mem.Allocator,
     filter: []const u8,
 
-    list: ui.WidgetRef(w.ScrollListUI),
-    first_tf: ui.WidgetRef(w.TextFieldUI),
-    last_tf: ui.WidgetRef(w.TextFieldUI),
+    list: ui.WidgetRef(w.ScrollListT),
+    first_tf: ui.WidgetRef(w.TextFieldT),
+    last_tf: ui.WidgetRef(w.TextFieldT),
 
     pub fn init(self: *App, c: *ui.InitContext) void {
         self.buf = std.ArrayList([]const u8).init(c.alloc);

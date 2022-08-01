@@ -10,7 +10,7 @@ const log = stdx.log.scoped(.button);
 
 pub const TextButton = struct {
     props: struct {
-        onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
+        onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -39,7 +39,7 @@ pub const TextButton = struct {
 /// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
 pub const Button = struct {
     props: struct {
-        onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
+        onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -51,8 +51,7 @@ pub const Button = struct {
 
     pressed: bool,
 
-    pub fn build(self: *Button, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Button, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
@@ -67,8 +66,8 @@ pub const Button = struct {
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
-                if (self.props.onClick) |cb| {
-                    cb.call(.{ e.val });
+                if (self.props.onClick.isPresent()) {
+                    self.props.onClick.call(.{ e });
                 }
             }
         }
@@ -79,6 +78,7 @@ pub const Button = struct {
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
+            return .stop;
         }
         return .default;
     }
