@@ -8,6 +8,7 @@ const ui = @import("ui.zig");
 const Layout = ui.Layout;
 const RenderContext = ui.RenderContext;
 const FrameId = ui.FrameId;
+const GenWidgetVTable = @import("module.zig").GenWidgetVTable;
 
 /// Id can be an enum literal that is given a unique id at comptime.
 pub const WidgetUserId = usize;
@@ -30,6 +31,7 @@ pub fn WidgetKeyId(id: usize) WidgetKey {
 }
 
 /// If the user does not have the access to a widget's type, NodeRef still allows capturing the created Node.
+/// Memory layout should match WidgetRef.
 pub const NodeRef = struct {
     node: *Node = undefined,
     binded: bool = false,
@@ -50,7 +52,7 @@ pub const BindNodeFunc = struct {
 pub const NodeRefMap = struct {
     alloc: std.mem.Allocator,
     map: std.AutoHashMapUnmanaged(WidgetKey, *Node),
-    bind: BindNodeFunc,
+    bind: ui.BindNodeFunc,
 
     pub fn init(self: *NodeRefMap, alloc: std.mem.Allocator) void {
         self.* = .{
@@ -82,8 +84,14 @@ pub const NodeRefMap = struct {
         }
     }
 
-    pub fn getRef(self: NodeRefMap, key: WidgetKey) ?*Node {
+    pub fn getNode(self: NodeRefMap, key: WidgetKey) ?*Node {
         return self.map.get(key);
+    }
+
+    pub fn getRef(self: NodeRefMap, key: WidgetKey) ?NodeRef {
+        if (self.map.get(key)) |node| {
+            return NodeRef.init(node);
+        } else return null;
     }
 };
 
@@ -264,6 +272,25 @@ pub const Node = struct {
 
     pub fn getChild(self: *Node, idx: usize) *Node {
         return self.children.items[idx];
+    }
+
+    /// Depth-first search of the first child that has the specified widget type.
+    pub fn findChild(self: *Node, comptime Widget: type) ?WidgetRef(Widget) {
+        if (findChildRec(self, GenWidgetVTable(Widget))) |node| {
+            return WidgetRef(Widget).init(node);
+        } else return null;
+    }
+
+    fn findChildRec(cur: *Node, vtable: *const WidgetVTable) ?*Node {
+        for (cur.children.items) |child| {
+            if (child.vtable == vtable) {
+                return child;
+            }
+            if (findChildRec(child, vtable)) |res| {
+                return res;
+            }
+        }
+        return null;
     }
 
     /// Compute the absolute position of the node by adding up it's ancestor positions.
