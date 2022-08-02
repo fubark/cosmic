@@ -23,6 +23,7 @@ pub const TextArea = struct {
         height: f32 = 300,
         text_color: Color = Color.Black,
         bg_color: Color = Color.White,
+        onBlur: stdx.Function(fn () void) = .{},
     },
 
     lines: std.ArrayList(Line),
@@ -123,6 +124,15 @@ pub const TextArea = struct {
         }
     }
 
+    pub fn allocText(self: TextArea, alloc: std.mem.Allocator) ![]const u8 {
+        var res: std.ArrayListUnmanaged(u8) = .{};
+        for (self.lines.items) |line| {
+            try res.appendSlice(alloc, line.buf.buf.items);
+            try res.append(alloc, '\n');
+        }
+        return res.toOwnedSlice(alloc);
+    }
+
     /// Should be called before layout.
     pub fn clear(self: *TextArea) void {
         for (self.lines.items) |line| {
@@ -148,6 +158,10 @@ pub const TextArea = struct {
         // if (!std.mem.eql(u8, &hash, &self.last_buf_hash)) {
         //     self.fireOnChangeEnd();
         // }
+
+        if (self.props.onBlur.isPresent()) {
+            self.props.onBlur.call(.{});
+        }
     }
 
     fn toCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x: f32, y: f32) DocLocation {
