@@ -20,82 +20,118 @@ pub const Root = struct {
         user_root: ui.FrameId = ui.NullFrameId,
     },
 
-    overlays: stdx.ds.DenseHandleList(OverlayId, OverlayItem, true),
+    /// There are currently two groups of overlays.
+    /// An overlay is added to the base group if `default` group type is specified and the source widget belongs to the user root or the base group.
+    /// An overlay is added to the top group if `default` group type is specified and the source widget belongs to the top group.
+    /// An overlay can also be added by explicity using the `base` or `top` group.
+    base_overlays: stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true),
+    top_overlays: stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true),
+
     build_buf: std.ArrayList(ui.FrameId),
-    next_id: OverlayId,
 
     user_root: ui.NodeRef,
 
     pub fn init(self: *Root, c: *ui.InitContext) void {
-        self.overlays = stdx.ds.DenseHandleList(OverlayId, OverlayItem, true).init(c.alloc);
+        self.base_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(c.alloc);
+        self.top_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(c.alloc);
         self.build_buf = std.ArrayList(ui.FrameId).init(c.alloc);
-        self.next_id = 1;
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Root);
-        self.overlays.deinit();
+    pub fn deinit(self: *Root, _: std.mem.Allocator) void {
+        self.base_overlays.deinit();
+        self.top_overlays.deinit();
         self.build_buf.deinit();
     }
 
     pub fn build(self: *Root, c: *ui.BuildContext) ui.FrameId {
-        self.build_buf.ensureTotalCapacity(1 + self.overlays.items.len) catch @panic("error");
+        self.build_buf.ensureTotalCapacity(self.base_overlays.size() + self.top_overlays.size()) catch @panic("error");
         self.build_buf.items.len = 0;
-        self.build_buf.appendAssumeCapacity(self.props.user_root);
 
         c.bindFrame(self.props.user_root, &self.user_root);
 
+        // Build the overlay items.
+        const base_ids = self.base_overlays.ids();
+        for (self.base_overlays.items()) |overlay, i| {
+            const overlay_id = base_ids[i];
+            self.appendOverlayFrame(c, overlay_id, overlay);
+        }
+        const base_frames = self.build_buf.items[0..self.base_overlays.size()];
+
+        const top_ids = self.top_overlays.ids();
+        for (self.top_overlays.items()) |overlay, i| {
+            const overlay_id = top_ids[i];
+            self.appendOverlayFrame(c, overlay_id, overlay);
+        }
+        const top_frames = self.build_buf.items[self.base_overlays.size()..];
+
+        // For now the user's root is the first child so it doesn't need a key.
+        return u.ZStack(.{}, &.{
+            self.props.user_root,
+            u.ZStack(.{}, base_frames),
+            u.ZStack(.{}, top_frames),
+        });
+    }
+
+    fn appendOverlayFrame(self: *Root, ctx: *ui.BuildContext, id: OverlayId, desc: OverlayDesc) void {
         const S = struct {
             fn popoverRequestClose(h: RootOverlayHandle) void {
-                const item = h.root.getOverlay(h.overlay_id).?;
-                if (item.close_cb) |cb| {
-                    cb(item.close_ctx);
-                }
                 h.root.closePopover(h.overlay_id);
             }
             fn modalRequestClose(h: RootOverlayHandle) void {
-                const item = h.root.getOverlay(h.overlay_id).?;
-                if (item.close_cb) |cb| {
-                    cb(item.close_ctx);
+                const desc_ = h.root.getOverlay(h.overlay_id).?;
+                if (desc_.close_cb) |cb| {
+                    cb(desc_.close_ctx);
                 }
                 h.root.closeModal(h.overlay_id);
             }
         };
-
-        // Build the overlay items.
-        for (self.overlays.items) |overlay| {
-            switch (overlay.tag) {
-                .Popover => {
-                    const frame_id = overlay.build_fn(overlay.build_ctx, c);
-                    const wrapper = c.build(PopoverOverlay, .{
-                        .child = frame_id,
-                        .src_node = overlay.src_node,
-                        .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.popoverRequestClose),
-                    });
-                    self.build_buf.appendAssumeCapacity(wrapper);
-                },
-                .Modal => {
-                    const frame_id = overlay.build_fn(overlay.build_ctx, c);
-                    const wrapper = c.build(ModalOverlay, .{
-                        .child = frame_id,
-                        .onRequestClose = c.closure(RootOverlayHandle{ .root = self, .overlay_id = overlay.id }, S.modalRequestClose),
-                    });
-                    self.build_buf.appendAssumeCapacity(wrapper);
-                },
-            }
+        switch (desc.overlay_type) {
+            .Overlay => {
+                const frame_id = desc.build_fn(desc.build_ctx, ctx);
+                self.build_buf.appendAssumeCapacity(frame_id);
+            },
+            .Popover => {
+                const frame_id = desc.build_fn(desc.build_ctx, ctx);
+                const wrapper = ctx.build(PopoverOverlay, .{
+                    .child = frame_id,
+                    .src_node = desc.src_node,
+                    .placement = desc.placement,
+                    .marginFromSrc = desc.margin_from_src,
+                    .closeAfterMouseLeave = desc.close_after_mouseleave,
+                    .onRequestClose = ctx.closure(RootOverlayHandle{ .root = self, .overlay_id = id }, S.popoverRequestClose),
+                    .key = ui.WidgetKeyId(id),
+                });
+                self.build_buf.appendAssumeCapacity(wrapper);
+            },
+            .Modal => {
+                const frame_id = desc.build_fn(desc.build_ctx, ctx);
+                const wrapper = ctx.build(ModalOverlay, .{
+                    .child = frame_id,
+                    .onRequestClose = ctx.closure(RootOverlayHandle{ .root = self, .overlay_id = id }, S.modalRequestClose),
+                });
+                self.build_buf.appendAssumeCapacity(wrapper);
+            },
         }
-
-        // For now the user's root is the first child so it doesn't need a key.
-        return c.build(ZStack, .{
-            .children = c.list(self.build_buf.items),
-        }); 
     }
 
-    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: PopoverOptions) OverlayId {
-        defer self.next_id += 1;
-        _ = self.overlays.append(.{
-            .id = self.next_id,
-            .tag = .Popover,
+    pub fn addOverlay(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, top: bool) !OverlayId {
+        const desc = OverlayDesc{
+            .overlay_type = .Overlay,
+            .build_ctx = build_ctx,
+            .build_fn = build_fn,
+            .close_ctx = null,
+            .close_cb = null,
+        };
+        if (top) {
+            return try self.top_overlays.add(desc);
+        } else {
+            return try self.base_overlays.add(desc);
+        }
+    }
+
+    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: PopoverOptions) !OverlayId {
+        return try self.base_overlays.add(.{
+            .overlay_type = .Popover,
             .build_ctx = build_ctx,
             .build_fn = build_fn,
             .close_ctx = opts.close_ctx,
@@ -105,44 +141,66 @@ pub const Root = struct {
         return self.next_id;
     }
 
-    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: ModalOptions) OverlayId {
-        defer self.next_id += 1;
-        _ = self.overlays.append(.{
-            .id = self.next_id,
-            .tag = .Modal,
+    /// Modals always appear on top of everything.
+    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: ModalOptions) !OverlayId {
+        return try self.top_overlays.add(.{
+            .overlay_type = .Modal,
             .build_ctx = build_ctx,
             .build_fn = build_fn,
             .close_ctx = opts.close_ctx,
             .close_cb = opts.close_cb,
-            .src_node = undefined,
-        }) catch @panic("error");
-        return self.next_id;
+        });
     }
 
-    fn getOverlay(self: Root, id: OverlayId) ?OverlayItem {
-        for (self.overlays.items) |it| {
-            if (it.id == id) {
-                return it;
-            }
+    fn getOverlay(self: Root, id: OverlayId) ?OverlayDesc {
+        if (self.base_overlays.get(id)) |desc| {
+            return desc;
         }
-        return null;
+        return self.top_overlays.get(id);
+    }
+
+    pub fn removeOverlay(self: *Root, id: OverlayId) void {
+        if (self.base_overlays.has(id)) {
+            self.base_overlays.remove(id);
+            return;
+        }
+        if (self.top_overlays.has(id)) {
+            self.top_overlays.remove(id);
+        }
     }
 
     pub fn closePopover(self: *Root, id: OverlayId) void {
-        for (self.overlays.items) |it, i| {
-            if (it.tag == .Popover and it.id == id) {
-                _ = self.overlays.orderedRemove(i);
-                break;
+        // Close can be requested multiple times so check the existence of the overlay first.
+        // TODO: If ids are reused, the ids will need to be passed around shared pointers.
+        if (self.base_overlays.get(id)) |desc| {
+            if (desc.close_cb) |cb| {
+                cb(desc.close_ctx);
+            }
+            if (desc.overlay_type == .Popover) {
+                self.base_overlays.remove(id);
+            }
+            return;
+        }
+        if (self.top_overlays.get(id)) |desc| {
+            if (desc.close_cb) |cb| {
+                cb(desc.close_ctx);
+            }
+            if (desc.overlay_type == .Popover) {
+                self.top_overlays.remove(id);
             }
         }
     }
 
     pub fn closeModal(self: *Root, id: OverlayId) void {
-        for (self.overlays.items) |it, i| {
-            if (it.tag == .Modal and it.id == id) {
-                _ = self.overlays.orderedRemove(i);
-                break;
+        if (self.base_overlays.get(id)) |desc| {
+            if (desc.overlay_type == .Modal) {
+                self.base_overlays.remove(id);
             }
+            return;
+        }
+        const desc = self.top_overlays.get(id).?;
+        if (desc.overlay_type == .Modal) {
+            self.top_overlays.remove(id);
         }
     }
 };
@@ -166,15 +224,16 @@ const OverlayItem = struct {
     close_ctx: ?*anyopaque,
     close_cb: ?fn (?*anyopaque) void,
 
-    tag: OverlayTag,
+    overlay_type: OverlayType,
 
     // Used for popovers.
     src_node: *ui.Node,
 };
 
-const OverlayTag = enum(u1) {
-    Popover = 0,
-    Modal = 1,
+const OverlayType = enum(u2) {
+    Overlay = 0,
+    Popover = 1,
+    Modal = 2,
 };
 
 /// An overlay that positions the child modal in a specific alignment over the overlay bounds.
