@@ -137,8 +137,10 @@ pub const Root = struct {
             .close_ctx = opts.close_ctx,
             .close_cb = opts.close_cb,
             .src_node = src_widget,
-        }) catch @panic("error");
-        return self.next_id;
+            .close_after_mouseleave = opts.close_after_mouseleave,
+            .placement = opts.placement,
+            .margin_from_src = opts.margin_from_src,
+        });
     }
 
     /// Modals always appear on top of everything.
@@ -213,11 +215,18 @@ const ModalOptions = struct {
 const PopoverOptions = struct {
     close_ctx: ?*anyopaque = null,
     close_cb: ?fn (?*anyopaque) void = null,
+    close_after_mouseleave: bool = false,
+    placement: PopoverPlacement = .auto,
+    margin_from_src: f32 = 20,
 };
 
-const OverlayItem = struct {
-    id: OverlayId,
+const PopoverPlacement = enum(u2) {
+    auto = 0,
+    left = 1,
+    right = 2,
+};
 
+const OverlayDesc = struct {
     build_ctx: ?*anyopaque,
     build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId,
 
@@ -227,7 +236,10 @@ const OverlayItem = struct {
     overlay_type: OverlayType,
 
     // Used for popovers.
-    src_node: *ui.Node,
+    src_node: *ui.Node = undefined,
+    placement: PopoverPlacement = undefined,
+    close_after_mouseleave: bool = undefined,
+    margin_from_src: f32 = undefined,
 };
 
 const OverlayType = enum(u2) {
@@ -317,24 +329,28 @@ pub const PopoverOverlay = struct {
     props: struct {
         child: ui.FrameId,
         src_node: *ui.Node,
+        placement: PopoverPlacement,
+        marginFromSrc: f32 = 20,
+        closeAfterMouseLeave: bool = false,
         border_color: Color = Color.DarkGray,
         bg_color: Color = Color.DarkGray.darker(),
         onRequestClose: ?stdx.Function(fn () void) = null,
     },
 
     to_left: bool,
+    child: ui.NodeRef,
 
     /// Allow a custom post render. For child popovers that want to draw over the border.
     custom_post_render_ctx: ?*anyopaque,
     custom_post_render: ?fn (?*anyopaque, ctx: *ui.RenderContext) void,
 
-    const MarginFromSource = 20;
-    const ArrowSize = 30;
+    node: *ui.Node,
 
     pub fn init(self: *PopoverOverlay, c: *ui.InitContext) void {
         _ = self;
         self.custom_post_render = null;
         self.custom_post_render_ctx = null;
+        self.node = c.node;
         c.addMouseDownHandler(self, onMouseDown);
     }
 
@@ -358,8 +374,32 @@ pub const PopoverOverlay = struct {
         }
     }
 
-    pub fn build(self: *PopoverOverlay, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *PopoverOverlay, ctx: *ui.BuildContext) ui.FrameId {
+        ctx.bindFrame(self.props.child, &self.child);
+        if (self.props.closeAfterMouseLeave) {
+            return u.MouseHoverArea(.{
+                // Initialized as hovered so a onHoverChange(false) is guaranteed to fire even if the initial hoverHitTest returns false.
+                .initHovered = true,
+                .hitTest = ctx.funcExt(self, hoverHitTest),
+                .onHoverChange = ctx.funcExt(self, onHoverChange) },
+                self.props.child,
+            );
+        } else {
+            return self.props.child;
+        }
+    }
+
+    fn hoverHitTest(self: *PopoverOverlay, x: i16, y: i16) bool {
+        // Bounds includes the source widget and the popover.
+        const xf = @intToFloat(f32, x);
+        const yf = @intToFloat(f32, y);
+        return self.child.node.abs_bounds.containsPt(xf, yf) or self.props.src_node.abs_bounds.containsPt(xf, yf);
+    }
+
+    fn onHoverChange(self: *PopoverOverlay, e: ui.HoverChangeEvent) void {
+        if (!e.hovered) {
+            self.requestClose();
+        }
     }
 
     pub fn layout(self: *PopoverOverlay, c: *ui.LayoutContext) ui.LayoutSize {
@@ -369,19 +409,34 @@ pub const PopoverOverlay = struct {
             const child = c.node.children.items[0];
             const child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
-            // Position relative to source widget. Source widget layout should already be computed.
-            const src_abs_pos = self.props.src_node.computeCurrentAbsPos();
-            if (src_abs_pos.x > cstr.max_width * 0.5) {
-                // Display popover to the left.
-                c.setLayout(child, ui.Layout.init(src_abs_pos.x - child_size.width - MarginFromSource, src_abs_pos.y, child_size.width, child_size.height));
-                self.to_left = true;
-            } else {
-                // Display popover to the right.
-                c.setLayout(child, ui.Layout.init(src_abs_pos.x + self.props.src_node.layout.width + MarginFromSource, src_abs_pos.y, child_size.width, child_size.height));
-                self.to_left = false;
+            // Source widget layout should already be computed.
+            const src_abs_bounds = self.props.src_node.computeAbsBounds();
+
+            // Position relative to source widget. 
+            switch (self.props.placement) {
+                .auto => {
+                    if (src_abs_bounds.min_x > cstr.max_width * 0.5) {
+                        self.placeUserChild(c, child, child_size, src_abs_bounds, true);
+                    } else {
+                        self.placeUserChild(c, child, child_size, src_abs_bounds, false);
+                    }
+                },
+                .left => self.placeUserChild(c, child, child_size, src_abs_bounds, true),
+                .right => self.placeUserChild(c, child, child_size, src_abs_bounds, false),
             }
         }
         return cstr.getMaxLayoutSize();
+    }
+
+    fn placeUserChild(self: *PopoverOverlay, ctx: *ui.LayoutContext, child: *ui.Node, child_size: ui.LayoutSize, src_abs_bounds: stdx.math.BBox, to_left: bool) void {
+        if (to_left) {
+            // Place popover to the left.
+            ctx.setLayout(child, ui.Layout.init(src_abs_bounds.min_x - child_size.width - self.props.marginFromSrc, src_abs_bounds.min_y, child_size.width, child_size.height));
+        } else {
+            // Place popover to the right.
+            ctx.setLayout(child, ui.Layout.init(src_abs_bounds.max_x + self.props.marginFromSrc, src_abs_bounds.min_y, child_size.width, child_size.height));
+        }
+        self.to_left = to_left;
     }
 
     pub fn renderCustom(self: *PopoverOverlay, c: *ui.RenderContext) void {
@@ -394,11 +449,6 @@ pub const PopoverOverlay = struct {
             const g = c.gctx;
             g.setFillColor(self.props.bg_color);
             g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
-            if (self.to_left) {
-                g.fillTriangle(child_x + child_lo.width, child_y, child_x + child_lo.width, child_y + ArrowSize, child_x + child_lo.width + ArrowSize/2, child_y + ArrowSize/2);
-            } else {
-                g.fillTriangle(child_x, child_y, child_x - ArrowSize/2, child_y + ArrowSize/2, child_x, child_y + ArrowSize);
-            }
 
             c.renderChildren();
 
