@@ -264,6 +264,10 @@ pub const Container = struct {
         /// If height is not provided, this container will shrink to the child's height.
         height: ?f32 = null,
 
+        /// Outline is drawn if size is greater than 0.
+        outlineSize: f32 = 0,
+        outlineColor: Color = Color.Transparent,
+
         child: ui.FrameId = ui.NullFrameId,
     },
 
@@ -282,6 +286,15 @@ pub const Container = struct {
         if (self.props.bg_color) |bg_color| {
             gctx.setFillColor(bg_color);
             ctx.fillBBox(bounds);
+        }
+    }
+
+    pub fn postRender(self: *Container, ctx: *ui.RenderContext) void {
+        const gctx = ctx.gctx;
+        if (self.props.outlineSize > 0) {
+            gctx.setStrokeColor(self.props.outlineColor);
+            gctx.setLineWidth(self.props.outlineSize);
+            ctx.drawBBox(ctx.getAbsBounds());
         }
     }
 };
