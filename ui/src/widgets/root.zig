@@ -261,7 +261,7 @@ pub const ModalOverlay = struct {
     },
 
     pub fn init(self: *ModalOverlay, c: *ui.InitContext) void {
-        c.addMouseDownHandler(self, onMouseDown);
+        c.setMouseDownHandler(self, onMouseDown);
     }
 
     fn onMouseDown(self: *ModalOverlay, e: ui.MouseDownEvent) ui.EventResult {
@@ -351,7 +351,7 @@ pub const PopoverOverlay = struct {
         self.custom_post_render = null;
         self.custom_post_render_ctx = null;
         self.node = c.node;
-        c.addMouseDownHandler(self, onMouseDown);
+        c.setMouseDownHandler(self, onMouseDown);
     }
 
     fn onMouseDown(self: *PopoverOverlay, e: ui.MouseDownEvent) ui.EventResult {

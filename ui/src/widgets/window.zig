@@ -43,6 +43,8 @@ pub const Window = struct {
         self.y = self.props.init_y;
         self.width = 300;
         self.height = 200;
+
+        ctx.setMouseDownHandler(self, onMouseDown);
     }
 
     pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FrameId {
@@ -77,6 +79,10 @@ pub const Window = struct {
                 ),
             ),
         );
+    }
+
+    fn onMouseDown(_: *Window, _: ui.MouseDownEvent) ui.EventResult {
+        return .stop;
     }
 
     /// Assumes (x, y) is in border bounds.

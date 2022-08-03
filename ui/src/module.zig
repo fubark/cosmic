@@ -241,11 +241,12 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
 
 pub const FragmentVTable = GenWidgetVTable(struct {});
 
-const EventType = enum(u2) {
-    mouseup = 0,
-    global_mouseup = 1,
-    global_mousemove = 2,
-    hoverchange = 3,
+const EventType = enum(u3) {
+    mouseup,
+    mousedown,
+    global_mouseup,
+    global_mousemove,
+    hoverchange,
 };
 
 const EventHandlerRef = struct {
@@ -420,7 +421,7 @@ pub const Module = struct {
     }
 
     /// Start at the root node and propagate downwards on the first hit box.
-    /// TODO: Handlers should be able to return Stop to prevent propagation.
+    /// Once the bottom is reached, `mousedown` events are triggered in order back towards the root.
     pub fn processMouseDownEvent(self: *Module, e: platform.MouseDownEvent) platform.EventResult {
         const xf = @intToFloat(f32, e.x);
         const yf = @intToFloat(f32, e.y);
@@ -445,39 +446,16 @@ pub const Module = struct {
         }
     }
 
+    /// hit_widget only considers hits on the way back up the tree.
+    /// Returns true to stop propagation.
     fn processMouseDownEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseDownEvent, hit_widget: *bool) bool {
-        if (node == self.common.last_focused_widget) {
-            self.common.hit_last_focused = true;
-            hit_widget.* = true;
-        }
-        var cur = node.mouse_down_list;
-        if (cur != NullId) {
-            // If there is a handler, assume the event hits the widget.
-            // If the widget performs clearMouseHitFlag() in any of the handlers, the flag is reset so it does not change hit_widget.
-            self.common.widget_hit_flag = true;
-        }
-        var propagate = true;
-        while (cur != NullId) {
-            const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
-            if (sub.handleEvent(&self.event_ctx, e) == .stop) {
-                propagate = false;
-                break;
-            }
-            cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
-        }
-        if (self.common.widget_hit_flag) {
-            hit_widget.* = true;
-        }
-        if (!propagate) {
-            return true;
-        }
         const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
         if (!node.vtable.children_can_overlap) {
             // Greedy hit check. Skips siblings.
             for (event_children) |child| {
                 if (child.abs_bounds.containsPt(xf, yf)) {
                     if (self.processMouseDownEventRecurse(child, xf, yf, e, hit_widget)) {
-                        propagate = false;
+                        return true;
                     }
                     break;
                 }
@@ -487,11 +465,33 @@ pub const Module = struct {
             for (event_children) |child| {
                 if (child.abs_bounds.containsPt(xf, yf)) {
                     if (self.processMouseDownEventRecurse(child, xf, yf, e, hit_widget)) {
-                        propagate = false;
-                        break;
+                        return true;
                     }
                 }
             }
+        }
+
+        // Bubble up to root. The normal mousedown event is fired in order from bottom to top.
+
+        if (node == self.common.last_focused_widget) {
+            self.common.hit_last_focused = true;
+            hit_widget.* = true;
+        }
+
+        var propagate = true;
+        if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
+            // If there is a handler, assume the event hits the widget.
+            // If the widget performs clearMouseHitFlag() in any of the handlers, the flag is reset so it does not change hit_widget.
+            self.common.widget_hit_flag = true;
+
+            const sub = self.common.node_mousedown_map.get(node).?;
+            if (sub.handleEvent(&self.event_ctx, e) == .stop) {
+                propagate = false;
+            }
+        }
+
+        if (self.common.widget_hit_flag) {
+            hit_widget.* = true;
         }
         return !propagate;
     }
@@ -976,12 +976,8 @@ pub const Module = struct {
             cur_id = self.common.key_down_event_subs.getNextNoCheck(cur_id);
         }
 
-        cur_id = node.mouse_down_list;
-        while (cur_id != NullId) {
-            const sub = self.common.mouse_down_event_subs.getNoCheck(cur_id);
-            sub.deinit(self.alloc);
-            self.common.mouse_down_event_subs.removeAssumeNoPrev(cur_id) catch unreachable;
-            cur_id = self.common.mouse_down_event_subs.getNextNoCheck(cur_id);
+        if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
+            self.common.ctx.clearMouseDownHandler(node);
         }
 
         if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
@@ -1346,8 +1342,8 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.setGlobalMouseUpHandler(self.node, ctx, cb);
         }
 
-        pub inline fn addMouseDownHandler(self: Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
-            self.common.addMouseDownHandler(self.node, ctx, cb);
+        pub inline fn setMouseDownHandler(self: *Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
+            self.common.setMouseDownHandler(self.node, ctx, cb);
         }
 
         pub inline fn addMouseScrollHandler(self: Context, ctx: anytype, cb: events.MouseScrollHandler(@TypeOf(ctx))) void {
@@ -1744,36 +1740,32 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn addMouseDownHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
+    pub fn setMouseDownHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), fn (ui.MouseDownEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
         const sub = SubscriberRet(platform.MouseDownEvent, ui.EventResult){
             .closure = closure,
             .node = node,
         };
-        if (self.common.mouse_down_event_subs.getLast(node.mouse_down_list)) |last_id| {
-            _ = self.common.mouse_down_event_subs.insertAfter(last_id, sub) catch unreachable;
+        const res = self.common.node_mousedown_map.getOrPut(self.alloc, node) catch fatal();
+        if (res.found_existing) {
+            res.value_ptr.deinit(self.alloc);
+            res.value_ptr.* = sub;
         } else {
-            node.mouse_down_list = self.common.mouse_down_event_subs.add(sub) catch unreachable;
+            res.value_ptr.* = sub;
+            node.setHandlerMask(ui.EventHandlerMasks.mousedown);
         }
     }
 
-    pub fn removeMouseDownHandler(self: *CommonContext, node: *ui.Node, comptime Context: type, func: events.MouseDownHandler(Context)) void {
-        var cur = node.mouse_down_list;
-        var prev = NullId;
-        while (cur != NullId) {
-            const sub = self.common.mouse_down_event_subs.getNoCheck(cur);
-            if (sub.closure.user_fn == @ptrCast(*const anyopaque, func)) {
-                sub.deinit(self.alloc);
-                if (prev == NullId) {
-                    node.mouse_down_list = self.common.mouse_down_event_subs.getNextNoCheck(cur);
-                    self.common.mouse_down_event_subs.removeAssumeNoPrev(cur) catch unreachable;
-                } else {
-                    self.common.mouse_down_event_subs.removeAfter(prev) catch unreachable;
-                }
-                // Continue scanning for duplicates.
+    pub fn clearMouseDownHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_mousedown_map.getPtr(node)) |sub| {
+            if (!sub.to_remove) {
+                sub.to_remove = true;
+                node.clearHandlerMask(ui.EventHandlerMasks.mousedown);
+                self.common.to_remove_handlers.append(self.alloc, .{
+                    .event_t = .mousedown,
+                    .node = node,
+                }) catch fatal();
             }
-            prev = cur;
-            cur = self.common.mouse_down_event_subs.getNextNoCheck(cur);
         }
     }
 
@@ -1949,13 +1941,13 @@ pub const ModuleCommon = struct {
 
     /// Mouse handlers.
     global_mouse_up_list: std.ArrayListUnmanaged(*ui.Node),
-    mouse_down_event_subs: stdx.ds.PooledHandleSLLBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     mouse_scroll_event_subs: stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     node_global_mousemove_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseMoveEvent)),
     /// Mouse move events fire far more frequently so iteration should be fast.
     global_mouse_move_list: std.ArrayListUnmanaged(*ui.Node),
     has_mouse_move_subs: bool,
 
+    node_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
     node_global_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
 
@@ -2020,12 +2012,12 @@ pub const ModuleCommon = struct {
 
             .key_up_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
             .key_down_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
+            .node_mousedown_map = .{},
             .node_mouseup_map = .{},
             .node_global_mouseup_map = .{},
             .node_global_mousemove_map = .{},
             .global_mouse_up_list = .{},
             .global_mouse_move_list = .{},
-            .mouse_down_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, SubscriberRet(platform.MouseDownEvent, ui.EventResult)).init(alloc),
             .mouse_scroll_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
             .node_hoverchange_map = .{},
@@ -2088,14 +2080,6 @@ pub const ModuleCommon = struct {
         }
 
         {
-            var iter = self.mouse_down_event_subs.iterator();
-            while (iter.next()) |it| {
-                it.data.deinit(self.alloc);
-            }
-            self.mouse_down_event_subs.deinit();
-        }
-
-        {
             var iter = self.mouse_scroll_event_subs.iterator();
             while (iter.next()) |it| {
                 it.data.deinit(self.alloc);
@@ -2117,6 +2101,7 @@ pub const ModuleCommon = struct {
         self.node_global_mouseup_map.deinit(self.alloc);
         self.global_mouse_up_list.deinit(self.alloc);
         self.node_mouseup_map.deinit(self.alloc);
+        self.node_mousedown_map.deinit(self.alloc);
 
         self.arena_allocators[0].deinit();
         self.arena_allocators[1].deinit();
@@ -2146,6 +2131,11 @@ pub const ModuleCommon = struct {
                             break;
                         }
                     }
+                },
+                .mousedown => {
+                    const sub = self.node_mousedown_map.get(ref.node).?;
+                    sub.deinit(self.alloc);
+                    _ = self.node_mousedown_map.remove(ref.node);
                 },
                 .mouseup => {
                     const sub = self.node_mouseup_map.get(ref.node).?;
@@ -2293,6 +2283,7 @@ fn SubscriberRet(comptime T: type, comptime Return: type) type {
         const Self = @This();
         closure: ClosureIface(fn (ui.Event(T)) Return),
         node: *ui.Node,
+        to_remove: bool = false,
 
         fn handleEvent(self: Self, ctx: *ui.EventContext, e: T) Return {
             ctx.node = self.node;

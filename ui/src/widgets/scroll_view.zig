@@ -68,7 +68,7 @@ pub const ScrollView = struct {
         self.has_hbar = false;
         self.dragging_hbar = false;
         self.dragging_vbar = false;
-        c.addMouseDownHandler(self, onMouseDown);
+        c.setMouseDownHandler(self, onMouseDown);
         c.addMouseScrollHandler(self, onMouseScroll);
     }
 

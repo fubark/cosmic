@@ -16,7 +16,7 @@ pub const MouseDragArea = struct {
     },
 
     pub fn init(self: *MouseDragArea, ctx: *ui.InitContext) void {
-        ctx.addMouseDownHandler(self, onMouseDown);
+        ctx.setMouseDownHandler(self, onMouseDown);
     }
 
     pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FrameId {
@@ -130,7 +130,7 @@ pub const MouseArea = struct {
 
     pub fn init(self: *MouseArea, c: *ui.InitContext) void {
         self.pressed = false;
-        c.addMouseDownHandler(c.node, onMouseDown);
+        c.setMouseDownHandler(c.node, onMouseDown);
         c.setMouseUpHandler(c.node, onMouseUp);
     }
 

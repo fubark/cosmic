@@ -119,7 +119,7 @@ const ColorPickerPopover = struct {
         self.window.custom_post_render = postPopoverRender;
         self.window.custom_post_render_ctx = self;
         
-        c.addMouseDownHandler(self, onMouseDown);
+        c.setMouseDownHandler(self, onMouseDown);
     }
 
     fn onMouseUp(self: *ColorPickerPopover, e: ui.MouseUpEvent) void {

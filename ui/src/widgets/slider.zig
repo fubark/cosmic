@@ -48,7 +48,7 @@ pub fn SliderBase(comptime is_float: bool) type {
                 self.value = self.props.max_val;
             }
 
-            c.addMouseDownHandler(c.node, handleMouseDownEvent);
+            c.setMouseDownHandler(c.node, onMouseDown);
         }
 
         fn handleMouseUpEvent(node: *ui.Node, e: ui.Event(MouseUpEvent)) void {
@@ -69,7 +69,7 @@ pub fn SliderBase(comptime is_float: bool) type {
             e.ctx.clearGlobalMouseMoveHandler();
         }
 
-        fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
+        fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
             var self = node.getWidget(Self);
             if (e.val.button == .Left) {
                 self.pressed = true;

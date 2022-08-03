@@ -48,7 +48,7 @@ pub const List = struct {
 
     pub fn init(self: *List, c: *ui.InitContext) void {
         self.selected_idx = NullId;
-        c.addMouseDownHandler(c.node, handleMouseDownEvent);
+        c.setMouseDownHandler(c.node, onMouseDown);
         c.addKeyDownHandler(self, onKeyDown);
     }
 
@@ -80,7 +80,7 @@ pub const List = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
+    fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(List);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
