@@ -3,7 +3,6 @@ const fatal = stdx.fatal;
 const Function = stdx.Function;
 const graphics = @import("graphics");
 const Color = graphics.Color;
-const platform = @import("platform");
 
 const ui = @import("../ui.zig");
 const w = ui.widgets;
@@ -14,7 +13,7 @@ const log = stdx.log.scoped(.color_picker);
 pub const ColorPicker = struct {
     props: struct {
         label: []const u8 = "Color",
-        font_size: f32 = 16,
+        fontSize: f32 = 16,
         init_val: Color = Color.White,
         onPreviewChange: ?Function(fn (Color) void) = null,
         onResult: ?Function(fn (color: Color, save: bool) void) = null,
@@ -41,7 +40,7 @@ pub const ColorPicker = struct {
                 w.Flex(.{}, 
                     w.Text(.{
                         .text = self.props.label,
-                        .font_size = self.props.font_size,
+                        .fontSize = self.props.fontSize,
                         .color = Color.White,
                     }),
                 ),
@@ -141,6 +140,7 @@ const ColorPickerPopover = struct {
 
             e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
             e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+            return .stop;
         }
         return .default;
     }
@@ -183,7 +183,7 @@ const ColorPickerPopover = struct {
 
     pub fn build(self: *ColorPickerPopover, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClickSave(self_: *ColorPickerPopover, _: platform.MouseUpEvent) void {
+            fn onClickSave(self_: *ColorPickerPopover, _: ui.MouseUpEvent) void {
                 self_.save_result = true;
                 self_.window.requestClose();
             }

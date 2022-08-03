@@ -101,7 +101,7 @@ pub const App = struct {
                 });
             }
 
-            fn onLoadFontClick(self_: *App, _: platform.MouseUpEvent) void {
+            fn onLoadFontClick(self_: *App, _: ui.MouseUpEvent) void {
                 self_.file_m = self_.root.showModal(self_, buildFileDialog, .{}) catch fatal();
             }
         };

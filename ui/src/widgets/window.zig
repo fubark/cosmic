@@ -9,6 +9,7 @@ const log = stdx.log.scoped(.window);
 
 pub const Window = struct {
     props: struct {
+        bgColor: Color = Color.DarkGray,
         title: ?[]const u8,
         init_x: f32,
         init_y: f32,
@@ -55,7 +56,7 @@ pub const Window = struct {
                     .onDragStart = ctx.funcExt(self, onDragStartBorder),
                     .onDragMove = ctx.funcExt(self, onDragMoveBorder), },
                     u.Column(.{}, &.{
-                        u.Container(.{ .bg_color = Color.Gray, .width = ui.ExpandedWidth, .height = TitleBarHeight },
+                        u.Container(.{ .bgColor = Color.Gray, .width = ui.ExpandedWidth, .height = TitleBarHeight },
                             u.Row(.{}, &.{
                                 u.Flex(.{},
                                     u.MouseDragArea(.{
@@ -69,7 +70,7 @@ pub const Window = struct {
                                 ),
                             }),
                         ),
-                        u.Container(.{ .bg_color = Color.Blue, .width = ui.ExpandedWidth, .height = ui.ExpandedHeight }, 
+                        u.Container(.{ .bgColor = self.props.bgColor, .width = ui.ExpandedWidth, .height = ui.ExpandedHeight }, 
                             self.props.child,
                         ),
                     }),

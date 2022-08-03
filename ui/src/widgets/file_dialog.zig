@@ -2,7 +2,6 @@ const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
-const platform = @import("platform");
 const ui = @import("../ui.zig");
 const w = ui.widgets;
 
@@ -44,11 +43,11 @@ pub const FileDialog = struct {
                     .color = Color.White,
                 });
             }
-            fn onClickCancel(self_: *FileDialog, e: platform.MouseUpEvent) void {
+            fn onClickCancel(self_: *FileDialog, e: ui.MouseUpEvent) void {
                 _ = e;
                 self_.window.requestClose();
             }
-            fn onClickSave(self_: *FileDialog, e: platform.MouseUpEvent) void {
+            fn onClickSave(self_: *FileDialog, e: ui.MouseUpEvent) void {
                 _ = e;
                 const list = self_.scroll_list.getWidget();
                 const idx = list.getSelectedIdx();

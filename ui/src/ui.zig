@@ -30,6 +30,7 @@ pub const EventResult = events.EventResult;
 
 const build = @import("build.zig");
 pub const BuildContext = build.BuildContext;
+pub const PtrId = build.PtrId;
 
 const config = @import("config.zig");
 pub const Config = config.Config;

@@ -1206,6 +1206,7 @@ pub const RenderContext = struct {
     }
 
     pub usingnamespace MixinContextNodeReadOps(RenderContext);
+    pub usingnamespace MixinContextSharedOps(RenderContext);
     // pub usingnamespace MixinContextReadOps(RenderContext);
 };
 
@@ -1242,12 +1243,12 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
             return self.common.common.context_provider(key);
         }
 
-        pub inline fn getGraphics(self: Context) *graphics.Graphics {
-            return self.common.getGraphics();
-        }
-
         pub inline fn getRoot(self: Context) *ui.widgets.Root {
             return self.common.common.mod.root_node.?.getWidget(ui.widgets.Root);
+        }
+
+        pub inline fn getUserRoot(self: Context, comptime Widget: type) ?*Widget {
+            return self.common.common.mod.getUserRoot(Widget);
         }
 
         pub inline fn getRootLayoutSize(self: Context) LayoutSize {

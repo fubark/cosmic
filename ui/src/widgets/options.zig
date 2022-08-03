@@ -30,7 +30,7 @@ fn SliderOptionBase(comptime is_float: bool) type {
                     w.Text(.{
                         .text = self.props.label,
                         .color = Color.White,
-                        .font_size = 14,
+                        .fontSize = 14,
                     }),
                 ),
                 w.Flex(.{ .flex = 3, }, 
@@ -71,7 +71,7 @@ pub const SwitchOption = struct {
                 w.Flex(.{}, 
                     w.Text(.{
                         .text = self.props.label,
-                        .font_size = 14,
+                        .fontSize = 14,
                         .color = Color.White,
                     }),
                 ),

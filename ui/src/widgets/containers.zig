@@ -4,6 +4,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
+const u = ui.widgets;
 const log = stdx.log.scoped(.containers);
 
 /// Provides padding around a child widget.
@@ -256,7 +257,7 @@ pub const ZStack = struct {
 
 pub const Container = struct {
     props: struct {
-        bg_color: ?Color = null,
+        bgColor: Color = Color.Transparent,
 
         /// If width is not provided, this container will shrink to the child's width.
         width: ?f32 = null,
@@ -283,8 +284,8 @@ pub const Container = struct {
         const bounds = ctx.getAbsBounds();
         const gctx = ctx.gctx;
 
-        if (self.props.bg_color) |bg_color| {
-            gctx.setFillColor(bg_color);
+        if (self.props.bgColor.channels.a > 0) {
+            gctx.setFillColor(self.props.bgColor);
             ctx.fillBBox(bounds);
         }
     }

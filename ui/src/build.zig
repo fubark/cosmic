@@ -69,6 +69,11 @@ pub const BuildContext = struct {
         return Function(InnerFn).initClosureIface(c);
     }
 
+    /// Closure over a PtrId pair.
+    pub fn closurePtrId(self: *BuildContext, ptr: ?*anyopaque, id: usize, user_fn: anytype) Function(stdx.meta.FnAfterFirstParam(@TypeOf(user_fn))) {
+        return self.closure(PtrId.init(ptr, id), user_fn);
+    }
+
     /// Returns a wrapper over a free function.
     pub fn func(self: *BuildContext, comptime user_fn: anytype) Function(@TypeOf(user_fn)) {
         _ = self;
@@ -270,7 +275,7 @@ pub const BuildContext = struct {
         if (@hasField(BuildProps, "bind")) {
             comptime {
                 const IsWidgetRef = stdx.meta.FieldType(BuildProps, .bind) == *ui.WidgetRef(Widget);
-                const IsBindNodeFunction = stdx.meta.FieldType(BuildProps, .bind) != *ui.BindNodeFunc;
+                const IsBindNodeFunction = stdx.meta.FieldType(BuildProps, .bind) == *ui.BindNodeFunc;
                 if (!IsWidgetRef and !IsBindNodeFunction) {
                     @compileError("Expected bind type to be: " ++ @typeName(*ui.WidgetRef(Widget)) ++ " or *ui.BindNodeFunc");
                 }
@@ -343,5 +348,21 @@ pub const BuildContext = struct {
         //     @field(props, f.name) = @field(build_props, f.name);
         // }
         // log.warn("set frame props", .{});
+    }
+};
+
+pub const PtrId = struct {
+    ptr: ?*anyopaque,
+    id: usize,
+
+    pub fn init(ptr: ?*anyopaque, id: usize) PtrId {
+        return .{
+            .ptr = ptr,
+            .id = id,
+        };
+    }
+
+    pub fn castPtr(self: PtrId, comptime Ptr: type) Ptr {
+        return stdx.mem.ptrCastAlign(Ptr, self.ptr);
     }
 };
