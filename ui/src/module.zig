@@ -449,6 +449,13 @@ pub const Module = struct {
     /// hit_widget only considers hits on the way back up the tree.
     /// Returns true to stop propagation.
     fn processMouseDownEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseDownEvent, hit_widget: *bool) bool {
+        // As long as the focused widget was hit from top-down, mark it as hit or the event could end at a child widget.
+        // If a child widget requested focus it would still take away focus from the current focused widget.
+        if (node == self.common.last_focused_widget) {
+            self.common.hit_last_focused = true;
+            hit_widget.* = true;
+        }
+
         const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
         if (!node.vtable.children_can_overlap) {
             // Greedy hit check. Skips siblings.
@@ -473,11 +480,6 @@ pub const Module = struct {
 
         // Bubble up to root. The normal mousedown event is fired in order from bottom to top.
 
-        if (node == self.common.last_focused_widget) {
-            self.common.hit_last_focused = true;
-            hit_widget.* = true;
-        }
-
         var propagate = true;
         if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
             // If there is a handler, assume the event hits the widget.
@@ -493,6 +495,9 @@ pub const Module = struct {
         if (self.common.widget_hit_flag) {
             hit_widget.* = true;
         }
+        // if (!propagate) {
+        //     log.debug("end at {s}", .{node.vtable.name});
+        // }
         return !propagate;
     }
 
