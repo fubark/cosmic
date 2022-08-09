@@ -2260,25 +2260,47 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
 
-        // top left
-        vert.setXY(x, y);
-        vert.setUV(0, 0);
-        self.batcher.mesh.pushVertex(vert);
+        if (Backend == .OpenGL) {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // top right
-        vert.setXY(x + width, y);
-        vert.setUV(1, 0);
-        self.batcher.mesh.pushVertex(vert);
+            // top right
+            vert.setXY(x + width, y);
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom right
-        vert.setXY(x + width, y + height);
-        vert.setUV(1, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom right
+            vert.setXY(x + width, y + height);
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom left
-        vert.setXY(x, y + height);
-        vert.setUV(0, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom left
+            vert.setXY(x, y + height);
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+        } else {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // top right
+            vert.setXY(x + width, y);
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom right
+            vert.setXY(x + width, y + height);
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom left
+            vert.setXY(x, y + height);
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
+        }
 
         // add rect
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
@@ -2294,25 +2316,47 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
 
-        // top left
-        vert.setXY(x, y);
-        vert.setUV(0, 0);
-        self.batcher.mesh.pushVertex(vert);
+        if (Backend == .OpenGL) {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // top right
-        vert.setXY(x + @intToFloat(f32, img.width), y);
-        vert.setUV(1, 0);
-        self.batcher.mesh.pushVertex(vert);
+            // top right
+            vert.setXY(x + @intToFloat(f32, img.width), y);
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom right
-        vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
-        vert.setUV(1, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom right
+            vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom left
-        vert.setXY(x, y + @intToFloat(f32, img.height));
-        vert.setUV(0, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom left
+            vert.setXY(x, y + @intToFloat(f32, img.height));
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+        } else {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // top right
+            vert.setXY(x + @intToFloat(f32, img.width), y);
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom right
+            vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom left
+            vert.setXY(x, y + @intToFloat(f32, img.height));
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
+        }
 
         // add rect
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
@@ -2322,7 +2366,8 @@ pub const Graphics = struct {
     pub fn bindImageBuffer(self: *Self, image_id: ImageId) void {
         var img = self.image_store.images.getPtrNoCheck(image_id);
         if (img.fbo_id == null) {
-            img.fbo_id = self.createTextureFramebuffer(img.tex_id);
+            const tex = self.image_store.getTexture(img.tex_id);
+            img.fbo_id = self.createTextureFramebuffer(tex.inner.tex_id);
         }
         gl.bindFramebuffer(gl.GL_FRAMEBUFFER, img.fbo_id.?);
         gl.viewport(0, 0, @intCast(c_int, img.width), @intCast(c_int, img.height));

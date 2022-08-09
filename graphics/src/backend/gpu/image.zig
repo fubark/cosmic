@@ -94,6 +94,14 @@ pub const ImageStore = struct {
         var src_height: c_int = undefined;
         // This records the original number of channels in the source input.
         var channels: c_int = undefined;
+
+        // stbimage should load images with y flipped for OpenGL.
+        if (Backend == .OpenGL) {
+            stbi.stbi_set_flip_vertically_on_load(1);
+        } else {
+            stbi.stbi_set_flip_vertically_on_load(0);
+        }
+
         // Request 4 channels to pass rgba to gpu. If image only has rgb channels, alpha is generated.
         const bitmap = stbi.stbi_load_from_memory(data.ptr, @intCast(c_int, data.len), &src_width, &src_height, &channels, 4);
         defer stbi.stbi_image_free(bitmap);
@@ -146,7 +154,7 @@ pub const ImageStore = struct {
         } else if (Backend == .OpenGL) {
             const tex_id = self.textures.add(.{
                 .inner = .{
-                    // TODO: initImage shouldn't be set tex_id to gl tex id.
+                    // TODO: initImage shouldn't set tex_id to gl tex id.
                     .tex_id = image.tex_id,
                 },
             }) catch stdx.fatal();
@@ -189,7 +197,15 @@ pub const ImageStore = struct {
         }
     }
 
-    pub inline fn getTexture(self: Self, id: TextureId) Texture {
+    pub fn getImageSize(self: *ImageStore, id: ImageId) stdx.math.Point2(u32) {
+        const image = self.images.getPtrNoCheck(id);
+        return .{
+            .x = @intCast(u32, image.width),
+            .y = @intCast(u32, image.height),
+        };
+    }
+
+    pub inline fn getTexture(self: ImageStore, id: TextureId) Texture {
         return self.textures.getNoCheck(id);
     }
 

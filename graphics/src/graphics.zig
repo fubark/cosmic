@@ -739,6 +739,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub inline fn getImageSize(self: *Graphics, image_id: ImageId) stdx.math.Point2(u32) {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.ImageStore.getImageSize(&self.impl.image_store, image_id),
+            else => stdx.unsupported(),
+        }
+    }
+
     pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id),
