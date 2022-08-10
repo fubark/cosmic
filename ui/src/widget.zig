@@ -154,10 +154,11 @@ pub const NodeStateMasks = struct {
 
 pub const EventHandlerMasks = struct {
     pub const mousedown: u8 = 0b00000001;
-    pub const mouseup: u8 = 0b00000010;
-    pub const global_mouseup: u8 = 0b00000100;
-    pub const global_mousemove: u8 = 0b00001000;
-    pub const hoverchange: u8 = 0b00010000;
+    pub const initial_mousedown: u8 = 0b00000010;
+    pub const mouseup: u8 = 0b00000100;
+    pub const global_mouseup: u8 = 0b00001000;
+    pub const global_mousemove: u8 = 0b00010000;
+    pub const hoverchange: u8 = 0b00100000;
 };
 
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.

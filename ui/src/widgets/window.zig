@@ -55,6 +55,7 @@ pub const Window = struct {
                 .onHoverMove = ctx.funcExt(self, onHoverMoveResizeBorder) },
                 u.MouseDragArea(.{
                     .hitTest = ctx.funcExt(self, hitResizeBorder),
+                    .useInitialMouseDown = true,
                     .onDragStart = ctx.funcExt(self, onDragStartBorder),
                     .onDragMove = ctx.funcExt(self, onDragMoveBorder), },
                     u.Column(.{}, &.{

@@ -13,10 +13,15 @@ pub const MouseDragArea = struct {
         onDragMove: stdx.Function(fn (ui.DragMoveEvent) void) = .{},
         onDragEnd: stdx.Function(fn (i16, i16) void) = .{},
         child: ui.FrameId = ui.NullFrameId,
+        useInitialMouseDown: bool = false,
     },
 
     pub fn init(self: *MouseDragArea, ctx: *ui.InitContext) void {
-        ctx.setMouseDownHandler(self, onMouseDown);
+        if (self.props.useInitialMouseDown) {
+            ctx.setInitialMouseDownHandler(self, onMouseDown);
+        } else {
+            ctx.setMouseDownHandler(self, onMouseDown);
+        }
     }
 
     pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FrameId {

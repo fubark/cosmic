@@ -244,6 +244,7 @@ pub const FragmentVTable = GenWidgetVTable(struct {});
 const EventType = enum(u3) {
     mouseup,
     mousedown,
+    initial_mousedown,
     global_mouseup,
     global_mousemove,
     hoverchange,
@@ -454,6 +455,14 @@ pub const Module = struct {
         if (node == self.common.last_focused_widget) {
             self.common.hit_last_focused = true;
             hit_widget.* = true;
+        }
+
+        // Initial mousedown. From top to bottom.
+        if (node.hasHandler(ui.EventHandlerMasks.initial_mousedown)) {
+            const sub = self.common.node_initial_mousedown_map.get(node).?;
+            if (sub.handleEvent(&self.event_ctx, e) == .stop) {
+                return true;
+            }
         }
 
         const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
@@ -981,6 +990,10 @@ pub const Module = struct {
             cur_id = self.common.key_down_event_subs.getNextNoCheck(cur_id);
         }
 
+        if (node.hasHandler(ui.EventHandlerMasks.initial_mousedown)) {
+            self.common.ctx.clearInitialMouseDownHandler(node);
+        }
+
         if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
             self.common.ctx.clearMouseDownHandler(node);
         }
@@ -1345,6 +1358,10 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
 
         pub inline fn setGlobalMouseUpHandler(self: *Context, ctx: anytype, cb: events.MouseUpHandler(@TypeOf(ctx))) void {
             self.common.setGlobalMouseUpHandler(self.node, ctx, cb);
+        }
+
+        pub inline fn setInitialMouseDownHandler(self: *Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
+            self.common.setInitialMouseDownHandler(self.node, ctx, cb);
         }
 
         pub inline fn setMouseDownHandler(self: *Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
@@ -1745,6 +1762,22 @@ pub const CommonContext = struct {
         }
     }
 
+    pub fn setInitialMouseDownHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
+        const closure = Closure(@TypeOf(ctx), fn (ui.MouseDownEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
+        const sub = SubscriberRet(platform.MouseDownEvent, ui.EventResult){
+            .closure = closure,
+            .node = node,
+        };
+        const res = self.common.node_initial_mousedown_map.getOrPut(self.alloc, node) catch fatal();
+        if (res.found_existing) {
+            res.value_ptr.deinit(self.alloc);
+            res.value_ptr.* = sub;
+        } else {
+            res.value_ptr.* = sub;
+            node.setHandlerMask(ui.EventHandlerMasks.initial_mousedown);
+        }
+    }
+
     pub fn setMouseDownHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), fn (ui.MouseDownEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
         const sub = SubscriberRet(platform.MouseDownEvent, ui.EventResult){
@@ -1758,6 +1791,19 @@ pub const CommonContext = struct {
         } else {
             res.value_ptr.* = sub;
             node.setHandlerMask(ui.EventHandlerMasks.mousedown);
+        }
+    }
+
+    pub fn clearInitialMouseDownHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_initial_mousedown_map.getPtr(node)) |sub| {
+            if (!sub.to_remove) {
+                sub.to_remove = true;
+                node.clearHandlerMask(ui.EventHandlerMasks.initial_mousedown);
+                self.common.to_remove_handlers.append(self.alloc, .{
+                    .event_t = .initial_mousedown,
+                    .node = node,
+                }) catch fatal();
+            }
         }
     }
 
@@ -1952,6 +1998,7 @@ pub const ModuleCommon = struct {
     global_mouse_move_list: std.ArrayListUnmanaged(*ui.Node),
     has_mouse_move_subs: bool,
 
+    node_initial_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
     node_global_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
@@ -2017,6 +2064,7 @@ pub const ModuleCommon = struct {
 
             .key_up_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
             .key_down_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
+            .node_initial_mousedown_map = .{},
             .node_mousedown_map = .{},
             .node_mouseup_map = .{},
             .node_global_mouseup_map = .{},
@@ -2106,6 +2154,7 @@ pub const ModuleCommon = struct {
         self.node_global_mouseup_map.deinit(self.alloc);
         self.global_mouse_up_list.deinit(self.alloc);
         self.node_mouseup_map.deinit(self.alloc);
+        self.node_initial_mousedown_map.deinit(self.alloc);
         self.node_mousedown_map.deinit(self.alloc);
 
         self.arena_allocators[0].deinit();
@@ -2136,6 +2185,11 @@ pub const ModuleCommon = struct {
                             break;
                         }
                     }
+                },
+                .initial_mousedown => {
+                    const sub = self.node_initial_mousedown_map.get(ref.node).?;
+                    sub.deinit(self.alloc);
+                    _ = self.node_initial_mousedown_map.remove(ref.node);
                 },
                 .mousedown => {
                     const sub = self.node_mousedown_map.get(ref.node).?;
