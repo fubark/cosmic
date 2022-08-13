@@ -332,3 +332,46 @@ pub const Positioned = struct {
         return cstr.getMaxLayoutSize();
     }
 };
+
+pub const TabView = struct {
+    props: struct {
+        numTabs: u32 = 0,
+        buildTab: stdx.Function(fn (*ui.BuildContext, idx: u32, active: bool) ui.FrameId) = .{},
+        buildContent: stdx.Function(fn (*ui.BuildContext, idx: u32) ui.FrameId) = .{},
+    },
+
+    tab_idx: u32,
+
+    pub fn init(self: *TabView, _: *ui.InitContext) void {
+        self.tab_idx = 0;
+    }
+
+    pub fn build(self: *TabView, ctx: *ui.BuildContext) ui.FrameId {
+        const S = struct {
+            fn buildTab(self_: *TabView, ctx_: *ui.BuildContext, idx: u32) ui.FrameId {
+                const active = self_.tab_idx == idx;
+                const user_inner = self_.props.buildTab.call(.{ ctx_, idx, active });
+                return u.MouseArea(.{ .onClick = ctx_.closurePtrId(self_, idx, onClickTab) }, user_inner);
+            }
+        };
+        var content = ui.NullFrameId;
+        if (self.props.buildContent.isPresent()) {
+            content = self.props.buildContent.call(.{ ctx, self.tab_idx });
+        }
+
+        var tabs: []const ui.FrameId = &.{};
+        if (self.props.buildTab.isPresent()) {
+            tabs = ctx.tempRange(self.props.numTabs, self, S.buildTab);
+        }
+        return u.Column(.{ .expand_child_width = true }, &.{
+            u.Row(.{}, tabs),
+            u.Flex(.{}, content),
+        });
+    }
+
+    pub fn onClickTab(ptr_id: ui.PtrId, _: ui.MouseUpEvent) void {
+        const self = ptr_id.castPtr(*TabView);
+        const idx = @intCast(u32, ptr_id.id);
+        self.tab_idx = idx;
+    }
+};
