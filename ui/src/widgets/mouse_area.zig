@@ -13,12 +13,12 @@ pub const MouseDragArea = struct {
         onDragMove: stdx.Function(fn (ui.DragMoveEvent) void) = .{},
         onDragEnd: stdx.Function(fn (i16, i16) void) = .{},
         child: ui.FrameId = ui.NullFrameId,
-        useInitialMouseDown: bool = false,
+        useEnterMouseDown: bool = false,
     },
 
     pub fn init(self: *MouseDragArea, ctx: *ui.InitContext) void {
-        if (self.props.useInitialMouseDown) {
-            ctx.setInitialMouseDownHandler(self, onMouseDown);
+        if (self.props.useEnterMouseDown) {
+            ctx.setEnterMouseDownHandler(self, onMouseDown);
         } else {
             ctx.setMouseDownHandler(self, onMouseDown);
         }
@@ -157,7 +157,7 @@ pub const MouseArea = struct {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
         }
-        return .default;
+        return .stop;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {

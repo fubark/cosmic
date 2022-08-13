@@ -55,7 +55,7 @@ pub const Window = struct {
                 .onHoverMove = ctx.funcExt(self, onHoverMoveResizeBorder) },
                 u.MouseDragArea(.{
                     .hitTest = ctx.funcExt(self, hitResizeBorder),
-                    .useInitialMouseDown = true,
+                    .useEnterMouseDown = true,
                     .onDragStart = ctx.funcExt(self, onDragStartBorder),
                     .onDragMove = ctx.funcExt(self, onDragMoveBorder), },
                     u.Column(.{}, &.{
@@ -82,8 +82,15 @@ pub const Window = struct {
         );
     }
 
-    fn onMouseDown(_: *Window, _: ui.MouseDownEvent) ui.EventResult {
-        return .stop;
+    fn onMouseDown(self: *Window, e: ui.MouseDownEvent) ui.EventResult {
+        const xf = @intToFloat(f32, e.val.x);
+        const yf = @intToFloat(f32, e.val.y);
+        const outer = stdx.math.BBox.init(self.x, self.y, self.x + self.width, self.y + self.height);
+        if (outer.containsPt(xf, yf)) {
+            return .stop;
+        } else {
+            return .default;
+        }
     }
 
     /// Assumes (x, y) is in border bounds.
