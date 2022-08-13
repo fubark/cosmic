@@ -244,7 +244,7 @@ pub const FragmentVTable = GenWidgetVTable(struct {});
 const EventType = enum(u3) {
     mouseup,
     mousedown,
-    initial_mousedown,
+    enter_mousedown,
     global_mouseup,
     global_mousemove,
     hoverchange,
@@ -450,6 +450,8 @@ pub const Module = struct {
     /// hit_widget only considers hits on the way back up the tree.
     /// Returns true to stop propagation.
     fn processMouseDownEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseDownEvent, hit_widget: *bool) bool {
+        // log.debug("mousedown enter {s}", .{node.vtable.name});
+
         // As long as the focused widget was hit from top-down, mark it as hit or the event could end at a child widget.
         // If a child widget requested focus it would still take away focus from the current focused widget.
         if (node == self.common.last_focused_widget) {
@@ -458,8 +460,8 @@ pub const Module = struct {
         }
 
         // Initial mousedown. From top to bottom.
-        if (node.hasHandler(ui.EventHandlerMasks.initial_mousedown)) {
-            const sub = self.common.node_initial_mousedown_map.get(node).?;
+        if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
+            const sub = self.common.node_enter_mousedown_map.get(node).?;
             if (sub.handleEvent(&self.event_ctx, e) == .stop) {
                 return true;
             }
@@ -990,8 +992,8 @@ pub const Module = struct {
             cur_id = self.common.key_down_event_subs.getNextNoCheck(cur_id);
         }
 
-        if (node.hasHandler(ui.EventHandlerMasks.initial_mousedown)) {
-            self.common.ctx.clearInitialMouseDownHandler(node);
+        if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
+            self.common.ctx.clearEnterMouseDownHandler(node);
         }
 
         if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
@@ -1360,8 +1362,8 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.setGlobalMouseUpHandler(self.node, ctx, cb);
         }
 
-        pub inline fn setInitialMouseDownHandler(self: *Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
-            self.common.setInitialMouseDownHandler(self.node, ctx, cb);
+        pub inline fn setEnterMouseDownHandler(self: *Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
+            self.common.setEnterMouseDownHandler(self.node, ctx, cb);
         }
 
         pub inline fn setMouseDownHandler(self: *Context, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
@@ -1447,17 +1449,17 @@ pub const SizeConstraints = struct {
 pub const LayoutContext = struct {
     mod: *Module,
     common: *CommonContext,
-    g: *graphics.Graphics,
+    gctx: *graphics.Graphics,
 
     /// Size constraints are set by the parent, and consumed by child widget's `layout`.
     cstr: SizeConstraints,
     node: *ui.Node,
 
-    fn init(mod: *Module, g: *graphics.Graphics) LayoutContext {
+    fn init(mod: *Module, gctx: *graphics.Graphics) LayoutContext {
         return .{
             .mod = mod,
             .common = &mod.common.ctx,
-            .g = g,
+            .gctx = gctx,
             .cstr = undefined,
             .node = undefined,
         };
@@ -1473,7 +1475,7 @@ pub const LayoutContext = struct {
         var child_ctx = LayoutContext{
             .mod = self.mod,
             .common = &self.mod.common.ctx,
-            .g = self.g,
+            .gctx = self.gctx,
             .cstr = .{
                 .min_width = 0,
                 .min_height = 0,
@@ -1490,7 +1492,7 @@ pub const LayoutContext = struct {
         var child_ctx = LayoutContext{
             .mod = self.mod,
             .common = &self.mod.common.ctx,
-            .g = self.g,
+            .gctx = self.gctx,
             .cstr = .{
                 .min_width = width,
                 .min_height = height,
@@ -1507,7 +1509,7 @@ pub const LayoutContext = struct {
         var child_ctx = LayoutContext{
             .mod = self.mod,
             .common  = &self.mod.common.ctx,
-            .g = self.g,
+            .gctx = self.gctx,
             .cstr = .{
                 .min_width = min_width,
                 .min_height = min_height,
@@ -1524,7 +1526,7 @@ pub const LayoutContext = struct {
         var child_ctx = LayoutContext{
             .mod = self.mod,
             .common  = &self.mod.common.ctx,
-            .g = self.g,
+            .gctx = self.gctx,
             .cstr = cstr,
             .node = node,
         };
@@ -1535,7 +1537,7 @@ pub const LayoutContext = struct {
         var child_ctx = LayoutContext{
             .mod = self.mod,
             .common  = &self.mod.common.ctx,
-            .g = self.g,
+            .gctx = self.gctx,
             .cstr = self.cstr,
             .node = node,
         };
@@ -1762,19 +1764,19 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn setInitialMouseDownHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
+    pub fn setEnterMouseDownHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseDownHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), fn (ui.MouseDownEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
         const sub = SubscriberRet(platform.MouseDownEvent, ui.EventResult){
             .closure = closure,
             .node = node,
         };
-        const res = self.common.node_initial_mousedown_map.getOrPut(self.alloc, node) catch fatal();
+        const res = self.common.node_enter_mousedown_map.getOrPut(self.alloc, node) catch fatal();
         if (res.found_existing) {
             res.value_ptr.deinit(self.alloc);
             res.value_ptr.* = sub;
         } else {
             res.value_ptr.* = sub;
-            node.setHandlerMask(ui.EventHandlerMasks.initial_mousedown);
+            node.setHandlerMask(ui.EventHandlerMasks.enter_mousedown);
         }
     }
 
@@ -1794,13 +1796,13 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn clearInitialMouseDownHandler(self: *CommonContext, node: *ui.Node) void {
-        if (self.common.node_initial_mousedown_map.getPtr(node)) |sub| {
+    pub fn clearEnterMouseDownHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_enter_mousedown_map.getPtr(node)) |sub| {
             if (!sub.to_remove) {
                 sub.to_remove = true;
-                node.clearHandlerMask(ui.EventHandlerMasks.initial_mousedown);
+                node.clearHandlerMask(ui.EventHandlerMasks.enter_mousedown);
                 self.common.to_remove_handlers.append(self.alloc, .{
-                    .event_t = .initial_mousedown,
+                    .event_t = .enter_mousedown,
                     .node = node,
                 }) catch fatal();
             }
@@ -1998,7 +2000,7 @@ pub const ModuleCommon = struct {
     global_mouse_move_list: std.ArrayListUnmanaged(*ui.Node),
     has_mouse_move_subs: bool,
 
-    node_initial_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
+    node_enter_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
     node_global_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
@@ -2064,7 +2066,7 @@ pub const ModuleCommon = struct {
 
             .key_up_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
             .key_down_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
-            .node_initial_mousedown_map = .{},
+            .node_enter_mousedown_map = .{},
             .node_mousedown_map = .{},
             .node_mouseup_map = .{},
             .node_global_mouseup_map = .{},
@@ -2154,7 +2156,7 @@ pub const ModuleCommon = struct {
         self.node_global_mouseup_map.deinit(self.alloc);
         self.global_mouse_up_list.deinit(self.alloc);
         self.node_mouseup_map.deinit(self.alloc);
-        self.node_initial_mousedown_map.deinit(self.alloc);
+        self.node_enter_mousedown_map.deinit(self.alloc);
         self.node_mousedown_map.deinit(self.alloc);
 
         self.arena_allocators[0].deinit();
@@ -2186,10 +2188,10 @@ pub const ModuleCommon = struct {
                         }
                     }
                 },
-                .initial_mousedown => {
-                    const sub = self.node_initial_mousedown_map.get(ref.node).?;
+                .enter_mousedown => {
+                    const sub = self.node_enter_mousedown_map.get(ref.node).?;
                     sub.deinit(self.alloc);
-                    _ = self.node_initial_mousedown_map.remove(ref.node);
+                    _ = self.node_enter_mousedown_map.remove(ref.node);
                 },
                 .mousedown => {
                     const sub = self.node_mousedown_map.get(ref.node).?;
@@ -2428,7 +2430,7 @@ const TestModule = struct {
     size: ui.LayoutSize,
 
     pub fn init(self: *TestModule) void {
-        self.g.init(t.alloc, 1) catch fatal();
+        self.g.init(t.alloc, 1, undefined) catch fatal();
         self.mod.init(t.alloc, &self.g);
         self.size = LayoutSize.init(800, 600);
     }
@@ -2605,7 +2607,8 @@ test "Widget instance lifecycle." {
         pub fn init(_: *@This(), c: *InitContext) void {
             c.addKeyUpHandler({}, onKeyUp);
             c.addKeyDownHandler({}, onKeyDown);
-            c.addMouseDownHandler({}, onMouseDown);
+            c.setMouseDownHandler({}, onMouseDown);
+            c.setEnterMouseDownHandler({}, onEnterMouseDown);
             c.setMouseUpHandler({}, onMouseUp);
             c.setGlobalMouseMoveHandler(@as(u32, 1), onMouseMove);
             _ = c.addInterval(Duration.initSecsF(1), {}, onInterval);
@@ -2616,6 +2619,9 @@ test "Widget instance lifecycle." {
         fn onKeyUp(_: void, _: ui.KeyUpEvent) void {}
         fn onKeyDown(_: void, _: ui.KeyDownEvent) void {}
         fn onMouseDown(_: void, _: ui.MouseDownEvent) ui.EventResult {
+            return .default;
+        }
+        fn onEnterMouseDown(_: void, _: ui.MouseDownEvent) ui.EventResult {
             return .default;
         }
         fn onMouseUp(_: void, _: ui.MouseUpEvent) void {}
@@ -2655,10 +2661,13 @@ test "Widget instance lifecycle." {
     try t.eq(keydown_sub.node, root.?);
     try t.eq(keydown_sub.closure.user_fn, A.onKeyDown);
 
-    try t.eq(mod.common.mouse_down_event_subs.size(), 1);
-    const mousedown_sub = mod.common.mouse_down_event_subs.iterFirstValueNoCheck();
-    try t.eq(mousedown_sub.node, root.?);
+    try t.eq(mod.common.node_mousedown_map.size, 1);
+    const mousedown_sub = mod.common.node_mousedown_map.get(root.?).?;
     try t.eq(mousedown_sub.closure.user_fn, A.onMouseDown);
+
+    try t.eq(mod.common.node_enter_mousedown_map.size, 1);
+    const enter_mousedown_sub = mod.common.node_enter_mousedown_map.get(root.?).?;
+    try t.eq(enter_mousedown_sub.closure.user_fn, A.onEnterMouseDown);
 
     try t.eq(mod.common.node_mouseup_map.size, 1);
     const mouseup_sub = mod.common.node_mouseup_map.get(root.?).?;
@@ -2684,7 +2693,8 @@ test "Widget instance lifecycle." {
     try t.eq(mod.common.focused_widget, null);
     try t.eq(mod.common.key_up_event_subs.size(), 0);
     try t.eq(mod.common.key_down_event_subs.size(), 0);
-    try t.eq(mod.common.mouse_down_event_subs.size(), 0);
+    try t.eq(mod.common.node_mousedown_map.size, 0);
+    try t.eq(mod.common.node_enter_mousedown_map.size, 0);
     try t.eq(mod.common.node_mouseup_map.size, 0);
     try t.eq(mod.common.node_global_mouseup_map.size, 0);
     try t.eq(mod.common.node_global_mousemove_map.size, 0);
@@ -2956,7 +2966,7 @@ test "NodeRefMap binding." {
     map.init(t.alloc);
     defer map.deinit();
     try mod.preUpdate(Options{ .decl = true, .bind = &map.bind }, S.bootstrap);
-    const node = map.getRef(ui.WidgetKeyId(10)).?;
+    const node = map.getNode(ui.WidgetKeyId(10)).?;
     try t.eq(node.vtable, GenWidgetVTable(A));
     try mod.preUpdate(Options{ .decl = false, .bind = &map.bind }, S.bootstrap);
     try t.eq(map.getRef(ui.WidgetKeyId(10)), null);
