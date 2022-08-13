@@ -13,6 +13,7 @@ const graphics = @import("graphics/lib.zig");
 const ui = @import("ui/lib.zig");
 const parser = @import("parser/lib.zig");
 const runtime = @import("runtime/lib.zig");
+const cscript = @import("cscript/lib.zig");
 
 const sdl = @import("lib/sdl/lib.zig");
 const ssl = @import("lib/openssl/lib.zig");
@@ -176,7 +177,20 @@ pub fn build(b: *Builder) !void {
         const test_exe = ctx_.createTestExeStep();
         const run_test = test_exe.run();
         step.step.dependOn(&run_test.step);
-        b.step("test", "Run tests").dependOn(&step.step);
+        b.step("test", "Run unit tests").dependOn(&step.step);
+    }
+
+    {
+        const step = b.addLog("", .{});
+        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+            const gen_mac_libc = GenMacLibCStep.create(b, target);
+            step.step.dependOn(&gen_mac_libc.step);
+        }
+        var ctx_ = ctx;
+        ctx_.link_qjs = true;
+        const test_step = ctx_.createTestFileStep("./test/app_test.zig", null);
+        step.step.dependOn(&test_step.step);
+        b.step("test-app", "Run app tests").dependOn(&step.step);
     }
 
     {
@@ -704,6 +718,7 @@ const BuilderContext = struct {
             addZigV8(step);
         }
         qjs.addPackage(step);
+        cscript.addPackage(step, .{ .add_dep_pkgs = false });
         if (self.add_runtime_pkg) {
             runtime.addPackage(step, .{
                 .graphics_backend = graphics_backend,
@@ -885,6 +900,7 @@ const CopyVendorStep = struct {
                 const filename = std.fs.path.basename(src_path);
                 var src_dir = try std.fs.cwd().openDir(std.fs.path.dirname(src_path).?, .{});
                 defer src_dir.close();
+                try std.fs.cwd().makePath(std.fs.path.dirname(dst_path).?);
                 var dst_dir = try std.fs.cwd().openDir(std.fs.path.dirname(dst_path).?, .{});
                 defer dst_dir.close();
                 try src_dir.copyFile(filename, dst_dir, filename, .{});
