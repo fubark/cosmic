@@ -9,6 +9,7 @@ const vk = @import("vk");
 const graphics = @import("graphics.zig");
 const gpu = graphics.gpu;
 const gvk = graphics.vk;
+const ggl = graphics.gl;
 
 /// A Renderer abstracts how and where a frame is drawn to and provides:
 /// 1. An interface to begin/end a frame.
@@ -24,12 +25,14 @@ pub const Renderer = struct {
             ctx: gvk.VkContext,
             vk: gvk.Renderer,
         },
-        .OpenGL => void,
+        .OpenGL => struct {
+            renderer: ggl.Renderer,
+        },
         else => void,
     },
 
     /// Creates a renderer that targets a window.
-    pub fn init(self: *Renderer, alloc: std.mem.Allocator, win: *platform.Window) void {
+    pub fn init(self: *Renderer, alloc: std.mem.Allocator, win: *platform.Window) !void {
         self.win = win;
         switch (Backend) {
             .Vulkan => {
@@ -44,8 +47,10 @@ pub const Renderer = struct {
                 self.gctx.initVK(alloc, win.impl.dpr, &self.inner.vk, vk_ctx);
             },
             .OpenGL => {
+                try self.inner.renderer.init(alloc);
+
                 self.swapchain.init(alloc, win);
-                self.gctx.init(alloc, win.impl.dpr) catch |err| {
+                self.gctx.init(alloc, win.impl.dpr, &self.inner.renderer) catch |err| {
                     stdx.panicFmt("{}", .{err});
                 };
             },
@@ -59,6 +64,9 @@ pub const Renderer = struct {
         self.gctx.deinit();
         switch (Backend) {
             .Vulkan => self.inner.vk.deinit(alloc),
+            .OpenGL => {
+                self.inner.renderer.deinit(alloc);
+            },
             else => {},
         }
     }

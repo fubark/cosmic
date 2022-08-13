@@ -102,12 +102,12 @@ pub const Graphics = struct {
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32) !void {
+    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gl.Renderer) !void {
         self.initCommon(alloc);
         switch (Backend) {
             .OpenGL => {
-                try gl.Graphics.init(&self.new_impl, alloc);
-                try gpu.Graphics.initGL(&self.impl, alloc, &self.new_impl.renderer, dpr);
+                try gl.Graphics.init(&self.new_impl, alloc, renderer);
+                try gpu.Graphics.initGL(&self.impl, alloc, renderer, dpr);
                 self.new_impl.gpu_ctx = &self.impl;
                 self.new_impl.renderer.image_store = &self.impl.image_store;
             },
@@ -725,9 +725,9 @@ pub const Graphics = struct {
         _ = stbi.stbi_write_bmp(path, src_width, src_height, channels, &bitmap[0]);
     }
 
-    pub inline fn bindImageBuffer(self: *Graphics, image_id: ImageId) void {
+    pub inline fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL => gpu.Graphics.bindImageBuffer(&self.impl, image_id),
+            .OpenGL => gpu.Graphics.bindOffscreenImage(&self.impl, image_id),
             else => stdx.unsupported(),
         }
     }

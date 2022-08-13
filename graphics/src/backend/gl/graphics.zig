@@ -15,22 +15,20 @@ const TexShaderVertex = gpu.TexShaderVertex;
 const log = stdx.log.scoped(.gl_graphics);
 
 pub const Graphics = struct {
-    renderer: Renderer,
+    renderer: *Renderer,
     mesh: *gpu.Mesh,
     gpu_ctx: *gpu.Graphics,
 
-    pub fn init(self: *Graphics, alloc: std.mem.Allocator) !void {
+    pub fn init(self: *Graphics, _: std.mem.Allocator, renderer: *Renderer) !void {
         self.* = .{
             .gpu_ctx = undefined,
-            .renderer = undefined,
+            .renderer = renderer,
             .mesh = undefined,
         };
-        try self.renderer.init(alloc);
         self.mesh = &self.renderer.mesh;
     }
 
-    pub fn deinit(self: Graphics, alloc: std.mem.Allocator) void {
-        self.renderer.deinit(alloc);
+    pub fn deinit(_: Graphics, _: std.mem.Allocator) void {
     }
 
     /// Points of front face is in ccw order.

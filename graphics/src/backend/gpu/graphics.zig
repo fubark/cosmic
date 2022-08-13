@@ -88,18 +88,26 @@ pub const Graphics = struct {
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_frame: gvk.Frame,
         },
+        .OpenGL => struct {
+            renderer: *ggl.Renderer,
+        },
         else => void,
     },
     batcher: Batcher,
     font_cache: FontCache,
 
-    ps: PaintState,
+    /// The main paint state.
+    main_ps: *PaintState,
+
+    /// The current paint state.
+    ps: *PaintState,
+
+    /// The binded framebuffer dimensions.
+    buf_width: u32,
+    buf_height: u32,
 
     /// Feed the camera location to pbr shader.
     cur_cam_world_pos: Vec3,
-
-    cur_buf_width: u32,
-    cur_buf_height: u32,
 
     default_font_id: FontId,
     default_font_gid: FontGroupId,
@@ -129,7 +137,8 @@ pub const Graphics = struct {
 
     pub fn initGL(self: *Graphics, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
         self.initDefault(alloc, dpr);
-        self.initCommon(alloc);
+        try self.initCommon(alloc);
+        self.inner.renderer = renderer;
         self.batcher = Batcher.initGL(alloc, renderer, &self.image_store);
     }
 
@@ -144,7 +153,7 @@ pub const Graphics = struct {
         self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
         const desc_pool = renderer.desc_pool;
-        self.initCommon(alloc);
+        try self.initCommon(alloc);
 
         const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
         const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 120000 * 3);
@@ -194,10 +203,11 @@ pub const Graphics = struct {
             .inner = undefined,
             .batcher = undefined,
             .font_cache = undefined,
+            .buf_width = undefined,
+            .buf_height = undefined,
             .default_font_id = undefined,
             .default_font_gid = undefined,
-            .cur_buf_width = 0,
-            .cur_buf_height = 0,
+            .main_ps = undefined,
             .ps = undefined,
             .cur_cam_world_pos = undefined,
             .tmp_joint_idxes = undefined,
@@ -212,7 +222,7 @@ pub const Graphics = struct {
         };
     }
 
-    fn initCommon(self: *Graphics, alloc: std.mem.Allocator) void {
+    fn initCommon(self: *Graphics, alloc: std.mem.Allocator) !void {
         self.tessellator.init(alloc);
 
         // Generate basic solid color texture.
@@ -228,7 +238,9 @@ pub const Graphics = struct {
         self.default_font_id = self.addFontTTF(vera_ttf);
         self.default_font_gid = self.font_cache.getOrLoadFontGroup(&.{self.default_font_id});
 
-        self.ps = PaintState.init(self.default_font_gid);
+        self.main_ps = try alloc.create(PaintState);
+        self.main_ps.* = PaintState.init(self.default_font_gid);
+        self.ps = self.main_ps;
 
         if (build_options.has_lyon) {
             lyon.init();
@@ -255,7 +267,7 @@ pub const Graphics = struct {
         self.batcher.deinit(self.alloc);
         self.font_cache.deinit();
 
-        self.ps.deinit(self.alloc);
+        self.main_ps.deinit(self.alloc);
 
         if (build_options.has_lyon) {
             lyon.deinit();
@@ -288,7 +300,7 @@ pub const Graphics = struct {
                 self.ps.clip_rect = .{
                     .x = x,
                     // clip-y starts at bottom.
-                    .y = @intToFloat(f32, self.cur_buf_height) - (y + height),
+                    .y = @intToFloat(f32, self.buf_height) - (y + height),
                     .width = width,
                     .height = height,
                 };
@@ -395,6 +407,14 @@ pub const Graphics = struct {
         self.ps.line_width_half = width * 0.5;
     }
 
+    pub fn setPaintState(self: *Graphics, ps: *PaintState) void {
+        self.ps = ps;
+    }
+
+    pub fn setMainPaintState(self: *Graphics) void {
+        self.ps = self.main_ps;
+    }
+
     pub fn setFont(self: *Graphics, font_id: FontId) void {
         // Lookup font group single font.
         const font_gid = self.font_cache.getOrLoadFontGroup(&.{font_id});
@@ -432,8 +452,8 @@ pub const Graphics = struct {
         // Convert to buffer coords on cpu.
         if (Backend == .OpenGL and IsWasm) {
             // Use bottom left coords.
-            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.cur_buf_height) - start_y)).mul(self.dpr);
-            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.cur_buf_height) - end_y)).mul(self.dpr);
+            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.buf_height) - start_y)).mul(self.dpr);
+            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.buf_height) - end_y)).mul(self.dpr);
             self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
         } else {
             const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, start_y)).mul(self.dpr);
@@ -2323,22 +2343,34 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
+    /// Like beginFrame but only adjusts the viewport and binds the fbo.
+    pub fn bindFramebuffer(self: *Graphics, buf_width: u32, buf_height: u32, fbo: gl.GLuint) void {
+        self.endCmd();
+        self.inner.renderer.bindDrawFramebuffer(fbo);
+        gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
+        self.buf_width = buf_width;
+        self.buf_height = buf_height;
+    }
+
     /// Binds an image to the write buffer. 
-    pub fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+    pub fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
+        self.endCmd();
         var img = self.image_store.images.getPtrNoCheck(image_id);
         if (img.fbo_id == null) {
             const tex = self.image_store.getTexture(img.tex_id);
             img.fbo_id = self.createTextureFramebuffer(tex.inner.tex_id);
         }
-        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, img.fbo_id.?);
+        self.inner.renderer.bindDrawFramebuffer(img.fbo_id.?);
         gl.viewport(0, 0, @intCast(c_int, img.width), @intCast(c_int, img.height));
-        self.cur_proj_transform = graphics.initTextureProjection(@intToFloat(f32, img.width), @intToFloat(f32, img.height));
-        self.view_transform = Transform.initIdentity();
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.ps.proj_xform = graphics.initTextureProjection(@intToFloat(f32, img.width), @intToFloat(f32, img.height));
+        self.ps.view_xform = Transform.initIdentity();
+        self.buf_width = @intCast(u32, img.width);
+        self.buf_height = @intCast(u32, img.height);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    fn createTextureFramebuffer(self: Graphics, tex_id: gl.GLuint) gl.GLuint {
+    pub fn createTextureFramebuffer(self: Graphics, tex_id: gl.GLuint) gl.GLuint {
         _ = self;
         var fbo_id: gl.GLuint = 0;
         gl.genFramebuffers(1, &fbo_id);
@@ -2355,8 +2387,8 @@ pub const Graphics = struct {
     }
 
     pub fn beginFrameVK(self: *Graphics, buf_width: u32, buf_height: u32, frame_idx: u8, framebuffer: vk.VkFramebuffer) void {
-        self.cur_buf_width = buf_width;
-        self.cur_buf_height = buf_height;
+        self.buf_width = buf_width;
+        self.buf_height = buf_height;
         self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
         self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.clear_color);
 
@@ -2376,8 +2408,8 @@ pub const Graphics = struct {
     pub fn beginFrame(self: *Graphics, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("beginFrame", .{});
 
-        self.cur_buf_width = buf_width;
-        self.cur_buf_height = buf_height;
+        self.buf_width = buf_width;
+        self.buf_height = buf_height;
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
         gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
@@ -2396,11 +2428,11 @@ pub const Graphics = struct {
 
         if (custom_fbo == 0) {
             // This clears the main framebuffer that is swapped to window.
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            self.inner.renderer.bindDrawFramebuffer(0);
             self.clear();
         } else {
             // Set the frame buffer we are drawing to.
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
+            self.inner.renderer.bindDrawFramebuffer(custom_fbo);
             // Clears the custom frame buffer.
             self.clear();
         }
@@ -2421,7 +2453,7 @@ pub const Graphics = struct {
         if (custom_fbo != 0) {
             // If we were drawing to custom framebuffer such as msaa buffer, then blit the custom buffer into the default ogl buffer.
             gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, custom_fbo);
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            self.inner.renderer.bindDrawFramebuffer(0);
             // blit's filter is only used when the sizes between src and dst buffers are different.
             gl.blitFramebuffer(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), 0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
@@ -2638,7 +2670,7 @@ pub const ShaderCamera = struct {
     enable_shadows: bool,
 };
 
-const PaintState = struct {
+pub const PaintState = struct {
     /// Projection transform.
     proj_xform: Transform,
     /// View transform can be changed by user transforms.
@@ -2665,7 +2697,7 @@ const PaintState = struct {
     using_scissors: bool,
     blend_mode: BlendMode,
 
-    fn init(font_gid: FontGroupId) PaintState {
+    pub fn init(font_gid: FontGroupId) PaintState {
         return .{
             .proj_xform = Transform.initIdentity(),
             .view_xform = Transform.initIdentity(),
@@ -2689,7 +2721,7 @@ const PaintState = struct {
         };
     }
 
-    fn deinit(self: *PaintState, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *PaintState, alloc: std.mem.Allocator) void {
         self.state_stack.deinit(alloc);
     }
 };
