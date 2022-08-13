@@ -13,7 +13,16 @@ pub const BBox = struct {
     max_x: f32,
     max_y: f32,
 
-    pub fn init() BBox {
+    pub fn init(min_x: f32, min_y: f32, max_x: f32, max_y: f32) BBox {
+        return .{
+            .min_x = min_x,
+            .min_y = min_y,
+            .max_x = max_x,
+            .max_y = max_y,
+        };
+    }
+
+    pub fn initZero() BBox {
         return .{
             .min_x = 0,
             .min_y = 0,

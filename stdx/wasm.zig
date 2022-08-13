@@ -67,12 +67,12 @@ pub const WasmJsBuffer = struct {
     }
 
     // After wasm execution, write the new input buffer ptr/cap and return the output buffer ptr.
-    pub fn writeResult(self: *WasmJsBuffer) *const u8 {
+    pub fn writeResult(self: *WasmJsBuffer) [*]const u8 {
         const writer = self.output_buf.writer(self.alloc);
         self.output_buf.shrinkRetainingCapacity(0);
         writer.writeIntLittle(u32, @intCast(u32, @ptrToInt(self.input_buf.items.ptr))) catch unreachable;
         writer.writeIntLittle(u32, @intCast(u32, self.input_buf.capacity)) catch unreachable;
-        return &self.output_buf.items[0];
+        return self.output_buf.items.ptr;
     }
 
     pub fn appendInt(self: *WasmJsBuffer, comptime T: type, i: T) void {
@@ -164,7 +164,7 @@ pub fn createAndPromise(ids: []const PromiseId) Promise(void) {
     };
 }
 
-export fn wasmEnsureFreeCapacity(size: u32, cur_input_len: u32) *const u8 {
+export fn wasmEnsureFreeCapacity(size: u32, cur_input_len: u32) [*]const u8 {
     // Must sync over the current input length or a realloc wouldn't know about the new data.
     js_buffer.input_buf.items.len = cur_input_len;
     js_buffer.input_buf.ensureUnusedCapacity(js_buffer.alloc, size) catch unreachable;

@@ -602,3 +602,8 @@ export fn JS_FreeContext() void {}
 export fn JS_FreeRuntime() void {}
 export fn __JS_FreeValue() void {}
 export fn JS_ToCStringLen2() void {}
+export fn SDL_SetCursor() void {}
+export fn SDL_FreeCursor() void {}
+export fn SDL_CreateSystemCursor() void {}
+export fn JS_GetException() void {}
+export fn JS_IsFunction() void {}

@@ -26,24 +26,24 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
         // TODO: Maybe the user should provide this if it's important. It would also simplify the api and remove optional return types. It also means iteration won't be possible.
         data_exists: stdx.ds.BitArrayList,
 
-        const Self = @This();
+        const PooledHandleListT = @This();
         pub const Iterator = struct {
             // The current id should reflect the id of the value returned from next or nextPtr.
             cur_id: Id,
-            list: *const Self,
+            list: *const PooledHandleListT,
 
-            fn init(list: *const Self) @This() {
+            fn init(list: *const PooledHandleListT) Iterator {
                 return .{
                     .cur_id = std.math.maxInt(Id),
                     .list = list,
                 };
             }
 
-            pub fn reset(self: *@This()) void {
+            pub fn reset(self: *Iterator) void {
                 self.idx = std.math.maxInt(Id);
             }
 
-            pub fn nextPtr(self: *@This()) ?*T {
+            pub fn nextPtr(self: *Iterator) ?*T {
                 self.cur_id +%= 1;
                 while (true) {
                     if (self.cur_id < self.list.data.items.len) {
@@ -85,18 +85,18 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             return new;
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: PooledHandleListT) void {
             self.id_gen.deinit();
             self.data.deinit();
             self.data_exists.deinit();
         }
 
-        pub fn iterator(self: *const Self) Iterator {
+        pub fn iterator(self: *const PooledHandleListT) Iterator {
             return Iterator.init(self);
         }
 
         // Returns the id of the item.
-        pub fn add(self: *Self, item: T) !Id {
+        pub fn add(self: *PooledHandleListT, item: T) !Id {
             const new_id = self.id_gen.getNextId();
 
             if (new_id >= self.data.items.len) {
@@ -109,46 +109,46 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             return new_id;
         }
 
-        pub fn set(self: *Self, id: Id, item: T) void {
+        pub fn set(self: *PooledHandleListT, id: Id, item: T) void {
             self.data.items[id] = item;
         }
 
-        pub fn remove(self: *Self, id: Id) void {
+        pub fn remove(self: *PooledHandleListT, id: Id) void {
             self.data_exists.unset(id);
             self.id_gen.deleteId(id);
         }
 
-        pub fn clearRetainingCapacity(self: *Self) void {
+        pub fn clearRetainingCapacity(self: *PooledHandleListT) void {
             self.data_exists.clearRetainingCapacity();
             self.id_gen.clearRetainingCapacity();
             self.data.clearRetainingCapacity();
         }
 
-        pub fn get(self: Self, id: Id) ?T {
+        pub fn get(self: PooledHandleListT, id: Id) ?T {
             if (self.has(id)) {
                 return self.data.items[id];
             } else return null;
         }
 
-        pub fn getNoCheck(self: Self, id: Id) T {
+        pub fn getNoCheck(self: PooledHandleListT, id: Id) T {
             return self.data.items[id];
         }
 
-        pub fn getPtr(self: *const Self, id: Id) ?*T {
+        pub fn getPtr(self: *const PooledHandleListT, id: Id) ?*T {
             if (self.has(id)) {
                 return &self.data.items[id];
             } else return null;
         }
 
-        pub fn getPtrNoCheck(self: Self, id: Id) *T {
+        pub fn getPtrNoCheck(self: PooledHandleListT, id: Id) *T {
             return &self.data.items[id];
         }
 
-        pub fn has(self: Self, id: Id) bool {
+        pub fn has(self: PooledHandleListT, id: Id) bool {
             return self.data_exists.isSet(id);
         }
 
-        pub fn size(self: Self) usize {
+        pub fn size(self: PooledHandleListT) usize {
             return self.data.items.len - self.id_gen.next_ids.count;
         }
     };
@@ -425,11 +425,21 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
             } else return error.NoElement;
         }
 
+        pub fn appendToList(self: *PooledHandleSLLBufferT, head: Id, data: T) !Id {
+            if (head != Null) {
+                var iter = self.listIterator(head);
+                while (iter.next()) |_| {}
+                return self.insertAfter(iter.cur_id, data);
+            } else {
+                return self.add(data);
+            }
+        }
+
         pub fn removeFromList(self: *PooledHandleSLLBufferT, head: Id, id: Id) !void {
-            const iter = self.listIterator(head);
+            var iter = self.listIterator(head);
             while (iter.next()) |_| {
                 if (iter.cur_id == id) {
-                    try iter.remove();
+                    _ = try iter.remove();
                     break;
                 }
             }
@@ -454,7 +464,7 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
     };
 }
 
-test "PooledHandleSLLBuffer" {
+test "PooledHandleSLLBuffer add, getters, insertAfter, removeAssumeNoPrev" {
     var buf = PooledHandleSLLBuffer(u32, u32).init(t.alloc);
     defer buf.deinit();
 
@@ -470,4 +480,21 @@ test "PooledHandleSLLBuffer" {
 
     try buf.removeAssumeNoPrev(head);
     try t.eq(buf.get(head), null);
+}
+
+test "PooledHandleSLLBuffer appendToList" {
+    var buf = PooledHandleSLLBuffer(u32, u32).init(t.alloc);
+    defer buf.deinit();
+
+    const head = NullHandleId(u32);
+    // Append to null head creates a new head.
+    const id = try buf.appendToList(head, 1);
+    try t.eq(id, 0);
+    try t.eq(buf.get(id).?, 1);
+
+    // Append value.
+    const next = try buf.appendToList(id, 2);
+    try t.eq(next, 1);
+    try t.eq(buf.get(next).?, 2);
+    try t.eq(buf.get(id).?, 1);
 }

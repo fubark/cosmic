@@ -1393,9 +1393,9 @@ pub const DebugInfo = struct {
 
     pub fn formatMaxCallStack(self: *Self, comptime Config: ParseConfig, ast: *const Tree(Config), writer: anytype) void {
         const first = self.max_call_stack.items[0];
-        writer.print("{s}({}'{s}')", .{ ast.grammar.getRuleName(first.parse_rule_id), first.next_token_id, ast.getTokenString(first.next_token_id.?) }) catch unreachable;
+        writer.print("{s}({?}'{s}')", .{ ast.grammar.getRuleName(first.parse_rule_id), first.next_token_id, ast.getTokenString(first.next_token_id.?) }) catch unreachable;
         for (self.max_call_stack.items[1..]) |frame| {
-            writer.print(" -> {s}({}'{s}')", .{ ast.grammar.getRuleName(frame.parse_rule_id), frame.next_token_id, ast.getTokenString(frame.next_token_id.?) }) catch unreachable;
+            writer.print(" -> {s}({?}'{s}')", .{ ast.grammar.getRuleName(frame.parse_rule_id), frame.next_token_id, ast.getTokenString(frame.next_token_id.?) }) catch unreachable;
         }
         writer.print("\n", .{}) catch unreachable;
     }

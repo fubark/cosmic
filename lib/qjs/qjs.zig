@@ -4,3 +4,10 @@ const c = @cImport({
 });
 
 pub usingnamespace c;
+
+pub const Undefined = c.JSValue{
+    .tag = c.JS_TAG_UNDEFINED,
+    .u = .{
+        .int32 = 0,
+    },
+};

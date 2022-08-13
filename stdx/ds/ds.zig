@@ -40,6 +40,13 @@ pub fn IndexSlice(comptime T: type) type {
         start: T,
         end: T,
 
+        pub fn init(start: T, end: T) @This() {
+            return .{
+                .start = start,
+                .end = end,
+            };
+        }
+
         pub fn len(self: *const @This()) T {
             return self.end - self.start;
         }

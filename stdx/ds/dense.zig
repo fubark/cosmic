@@ -47,6 +47,10 @@ pub fn DenseHandleList(comptime Id: type, comptime T: type, comptime Ordered: bo
             return @intCast(u32, self.list.items.len);
         }
 
+        pub fn has(self: DenseHandleListT, id: Id) bool {
+            return self.id_idx.contains(id);
+        }
+
         pub fn get(self: DenseHandleListT, id: Id) ?T {
             if (self.id_idx.get(id)) |idx| {
                 return self.list.items[idx];
