@@ -58,7 +58,7 @@ test "function declaration" {
 
     // Function with no params.
     var val = try run.evaluate(
-        \\func foo():
+        \\fun foo():
         \\    return 2 + 2
         \\foo()
     );
@@ -67,7 +67,7 @@ test "function declaration" {
 
     // Function with one param.
     val = try run.evaluate(
-        \\func foo(bar):
+        \\fun foo(bar):
         \\    return bar + 2
         \\foo(1)
     );
@@ -76,7 +76,7 @@ test "function declaration" {
 
     // Function with multiple param.
     val = try run.evaluate(
-        \\func foo(bar, inc):
+        \\fun foo(bar, inc):
         \\    return bar + inc
         \\foo(20, 10)
     );
@@ -93,7 +93,7 @@ test "access expression" {
     // One level of access from parent.
     var val = try run.evaluate(
         \\block:
-        \\  dict = { a: func () => 5 }
+        \\  dict = { a: fun () => 5 }
         \\  dict.a()
     );
     try t.eq(val.getInt32(), 5);
@@ -102,7 +102,7 @@ test "access expression" {
     // Multiple levels of access from parent.
     val = try run.evaluate(
         \\block:
-        \\  dict = { a: { b: func () => 5 } }
+        \\  dict = { a: { b: fun () => 5 } }
         \\  dict.a.b()
     );
     try t.eq(val.getInt32(), 5);

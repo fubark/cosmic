@@ -12,7 +12,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "if", .if_k },
     .{ "else", .else_k },
     .{ "for", .for_k },
-    .{ "func", .func },
+    .{ "fun", .func },
 });
 
 const BlockState = struct {
