@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const platform = @import("platform");
-const MouseUpEvent = platform.MouseUpEvent;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
@@ -37,7 +36,7 @@ pub const App = struct {
 
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClickCreate(self_: *App, _: MouseUpEvent) void {
+            fn onClickCreate(self_: *App, _: ui.MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
                 const last_w = self_.last_tf.getWidget();
                 const first = if (first_w.getValue().len == 0) "Foo" else first_w.getValue();
@@ -46,7 +45,7 @@ pub const App = struct {
                 self_.buf.append(new_name) catch unreachable;
             }
 
-            fn onClickDelete(self_: *App, _: MouseUpEvent) void {
+            fn onClickDelete(self_: *App, _: ui.MouseUpEvent) void {
                 const selected_idx = self_.list.getWidget().getSelectedIdx();
                 if (selected_idx != ui.NullId) {
                     self_.alloc.free(self_.buf.items[selected_idx]);
@@ -54,7 +53,7 @@ pub const App = struct {
                 }
             }
 
-            fn onClickUpdate(self_: *App, _: MouseUpEvent) void {
+            fn onClickUpdate(self_: *App, _: ui.MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
                 const last_w = self_.last_tf.getWidget();
                 const selected_idx = self_.list.getWidget().getSelectedIdx();
@@ -163,7 +162,7 @@ var app: helper.App = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
-    app.init("CRUD");
+    try app.init("CRUD");
     defer app.deinit();
     app.runEventLoop(update);
 }
@@ -180,11 +179,11 @@ fn update(delta_ms: f32) void {
 }
 
 pub usingnamespace if (IsWasm) struct {
-    export fn wasmInit() *const u8 {
+    export fn wasmInit() [*]const u8 {
         return helper.wasmInit(&app, "CRUD");
     }
 
-    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
+    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) [*]const u8 {
         return helper.wasmUpdate(cur_time_ms, input_buffer_len, &app, update);
     }
 

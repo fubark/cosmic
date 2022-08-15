@@ -21,9 +21,7 @@ pub const App = struct {
     last_frame_time_ms: f64,
     alloc: std.mem.Allocator,
 
-    const Self = @This();
-
-    pub fn init(self: *Self, title: []const u8) void {
+    pub fn init(self: *App, title: []const u8) !void {
         const alloc = stdx.heap.getDefaultAllocator();
         self.alloc = alloc;
         self.dispatcher = EventDispatcher.init(alloc);
@@ -39,7 +37,7 @@ pub const App = struct {
         }) catch unreachable;
         self.win.addDefaultHandlers(&self.dispatcher);
 
-        self.renderer.init(alloc, &self.win);
+        try self.renderer.init(alloc, &self.win);
         self.gctx = self.renderer.getGraphics();
         self.gctx.setClearColor(Color.init(20, 20, 20, 255));
 
@@ -65,7 +63,7 @@ pub const App = struct {
         self.ui_mod.addInputHandlers(&self.dispatcher);
     }
 
-    pub fn runEventLoop(app: *Self, comptime update: fn (delta_ms: f32) void) void {
+    pub fn runEventLoop(app: *App, comptime update: fn (delta_ms: f32) void) void {
         while (!app.quit) {
             app.dispatcher.processEvents();
 
@@ -82,7 +80,7 @@ pub const App = struct {
         }
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *App) void {
         self.ui_mod.deinit();
         self.dispatcher.deinit();
         self.renderer.deinit(self.alloc);
@@ -91,7 +89,7 @@ pub const App = struct {
     }
 };
 
-pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime update: fn (delta_ms: f32) void) *const u8 {
+pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime update: fn (delta_ms: f32) void) [*]const u8 {
     // Update the input buffer view.
     stdx.wasm.js_buffer.input_buf.items.len = input_buffer_len;
 
@@ -107,9 +105,9 @@ pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime u
     return stdx.wasm.js_buffer.writeResult();
 }
 
-pub fn wasmInit(app: *App, title: []const u8) *const u8 {
+pub fn wasmInit(app: *App, title: []const u8) [*]const u8 {
     const alloc = stdx.heap.getDefaultAllocator();
     stdx.wasm.init(alloc);
-    app.init(title);
+    app.init(title) catch stdx.fatal();
     return stdx.wasm.js_buffer.writeResult();
 }

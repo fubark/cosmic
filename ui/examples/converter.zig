@@ -58,7 +58,7 @@ var app: helper.App = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
-    app.init("Converter");
+    try app.init("Converter");
     defer app.deinit();
     app.runEventLoop(update);
 }
@@ -75,11 +75,11 @@ fn update(delta_ms: f32) void {
 }
 
 pub usingnamespace if (IsWasm) struct {
-    export fn wasmInit() *const u8 {
+    export fn wasmInit() [*]const u8 {
         return helper.wasmInit(&app, "Converter");
     }
 
-    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
+    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) [*]const u8 {
         return helper.wasmUpdate(cur_time_ms, input_buffer_len, &app, update);
     }
 

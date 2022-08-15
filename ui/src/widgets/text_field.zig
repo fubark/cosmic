@@ -44,7 +44,7 @@ pub const TextField = struct {
         self.buf = stdx.textbuf.TextBuffer.init(c.alloc, "") catch @panic("error");
         self.last_buf_hash = undefined;
         c.addKeyDownHandler(self, onKeyDown);
-        c.addMouseDownHandler(self, onMouseDown);
+        c.setMouseDownHandler(self, onMouseDown);
         self.ctx = c.common;
         self.node = c.node;
     }
@@ -104,7 +104,7 @@ pub const TextField = struct {
         const inner = self.inner.getWidget();
         const xf = @intToFloat(f32, me.x);
         inner.caret_idx = self.getCaretIdx(e.ctx.common, xf - inner.node.abs_bounds.min_x + inner.scroll_x);
-        return .Continue;
+        return .stop;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
