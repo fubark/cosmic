@@ -20,6 +20,8 @@ pub const JsTargetCompiler = struct {
     tokens: []const parser.Token,
     src: []const u8,
     writer: std.ArrayListUnmanaged(u8).Writer,
+    opts: CompileOptions,
+    buf: std.ArrayListUnmanaged(u8),
 
     vars: std.StringHashMapUnmanaged(VarDesc),
     block_stack: std.ArrayListUnmanaged(BlockState),
@@ -40,6 +42,8 @@ pub const JsTargetCompiler = struct {
             .cur_indent = 0,
             .vars = .{},
             .block_stack = .{},
+            .buf = .{},
+            .opts = undefined,
         };
     }
 
@@ -48,9 +52,10 @@ pub const JsTargetCompiler = struct {
         self.vars.deinit(self.alloc);
         self.out.deinit(self.alloc);
         self.alloc.free(self.last_err);
+        self.buf.deinit(self.alloc);
     }
 
-    pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView) ResultView {
+    pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) ResultView {
         self.func_decls = ast.func_decls;
         self.func_params = ast.func_params;
         self.nodes = ast.nodes.items;
@@ -61,6 +66,7 @@ pub const JsTargetCompiler = struct {
         self.cur_indent = 0;
         self.vars.clearRetainingCapacity();
         self.block_stack.clearRetainingCapacity();
+        self.opts = opts;
 
         const root = self.nodes[ast.root_id];
 
@@ -79,6 +85,25 @@ pub const JsTargetCompiler = struct {
             .err_msg = "",
             .has_error = false,
         };
+    }
+
+    fn declVar(self: *JsTargetCompiler, name: []const u8, value: []const u8) !void {
+        const res = try self.vars.getOrPut(self.alloc, name);
+        if (!res.found_existing) {
+            // Variable declaration.
+            const block = &self.block_stack.items[self.block_stack.items.len-1];
+            try block.vars.append(self.alloc, name);
+            res.value_ptr.* = .{ .dummy = true };
+            
+            try self.indent();
+            _ = try self.writer.write("let ");
+            _ = try self.writer.write(name);
+            _ = try self.writer.write(" = ");
+            _ = try self.writer.write(value);
+            _ = try self.writer.write(";\n");
+        } else {
+            return error.DuplicateVar;
+        }
     }
 
     fn pushBlock(self: *JsTargetCompiler) void {
@@ -117,6 +142,10 @@ pub const JsTargetCompiler = struct {
         }
         _ = try self.writer.write(")");
     }
+    
+    inline fn indent(self: *JsTargetCompiler) !void {
+        try self.writer.writeByteNTimes(' ', self.cur_indent);
+    }
 
     fn genStatement(self: *JsTargetCompiler, node: parser.Node) !void {
         // log.debug("gen stmt {}", .{node.node_t});
@@ -132,7 +161,7 @@ pub const JsTargetCompiler = struct {
             },
             .add_assign_stmt => {
                 const left = self.nodes[node.head.left_right.left];
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 try self.genExpression(left);
                 _ = try self.writer.write(" += ");
                 const right = self.nodes[node.head.left_right.right];
@@ -155,7 +184,7 @@ pub const JsTargetCompiler = struct {
                     }
                 }
 
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 if (is_decl) {
                     _ = try self.writer.write("let ");
                 }
@@ -167,14 +196,14 @@ pub const JsTargetCompiler = struct {
             },
             .expr_stmt => {
                 const expr = self.nodes[node.head.child_head];
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 try self.genExpression(expr);
                 _ = try self.writer.write("\n");
             },
             .func_decl => {
                 const func = self.func_decls[node.head.func.decl_id];
 
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("function ");
                 _ = try self.writer.write(self.src[func.name.start..func.name.end]);
 
@@ -185,22 +214,22 @@ pub const JsTargetCompiler = struct {
                 try self.genStatements(node.head.func.body_head);
                 self.cur_indent -= IndentWidth;
 
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("}\n");
             },
             .label_decl => {
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("{\n");
 
                 self.cur_indent += IndentWidth;
                 try self.genStatements(node.head.left_right.right);
                 self.cur_indent -= IndentWidth;
 
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("}\n");
             },
             .if_stmt => {
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("if (");
                 const cond = self.nodes[node.head.left_right.left];
                 try self.genExpression(cond);
@@ -213,7 +242,7 @@ pub const JsTargetCompiler = struct {
                 if (node.head.left_right.extra != NullId) {
                     const next = self.nodes[node.head.left_right.extra];
                     if (next.node_t == .else_clause) {
-                        try self.writer.writeByteNTimes(' ', self.cur_indent);
+                        try self.indent();
                         _ = try self.writer.write("} else {\n");
 
                         self.cur_indent += IndentWidth;
@@ -222,18 +251,22 @@ pub const JsTargetCompiler = struct {
                     } else return self.reportError(error.Unsupported, "Unsupported clause.", .{}, next);
                 }
 
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("}\n");
             },
             .for_inf_stmt => {
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("while (true) {\n");
 
                 self.cur_indent += IndentWidth;
+                if (self.opts.embed_mileage_interrupt) {
+                    try self.indent();
+                    _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > 10000) throw new Error('Interrupted');\n");
+                }
                 try self.genStatements(node.head.child_head);
                 self.cur_indent -= IndentWidth;
 
-                try self.writer.writeByteNTimes(' ', self.cur_indent);
+                try self.indent();
                 _ = try self.writer.write("}\n");
             },
             else => return self.reportError(error.Unsupported, "Unsupported node", .{}, node),
@@ -391,4 +424,8 @@ const BlockState = struct {
 
 const VarDesc = struct {
     dummy: bool,
+};
+
+const CompileOptions = struct {
+    embed_mileage_interrupt: bool = false,
 };
