@@ -442,7 +442,8 @@ pub const cs_graphics = struct {
         /// @param content
         pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Object {
             const ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
-            ptr.* = g.compileSvgContent(rt.alloc, content) catch unreachable;
+            const res = g.compileSvgContent(rt.alloc, content) catch unreachable;
+            ptr.* = res.cmds;
             return runtime.createWeakHandle(rt, .DrawCommandList, ptr);
         }
 

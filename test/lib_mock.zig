@@ -607,3 +607,7 @@ export fn SDL_FreeCursor() void {}
 export fn SDL_CreateSystemCursor() void {}
 export fn JS_GetException() void {}
 export fn JS_IsFunction() void {}
+
+export fn stbi_set_flip_vertically_on_load() void {}
+export fn glFrontFace() void {}
+export fn glCheckFramebufferStatus() void {}

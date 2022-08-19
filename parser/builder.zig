@@ -499,7 +499,7 @@ pub fn initGrammar(c: *Grammar, alloc: std.mem.Allocator, src: []const u8) !void
     defer parser.deinit();
 
     var debug: _parser.DebugInfo = undefined;
-    debug.init(t.alloc);
+    debug.init(alloc);
     defer debug.deinit();
 
     var res = parser.parseDebug(Config, src, &debug);

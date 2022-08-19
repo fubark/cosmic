@@ -123,7 +123,9 @@ pub const Tessellator = struct {
 
     /// Initializes the events only.
     pub fn debugTriangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) void {
-        self.initEvents(polygons);
+        for (polygons) |polygon| {
+            self.initEvents(polygon);
+        }
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
         self.cur_out_vert_idx = std.math.maxInt(u16);

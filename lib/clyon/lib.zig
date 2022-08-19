@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const stdx = @import("../../stdx/lib.zig");
+
 pub const pkg = std.build.Pkg{
     .name = "lyon",
     .source = .{ .path = srcPath() ++ "/lyon.zig" },
@@ -8,6 +10,7 @@ pub const pkg = std.build.Pkg{
 pub const dummy_pkg = std.build.Pkg{
     .name = "lyon",
     .source = .{ .path = srcPath() ++ "/lyon_dummy.zig" },
+    .dependencies = &.{ stdx.pkg },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep, link_lyon: bool) void {

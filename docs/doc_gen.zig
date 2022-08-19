@@ -115,7 +115,7 @@ fn genApiModel(alloc: std.mem.Allocator) !std.StringHashMap(Module) {
         defer tree.deinit(alloc);
         if (tree.errors.len > 0) {
             for (tree.errors) |err| {
-                log.debug("Parse error: {s}", .{err});
+                log.debug("Parse error: {}", .{err});
             }
             unreachable;
         }

@@ -131,8 +131,7 @@ pub const Window = struct {
             .id = undefined,
             .sdl_window = undefined,
             .alloc = alloc,
-            .gl_ctx_ref_count = undefined,
-            .gl_ctx = undefined,
+            .inner = undefined,
             .width = undefined,
             .height = undefined,
             .buf_width = undefined,
@@ -145,12 +144,10 @@ pub const Window = struct {
             else => stdx.unsupported(),
         }
         // Reuse existing window's GL context.
-        res.gl_ctx = existing_win.gl_ctx;
+        res.inner.gl_ctx = existing_win.inner.gl_ctx;
         res.alloc = existing_win.alloc;
-        res.gl_ctx_ref_count = existing_win.gl_ctx_ref_count;
-        res.gl_ctx_ref_count.* += 1;
-
-        res.graphics = existing_win.graphics;
+        res.inner.gl_ctx_ref_count = existing_win.inner.gl_ctx_ref_count;
+        res.inner.gl_ctx_ref_count.* += 1;
 
         if (config.anti_alias) {
             if (createMsaaFrameBuffer(res.buf_width, res.buf_height, res.dpr)) |msaa| {
@@ -269,7 +266,7 @@ pub const Window = struct {
     }
 
     pub fn makeCurrent(self: Self) void {
-        _ = sdl.SDL_GL_MakeCurrent(self.sdl_window, self.gl_ctx);
+        _ = sdl.SDL_GL_MakeCurrent(self.sdl_window, self.inner.gl_ctx);
     }
 
     pub fn setTitle(self: Self, title: []const u8) void {
