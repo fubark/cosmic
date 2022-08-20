@@ -141,6 +141,8 @@
 /include/SDL_bits.h
 /include/SDL.h
 /include/SDL_syswm.h
+/include/SDL_config_macosx.h
+/include/SDL_config_windows.h
 /src/core/linux/SDL_dbus.h
 /src/audio/SDL_wave.c
 /src/audio/SDL_mixer.c
