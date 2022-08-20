@@ -1406,13 +1406,13 @@ const CallFrame = struct {
     next_token_id: ?TokenId,
 };
 
-fn ParseContext(comptime State: type, comptime Ast: type, comptime UseCacheMap: bool, comptime Debug: bool) type {
+fn ParseContext(comptime StateT: type, comptime Ast: type, comptime UseCacheMap: bool, comptime Debug: bool) type {
     return struct {
-        const State = State;
+        const State = StateT;
         const debug = Debug;
         const useCacheMap = UseCacheMap;
 
-        state: State,
+        state: StateT,
         ast: *Ast,
         debug: if (Debug) *DebugInfo else void,
     };
