@@ -3,7 +3,8 @@ const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const qjs = @import("qjs");
 
-extern "stdx" fn jsGetValueType(id: usize) usize;
+extern "app" fn jsGetValueType(id: usize) usize;
+extern "app" fn jsGetInt32(id: usize) i32;
 
 pub const JsValue = struct {
     inner: if (IsWasm) WebJsValue else qjs.JSValue,
@@ -25,7 +26,11 @@ pub const JsValue = struct {
     }
 
     pub fn getInt32(self: JsValue) i32 {
-        return QJS.getInt32(self.inner);
+        if (IsWasm) {
+            return jsGetInt32(self.inner.id);
+        } else {
+            return QJS.getInt32(self.inner);
+        }
     }
 
     pub fn getInt32Err(self: JsValue) !i32 {
@@ -88,11 +93,12 @@ pub const WebJsValue = struct {
 };
 
 pub const JsValueType = enum(u3) {
-    string,
-    exception,
-    float64,
-    object,
-    undef,
-    int32,
-    function,
+    string = 0,
+    exception = 1,
+    float64 = 2,
+    object = 3,
+    undef = 4,
+    int32 = 5,
+    function = 6,
+    boolean = 7,
 };
