@@ -88,8 +88,6 @@ test "access expression" {
     const run = Runner.create();
     defer run.destroy();
 
-    t.setLogLevel(.debug);
-
     // One level of access from parent.
     var val = try run.evaluate(
         \\block:
@@ -144,7 +142,7 @@ const Runner = struct {
             return error.ParseError;
         }
 
-        const res = self.compiler.compile(ast_res);
+        const res = self.compiler.compile(ast_res, .{});
         if (res.has_error) {
             log.debug("Compile Error: {s}", .{res.err_msg});
             return error.CompileError;
