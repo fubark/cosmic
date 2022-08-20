@@ -8,6 +8,8 @@ const vk = @import("vk");
 const stbi = @import("stbi");
 
 const graphics = @import("../../graphics.zig");
+const Color = graphics.Color;
+const svg = graphics.svg;
 const gpu = graphics.gpu;
 const gvk = graphics.vk;
 const log = stdx.log.scoped(.image);
@@ -18,34 +20,34 @@ pub const TextureId = u32;
 pub const ImageStore = struct {
     alloc: std.mem.Allocator,
     images: stdx.ds.PooledHandleList(ImageId, Image),
-    gctx: *graphics.gpu.Graphics,
+    gpu: *graphics.gpu.Graphics,
+    gctx: *graphics.Graphics,
 
     textures: stdx.ds.PooledHandleList(TextureId, Texture),
 
     /// Images are queued for removal due to multiple frames in flight.
     removals: std.ArrayList(RemoveEntry),
 
-    const Self = @This();
-
-    pub fn init(alloc: std.mem.Allocator, gctx: *graphics.gpu.Graphics) Self {
-        var ret = Self{
+    pub fn init(alloc: std.mem.Allocator, gctx: *graphics.gpu.Graphics) ImageStore {
+        var ret = ImageStore{
             .alloc = alloc,
             .images = stdx.ds.PooledHandleList(ImageId, Image).init(alloc),
             .textures = stdx.ds.PooledHandleList(TextureId, Texture).init(alloc),
-            .gctx = gctx,
+            .gpu = gctx,
+            .gctx = @fieldParentPtr(graphics.Graphics, "impl", gctx),
             .removals = std.ArrayList(RemoveEntry).init(alloc),
         };
         return ret;
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: ImageStore) void {
         // Delete images after since some deinit could have removed images.
         self.images.deinit();
 
         var iter = self.textures.iterator();
         while (iter.next()) |tex| {
             if (Backend == .Vulkan) {
-                tex.deinitVK(self.gctx.inner.ctx.device);
+                tex.deinitVK(self.gpu.inner.ctx.device);
             } else if (Backend == .OpenGL) {
                 tex.deinitGL();
             }
@@ -89,7 +91,54 @@ pub const ImageStore = struct {
         }
     }
 
-    pub fn createImageFromData(self: *Self, data: []const u8) !graphics.Image {
+    pub fn createSvgImage(self: *ImageStore, data: svg.SvgRenderData, width: u32, height: u32) !graphics.Image {
+        const res = self.createImageFromBitmap(width, height, null, true);
+
+        // Determine the svg viewbox.
+        if (data.width == 0 or data.height == 0) {
+            return error.MissingSize;
+        }
+        const view_aspect = data.width / data.height;
+        const target_width = @intToFloat(f32, width);
+        const target_height = @intToFloat(f32, height);
+        const target_aspect = target_width / target_height;
+        var render_width: f32 = undefined;
+        var render_height: f32 = undefined;
+        var render_x: f32 = undefined;
+        var render_y: f32 = undefined;
+        if (target_aspect > view_aspect) {
+            // Fit target height and center.
+            render_height = target_height;
+            render_width = view_aspect * target_height;
+            render_x = (target_width - render_width) * 0.5;
+            render_y = 0;
+        } else {
+            // Fit target width and center.
+            render_width = target_width;
+            render_height = target_width / view_aspect;
+            render_x = 0;
+            render_y = (target_height - render_height) * 0.5;
+        }
+
+        log.debug("svg bitmap {} {} {} {}", .{render_x, render_y, render_width, render_height});
+        // Render to image.
+        self.gctx.bindImageBuffer(res.image_id);
+        self.gctx.setFillColor(Color.Transparent);
+        self.gctx.fillRect(0, 0, target_width, target_height);
+        self.gctx.translate(data.min_x, data.min_y);
+        const scale = render_width / data.width;
+        self.gctx.scale(scale, scale);
+        self.gctx.drawCommandList(data.cmds);
+        self.gctx.endCmd();
+
+        return graphics.Image{
+            .id = res.image_id,
+            .width = width,
+            .height = height,
+        };
+    }
+
+    pub fn createImageFromData(self: *ImageStore, data: []const u8) !graphics.Image {
         var src_width: c_int = undefined;
         var src_height: c_int = undefined;
         // This records the original number of channels in the source input.
