@@ -100,17 +100,17 @@ pub const PhysicsSystem = struct {
     handle: *c.PhysicsSystem,
 
     pub fn init(maxBodies: u32, numBodiesMutexes: u32, maxBodyPairs: u32, maxContactConstraints: u32,
-        broadPhaseLayerInterface: *c.BroadPhaseLayerInterface, comptime ovbFilter: ObjectVsBroadPhaseLayerFilter, comptime opFilter: ObjectLayerPairFilter,
+        broadPhaseLayerInterface: *c.BroadPhaseLayerInterface, comptime OvbFilter: ObjectVsBroadPhaseLayerFilter, comptime OpFilter: ObjectLayerPairFilter,
     ) PhysicsSystem {
         const ret = PhysicsSystem{
             .handle = JPH__PhysicsSystem__NEW().?,
         };
         const S = struct {
             fn ovbFilter(layer1: ObjectLayer, layer2: BroadPhaseLayer) callconv(.C) c_int {
-                if (ovbFilter(layer1, layer2)) return 1 else return 0;
+                if (OvbFilter(layer1, layer2)) return 1 else return 0;
             }
             fn opFilter(obj1: ObjectLayer, obj2: ObjectLayer) callconv(.C) c_int {
-                if (opFilter(obj1, obj2)) return 1 else return 0;
+                if (OpFilter(obj1, obj2)) return 1 else return 0;
             }
         };
         c.JPH__PhysicsSystem__Init(ret.handle, maxBodies, numBodiesMutexes, maxBodyPairs, maxContactConstraints, broadPhaseLayerInterface, S.ovbFilter, S.opFilter);

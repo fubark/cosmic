@@ -1195,8 +1195,8 @@ pub fn linkLibSslPath(step: *std.build.LibExeObjStep, path: []const u8) void {
     step.addAssemblyFile(path);
 }
 
-fn srcPath() []const u8 {
-    return (std.fs.path.dirname(@src().file) orelse unreachable);
+inline fn srcPath() []const u8 {
+    return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
