@@ -46,6 +46,9 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
     c_flags.append("-DCONFIG_BIGNUM=1") catch @panic("error");
     c_flags.append("-DCONFIG_VERSION=\"2021-03-27\"") catch @panic("error");
     c_flags.append("-D_GNU_SOURCE=1") catch @panic("error");
+    if (step.target.getOsTag() == .windows) {
+        c_flags.append("-D_WIN32=1") catch @panic("error");
+    }
     if (step.build_mode == .Debug) {
         // For debugging:
         // c_flags.append("-O0") catch @panic("error");
