@@ -3,6 +3,8 @@ const std = @import("std");
 const stbtt = @import("stbtt");
 const stbi = @import("stbi");
 const ft = @import("freetype");
+const build_options = @import("build_options");
+const Backend = build_options.GraphicsBackend;
 
 const graphics = @import("../../graphics.zig");
 const gpu = graphics.gpu;
@@ -198,6 +200,9 @@ fn generateColorBitmapGlyph(g: *gpu.Graphics, ot_font: OpenTypeFont, render_font
         var src_width: c_int = undefined;
         var src_height: c_int = undefined;
         var channels: c_int = undefined;
+
+        // Never flip y for loading font bitmaps.
+        stbi.stbi_set_flip_vertically_on_load(0);
         const bitmap = stbi.stbi_load_from_memory(&data.png_data[0], @intCast(c_int, data.png_data.len), &src_width, &src_height, &channels, 0);
         defer stbi.stbi_image_free(bitmap);
         // log.debug("color glyph {}x{} {}x{}", .{data.width, data.height, src_width, src_height});

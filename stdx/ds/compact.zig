@@ -142,6 +142,7 @@ test "CompactSinglyLinkedList" {
 pub fn CompactSinglyLinkedListNode(comptime Id: type, comptime T: type) type {
     return struct {
         next: Id,
+        // TODO: Rename to val.
         data: T,
     };
 }

@@ -26,24 +26,24 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
         // TODO: Maybe the user should provide this if it's important. It would also simplify the api and remove optional return types. It also means iteration won't be possible.
         data_exists: stdx.ds.BitArrayList,
 
-        const Self = @This();
+        const PooledHandleListT = @This();
         pub const Iterator = struct {
             // The current id should reflect the id of the value returned from next or nextPtr.
             cur_id: Id,
-            list: *const Self,
+            list: *const PooledHandleListT,
 
-            fn init(list: *const Self) @This() {
+            fn init(list: *const PooledHandleListT) Iterator {
                 return .{
                     .cur_id = std.math.maxInt(Id),
                     .list = list,
                 };
             }
 
-            pub fn reset(self: *@This()) void {
+            pub fn reset(self: *Iterator) void {
                 self.idx = std.math.maxInt(Id);
             }
 
-            pub fn nextPtr(self: *@This()) ?*T {
+            pub fn nextPtr(self: *Iterator) ?*T {
                 self.cur_id +%= 1;
                 while (true) {
                     if (self.cur_id < self.list.data.items.len) {
@@ -85,18 +85,18 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             return new;
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: PooledHandleListT) void {
             self.id_gen.deinit();
             self.data.deinit();
             self.data_exists.deinit();
         }
 
-        pub fn iterator(self: *const Self) Iterator {
+        pub fn iterator(self: *const PooledHandleListT) Iterator {
             return Iterator.init(self);
         }
 
         // Returns the id of the item.
-        pub fn add(self: *Self, item: T) !Id {
+        pub fn add(self: *PooledHandleListT, item: T) !Id {
             const new_id = self.id_gen.getNextId();
 
             if (new_id >= self.data.items.len) {
@@ -109,46 +109,46 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             return new_id;
         }
 
-        pub fn set(self: *Self, id: Id, item: T) void {
+        pub fn set(self: *PooledHandleListT, id: Id, item: T) void {
             self.data.items[id] = item;
         }
 
-        pub fn remove(self: *Self, id: Id) void {
+        pub fn remove(self: *PooledHandleListT, id: Id) void {
             self.data_exists.unset(id);
             self.id_gen.deleteId(id);
         }
 
-        pub fn clearRetainingCapacity(self: *Self) void {
+        pub fn clearRetainingCapacity(self: *PooledHandleListT) void {
             self.data_exists.clearRetainingCapacity();
             self.id_gen.clearRetainingCapacity();
             self.data.clearRetainingCapacity();
         }
 
-        pub fn get(self: Self, id: Id) ?T {
+        pub fn get(self: PooledHandleListT, id: Id) ?T {
             if (self.has(id)) {
                 return self.data.items[id];
             } else return null;
         }
 
-        pub fn getNoCheck(self: Self, id: Id) T {
+        pub fn getNoCheck(self: PooledHandleListT, id: Id) T {
             return self.data.items[id];
         }
 
-        pub fn getPtr(self: *const Self, id: Id) ?*T {
+        pub fn getPtr(self: *const PooledHandleListT, id: Id) ?*T {
             if (self.has(id)) {
                 return &self.data.items[id];
             } else return null;
         }
 
-        pub fn getPtrNoCheck(self: Self, id: Id) *T {
+        pub fn getPtrNoCheck(self: PooledHandleListT, id: Id) *T {
             return &self.data.items[id];
         }
 
-        pub fn has(self: Self, id: Id) bool {
+        pub fn has(self: PooledHandleListT, id: Id) bool {
             return self.data_exists.isSet(id);
         }
 
-        pub fn size(self: Self) usize {
+        pub fn size(self: PooledHandleListT) usize {
             return self.data.items.len - self.id_gen.next_ids.count;
         }
     };
@@ -257,58 +257,99 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
     const Null = comptime NullHandleId(Id);
     const OptId = Id;
     return struct {
-        const Self = @This();
-
-        pub const Node = compact.CompactSinglyLinkedListNode(Id, T);
-
         nodes: PooledHandleList(Id, Node),
 
-        pub fn init(alloc: std.mem.Allocator) Self {
+        pub const Node = compact.CompactSinglyLinkedListNode(Id, T);
+        const PooledHandleSLLBufferT = @This();
+        const ListIterator = struct {
+            buf: *PooledHandleSLLBufferT,
+            prev_id: Id,
+            cur_id: Id,
+            next_id: Id,
+
+            fn init(buf: *PooledHandleSLLBufferT, head_id: Id) ListIterator {
+                return .{
+                    .buf = buf,
+                    .prev_id = Null,
+                    .cur_id = Null,
+                    .next_id = head_id,
+                };
+            }
+
+            pub fn next(self: *ListIterator) ?T {
+                if (self.next_id != Null) {
+                    const node = self.buf.nodes.getNoCheck(self.next_id);
+                    self.prev_id = self.cur_id;
+                    self.cur_id = self.next_id;
+                    self.next_id = node.next;
+                    return node.data;
+                } else return null;
+            }
+
+            /// Returns the next node id that follows the removed node.
+            pub fn remove(self: *ListIterator) !Id {
+                if (self.cur_id != Null) {
+                    if (self.prev_id != Null) {
+                        try self.buf.removeAfter(self.prev_id);
+                    } else {
+                        try self.buf.removeAssumeNoPrev(self.cur_id);
+                    }
+                    self.cur_id = Null;
+                    return self.next_id;
+                } else return error.BadState;
+            }
+        };
+
+        pub fn init(alloc: std.mem.Allocator) PooledHandleSLLBufferT {
             return .{
                 .nodes = PooledHandleList(Id, Node).init(alloc),
             };
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: PooledHandleSLLBufferT) void {
             self.nodes.deinit();
         }
 
-        pub fn clearRetainingCapacity(self: *Self) void {
+        pub fn clearRetainingCapacity(self: *PooledHandleSLLBufferT) void {
             self.nodes.clearRetainingCapacity();
         }
 
-        pub fn getNode(self: Self, idx: Id) ?Node {
+        pub fn getNode(self: PooledHandleSLLBufferT, idx: Id) ?Node {
             return self.nodes.get(idx);
         }
 
-        pub fn getNodeNoCheck(self: Self, idx: Id) Node {
+        pub fn getNodeNoCheck(self: PooledHandleSLLBufferT, idx: Id) Node {
             return self.nodes.getNoCheck(idx);
         }
 
-        pub fn getNodePtrNoCheck(self: Self, idx: Id) *Node {
+        pub fn getNodePtrNoCheck(self: PooledHandleSLLBufferT, idx: Id) *Node {
             return self.nodes.getPtrNoCheck(idx);
         }
 
-        pub fn iterator(self: Self) PooledHandleList(Id, Node).Iterator {
+        pub fn iterator(self: PooledHandleSLLBufferT) PooledHandleList(Id, Node).Iterator {
             return self.nodes.iterator();
         }
 
-        pub fn iterFirstNoCheck(self: Self) Id {
+        pub fn listIterator(self: *PooledHandleSLLBufferT, head: Id) ListIterator {
+            return ListIterator.init(self, head);
+        }
+
+        pub fn iterFirstNoCheck(self: PooledHandleSLLBufferT) Id {
             var iter = self.nodes.iterator();
             _ = iter.next();
             return iter.cur_id;
         }
 
-        pub fn iterFirstValueNoCheck(self: Self) T {
+        pub fn iterFirstValueNoCheck(self: PooledHandleSLLBufferT) T {
             var iter = self.nodes.iterator();
             return iter.next().?.data;
         }
 
-        pub fn size(self: Self) usize {
+        pub fn size(self: PooledHandleSLLBufferT) usize {
             return self.nodes.size();
         }
 
-        pub fn getLast(self: Self, id: Id) ?Id {
+        pub fn getLast(self: PooledHandleSLLBufferT, id: Id) ?Id {
             if (id == Null) {
                 return null;
             }
@@ -325,39 +366,39 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
             } else return null;
         }
 
-        pub fn get(self: Self, id: Id) ?T {
+        pub fn get(self: PooledHandleSLLBufferT, id: Id) ?T {
             if (self.nodes.has(id)) {
                 return self.nodes.getNoCheck(id).data;
             } else return null;
         }
 
-        pub fn getNoCheck(self: Self, idx: Id) T {
+        pub fn getNoCheck(self: PooledHandleSLLBufferT, idx: Id) T {
             return self.nodes.getNoCheck(idx).data;
         }
 
-        pub fn getPtrNoCheck(self: Self, idx: Id) *T {
+        pub fn getPtrNoCheck(self: PooledHandleSLLBufferT, idx: Id) *T {
             return &self.nodes.getPtrNoCheck(idx).data;
         }
 
-        pub fn getNextNoCheck(self: Self, id: Id) OptId {
+        pub fn getNextNoCheck(self: PooledHandleSLLBufferT, id: Id) OptId {
             return self.nodes.getNoCheck(id).next;
         }
 
-        pub fn getNext(self: Self, id: Id) ?OptId {
+        pub fn getNext(self: PooledHandleSLLBufferT, id: Id) ?OptId {
             if (self.nodes.has(id)) {
                 return self.nodes.getNoCheck(id).next;
             } else return null;
         }
 
         /// Adds a new head node.
-        pub fn add(self: *Self, data: T) !Id {
+        pub fn add(self: *PooledHandleSLLBufferT, data: T) !Id {
             return try self.nodes.add(.{
                 .next = Null,
                 .data = data,
             });
         }
 
-        pub fn insertBeforeHead(self: *Self, head_id: Id, data: T) !Id {
+        pub fn insertBeforeHead(self: *PooledHandleSLLBufferT, head_id: Id, data: T) !Id {
             if (self.nodes.has(head_id)) {
                 return try self.nodes.add(.{
                     .next = head_id,
@@ -366,14 +407,14 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
             } else return error.NoElement;
         }
 
-        pub fn insertBeforeHeadNoCheck(self: *Self, head_id: Id, data: T) !Id {
+        pub fn insertBeforeHeadNoCheck(self: *PooledHandleSLLBufferT, head_id: Id, data: T) !Id {
             return try self.nodes.add(.{
                 .next = head_id,
                 .data = data,
             });
         }
 
-        pub fn insertAfter(self: *Self, id: Id, data: T) !Id {
+        pub fn insertAfter(self: *PooledHandleSLLBufferT, id: Id, data: T) !Id {
             if (self.nodes.has(id)) {
                 const new = try self.nodes.add(.{
                     .next = self.nodes.getNoCheck(id).next,
@@ -384,7 +425,27 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
             } else return error.NoElement;
         }
 
-        pub fn removeAfter(self: *Self, id: Id) !void {
+        pub fn appendToList(self: *PooledHandleSLLBufferT, head: Id, data: T) !Id {
+            if (head != Null) {
+                var iter = self.listIterator(head);
+                while (iter.next()) |_| {}
+                return self.insertAfter(iter.cur_id, data);
+            } else {
+                return self.add(data);
+            }
+        }
+
+        pub fn removeFromList(self: *PooledHandleSLLBufferT, head: Id, id: Id) !void {
+            var iter = self.listIterator(head);
+            while (iter.next()) |_| {
+                if (iter.cur_id == id) {
+                    _ = try iter.remove();
+                    break;
+                }
+            }
+        }
+
+        pub fn removeAfter(self: *PooledHandleSLLBufferT, id: Id) !void {
             if (self.nodes.has(id)) {
                 const next = self.getNextNoCheck(id);
                 if (next != Null) {
@@ -395,7 +456,7 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
             } else return error.NoElement;
         }
 
-        pub fn removeAssumeNoPrev(self: *Self, id: Id) !void {
+        pub fn removeAssumeNoPrev(self: *PooledHandleSLLBufferT, id: Id) !void {
             if (self.nodes.has(id)) {
                 self.nodes.remove(id);
             } else return error.NoElement;
@@ -403,7 +464,7 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
     };
 }
 
-test "PooledHandleSLLBuffer" {
+test "PooledHandleSLLBuffer add, getters, insertAfter, removeAssumeNoPrev" {
     var buf = PooledHandleSLLBuffer(u32, u32).init(t.alloc);
     defer buf.deinit();
 
@@ -419,4 +480,21 @@ test "PooledHandleSLLBuffer" {
 
     try buf.removeAssumeNoPrev(head);
     try t.eq(buf.get(head), null);
+}
+
+test "PooledHandleSLLBuffer appendToList" {
+    var buf = PooledHandleSLLBuffer(u32, u32).init(t.alloc);
+    defer buf.deinit();
+
+    const head = NullHandleId(u32);
+    // Append to null head creates a new head.
+    const id = try buf.appendToList(head, 1);
+    try t.eq(id, 0);
+    try t.eq(buf.get(id).?, 1);
+
+    // Append value.
+    const next = try buf.appendToList(id, 2);
+    try t.eq(next, 1);
+    try t.eq(buf.get(next).?, 2);
+    try t.eq(buf.get(id).?, 1);
 }

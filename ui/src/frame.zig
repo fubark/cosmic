@@ -1,4 +1,5 @@
 const stdx = @import("stdx");
+const builtin = @import("builtin");
 
 const NodeRef = @import("ui.zig").NodeRef;
 
@@ -15,8 +16,6 @@ pub const NullFrameId = stdx.ds.CompactNull(FrameId);
 /// Before the ui engine performs layout, these frames are used to diff against an existing node tree to determine whether a new
 /// widget instance is created or updated.
 pub const Frame = struct {
-    const Self = @This();
-
     vtable: *const WidgetVTable,
 
     // TODO: Allow this to be a u32 as well.
@@ -25,6 +24,7 @@ pub const Frame = struct {
 
     /// Binds to WidgetRef upon initializing Widget instance.
     widget_bind: ?*anyopaque,
+    is_bind_func: bool,
 
     /// Binds to NodeRefs upon initializing Widget instance.
     node_binds: ?*BindNode,
@@ -43,16 +43,20 @@ pub const Frame = struct {
     /// This is only used by the special Fragment frame which represents multiple frames.
     fragment_children: FrameListPtr,
 
-    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, fragment_children: FrameListPtr) Self {
+    debug: if (builtin.mode == .Debug) bool else void,
+
+    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, fragment_children: FrameListPtr) Frame {
         return .{
             .vtable = vtable,
             .id = id,
             .widget_bind = bind,
             .node_binds = null,
+            .is_bind_func = false,
             .props = props,
             .fragment_children = fragment_children,
             .key = null,
             .tag = null,
+            .debug = if (builtin.mode == .Debug) false else {},
         };
     }
 };

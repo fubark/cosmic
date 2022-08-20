@@ -16,7 +16,7 @@ const eqApproxVec3 = stdx.math.eqApproxVec3;
 const eqApproxVec4 = stdx.math.eqApproxVec4;
 
 // Vulkan clip-space: [-1,1][-1,1][0,1]
-// OpenGL clip-space: [-1,1][-1,1][-1,1]
+// OpenGL clip-space: [-1,1][1,-1][-1,1]
 
 pub const Camera = struct {
     proj_transform: Transform,
@@ -199,6 +199,9 @@ pub fn initTextureProjection(width: f32, height: f32) Transform {
     res.scale(2.0, 2.0);
     // to clip space [-1,1]
     res.translate(-1.0, -1.0);
+    if (gfx_backend == .OpenGL) {
+        res.scale(1.0, -1.0);
+    }
     return res;
 }
 

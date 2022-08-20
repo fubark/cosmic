@@ -34,12 +34,18 @@ pub const Opaque = opaque {
     }
 };
 
-// TODO: Rename to IndexSlice
-// Relative slice. Use to reference slice in a growing memory buffer.
-pub fn RelSlice(comptime T: type) type {
+/// Slice that holds indexes instead of pointers. Use to reference slice in a growing memory buffer.
+pub fn IndexSlice(comptime T: type) type {
     return struct {
         start: T,
         end: T,
+
+        pub fn init(start: T, end: T) @This() {
+            return .{
+                .start = start,
+                .end = end,
+            };
+        }
 
         pub fn len(self: *const @This()) T {
             return self.end - self.start;

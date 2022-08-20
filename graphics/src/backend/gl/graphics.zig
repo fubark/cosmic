@@ -15,22 +15,20 @@ const TexShaderVertex = gpu.TexShaderVertex;
 const log = stdx.log.scoped(.gl_graphics);
 
 pub const Graphics = struct {
-    renderer: Renderer,
+    renderer: *Renderer,
     mesh: *gpu.Mesh,
     gpu_ctx: *gpu.Graphics,
 
-    pub fn init(self: *Graphics, alloc: std.mem.Allocator) !void {
+    pub fn init(self: *Graphics, _: std.mem.Allocator, renderer: *Renderer) !void {
         self.* = .{
             .gpu_ctx = undefined,
-            .renderer = undefined,
+            .renderer = renderer,
             .mesh = undefined,
         };
-        try self.renderer.init(alloc);
         self.mesh = &self.renderer.mesh;
     }
 
-    pub fn deinit(self: Graphics, alloc: std.mem.Allocator) void {
-        self.renderer.deinit(alloc);
+    pub fn deinit(_: Graphics, _: std.mem.Allocator) void {
     }
 
     /// Points of front face is in ccw order.
@@ -39,7 +37,7 @@ pub const Graphics = struct {
         self.renderer.ensureUnusedBuffer(3, 3);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.gpu_ctx.cur_fill_color);
+        vert.setColor(self.gpu_ctx.ps.fill_color);
         vert.setUV(0, 0); // Don't map uvs for now.
 
         const start_idx = self.mesh.getNextIndexId();
@@ -51,7 +49,7 @@ pub const Graphics = struct {
         self.mesh.pushVertex(vert);
         self.mesh.pushTriangle(start_idx, start_idx + 1, start_idx + 2);
 
-        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        const vp = self.gpu_ctx.ps.view_xform.getAppliedTransform(self.gpu_ctx.ps.proj_xform);
         self.renderer.pushTex3D(vp.mat, self.gpu_ctx.white_tex.tex_id);
     }
 
@@ -66,14 +64,14 @@ pub const Graphics = struct {
 
     pub fn fillMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         self.gpu_ctx.batcher.endCmd();
-        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        const vp = self.gpu_ctx.ps.view_xform.getAppliedTransform(self.gpu_ctx.ps.proj_xform);
         const mvp = xform.getAppliedTransform(vp);
 
         self.renderer.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
         const vert_start = self.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
-            new_vert.setColor(self.gpu_ctx.cur_fill_color);
+            new_vert.setColor(self.gpu_ctx.ps.fill_color);
             self.mesh.pushVertex(new_vert);
         }
         self.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
@@ -91,7 +89,7 @@ pub const Graphics = struct {
 
     pub fn drawMeshPbrCustom3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D, mat: graphics.Material) void {
         self.gpu_ctx.batcher.endCmd();
-        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        const vp = self.gpu_ctx.ps.view_xform.getAppliedTransform(self.gpu_ctx.ps.proj_xform);
         // Compute normal matrix for lighting.
         const normal = xform.toRotationMat();
         self.renderer.ensurePushMeshData(mesh.verts, mesh.indexes);
@@ -121,14 +119,14 @@ pub const Graphics = struct {
 
     pub fn strokeMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         self.gpu_ctx.batcher.endCmd();
-        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        const vp = self.gpu_ctx.ps.view_xform.getAppliedTransform(self.gpu_ctx.ps.proj_xform);
         const mvp = xform.getAppliedTransform(vp);
 
         self.renderer.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
         const vert_start = self.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
-            new_vert.setColor(self.gpu_ctx.cur_stroke_color);
+            new_vert.setColor(self.gpu_ctx.ps.stroke_color);
             self.mesh.pushVertex(new_vert);
         }
         self.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
@@ -137,7 +135,7 @@ pub const Graphics = struct {
 
     /// Vertices are duped so that each side reflects light without interpolating the normals.
     pub fn drawCuboidPbr3D(self: *Graphics, xform: Transform, material: graphics.Material) void {
-        const vp = self.gpu_ctx.view_transform.getAppliedTransform(self.gpu_ctx.cur_proj_transform);
+        const vp = self.gpu_ctx.ps.view_xform.getAppliedTransform(self.gpu_ctx.ps.proj_xform);
 
         // Compute normal matrix for lighting.
         const normal = xform.toRotationMat();

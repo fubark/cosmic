@@ -2,7 +2,6 @@ const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
-const platform = @import("platform");
 const ui = @import("../ui.zig");
 const w = ui.widgets;
 
@@ -18,11 +17,9 @@ pub const FileDialog = struct {
     cwd: std.ArrayList(u8),
     files: std.ArrayList(FileItem),
     window: *ui.widgets.ModalOverlay,
-    scroll_list: ui.WidgetRef(w.ScrollListUI),
+    scroll_list: ui.WidgetRef(w.ScrollListT),
 
-    const Self = @This();
-
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *FileDialog, c: *ui.InitContext) void {
         self.alloc = c.alloc;
         self.cwd = std.ArrayList(u8).init(c.alloc);
         self.files = std.ArrayList(FileItem).init(c.alloc);
@@ -30,8 +27,7 @@ pub const FileDialog = struct {
         self.gotoDir(self.props.init_cwd);
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(Self);
+    pub fn deinit(self: *FileDialog, _: std.mem.Allocator) void {
         self.cwd.deinit();
         for (self.files.items) |it| {
             it.deinit(self.alloc);
@@ -39,19 +35,19 @@ pub const FileDialog = struct {
         self.files.deinit();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *FileDialog, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn buildItem(self_: *Self, _: *ui.BuildContext, i: u32) ui.FrameId {
+            fn buildItem(self_: *FileDialog, _: *ui.BuildContext, i: u32) ui.FrameId {
                 return w.Text(.{
                     .text = self_.files.items[i].name,
                     .color = Color.White,
                 });
             }
-            fn onClickCancel(self_: *Self, e: platform.MouseUpEvent) void {
+            fn onClickCancel(self_: *FileDialog, e: ui.MouseUpEvent) void {
                 _ = e;
                 self_.window.requestClose();
             }
-            fn onClickSave(self_: *Self, e: platform.MouseUpEvent) void {
+            fn onClickSave(self_: *FileDialog, e: ui.MouseUpEvent) void {
                 _ = e;
                 const list = self_.scroll_list.getWidget();
                 const idx = list.getSelectedIdx();
@@ -67,8 +63,8 @@ pub const FileDialog = struct {
             }
         };
         return w.Sized(.{ .width = 500, .height = 400 },
-            w.Column(.{}, &.{
-                w.Flex(.{ .stretch_width = true },
+            w.Column(.{ .expand_child_width = true }, &.{
+                w.Flex(.{},
                     w.ScrollList(.{ .bind = &self.scroll_list, .bg_color = Color.init(50, 50, 50, 255) },
                         c.tempRange(self.files.items.len, self, S.buildItem),
                     ),
@@ -87,7 +83,7 @@ pub const FileDialog = struct {
         );
     }
 
-    fn gotoDir(self: *Self, cwd: []const u8) void {
+    fn gotoDir(self: *FileDialog, cwd: []const u8) void {
         self.cwd.clearRetainingCapacity();
         self.cwd.appendSlice(cwd) catch @panic("error");
 
@@ -108,7 +104,7 @@ const FileItem = struct {
     kind: std.fs.File.Kind,
     name: []const u8,
 
-    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+    pub fn deinit(self: FileItem, alloc: std.mem.Allocator) void {
         alloc.free(self.name);
     }
 };

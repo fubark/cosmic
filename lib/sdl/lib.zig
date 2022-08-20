@@ -13,6 +13,7 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
     step.linkLibC();
     step.addIncludeDir(srcPath() ++ "/vendor/include");
+    step.addIncludeDir(srcPath() ++ "/");
 }
 
 pub fn create(
@@ -29,6 +30,8 @@ pub fn create(
     // Use SDL_config_minimal.h instead of relying on configure or CMake
     // and add defines to make it work for most modern platforms.
     var c_flags = std.ArrayList([]const u8).init(alloc);
+    // Don't include SDL rendering lib.
+    try c_flags.append("-DSDL_RENDER_DISABLED=1");
 
     if (target.getOsTag() == .macos) {
         try c_flags.appendSlice(&.{
@@ -51,6 +54,9 @@ pub fn create(
         "SDL_dataqueue.c",
         "SDL.c",
         "SDL_assert.c",
+        "SDL_list.c",
+        "SDL_utils.c",
+        "SDL_guid.c",
         "atomic/SDL_spinlock.c",
         "atomic/SDL_atomic.c",
         "audio/SDL_wave.c",
@@ -78,57 +84,20 @@ pub fn create(
         "file/SDL_rwops.c",
         "haptic/SDL_haptic.c",
         "hidapi/SDL_hidapi.c",
-        "libm/s_tan.c",
-        "libm/s_sin.c",
-        "libm/s_scalbn.c",
-        "libm/s_floor.c",
-        "libm/s_fabs.c",
-        "libm/s_cos.c",
-        "libm/s_copysign.c",
-        "libm/s_atan.c",
-        "libm/k_tan.c",
-        "libm/k_rem_pio2.c",
-        "libm/k_cos.c",
-        "libm/e_sqrt.c",
-        "libm/e_rem_pio2.c",
-        "libm/e_pow.c",
-        "libm/e_log.c",
-        "libm/e_log10.c",
-        "libm/e_fmod.c",
-        "libm/e_exp.c",
-        "libm/e_atan2.c",
-        "libm/k_sin.c",
         "locale/SDL_locale.c",
         "misc/SDL_url.c",
         "power/SDL_power.c",
+
+        // Minimum render code to compile.
         "render/SDL_yuv_sw.c",
         "render/SDL_render.c",
-        "render/SDL_d3dmath.c",
-        "render/vitagxm/SDL_render_vita_gxm_tools.c",
-        "render/vitagxm/SDL_render_vita_gxm_memory.c",
-        "render/vitagxm/SDL_render_vita_gxm.c",
-        "render/software/SDL_triangle.c",
-        "render/software/SDL_rotate.c",
-        "render/software/SDL_render_sw.c",
-        "render/software/SDL_drawpoint.c",
-        "render/software/SDL_drawline.c",
-        "render/software/SDL_blendpoint.c",
-        "render/software/SDL_blendline.c",
-        "render/software/SDL_blendfillrect.c",
-        "render/psp/SDL_render_psp.c",
-        "render/opengl/SDL_shaders_gl.c",
-        "render/opengles/SDL_render_gles.c",
-        "render/opengles2/SDL_shaders_gles2.c",
-        "render/opengles2/SDL_render_gles2.c",
-        "render/opengl/SDL_render_gl.c",
-        "render/direct3d/SDL_shaders_d3d.c",
-        "render/direct3d/SDL_render_d3d.c",
-        "render/direct3d11/SDL_shaders_d3d11.c",
-        "render/direct3d11/SDL_render_d3d11.c",
+
         "sensor/SDL_sensor.c",
         "stdlib/SDL_strtokr.c",
         "stdlib/SDL_stdlib.c",
         "stdlib/SDL_qsort.c",
+        "stdlib/SDL_memcpy.c",
+        "stdlib/SDL_memset.c",
         "stdlib/SDL_malloc.c",
         "stdlib/SDL_iconv.c",
         "stdlib/SDL_getenv.c",
@@ -162,6 +131,7 @@ pub fn create(
         // SDL_JOYSTICK
         "joystick/SDL_joystick.c",
         "joystick/SDL_gamecontroller.c",
+        "joystick/controller_type.c",
 
         // Dummy
         "audio/dummy/SDL_dummyaudio.c",

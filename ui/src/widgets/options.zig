@@ -12,7 +12,7 @@ pub const SliderOption = SliderOptionBase(false);
 pub const SliderFloatOption = SliderOptionBase(true);
 
 fn SliderOptionBase(comptime is_float: bool) type {
-    const Inner = if (is_float) w.SliderFloatUI else w.SliderUI;
+    const Inner = if (is_float) w.SliderFloatT else w.SliderT;
     const InnerProps = ui.WidgetProps(Inner);
     return struct {
         props: struct {
@@ -30,7 +30,7 @@ fn SliderOptionBase(comptime is_float: bool) type {
                     w.Text(.{
                         .text = self.props.label,
                         .color = Color.White,
-                        .font_size = 14,
+                        .fontSize = 14,
                     }),
                 ),
                 w.Flex(.{ .flex = 3, }, 
@@ -54,17 +54,15 @@ pub const SwitchOption = struct {
         onChange: ?stdx.Function(fn (bool) void) = null,
     },
 
-    inner: ui.WidgetRef(w.SwitchUI),
+    inner: ui.WidgetRef(w.SwitchT),
 
-    const Self = @This();
-
-    pub fn isSet(self: *Self) bool {
+    pub fn isSet(self: *SwitchOption) bool {
         return self.inner.getWidget().isSet();
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *SwitchOption, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Self, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *SwitchOption, _: ui.MouseUpEvent) void {
                 self_.inner.getWidget().toggle();
             }
         };
@@ -73,7 +71,7 @@ pub const SwitchOption = struct {
                 w.Flex(.{}, 
                     w.Text(.{
                         .text = self.props.label,
-                        .font_size = 14,
+                        .fontSize = 14,
                         .color = Color.White,
                     }),
                 ),

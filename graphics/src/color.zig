@@ -3,15 +3,14 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 const log = stdx.log.scoped(.color);
 
-pub const Color = struct {
-    const Self = @This();
-
-    channels: struct {
+pub const Color = extern union {
+    channels: packed struct {
         r: u8,
         g: u8,
         b: u8,
         a: u8,
     },
+    value: u32,
 
     // Standard colors.
     pub const StdRed = init(255, 0, 0, 255);
@@ -50,40 +49,41 @@ pub const Color = struct {
     pub const Transparent = init(0, 0, 0, 0);
     pub const Magenta = init(255, 0, 255, 255);
 
-    pub fn init(r: u8, g: u8, b: u8, a: u8) Self {
-        return @This(){
+    pub fn init(r: u8, g: u8, b: u8, a: u8) Color {
+        return .{
             .channels = .{ .r = r, .g = g, .b = b, .a = a },
         };
     }
 
-    pub fn initFloat(r: f32, g: f32, b: f32, a: f32) Self {
+    pub fn initFloat(r: f32, g: f32, b: f32, a: f32) Color {
+        @setRuntimeSafety(false);
         return init(@floatToInt(u8, r * 255), @floatToInt(u8, g * 255), @floatToInt(u8, b * 255), @floatToInt(u8, a * 255));
     }
 
-    pub fn withAlpha(self: Self, a: u8) Self {
+    pub fn withAlpha(self: Color, a: u8) Color {
         return init(self.channels.r, self.channels.g, self.channels.b, a);
     }
 
-    pub fn lighter(self: Self) Self {
+    pub fn lighter(self: Color) Color {
         return self.tint(0.25);
     }
 
-    pub fn darker(self: Self) Self {
+    pub fn darker(self: Color) Color {
         return self.shade(0.25);
     }
 
     // Increase darkness, amt range: [0,1]
-    pub fn shade(self: Self, amt: f32) Self {
+    pub fn shade(self: Color, amt: f32) Color {
         const factor = 1 - amt;
         return init(@floatToInt(u8, @intToFloat(f32, self.channels.r) * factor), @floatToInt(u8, @intToFloat(f32, self.channels.g) * factor), @floatToInt(u8, @intToFloat(f32, self.channels.b) * factor), self.channels.a);
     }
 
     // Increase lightness, amt range: [0,1]
-    pub fn tint(self: Self, amt: f32) Self {
+    pub fn tint(self: Color, amt: f32) Color {
         return init(@floatToInt(u8, @intToFloat(f32, 255 - self.channels.r) * amt) + self.channels.r, @floatToInt(u8, @intToFloat(f32, 255 - self.channels.g) * amt) + self.channels.g, @floatToInt(u8, @intToFloat(f32, 255 - self.channels.b) * amt) + self.channels.b, self.channels.a);
     }
 
-    pub fn parse(str: []const u8) !@This() {
+    pub fn parse(str: []const u8) !Color {
         switch (str.len) {
             3 => {
                 // RGB
@@ -120,7 +120,7 @@ pub const Color = struct {
         }
     }
 
-    pub fn toHsv(self: Self) [3]f32 {
+    pub fn toHsv(self: Color) [3]f32 {
         const r = @intToFloat(f32, self.channels.r) / 255;
         const g = @intToFloat(f32, self.channels.g) / 255;
         const b = @intToFloat(f32, self.channels.b) / 255;
@@ -153,7 +153,7 @@ pub const Color = struct {
 
     /// hue is in degrees [0,360]
     /// assumes sat/val are clamped to: [0,1]
-    pub fn fromHsv(hue: f32, sat: f32, val: f32) Self {
+    pub fn fromHsv(hue: f32, sat: f32, val: f32) Color {
         var res = Color.init(0, 0, 0, 255);
 
         // red
@@ -184,7 +184,7 @@ pub const Color = struct {
     }
 
     test "hsv to rgb" {
-        try t.eq(Color.fromHsv(270, 0.6, 0.7), Color.init(124, 71, 178, 255));
+        try t.eq(Color.fromHsv(270, 0.6, 0.7).channels, Color.init(124, 71, 178, 255).channels);
     }
 
     pub fn fromU32(c: u32) Color {
@@ -196,11 +196,11 @@ pub const Color = struct {
         );
     }
 
-    pub fn toU32(self: Self) u32 {
+    pub fn toU32(self: Color) u32 {
         return @as(u32, self.channels.r) << 24 | @as(u24, self.channels.g) << 16 | @as(u16, self.channels.b) << 8 | self.channels.a;
     }
 
-    pub fn toFloatArray(self: Self) [4]f32 {
+    pub fn toFloatArray(self: Color) [4]f32 {
         return .{
             @intToFloat(f32, self.channels.r) / 255,
             @intToFloat(f32, self.channels.g) / 255,
@@ -210,15 +210,30 @@ pub const Color = struct {
     }
 };
 
+test "Color.initFloat" {
+    var c = Color.initFloat(0, 0.5, 1.0, 1.0);
+    try t.eq(c.channels.r, 0);
+    try t.eq(c.channels.g, 127);
+    try t.eq(c.channels.b, 255);
+    try t.eq(c.channels.a, 255);
+
+    // Exceed byte bounds. Ensure no runtime error.
+    _ = Color.initFloat(2.0, 2.0, 2.0, 2.0);
+}
+
+test "Color.Transparent" {
+    try t.eq(0, Color.Transparent.value);
+}
+
 test "Color struct size" {
     try t.eq(@sizeOf(Color), 4);
 }
 
 test "toU32 fromU32" {
     const i = Color.Red.toU32();
-    try t.eq(Color.fromU32(i), Color.Red);
+    try t.eq(Color.fromU32(i).channels, Color.Red.channels);
 }
 
 test "from 3 digit hex" {
-    try t.eq(Color.parse("#ABC"), Color.init(170, 187, 204, 255));
+    try t.eq((try Color.parse("#ABC")).channels, Color.init(170, 187, 204, 255).channels);
 }

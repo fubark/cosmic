@@ -109,6 +109,10 @@ jobs:
         if: env.BUILD_TARGET != 'aarch64-macos-none'
         run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch
 
+      - name: Test app.
+        if: env.BUILD_TARGET != 'aarch64-macos-none' && env.BUILD_TARGET != 'x86_64-windows-gnu'
+        run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+
       # - name: Test behavior.
       #   if: env.BUILD_TARGET != 'aarch64-macos-none'
       #   run: zig build test-behavior ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}

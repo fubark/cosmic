@@ -88,52 +88,43 @@ pub const Graphics = struct {
             materials_desc_set_layout: vk.VkDescriptorSetLayout,
             cur_frame: gvk.Frame,
         },
+        .OpenGL => struct {
+            renderer: *ggl.Renderer,
+        },
         else => void,
     },
     batcher: Batcher,
     font_cache: FontCache,
 
-    cur_proj_transform: Transform,
-    view_transform: Transform,
-    cur_buf_width: u32,
-    cur_buf_height: u32,
+    /// The main paint state.
+    main_ps: *PaintState,
+
+    /// The current paint state.
+    ps: *PaintState,
+
+    /// The binded framebuffer dimensions.
+    buf_width: u32,
+    buf_height: u32,
+
     /// Feed the camera location to pbr shader.
     cur_cam_world_pos: Vec3,
 
     default_font_id: FontId,
     default_font_gid: FontGroupId,
-    cur_font_gid: FontGroupId,
-    cur_font_size: f32,
-    cur_text_align: TextAlign,
-    cur_text_baseline: TextBaseline,
-
-    cur_fill_color: Color,
-    cur_stroke_color: Color,
-    cur_line_width: f32,
-    cur_line_width_half: f32,
 
     tmp_joint_idxes: [50]u16,
 
-    clear_color: Color,
+    image_store: image.ImageStore,
 
     // Depth pixel ratio:
     // This is used to fetch a higher res font bitmap for high dpi displays.
     // eg. 18px user font size would normally use a 32px backed font bitmap but with dpr=2,
     // it would use a 64px bitmap font instead.
-    cur_dpr: f32,
-    cur_dpr_ceil: u8,
-
-    image_store: image.ImageStore,
-
-    // Draw state stack.
-    state_stack: std.ArrayList(DrawState),
-
-    cur_clip_rect: geom.Rect,
-    cur_scissors: bool,
-    cur_blend_mode: BlendMode,
+    dpr: f32,
+    dpr_ceil: u8,
 
     vec2_helper_buf: std.ArrayList(Vec2),
-    vec2_slice_helper_buf: std.ArrayList([]const Vec2),
+    vec2_slice_helper_buf: std.ArrayList(stdx.IndexSlice(u32)),
     qbez_helper_buf: std.ArrayList(SubQuadBez),
     tessellator: Tessellator,
 
@@ -144,15 +135,14 @@ pub const Graphics = struct {
     light_color: Vec3 = Vec3.init(5, 5, 5),
     light_vec: Vec3 = Vec3.init(-1, -1, 0).normalize(),
 
-    const Self = @This();
-
-    pub fn initGL(self: *Self, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
+    pub fn initGL(self: *Graphics, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
         self.initDefault(alloc, dpr);
-        self.initCommon(alloc);
+        try self.initCommon(alloc);
+        self.inner.renderer = renderer;
         self.batcher = Batcher.initGL(alloc, renderer, &self.image_store);
     }
 
-    pub fn initVK(self: *Self, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
+    pub fn initVK(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
         const physical = vk_ctx.physical;
         const device = vk_ctx.device;
         const fb_size = renderer.fb_size;
@@ -163,7 +153,7 @@ pub const Graphics = struct {
         self.inner.renderer = renderer;
         self.inner.tex_desc_set_layout = gvk.createTexDescriptorSetLayout(device);
         const desc_pool = renderer.desc_pool;
-        self.initCommon(alloc);
+        try self.initCommon(alloc);
 
         const vert_buf = gvk.buffer.createVertexBuffer(physical, device, 40 * 80000);
         const index_buf = gvk.buffer.createIndexBuffer(physical, device, 2 * 120000 * 3);
@@ -206,52 +196,41 @@ pub const Graphics = struct {
         }
     }
 
-    fn initDefault(self: *Self, alloc: std.mem.Allocator, dpr: f32) void {
+    fn initDefault(self: *Graphics, alloc: std.mem.Allocator, dpr: f32) void {
         self.* = .{
             .alloc = alloc,
             .white_tex = undefined,
             .inner = undefined,
             .batcher = undefined,
             .font_cache = undefined,
+            .buf_width = undefined,
+            .buf_height = undefined,
             .default_font_id = undefined,
             .default_font_gid = undefined,
-            .cur_buf_width = 0,
-            .cur_buf_height = 0,
-            .cur_font_gid = undefined,
-            .cur_font_size = undefined,
-            .cur_fill_color = Color.Black,
-            .cur_stroke_color = Color.Black,
-            .cur_blend_mode = ._undefined,
-            .cur_line_width = undefined,
-            .cur_line_width_half = undefined,
-            .cur_proj_transform = undefined,
+            .main_ps = undefined,
+            .ps = undefined,
             .cur_cam_world_pos = undefined,
             .tmp_joint_idxes = undefined,
-            .view_transform = undefined,
             .image_store = image.ImageStore.init(alloc, self),
-            .state_stack = std.ArrayList(DrawState).init(alloc),
-            .cur_clip_rect = undefined,
-            .cur_scissors = undefined,
-            .cur_text_align = .Left,
-            .cur_text_baseline = .Top,
-            .cur_dpr = dpr,
-            .cur_dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
+            .dpr = dpr,
+            .dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
             .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
-            .vec2_slice_helper_buf = std.ArrayList([]const Vec2).init(alloc),
+            .vec2_slice_helper_buf = std.ArrayList(stdx.IndexSlice(u32)).init(alloc),
             .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
             .tessellator = undefined,
             .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
-            .clear_color = undefined,
         };
     }
 
-    fn initCommon(self: *Self, alloc: std.mem.Allocator) void {
+    fn initCommon(self: *Graphics, alloc: std.mem.Allocator) !void {
         self.tessellator.init(alloc);
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
-        self.white_tex = self.image_store.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
+        self.white_tex = self.image_store.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), .{
+            .linear_filter = false,
+        });
 
         self.font_cache.init(alloc, self);
 
@@ -260,15 +239,10 @@ pub const Graphics = struct {
 
         self.default_font_id = self.addFontTTF(vera_ttf);
         self.default_font_gid = self.font_cache.getOrLoadFontGroup(&.{self.default_font_id});
-        self.setFont(self.default_font_id);
 
-        // Set default font size.
-        self.setFontSize(20);
-
-        // View transform can be changed by user transforms.
-        self.view_transform = Transform.initIdentity();
-
-        self.setLineWidth(1);
+        self.main_ps = try alloc.create(PaintState);
+        self.main_ps.* = PaintState.init(self.default_font_gid);
+        self.ps = self.main_ps;
 
         if (build_options.has_lyon) {
             lyon.init();
@@ -280,7 +254,7 @@ pub const Graphics = struct {
         // gl.clearColor(0, 0, 0, 1.0);
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Graphics) void {
         switch (Backend) {
             .Vulkan => {
                 const device = self.inner.ctx.device;
@@ -294,7 +268,9 @@ pub const Graphics = struct {
         }
         self.batcher.deinit(self.alloc);
         self.font_cache.deinit();
-        self.state_stack.deinit();
+
+        self.main_ps.deinit(self.alloc);
+        self.alloc.destroy(self.main_ps);
 
         if (build_options.has_lyon) {
             lyon.deinit();
@@ -309,48 +285,48 @@ pub const Graphics = struct {
         self.raster_glyph_buffer.deinit();
     }
 
-    pub fn addFontOTB(self: *Self, data: []const graphics.BitmapFontData) FontId {
+    pub fn addFontOTB(self: *Graphics, data: []const graphics.BitmapFontData) FontId {
         return self.font_cache.addFontOTB(data);
     }
 
-    pub fn addFontTTF(self: *Self, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Graphics, data: []const u8) FontId {
         return self.font_cache.addFontTTF(data);
     }
 
-    pub fn addFallbackFont(self: *Self, font_id: FontId) void {
+    pub fn addFallbackFont(self: *Graphics, font_id: FontId) void {
         self.font_cache.addSystemFont(font_id) catch unreachable;
     }
 
-    pub fn clipRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn clipRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
             .OpenGL => {
-                self.cur_clip_rect = .{
+                self.ps.clip_rect = .{
                     .x = x,
                     // clip-y starts at bottom.
-                    .y = @intToFloat(f32, self.cur_buf_height) - (y + height),
+                    .y = @intToFloat(f32, self.buf_height) - (y + height),
                     .width = width,
                     .height = height,
                 };
             },
             .Vulkan => {
-                self.cur_clip_rect = .{
-                    .x = x * self.cur_dpr,
-                    .y = y * self.cur_dpr,
-                    .width = width * self.cur_dpr,
-                    .height = height * self.cur_dpr,
+                self.ps.clip_rect = .{
+                    .x = x * self.dpr,
+                    .y = y * self.dpr,
+                    .width = width * self.dpr,
+                    .height = height * self.dpr,
                 };
             },
             else => {},
         }
-        self.cur_scissors = true;
+        self.ps.using_scissors = true;
 
         // Execute current draw calls before we alter state.
         self.endCmd();
 
-        self.clipRectCmd(self.cur_clip_rect);
+        self.clipRectCmd(self.ps.clip_rect);
     }
 
-    fn clipRectCmd(self: Self, rect: geom.Rect) void {
+    fn clipRectCmd(self: Graphics, rect: geom.Rect) void {
         switch (Backend) {
             .OpenGL => {
                 gl.scissor(@floatToInt(c_int, rect.x), @floatToInt(c_int, rect.y), @floatToInt(c_int, rect.width), @floatToInt(c_int, rect.height));
@@ -373,33 +349,33 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn resetTransform(self: *Self) void {
-        self.view_transform.reset();
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn resetTransform(self: *Graphics) void {
+        self.ps.view_xform.reset();
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn pushState(self: *Self) void {
-        self.state_stack.append(.{
-            .clip_rect = self.cur_clip_rect,
-            .use_scissors = self.cur_scissors,
-            .blend_mode = self.cur_blend_mode,
-            .view_transform = self.view_transform,
-        }) catch unreachable;
+    pub fn pushState(self: *Graphics) void {
+        self.ps.state_stack.append(self.alloc, .{
+            .clip_rect = self.ps.clip_rect,
+            .use_scissors = self.ps.using_scissors,
+            .blend_mode = self.ps.blend_mode,
+            .view_xform = self.ps.view_xform,
+        }) catch fatal();
     }
 
-    pub fn popState(self: *Self) void {
+    pub fn popState(self: *Graphics) void {
         // log.debug("popState", .{});
 
         // Execute current draw calls before altering state.
         self.endCmd();
 
-        const state = self.state_stack.pop();
+        const state = self.ps.state_stack.pop();
         if (state.use_scissors) {
             const r = state.clip_rect;
             self.clipRect(r.x, r.y, r.width, r.height);
         } else {
-            self.cur_scissors = false;
+            self.ps.using_scissors = false;
             switch (Backend) {
                 .OpenGL => {
                     gl.disable(gl.GL_SCISSOR_TEST);
@@ -411,89 +387,107 @@ pub const Graphics = struct {
                 else => {},
             }
         }
-        if (state.blend_mode != self.cur_blend_mode) {
+        if (state.blend_mode != self.ps.blend_mode) {
             self.setBlendMode(state.blend_mode);
         }
-        if (!std.meta.eql(self.view_transform.mat, state.view_transform.mat)) {
-            self.view_transform = state.view_transform;
-            const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        if (!std.meta.eql(self.ps.view_xform.mat, state.view_xform.mat)) {
+            self.ps.view_xform = state.view_xform;
+            const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
             self.batcher.mvp = mvp;
         }
     }
 
-    pub fn getViewTransform(self: Self) Transform {
-        return self.view_transform;
+    pub fn getViewTransform(self: Graphics) Transform {
+        return self.ps.view_xform;
     }
 
-    pub fn getLineWidth(self: Self) f32 {
-        return self.cur_line_width;
+    pub fn getLineWidth(self: Graphics) f32 {
+        return self.ps.line_width;
     }
 
-    pub fn setLineWidth(self: *Self, width: f32) void {
-        self.cur_line_width = width;
-        self.cur_line_width_half = width * 0.5;
+    pub fn setLineWidth(self: *Graphics, width: f32) void {
+        self.ps.line_width = width;
+        self.ps.line_width_half = width * 0.5;
     }
 
-    pub fn setFont(self: *Self, font_id: FontId) void {
+    pub fn setPaintState(self: *Graphics, ps: *PaintState) void {
+        self.ps = ps;
+    }
+
+    pub fn setMainPaintState(self: *Graphics) void {
+        self.ps = self.main_ps;
+    }
+
+    pub fn setFont(self: *Graphics, font_id: FontId) void {
         // Lookup font group single font.
         const font_gid = self.font_cache.getOrLoadFontGroup(&.{font_id});
         self.setFontGroup(font_gid);
     }
 
-    pub fn setFontGroup(self: *Self, font_gid: FontGroupId) void {
-        if (font_gid != self.cur_font_gid) {
-            self.cur_font_gid = font_gid;
+    pub fn setFontGroup(self: *Graphics, font_gid: FontGroupId) void {
+        if (font_gid != self.ps.font_gid) {
+            self.ps.font_gid = font_gid;
         }
     }
 
-    pub inline fn clear(_: Self) void {
+    pub inline fn clear(_: Graphics) void {
         gl.clear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
     }
 
-    pub fn setClearColor(self: *Self, color: Color) void {
-        self.clear_color = color;
+    pub fn setClearColor(self: *Graphics, color: Color) void {
+        self.ps.clear_color = color;
         if (Backend == .OpenGL) {
             const f = color.toFloatArray();
             gl.clearColor(f[0], f[1], f[2], f[3]);
         }
     }
 
-    pub fn getFillColor(self: Self) Color {
-        return self.cur_fill_color;
+    pub fn getFillColor(self: Graphics) Color {
+        return self.ps.fill_color;
     }
 
-    pub fn setFillColor(self: *Self, color: Color) void {
+    pub fn setFillColor(self: *Graphics, color: Color) void {
         self.batcher.beginTex(self.white_tex);
-        self.cur_fill_color = color;
+        self.ps.fill_color = color;
     }
 
-    pub fn setFillGradient(self: *Self, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
+    pub fn setFillColor3f(self: *Graphics, r: f32, g: f32, b: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        self.ps.fill_color = Color.initFloat(r, g, b, 1.0);
+    }
+
+    pub fn setFillColor4f(self: *Graphics, r: f32, g: f32, b: f32, a: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        self.ps.fill_color = Color.initFloat(r, g, b, a);
+    }
+
+    pub fn setFillGradient(self: *Graphics, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         // Convert to buffer coords on cpu.
         if (Backend == .OpenGL and IsWasm) {
             // Use bottom left coords.
-            const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, @intToFloat(f32, self.cur_buf_height) - start_y)).mul(self.cur_dpr);
-            const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, @intToFloat(f32, self.cur_buf_height) - end_y)).mul(self.cur_dpr);
+            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.buf_height) - start_y)).mul(self.dpr);
+            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.buf_height) - end_y)).mul(self.dpr);
             self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
         } else {
-            const start_screen_pos = self.view_transform.interpolatePt(vec2(start_x, start_y)).mul(self.cur_dpr);
-            const end_screen_pos = self.view_transform.interpolatePt(vec2(end_x, end_y)).mul(self.cur_dpr);
+            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, start_y)).mul(self.dpr);
+            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, end_y)).mul(self.dpr);
             self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
         }
     }
 
-    pub fn getStrokeColor(self: Self) Color {
-        return self.cur_stroke_color;
+    pub fn getStrokeColor(self: Graphics) Color {
+        return self.ps.stroke_color;
     }
 
-    pub fn setStrokeColor(self: *Self, color: Color) void {
-        self.cur_stroke_color = color;
+    pub fn setStrokeColor(self: *Graphics, color: Color) void {
+        self.ps.stroke_color = color;
     }
 
-    pub fn getFontSize(self: Self) f32 {
-        return self.cur_font_size;
+    pub fn getFontSize(self: Graphics) f32 {
+        return self.ps.font_size;
     }
 
-    pub fn getOrLoadFontGroupByFamily(self: *Self, family: graphics.FontFamily) FontGroupId {
+    pub fn getOrLoadFontGroupByFamily(self: *Graphics, family: graphics.FontFamily) FontGroupId {
         switch (family) {
             .Name => {
                 return self.font_cache.getOrLoadFontGroupByNameSeq(&.{family.Name}).?;
@@ -504,40 +498,40 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn setFontSize(self: *Self, size: f32) void {
-        if (self.cur_font_size != size) {
-            self.cur_font_size = size;
+    pub fn setFontSize(self: *Graphics, size: f32) void {
+        if (self.ps.font_size != size) {
+            self.ps.font_size = size;
         }
     }
 
-    pub fn setTextAlign(self: *Self, align_: TextAlign) void {
-        self.cur_text_align = align_;
+    pub fn setTextAlign(self: *Graphics, align_: TextAlign) void {
+        self.ps.text_align = align_;
     }
 
-    pub fn setTextBaseline(self: *Self, baseline: TextBaseline) void {
-        self.cur_text_baseline = baseline;
+    pub fn setTextBaseline(self: *Graphics, baseline: TextBaseline) void {
+        self.ps.text_baseline = baseline;
     }
 
-    pub fn measureText(self: *Self, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr_ceil, str, res, true);
+    pub fn measureText(self: *Graphics, str: []const u8, res: *TextMetrics) void {
+        text_renderer.measureText(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, str, res, true);
     }
 
-    pub fn measureFontText(self: *Self, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
-        text_renderer.measureText(self, group_id, size, self.cur_dpr_ceil, str, res, true);
+    pub fn measureFontText(self: *Graphics, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
+        text_renderer.measureText(self, group_id, size, self.dpr_ceil, str, res, true);
     }
 
-    pub inline fn textGlyphIter(self: *Self, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
-        return text_renderer.textGlyphIter(self, font_gid, size, self.cur_dpr_ceil, str);
+    pub inline fn textGlyphIter(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
+        return text_renderer.textGlyphIter(self, font_gid, size, self.dpr_ceil, str);
     }
 
-    pub inline fn fillText(self: *Self, x: f32, y: f32, str: []const u8) void {
+    pub inline fn fillText(self: *Graphics, x: f32, y: f32, str: []const u8) void {
         self.fillTextExt(x, y, str, .{
-            .@"align" = self.cur_text_align,
-            .baseline = self.cur_text_baseline,
+            .@"align" = self.ps.text_align,
+            .baseline = self.ps.text_baseline,
         });
     }
 
-    pub fn fillTextExt(self: *Self, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) void {
+    pub fn fillTextExt(self: *Graphics, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
 
@@ -556,7 +550,7 @@ pub const Graphics = struct {
             }
         }
         if (opts.baseline != .Top) {
-            const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.cur_font_gid, self.cur_font_size);
+            const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.ps.font_gid, self.ps.font_size);
             switch (opts.baseline) {
                 .Top => {},
                 .Middle => start_y = y - vmetrics.height / 2,
@@ -564,7 +558,7 @@ pub const Graphics = struct {
                 .Bottom => start_y = y - vmetrics.height,
             }
         }
-        var iter = text_renderer.RenderTextIterator.init(self, self.cur_font_gid, self.cur_font_size, self.cur_dpr_ceil, start_x, start_y, str);
+        var iter = text_renderer.RenderTextIterator.init(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, start_x, start_y, str);
 
         while (iter.nextCodepointQuad(true)) {
             self.setCurrentTexture(iter.quad.image);
@@ -572,7 +566,7 @@ pub const Graphics = struct {
             if (iter.quad.is_color_bitmap) {
                 vert.setColor(Color.White);
             } else {
-                vert.setColor(self.cur_fill_color);
+                vert.setColor(self.ps.fill_color);
             }
 
             // top left
@@ -602,86 +596,98 @@ pub const Graphics = struct {
         }
     }
 
-    pub inline fn setCurrentTexture(self: *Self, image_tex: image.ImageTex) void {
+    pub inline fn setCurrentTexture(self: *Graphics, image_tex: image.ImageTex) void {
         self.batcher.beginTexture(image_tex);
     }
 
-    fn pushLyonVertexData(self: *Self, data: *lyon.VertexData, color: Color) void {
+    fn pushLyonVertexData(self: *Graphics, data: *lyon.VertexData, color: Color) void {
         self.batcher.ensureUnusedBuffer(data.vertex_len, data.index_len);
         self.batcher.pushLyonVertexData(data, color);
     }
 
-    fn pushVertexData(self: *Self, comptime num_verts: usize, comptime num_indices: usize, data: *VertexData(num_verts, num_indices)) void {
+    fn pushVertexData(self: *Graphics, comptime num_verts: usize, comptime num_indices: usize, data: *VertexData(num_verts, num_indices)) void {
         self.batcher.ensureUnusedBuffer(num_verts, num_indices);
         self.batcher.pushVertexData(num_verts, num_indices, data);
     }
 
-    pub fn drawRectVec(self: *Self, pos: Vec2, width: f32, height: f32) void {
+    pub fn drawRectVec(self: *Graphics, pos: Vec2, width: f32, height: f32) void {
         self.drawRect(pos.x, pos.y, width, height);
     }
 
-    pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+        self.drawRectBounds(x, y, x + width, y + height);
+    }
+
+    pub fn drawRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top border.
-        self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, width + self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 - self.ps.line_width_half, x1 + self.ps.line_width_half, y0 + self.ps.line_width_half, self.ps.stroke_color);
         // Right border.
-        self.fillRectColor(x + width - self.cur_line_width_half, y + self.cur_line_width_half, self.cur_line_width, height - self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x1 - self.ps.line_width_half, y0 + self.ps.line_width_half, x1 + self.ps.line_width_half, y1 - self.ps.line_width_half, self.ps.stroke_color);
         // Bottom border.
-        self.fillRectColor(x - self.cur_line_width_half, y + height - self.cur_line_width_half, width + self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.ps.line_width_half, y1 - self.ps.line_width_half, x1 + self.ps.line_width_half, y1 + self.ps.line_width_half, self.ps.stroke_color);
         // Left border.
-        self.fillRectColor(x - self.cur_line_width_half, y + self.cur_line_width_half, self.cur_line_width, height - self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 + self.ps.line_width_half, x0 + self.ps.line_width_half, y1 - self.ps.line_width_half, self.ps.stroke_color);
     }
 
     // Uses path rendering.
-    pub fn strokeRectLyon(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn strokeRectLyon(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         self.batcher.beginTex(self.white_tex);
         // log.debug("strokeRect {d:.2} {d:.2} {d:.2} {d:.2}", .{pos.x, pos.y, width, height});
         const b = lyon.initBuilder();
         lyon.addRectangle(b, &.{ .x = x, .y = y, .width = width, .height = height });
-        var data = lyon.buildStroke(b, self.cur_line_width);
+        var data = lyon.buildStroke(b, self.ps.line_width);
 
         self.setCurrentTexture(self.white_tex);
-        self.pushLyonVertexData(&data, self.cur_stroke_color);
+        self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn fillRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+    pub fn fillRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.fillRoundRectBounds(x, y, x + width, y + height, radius);
+    }
+
+    pub fn fillRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         // Top left corner.
-        self.fillCircleSectorN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
+        self.fillCircleSectorN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
-        self.fillRect(x, y + radius, radius, height - radius * 2);
+        self.fillRectBounds(x0, y0 + radius, x0 + radius, y1 - radius);
         // Bottom left corner.
-        self.fillCircleSectorN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
+        self.fillCircleSectorN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
         // Middle.
-        self.fillRect(x + radius, y, width - radius * 2, height);
+        self.fillRectBounds(x0 + radius, y0, x1 - radius, y1);
         // Top right corner.
-        self.fillCircleSectorN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
+        self.fillCircleSectorN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
-        self.fillRect(x + width - radius, y + radius, radius, height - radius * 2);
+        self.fillRectBounds(x1 - radius, y0 + radius, x1, y1 - radius);
         // Bottom right corner.
-        self.fillCircleSectorN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
+        self.fillCircleSectorN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
-    pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+    pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.drawRoundRectBounds(x, y, x + width, y + height, radius);
+    }
+
+    pub fn drawRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top left corner.
-        self.drawCircleArcN(x + radius, y + radius, radius, math.pi, math.pi_half, 90);
+        self.drawCircleArcN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
-        self.fillRectColor(x - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 + radius, x0 + self.ps.line_width_half, y1 - radius, self.ps.stroke_color);
         // Bottom left corner.
-        self.drawCircleArcN(x + radius, y + height - radius, radius, math.pi_half, math.pi_half, 90);
+        self.drawCircleArcN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
         // Top.
-        self.fillRectColor(x + radius, y - self.cur_line_width_half, width - radius * 2, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 + radius, y0 - self.ps.line_width_half, x1 - radius, y0 + self.ps.line_width_half, self.ps.stroke_color);
         // Bottom.
-        self.fillRectColor(x + radius, y + height - self.cur_line_width_half, width - radius * 2, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x0 + radius, y1 - self.ps.line_width_half, x1 - radius, y1 + self.ps.line_width_half, self.ps.stroke_color);
         // Top right corner.
-        self.drawCircleArcN(x + width - radius, y + radius, radius, -math.pi_half, math.pi_half, 90);
+        self.drawCircleArcN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
-        self.fillRectColor(x + width - self.cur_line_width_half, y + radius, self.cur_line_width, height - radius * 2, self.cur_stroke_color);
+        self.fillRectBoundsColor(x1 - self.ps.line_width_half, y0 + radius, x1 + self.ps.line_width_half, y1 - radius, self.ps.stroke_color);
         // Bottom right corner.
-        self.drawCircleArcN(x + width - radius, y + height - radius, radius, 0, math.pi_half, 90);
+        self.drawCircleArcN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
-    pub fn drawPlane(self: *Self) void {
+    pub fn drawPlane(self: *Graphics) void {
         self.batcher.endCmd();
         self.batcher.cur_shader_type = .Plane;
 
@@ -711,12 +717,16 @@ pub const Graphics = struct {
         self.batcher.endCmdForce();
     }
 
-    pub fn fillRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
-        self.fillRectColor(x, y, width, height, self.cur_fill_color);
+    pub fn fillRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+        self.fillRectBoundsColor(x, y, x + width, y + height, self.ps.fill_color);
+    }
+
+    pub fn fillRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        self.fillRectBoundsColor(x0, y0, x1, y1, self.ps.fill_color);
     }
 
     // Sometimes we want to override the color (eg. rendering part of a stroke.)
-    fn fillRectColor(self: *Self, x: f32, y: f32, width: f32, height: f32, color: Color) void {
+    fn fillRectBoundsColor(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, color: Color) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(4, 6);
 
@@ -726,22 +736,22 @@ pub const Graphics = struct {
         const start_idx = self.batcher.mesh.getNextIndexId();
 
         // top left
-        vert.setXY(x, y);
+        vert.setXY(x0, y0);
         vert.setUV(0, 0);
         self.batcher.mesh.pushVertex(vert);
 
         // top right
-        vert.setXY(x + width, y);
+        vert.setXY(x1, y0);
         vert.setUV(1, 0);
         self.batcher.mesh.pushVertex(vert);
 
         // bottom right
-        vert.setXY(x + width, y + height);
+        vert.setXY(x1, y1);
         vert.setUV(1, 1);
         self.batcher.mesh.pushVertex(vert);
 
         // bottom left
-        vert.setXY(x, y + height);
+        vert.setXY(x0, y1);
         vert.setUV(0, 1);
         self.batcher.mesh.pushVertex(vert);
 
@@ -749,7 +759,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         self.batcher.beginTex(self.white_tex);
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
@@ -761,15 +771,15 @@ pub const Graphics = struct {
     }
 
     // n is the number of sections in the arc we will draw.
-    pub fn drawCircleArcN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+    pub fn drawCircleArcN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.batcher.beginTex(self.white_tex);
         self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
 
-        const inner_rad = radius - self.cur_line_width_half;
-        const outer_rad = radius + self.cur_line_width_half;
+        const inner_rad = radius - self.ps.line_width_half;
+        const outer_rad = radius + self.ps.line_width_half;
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_stroke_color);
+        vert.setColor(self.ps.stroke_color);
         vert.setUV(0, 0); // Currently we don't do uv mapping for strokes.
 
         // Add first two vertices.
@@ -800,12 +810,12 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillCircleSectorN(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, num_tri: u32) void {
+    pub fn fillCircleSectorN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, num_tri: u32) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(num_tri + 2, num_tri * 3);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_fill_color);
+        vert.setColor(self.ps.fill_color);
 
         // Add center.
         const center = self.batcher.mesh.getNextIndexId();
@@ -840,7 +850,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillCircleSector(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn fillCircleSector(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -851,21 +861,21 @@ pub const Graphics = struct {
     }
 
     // Same implementation as fillEllipse when h_radius = v_radius.
-    pub fn fillCircle(self: *Self, x: f32, y: f32, radius: f32) void {
+    pub fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         self.fillCircleSectorN(x, y, radius, 0, math.pi_2, 360);
     }
 
     // Same implementation as drawEllipse when h_radius = v_radius. Might be slightly faster since we use fewer vars.
-    pub fn drawCircle(self: *Self, x: f32, y: f32, radius: f32) void {
+    pub fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         self.drawCircleArcN(x, y, radius, 0, math.pi_2, 360);
     }
 
-    pub fn fillEllipseSectorN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+    pub fn fillEllipseSectorN(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(n + 2, n * 3);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_fill_color);
+        vert.setColor(self.ps.fill_color);
 
         // Add center.
         const center = self.batcher.mesh.getNextIndexId();
@@ -900,7 +910,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillEllipseSector(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn fillEllipseSector(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -910,11 +920,11 @@ pub const Graphics = struct {
         self.fillEllipseSectorN(x, y, h_radius, v_radius, start_rad, sweep_rad, n);
     }
 
-    pub fn fillEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn fillEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         self.fillEllipseSectorN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -925,17 +935,17 @@ pub const Graphics = struct {
     }
 
     // n is the number of sections in the arc we will draw.
-    pub fn drawEllipseArcN(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+    pub fn drawEllipseArcN(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         self.batcher.beginTex(self.white_tex);
         self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
 
-        const inner_h_rad = h_radius - self.cur_line_width_half;
-        const inner_v_rad = v_radius - self.cur_line_width_half;
-        const outer_h_rad = h_radius + self.cur_line_width_half;
-        const outer_v_rad = v_radius + self.cur_line_width_half;
+        const inner_h_rad = h_radius - self.ps.line_width_half;
+        const inner_v_rad = v_radius - self.ps.line_width_half;
+        const outer_h_rad = h_radius + self.ps.line_width_half;
+        const outer_v_rad = v_radius + self.ps.line_width_half;
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_stroke_color);
+        vert.setColor(self.ps.stroke_color);
         vert.setUV(0, 0); // Currently we don't do uv mapping for strokes.
 
         // Add first two vertices.
@@ -966,32 +976,32 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         self.drawEllipseArcN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawPoint(self: *Self, x: f32, y: f32) void {
+    pub fn drawPoint(self: *Graphics, x: f32, y: f32) void {
         self.batcher.beginTex(self.white_tex);
-        self.fillRectColor(x - self.cur_line_width_half, y - self.cur_line_width_half, self.cur_line_width, self.cur_line_width, self.cur_stroke_color);
+        self.fillRectBoundsColor(x - self.ps.line_width_half, y - self.ps.line_width_half, x + self.ps.line_width_half, y + self.ps.line_width_half, self.ps.stroke_color);
     }
 
-    pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
+    pub fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
         self.batcher.beginTex(self.white_tex);
         if (x1 == x2) {
-            self.fillRectColor(x1 - self.cur_line_width_half, y1, self.cur_line_width, y2 - y1, self.cur_stroke_color);
+            self.fillRectBoundsColor(x1 - self.ps.line_width_half, y1, x1 + self.ps.line_width_half, y2, self.ps.stroke_color);
         } else {
-            const normal = vec2(y2 - y1, x2 - x1).toLength(self.cur_line_width_half);
+            const normal = vec2(y2 - y1, x2 - x1).toLength(self.ps.line_width_half);
             self.fillQuad(
                 x1 - normal.x, y1 + normal.y,
                 x1 + normal.x, y1 - normal.y,
                 x2 + normal.x, y2 - normal.y,
                 x2 - normal.x, y2 + normal.y,
-                self.cur_stroke_color,
+                self.ps.stroke_color,
             );
         }
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+    pub fn drawQuadraticBezierCurve(self: *Graphics, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const q_bez = QuadBez{
             .x0 = x0,
@@ -1002,21 +1012,21 @@ pub const Graphics = struct {
             .y1 = y1,
         };
         self.vec2_helper_buf.clearRetainingCapacity();
-        stroke.strokeQuadBez(self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.cur_line_width_half, self.cur_stroke_color);
+        stroke.strokeQuadBez(self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.ps.line_width_half, self.ps.stroke_color);
     }
 
-    pub fn drawQuadraticBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+    pub fn drawQuadraticBezierCurveLyon(self: *Graphics, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.quadraticBezierTo(b, &pt(cx, cy), &pt(x1, y1));
         lyon.end(b, false);
-        var data = lyon.buildStroke(b, self.cur_line_width);
+        var data = lyon.buildStroke(b, self.ps.line_width);
         self.setCurrentTexture(self.white_tex);
-        self.pushLyonVertexData(&data, self.cur_stroke_color);
+        self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawCubicBezierCurve(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+    pub fn drawCubicBezierCurve(self: *Graphics, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const c_bez = CubicBez{
             .x0 = x0,
@@ -1030,22 +1040,22 @@ pub const Graphics = struct {
         };
         self.qbez_helper_buf.clearRetainingCapacity();
         self.vec2_helper_buf.clearRetainingCapacity();
-        stroke.strokeCubicBez(self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.cur_line_width_half, self.cur_stroke_color);
+        stroke.strokeCubicBez(self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.ps.line_width_half, self.ps.stroke_color);
     }
 
-    pub fn drawCubicBezierCurveLyon(self: *Self, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+    pub fn drawCubicBezierCurveLyon(self: *Graphics, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.begin(b, &pt(x0, y0));
         lyon.cubicBezierTo(b, &pt(cx0, cy0), &pt(cx1, cy1), &pt(x1, y1));
         lyon.end(b, false);
-        var data = lyon.buildStroke(b, self.cur_line_width);
+        var data = lyon.buildStroke(b, self.ps.line_width);
         self.setCurrentTexture(self.white_tex);
-        self.pushLyonVertexData(&data, self.cur_stroke_color);
+        self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
     // Points are given in ccw order. Currently doesn't map uvs.
-    pub fn fillQuad(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, x4: f32, y4: f32, color: Color) void {
+    pub fn fillQuad(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32, x4: f32, y4: f32, color: Color) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(4, 6);
 
@@ -1065,19 +1075,19 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn fillSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+    pub fn fillSvgPath(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
         const t_ = trace(@src());
         defer t_.end();
         self.drawSvgPath(x, y, path, true);
     }
 
-    pub fn fillSvgPathLyon(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+    pub fn fillSvgPathLyon(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
         const t_ = trace(@src());
         defer t_.end();
         self.drawSvgPathLyon(x, y, path, true);
     }
 
-    pub fn fillSvgPathTess2(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+    pub fn fillSvgPathTess2(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
         const t_ = trace(@src());
         defer t_.end();
         _ = x;
@@ -1099,7 +1109,10 @@ pub const Graphics = struct {
             switch (cmd) {
                 .MoveTo => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1115,7 +1128,10 @@ pub const Graphics = struct {
                 },
                 .MoveToRel => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1233,14 +1249,18 @@ pub const Graphics = struct {
 
         if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
             // Push the current polygon.
-            self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+            self.vec2_slice_helper_buf.append(.{
+                .start = cur_poly_start,
+                .end = @intCast(u32, self.vec2_helper_buf.items.len),
+            }) catch fatal();
         }
         if (self.vec2_slice_helper_buf.items.len == 0) {
             return;
         }
 
-        for (self.vec2_slice_helper_buf.items) |polygon| {
+        for (self.vec2_slice_helper_buf.items) |polygon_slice| {
             var tess = getTess2Handle();
+            const polygon = self.vec2_helper_buf.items[polygon_slice.start..polygon_slice.end];
             tess2.tessAddContour(tess, 2, &polygon[0], 8, @intCast(c_int, polygon.len));
             const res = tess2.tessTesselate(tess, tess2.TESS_WINDING_ODD, tess2.TESS_POLYGONS, 3, 2, null);
             if (res == 0) {
@@ -1248,7 +1268,7 @@ pub const Graphics = struct {
             }
 
             var gpu_vert: TexShaderVertex = undefined;
-            gpu_vert.setColor(self.cur_fill_color);
+            gpu_vert.setColor(self.ps.fill_color);
             const vert_offset_id = self.batcher.mesh.getNextIndexId();
             var nverts = tess2.tessGetVertexCount(tess);
             var verts = tess2.tessGetVertices(tess);
@@ -1269,19 +1289,19 @@ pub const Graphics = struct {
             const elems = tess2.tessGetElements(tess);
             i = 0;
             while (i < nelems) : (i += 1) {
-                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
-                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
-                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
+                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
+                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3]));
                 // log.debug("idx {}", .{elems[i]});
             }
         }
     }
 
-    pub fn strokeSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath) void {
+    pub fn strokeSvgPath(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
         self.drawSvgPath(x, y, path, false);
     }
 
-    fn drawSvgPath(self: *Self, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
+    fn drawSvgPath(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
         // log.debug("drawSvgPath {} {}", .{path.cmds.len, fill});
 
         _ = x;
@@ -1303,7 +1323,10 @@ pub const Graphics = struct {
             switch (cmd) {
                 .MoveTo => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1319,7 +1342,10 @@ pub const Graphics = struct {
                 },
                 .MoveToRel => {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+                        self.vec2_slice_helper_buf.append(.{
+                            .start = cur_poly_start,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
+                        }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
                         _ = self.vec2_helper_buf.pop();
@@ -1332,6 +1358,32 @@ pub const Graphics = struct {
                     };
                     cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
                     self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .CurveTo => {
+                    const data = path.getData(.CurveTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.CurveTo)) / 4;
+
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    last_control_pt = .{
+                        .x = data.cb_x,
+                        .y = data.cb_y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = data.ca_x,
+                        .cy0 = data.ca_y,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
                 },
                 .CurveToRel => {
                     const data = path.getData(.CurveToRel, cur_data_idx);
@@ -1379,6 +1431,48 @@ pub const Graphics = struct {
                     };
                     self.vec2_helper_buf.append(cur_pt) catch unreachable;
                 },
+                .EllipticArcRel => {
+                    const data = path.getData(.EllipticArcRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.EllipticArcRel)) / 4;
+                    // TODO.
+                    _ = data;
+                },
+                .SmoothCurveTo => {
+                    const data = path.getData(.SmoothCurveTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveTo)) / 4;
+
+                    var cx0: f32 = undefined;
+                    var cy0: f32 = undefined;
+                    if (last_cmd_was_curveto) {
+                        // Reflection of last control point over current pos.
+                        cx0 = cur_pt.x + (cur_pt.x - last_control_pt.x);
+                        cy0 = cur_pt.y + (cur_pt.y - last_control_pt.y);
+                    } else {
+                        cx0 = cur_pt.x;
+                        cy0 = cur_pt.y;
+                    }
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    last_control_pt = .{
+                        .x = data.c2_x,
+                        .y = data.c2_y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = cx0,
+                        .cy0 = cy0,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
                 .SmoothCurveToRel => {
                     const data = path.getData(.SmoothCurveToRel, cur_data_idx);
                     cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveToRel)) / 4;
@@ -1415,11 +1509,29 @@ pub const Graphics = struct {
                     c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
                     cmd_is_curveto = true;
                 },
+                .HorzLineToRel => {
+                    const data = path.getData(.HorzLineToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.HorzLineToRel)) / 4;
+                    cur_pt.x += data.x;
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .HorzLineTo => {
+                    const data = path.getData(.HorzLineTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.HorzLineTo)) / 4;
+                    cur_pt.x = data.x;
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
                 .VertLineToRel => {
                     const data = path.getData(.VertLineToRel, cur_data_idx);
                     cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineToRel)) / 4;
                     cur_pt.y += data.y;
                     self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .VertLineTo => {
+                    const data = path.getData(.VertLineTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineTo)) / 4;
+                    cur_pt.y = data.y;
+                    self.vec2_helper_buf.append(cur_pt) catch fatal();
                 },
                 .ClosePath => {
                     if (fill) {
@@ -1432,51 +1544,15 @@ pub const Graphics = struct {
                     stdx.panicFmt("unsupported: {}", .{cmd});
                 },
             }
-        //         .VertLineTo => {
-        //             const data = path.getData(.VertLineTo, cur_data_idx);
-        //             cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineTo)) / 4;
-        //             cur_pos.y = data.y;
-        //             lyon.lineTo(b, &cur_pos);
-        //         },
-        //         .CurveTo => {
-        //             const data = path.getData(.CurveTo, cur_data_idx);
-        //             cur_data_idx += @sizeOf(svg.PathCommandData(.CurveTo)) / 4;
-        //             cur_pos.x = data.x;
-        //             cur_pos.y = data.y;
-        //             last_control_pos.x = data.cb_x;
-        //             last_control_pos.y = data.cb_y;
-        //             cmd_is_curveto = true;
-        //             lyon.cubicBezierTo(b, &pt(data.ca_x, data.ca_y), &last_control_pos, &cur_pos);
-        //         },
-        //         .SmoothCurveTo => {
-        //             const data = path.getData(.SmoothCurveTo, cur_data_idx);
-        //             cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveTo)) / 4;
-
-        //             // Reflection of last control point over current pos.
-        //             var c1_x: f32 = undefined;
-        //             var c1_y: f32 = undefined;
-        //             if (last_cmd_was_curveto) {
-        //                 c1_x = cur_pos.x + (cur_pos.x - last_control_pos.x);
-        //                 c1_y = cur_pos.y + (cur_pos.y - last_control_pos.y);
-        //             } else {
-        //                 c1_x = cur_pos.x;
-        //                 c1_y = cur_pos.y;
-        //             }
-
-        //             cur_pos.x = data.x;
-        //             cur_pos.y = data.y;
-        //             last_control_pos.x = data.c2_x;
-        //             last_control_pos.y = data.c2_y;
-        //             cmd_is_curveto = true;
-        //             lyon.cubicBezierTo(b, &pt(c1_x, c1_y), &last_control_pos, &cur_pos);
-        //         },
-        //     }
             last_cmd_was_curveto = cmd_is_curveto;
         }
 
         if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
             // Push the current polygon.
-            self.vec2_slice_helper_buf.append(self.vec2_helper_buf.items[cur_poly_start..]) catch unreachable;
+            self.vec2_slice_helper_buf.append(.{
+                .start = cur_poly_start,
+                .end = @intCast(u32, self.vec2_helper_buf.items.len),
+            }) catch fatal();
         }
         if (self.vec2_slice_helper_buf.items.len == 0) {
             return;
@@ -1485,21 +1561,21 @@ pub const Graphics = struct {
         if (fill) {
             // dumpPolygons(self.alloc, self.vec2_slice_helper_buf.items);
             self.tessellator.clearBuffers();
-            self.tessellator.triangulatePolygons(self.vec2_slice_helper_buf.items);
+            self.tessellator.triangulatePolygons2(self.vec2_helper_buf.items, self.vec2_slice_helper_buf.items);
             self.setCurrentTexture(self.white_tex);
             const out_verts = self.tessellator.out_verts.items;
             const out_idxes = self.tessellator.out_idxes.items;
             self.batcher.ensureUnusedBuffer(out_verts.len, out_idxes.len);
-            self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.cur_fill_color);
+            self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.ps.fill_color);
         } else {
             unreachable;
-        //     var data = lyon.buildStroke(b, self.cur_line_width);
+        //     var data = lyon.buildStroke(b, self.ps.line_width);
         //     self.setCurrentTexture(self.white_tex);
-        //     self.pushLyonVertexData(&data, self.cur_stroke_color);
+        //     self.pushLyonVertexData(&data, self.ps.stroke_color);
         }
     }
 
-    fn drawSvgPathLyon(self: *Self, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
+    fn drawSvgPathLyon(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
         // log.debug("drawSvgPath {}", .{path.cmds.len});
         _ = x;
         _ = y;
@@ -1636,29 +1712,33 @@ pub const Graphics = struct {
                     lyon.close(b);
                     cur_path_ended = true;
                 },
+                .EllipticArc,
+                .EllipticArcRel,
+                .HorzLineToRel,
+                .HorzLineTo => stdx.unsupported(),
             }
             last_cmd_was_curveto = cmd_is_curveto;
         }
         if (fill) {
             var data = lyon.buildFill(b);
             self.setCurrentTexture(self.white_tex);
-            self.pushLyonVertexData(&data, self.cur_fill_color);
+            self.pushLyonVertexData(&data, self.ps.fill_color);
         } else {
-            var data = lyon.buildStroke(b, self.cur_line_width);
+            var data = lyon.buildStroke(b, self.ps.line_width);
             self.setCurrentTexture(self.white_tex);
-            self.pushLyonVertexData(&data, self.cur_stroke_color);
+            self.pushLyonVertexData(&data, self.ps.stroke_color);
         }
     }
 
     /// Points of front face is in ccw order.
-    pub fn fillTriangle3D(self: *Self, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
+    pub fn fillTriangle3D(self: *Graphics, x1: f32, y1: f32, z1: f32, x2: f32, y2: f32, z2: f32, x3: f32, y3: f32, z3: f32) void {
         self.batcher.beginTex3D(self.white_tex);
         self.batcher.ensureUnusedBuffer(3, 3);
 
         self.batcher.model_idx = 0;
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_fill_color);
+        vert.setColor(self.ps.fill_color);
         vert.setUV(0, 0); // Don't map uvs for now.
 
         const start_idx = self.batcher.mesh.getNextIndexId();
@@ -1671,12 +1751,12 @@ pub const Graphics = struct {
         self.batcher.mesh.pushTriangle(start_idx, start_idx + 1, start_idx + 2);
     }
 
-    pub fn fillTriangle(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
+    pub fn fillTriangle(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(3, 3);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_fill_color);
+        vert.setColor(self.ps.fill_color);
         vert.setUV(0, 0); // Don't map uvs for now.
 
         const start_idx = self.batcher.mesh.getNextIndexId();
@@ -1690,12 +1770,12 @@ pub const Graphics = struct {
     }
 
     /// Assumes pts are in ccw order.
-    pub fn fillConvexPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn fillConvexPolygon(self: *Graphics, pts: []const Vec2) void {
         self.setCurrentTexture(self.white_tex);
         self.batcher.ensureUnusedBuffer(pts.len, (pts.len - 2) * 3);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(self.cur_fill_color);
+        vert.setColor(self.ps.fill_color);
         vert.setUV(0, 0); // Don't map uvs for now.
 
         const start_idx = self.batcher.mesh.getNextIndexId();
@@ -1714,26 +1794,26 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn fillPolygon(self: *Graphics, pts: []const Vec2) void {
         self.tessellator.clearBuffers();
         self.tessellator.triangulatePolygon(pts);
         self.setCurrentTexture(self.white_tex);
         const out_verts = self.tessellator.out_verts.items;
         const out_idxes = self.tessellator.out_idxes.items;
         self.batcher.ensureUnusedBuffer(out_verts.len, out_idxes.len);
-        self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.cur_fill_color);
+        self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.ps.fill_color);
     }
 
-    pub fn fillPolygonLyon(self: *Self, pts: []const Vec2) void {
+    pub fn fillPolygonLyon(self: *Graphics, pts: []const Vec2) void {
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
         var data = lyon.buildFill(b);
 
         self.setCurrentTexture(self.white_tex);
-        self.pushLyonVertexData(&data, self.cur_fill_color);
+        self.pushLyonVertexData(&data, self.ps.fill_color);
     }
 
-    pub fn fillPolygonTess2(self: *Self, pts: []const Vec2) void {
+    pub fn fillPolygonTess2(self: *Graphics, pts: []const Vec2) void {
         var tess = getTess2Handle();
         tess2.tessAddContour(tess, 2, &pts[0], 0, @intCast(c_int, pts.len));
         const res = tess2.tessTesselate(tess, tess2.TESS_WINDING_ODD, tess2.TESS_POLYGONS, 3, 2, null);
@@ -1742,7 +1822,7 @@ pub const Graphics = struct {
         }
 
         var gpu_vert: TexShaderVertex = undefined;
-        gpu_vert.setColor(self.cur_fill_color);
+        gpu_vert.setColor(self.ps.fill_color);
         const vert_offset_id = self.batcher.mesh.getNextIndexId();
         var nverts = tess2.tessGetVertexCount(tess);
         var verts = tess2.tessGetVertices(tess);
@@ -1759,13 +1839,13 @@ pub const Graphics = struct {
         const elems = tess2.tessGetElements(tess);
         i = 0;
         while (i < nelems) : (i += 1) {
-            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
-            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
-            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
+            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
+            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3]));
         }
     }
 
-    pub fn drawTintedScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, color: Color) void {
+    pub fn drawTintedScene3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene, color: Color) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             self.drawTintedMesh3D(xform, node.mesh, color);
@@ -1773,11 +1853,11 @@ pub const Graphics = struct {
     }
 
     /// Vertices are duped so that each side reflects light without interpolating the normals.
-    pub fn drawCuboidPbr3D(self: *Self, xform: Transform, material: graphics.Material) void {
+    pub fn drawCuboidPbr3D(self: *Graphics, xform: Transform, material: graphics.Material) void {
         self.batcher.beginTexPbr3D(self.white_tex, self.cur_cam_world_pos);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(vp);
 
         // Compute normal matrix for lighting.
@@ -1829,21 +1909,21 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+    pub fn drawScene3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             self.drawMesh3D(xform, node.mesh);
         }
     }
 
-    pub fn drawScenePbr3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+    pub fn drawScenePbr3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             self.drawMeshPbr3D(xform, node.mesh);
         }
     }
 
-    pub fn drawScenePbrCustom3D(self: *Self, xform: Transform, scene: graphics.GLTFscene, mat: graphics.Material) void {
+    pub fn drawScenePbrCustom3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene, mat: graphics.Material) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             for (node.primitives) |prim| {
@@ -1852,7 +1932,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawTintedMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, color: Color) void {
+    pub fn drawTintedMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D, color: Color) void {
         if (mesh.image_id) |image_id| {
             const img = self.image_store.images.getNoCheck(image_id);
             self.batcher.beginTex3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
@@ -1861,7 +1941,7 @@ pub const Graphics = struct {
         }
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
         self.batcher.ensureUnusedBuffer(mesh.verts.len, mesh.indexes.len);
@@ -1875,18 +1955,18 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawSceneNormals3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+    pub fn drawSceneNormals3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             self.drawMeshNormals3D(xform, node.mesh);
         }
     }
 
-    pub fn drawMeshNormals3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+    pub fn drawMeshNormals3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         self.batcher.beginNormal();
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
 
@@ -1907,7 +1987,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+    pub fn drawMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         if (mesh.image_id) |image_id| {
             const img = self.image_store.images.getNoCheck(image_id);
             self.batcher.beginTex3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
@@ -1916,14 +1996,14 @@ pub const Graphics = struct {
         }
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         const mvp = xform.getAppliedTransform(vp);
         self.batcher.beginMvp(mvp);
         self.batcher.pushMeshData(mesh.verts, mesh.indexes);
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawMeshPbrCustom3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D, mat: graphics.Material) void {
+    pub fn drawMeshPbrCustom3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D, mat: graphics.Material) void {
         if (mesh.image_id) |image_id| {
             const img = self.image_store.images.getNoCheck(image_id);
             self.batcher.beginTexPbr3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id }, self.cur_cam_world_pos);
@@ -1932,7 +2012,7 @@ pub const Graphics = struct {
         }
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(vp);
 
         // Compute normal matrix for lighting.
@@ -1948,7 +2028,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawMeshPbr3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+    pub fn drawMeshPbr3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         if (mesh.image_id) |image_id| {
             const img = self.image_store.images.getNoCheck(image_id);
             self.batcher.beginTexPbr3D(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id }, self.cur_cam_world_pos);
@@ -1957,7 +2037,7 @@ pub const Graphics = struct {
         }
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(vp);
 
         // Compute normal matrix for lighting.
@@ -1973,10 +2053,10 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawAnimatedMesh3D(self: *Self, model_xform: Transform, amesh: graphics.AnimatedMesh, custom_mat: ?graphics.Material, comptime fill: bool, comptime pbr: bool) void {
+    pub fn drawAnimatedMesh3D(self: *Graphics, model_xform: Transform, amesh: graphics.AnimatedMesh, custom_mat: ?graphics.Material, comptime fill: bool, comptime pbr: bool) void {
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
 
         // Apply animation.
         for (amesh.transition_markers) |marker, i| {
@@ -2065,7 +2145,7 @@ pub const Graphics = struct {
                     for (prim.verts) |vert| {
                         var new_vert = vert;
                         if (fill) {
-                            new_vert.setColor(self.cur_fill_color);
+                            new_vert.setColor(self.ps.fill_color);
                         }
                         // Update joint idx to point to dynamic joint buffer. Also encode into 2 u32s.
                         new_vert.joints.compact.joint_0 = self.tmp_joint_idxes[new_vert.joints.components.joint_0] | (@as(u32, self.tmp_joint_idxes[new_vert.joints.components.joint_1]) << 16);
@@ -2076,7 +2156,7 @@ pub const Graphics = struct {
                     for (prim.verts) |vert| {
                         var new_vert = vert;
                         if (fill) {
-                            new_vert.setColor(self.cur_fill_color);
+                            new_vert.setColor(self.ps.fill_color);
                         }
                         self.batcher.mesh.pushVertex(new_vert);
                     }
@@ -2098,7 +2178,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn fillScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+    pub fn fillScene3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             for (node.primitives) |prim| {
@@ -2107,11 +2187,11 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+    pub fn fillMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         self.batcher.beginTex3D(self.white_tex);
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
 
         self.batcher.beginMvp(vp);
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
@@ -2121,7 +2201,7 @@ pub const Graphics = struct {
         const vert_start = self.batcher.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
-            new_vert.setColor(self.cur_fill_color);
+            new_vert.setColor(self.ps.fill_color);
             self.batcher.mesh.pushVertex(new_vert);
         }
         self.batcher.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
@@ -2129,7 +2209,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn strokeScene3D(self: *Self, xform: Transform, scene: graphics.GLTFscene) void {
+    pub fn strokeScene3D(self: *Graphics, xform: Transform, scene: graphics.GLTFscene) void {
         for (scene.mesh_nodes) |id| {
             const node = scene.nodes[id];
             for (node.primitives) |prim| {
@@ -2138,11 +2218,11 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn strokeMesh3D(self: *Self, xform: Transform, mesh: graphics.Mesh3D) void {
+    pub fn strokeMesh3D(self: *Graphics, xform: Transform, mesh: graphics.Mesh3D) void {
         self.batcher.beginWireframe();
         const cur_mvp = self.batcher.mvp;
         // Create temp mvp.
-        const vp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(vp);
 
         self.batcher.model_idx = self.batcher.mesh.cur_mats_buf_size;
@@ -2153,7 +2233,7 @@ pub const Graphics = struct {
         const vert_start = self.batcher.mesh.getNextIndexId();
         for (mesh.verts) |vert| {
             var new_vert = vert;
-            new_vert.setColor(self.cur_stroke_color);
+            new_vert.setColor(self.ps.stroke_color);
             self.batcher.mesh.pushVertex(new_vert);
         }
         self.batcher.mesh.pushDeltaIndexes(vert_start, mesh.indexes);
@@ -2161,23 +2241,23 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
         _ = self;
         _ = pts;
         self.batcher.beginTex(self.white_tex);
         // TODO: Implement this.
     }
 
-    pub fn drawPolygonLyon(self: *Self, pts: []const Vec2) void {
+    pub fn drawPolygonLyon(self: *Graphics, pts: []const Vec2) void {
         self.batcher.beginTex(self.white_tex);
         const b = lyon.initBuilder();
         lyon.addPolygon(b, pts, true);
-        var data = lyon.buildStroke(b, self.cur_line_width);
+        var data = lyon.buildStroke(b, self.ps.line_width);
 
-        self.pushLyonVertexData(&data, self.cur_stroke_color);
+        self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawSubImage(self: *Self, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawSubImage(self: *Graphics, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const img = self.image_store.images.get(image_id);
         self.batcher.beginTex(image.ImageDesc{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2216,7 +2296,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawImageSized(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2226,31 +2306,53 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
 
-        // top left
-        vert.setXY(x, y);
-        vert.setUV(0, 0);
-        self.batcher.mesh.pushVertex(vert);
+        if (Backend == .OpenGL) {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // top right
-        vert.setXY(x + width, y);
-        vert.setUV(1, 0);
-        self.batcher.mesh.pushVertex(vert);
+            // top right
+            vert.setXY(x + width, y);
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom right
-        vert.setXY(x + width, y + height);
-        vert.setUV(1, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom right
+            vert.setXY(x + width, y + height);
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom left
-        vert.setXY(x, y + height);
-        vert.setUV(0, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom left
+            vert.setXY(x, y + height);
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+        } else {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // top right
+            vert.setXY(x + width, y);
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom right
+            vert.setXY(x + width, y + height);
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom left
+            vert.setXY(x, y + height);
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
+        }
 
         // add rect
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {
+    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2260,45 +2362,80 @@ pub const Graphics = struct {
 
         const start_idx = self.batcher.mesh.getNextIndexId();
 
-        // top left
-        vert.setXY(x, y);
-        vert.setUV(0, 0);
-        self.batcher.mesh.pushVertex(vert);
+        if (Backend == .OpenGL) {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // top right
-        vert.setXY(x + @intToFloat(f32, img.width), y);
-        vert.setUV(1, 0);
-        self.batcher.mesh.pushVertex(vert);
+            // top right
+            vert.setXY(x + @intToFloat(f32, img.width), y);
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom right
-        vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
-        vert.setUV(1, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom right
+            vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
 
-        // bottom left
-        vert.setXY(x, y + @intToFloat(f32, img.height));
-        vert.setUV(0, 1);
-        self.batcher.mesh.pushVertex(vert);
+            // bottom left
+            vert.setXY(x, y + @intToFloat(f32, img.height));
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+        } else {
+            // top left
+            vert.setXY(x, y);
+            vert.setUV(0, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // top right
+            vert.setXY(x + @intToFloat(f32, img.width), y);
+            vert.setUV(1, 0);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom right
+            vert.setXY(x + @intToFloat(f32, img.width), y + @intToFloat(f32, img.height));
+            vert.setUV(1, 1);
+            self.batcher.mesh.pushVertex(vert);
+
+            // bottom left
+            vert.setXY(x, y + @intToFloat(f32, img.height));
+            vert.setUV(0, 1);
+            self.batcher.mesh.pushVertex(vert);
+        }
 
         // add rect
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
+    }
+
+    /// Like beginFrame but only adjusts the viewport and binds the fbo.
+    pub fn bindFramebuffer(self: *Graphics, buf_width: u32, buf_height: u32, fbo: gl.GLuint) void {
+        self.endCmd();
+        self.inner.renderer.bindDrawFramebuffer(fbo);
+        gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
+        self.buf_width = buf_width;
+        self.buf_height = buf_height;
     }
 
     /// Binds an image to the write buffer. 
-    pub fn bindImageBuffer(self: *Self, image_id: ImageId) void {
+    pub fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
+        self.endCmd();
         var img = self.image_store.images.getPtrNoCheck(image_id);
         if (img.fbo_id == null) {
-            img.fbo_id = self.createTextureFramebuffer(img.tex_id);
+            const tex = self.image_store.getTexture(img.tex_id);
+            img.fbo_id = self.createTextureFramebuffer(tex.inner.tex_id);
         }
-        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, img.fbo_id.?);
+        self.inner.renderer.bindDrawFramebuffer(img.fbo_id.?);
         gl.viewport(0, 0, @intCast(c_int, img.width), @intCast(c_int, img.height));
-        self.cur_proj_transform = graphics.initTextureProjection(@intToFloat(f32, img.width), @intToFloat(f32, img.height));
-        self.view_transform = Transform.initIdentity();
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.ps.proj_xform = graphics.initTextureProjection(@intToFloat(f32, img.width), @intToFloat(f32, img.height));
+        self.ps.view_xform = Transform.initIdentity();
+        self.buf_width = @intCast(u32, img.width);
+        self.buf_height = @intCast(u32, img.height);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    fn createTextureFramebuffer(self: Self, tex_id: gl.GLuint) gl.GLuint {
+    pub fn createTextureFramebuffer(self: Graphics, tex_id: gl.GLuint) gl.GLuint {
         _ = self;
         var fbo_id: gl.GLuint = 0;
         gl.genFramebuffers(1, &fbo_id);
@@ -2314,30 +2451,30 @@ pub const Graphics = struct {
         return fbo_id;
     }
 
-    pub fn beginFrameVK(self: *Self, buf_width: u32, buf_height: u32, frame_idx: u8, framebuffer: vk.VkFramebuffer) void {
-        self.cur_buf_width = buf_width;
-        self.cur_buf_height = buf_height;
+    pub fn beginFrameVK(self: *Graphics, buf_width: u32, buf_height: u32, frame_idx: u8, framebuffer: vk.VkFramebuffer) void {
+        self.buf_width = buf_width;
+        self.buf_height = buf_height;
         self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
-        self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.clear_color);
+        self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.ps.clear_color);
 
-        self.cur_clip_rect = .{
+        self.ps.clip_rect = .{
             .x = 0,
             .y = 0,
             .width = @intToFloat(f32, buf_width),
             .height = @intToFloat(f32, buf_height),
         };
-        self.cur_scissors = false;
+        self.ps.using_scissors = false;
 
-        self.clipRectCmd(self.cur_clip_rect);
+        self.clipRectCmd(self.ps.clip_rect);
     }
 
     /// Begin frame sets up the context before any other draw call.
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
-    pub fn beginFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
+    pub fn beginFrame(self: *Graphics, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("beginFrame", .{});
 
-        self.cur_buf_width = buf_width;
-        self.cur_buf_height = buf_height;
+        self.buf_width = buf_width;
+        self.buf_height = buf_height;
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
         gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
@@ -2345,22 +2482,22 @@ pub const Graphics = struct {
         self.batcher.resetState(self.white_tex);
 
         // Scissor affects glClear so reset it first.
-        self.cur_clip_rect = .{
+        self.ps.clip_rect = .{
             .x = 0,
             .y = 0,
             .width = @intToFloat(f32, buf_width),
             .height = @intToFloat(f32, buf_height),
         };
-        self.cur_scissors = false;
+        self.ps.using_scissors = false;
         gl.disable(gl.GL_SCISSOR_TEST);
 
         if (custom_fbo == 0) {
             // This clears the main framebuffer that is swapped to window.
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            self.inner.renderer.bindDrawFramebuffer(0);
             self.clear();
         } else {
             // Set the frame buffer we are drawing to.
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, custom_fbo);
+            self.inner.renderer.bindDrawFramebuffer(custom_fbo);
             // Clears the custom frame buffer.
             self.clear();
         }
@@ -2369,33 +2506,33 @@ pub const Graphics = struct {
         self.setBlendMode(.StraightAlpha);
     }
 
-    pub fn endFrameVK(self: *Self) graphics.FrameResultVK {
+    pub fn endFrameVK(self: *Graphics) graphics.FrameResultVK {
         self.endCmd();
         self.image_store.processRemovals();
         return self.batcher.endFrameVK();
     }
 
-    pub fn endFrame(self: *Self, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
+    pub fn endFrame(self: *Graphics, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("endFrame", .{});
         self.endCmd();
         if (custom_fbo != 0) {
             // If we were drawing to custom framebuffer such as msaa buffer, then blit the custom buffer into the default ogl buffer.
             gl.bindFramebuffer(gl.GL_READ_FRAMEBUFFER, custom_fbo);
-            gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, 0);
+            self.inner.renderer.bindDrawFramebuffer(0);
             // blit's filter is only used when the sizes between src and dst buffers are different.
             gl.blitFramebuffer(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), 0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height), gl.GL_COLOR_BUFFER_BIT, gl.GL_NEAREST);
         }
     }
 
-    pub fn setCamera(self: *Self, cam: graphics.Camera) void {
+    pub fn setCamera(self: *Graphics, cam: graphics.Camera) void {
         self.endCmd();
-        self.cur_proj_transform = cam.proj_transform;
-        self.view_transform = cam.view_transform;
-        self.batcher.mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+        self.ps.proj_xform = cam.proj_transform;
+        self.ps.view_xform = cam.view_transform;
+        self.batcher.mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.cur_cam_world_pos = cam.world_pos;
     }
 
-    pub fn prepareShadows(self: *Self, cam: graphics.Camera) void {
+    pub fn prepareShadows(self: *Graphics, cam: graphics.Camera) void {
         // Setup shadow mapping view point from directional light.
         const corners = cam.computePartitionCorners(cam.near, (cam.near + cam.far) * 0.3);
 
@@ -2435,52 +2572,52 @@ pub const Graphics = struct {
         self.batcher.prepareShadowPass(light_vp);
     }
 
-    pub fn translate(self: *Self, x: f32, y: f32) void {
-        self.view_transform.translate(x, y);
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn translate(self: *Graphics, x: f32, y: f32) void {
+        self.ps.view_xform.translate(x, y);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn translate3D(self: *Self, x: f32, y: f32, z: f32) void {
-        self.view_transform.translate3D(x, y, z);
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn translate3D(self: *Graphics, x: f32, y: f32, z: f32) void {
+        self.ps.view_xform.translate3D(x, y, z);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn scale(self: *Self, x: f32, y: f32) void {
-        self.view_transform.scale(x, y);
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn scale(self: *Graphics, x: f32, y: f32) void {
+        self.ps.view_xform.scale(x, y);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn rotateZ(self: *Self, rad: f32) void {
-        self.view_transform.rotateZ(rad);
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn rotateZ(self: *Graphics, rad: f32) void {
+        self.ps.view_xform.rotateZ(rad);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn rotateX(self: *Self, rad: f32) void {
-        self.view_transform.rotateX(rad);
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn rotateX(self: *Graphics, rad: f32) void {
+        self.ps.view_xform.rotateX(rad);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
-    pub fn rotateY(self: *Self, rad: f32) void {
-        self.view_transform.rotateY(rad);
-        const mvp = self.view_transform.getAppliedTransform(self.cur_proj_transform);
+    pub fn rotateY(self: *Graphics, rad: f32) void {
+        self.ps.view_xform.rotateY(rad);
+        const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
 
     // GL Only.
-    pub fn setBlendModeCustom(self: *Self, src: gl.GLenum, dst: gl.GLenum, eq: gl.GLenum) void {
+    pub fn setBlendModeCustom(self: *Graphics, src: gl.GLenum, dst: gl.GLenum, eq: gl.GLenum) void {
         _ = self;
         gl.blendFunc(src, dst);
         gl.blendEquation(eq);
     }
 
     // TODO: Implement this in Vulkan.
-    pub fn setBlendMode(self: *Self, mode: BlendMode) void {
-        if (self.cur_blend_mode != mode) {
+    pub fn setBlendMode(self: *Graphics, mode: BlendMode) void {
+        if (self.ps.blend_mode != mode) {
             self.endCmd();
             switch (mode) {
                 .StraightAlpha => gl.blendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA),
@@ -2510,15 +2647,15 @@ pub const Graphics = struct {
                 },
                 else => @panic("unsupported"),
             }
-            self.cur_blend_mode = mode;
+            self.ps.blend_mode = mode;
         }
     }
 
-    pub fn endCmd(self: *Self) void {
+    pub fn endCmd(self: *Graphics) void {
         self.batcher.endCmd();
     }
 
-    pub fn updateTextureData(self: *const Self, img: image.Image, buf: []const u8) void {
+    pub fn updateTextureData(self: *const Graphics, img: image.Image, buf: []const u8) void {
         switch (Backend) {
             .OpenGL => {
                 gl.activeTexture(gl.GL_TEXTURE0 + 0);
@@ -2558,7 +2695,7 @@ const DrawState = struct {
     clip_rect: geom.Rect,
     use_scissors: bool,
     blend_mode: BlendMode,
-    view_transform: Transform,
+    view_xform: Transform,
 };
 
 fn dumpPolygons(alloc: std.mem.Allocator, polys: []const []const Vec2) void {
@@ -2596,4 +2733,60 @@ pub const ShaderCamera = struct {
     pad_2: f32 = 0,
     light_vp: Mat4,
     enable_shadows: bool,
+};
+
+pub const PaintState = struct {
+    /// Projection transform.
+    proj_xform: Transform,
+    /// View transform can be changed by user transforms.
+    view_xform: Transform,
+
+    /// Text rendering.
+    font_gid: FontGroupId,
+    font_size: f32,
+    text_align: TextAlign,
+    text_baseline: TextBaseline,
+
+    /// Shape rendering.
+    fill_color: Color,
+    stroke_color: Color,
+    line_width: f32,
+    line_width_half: f32,
+
+    clear_color: Color,
+
+    // Draw state stack.
+    state_stack: std.ArrayListUnmanaged(DrawState),
+
+    clip_rect: geom.Rect,
+    using_scissors: bool,
+    blend_mode: BlendMode,
+
+    pub fn init(font_gid: FontGroupId) PaintState {
+        return .{
+            .proj_xform = Transform.initIdentity(),
+            .view_xform = Transform.initIdentity(),
+
+            .font_gid = font_gid,
+            .font_size = 18,
+            .text_align = .Left,
+            .text_baseline = .Top,
+
+            .fill_color = Color.Black,
+            .stroke_color = Color.Black,
+            .line_width = 1,
+            .line_width_half = 0.5,
+
+            .state_stack = .{},
+
+            .clip_rect = undefined,
+            .using_scissors = undefined,
+            .blend_mode = ._undefined,
+            .clear_color = undefined,
+        };
+    }
+
+    pub fn deinit(self: *PaintState, alloc: std.mem.Allocator) void {
+        self.state_stack.deinit(alloc);
+    }
 };

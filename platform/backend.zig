@@ -21,7 +21,7 @@ pub fn getGraphicsBackend(step: *std.build.LibExeObjStep) GraphicsBackend {
         // return .WasmCanvas;
         return .OpenGL;
     } else {
-        // return .OpenGL;
-        return .Vulkan;
+        return .OpenGL;
+        // return .Vulkan;
     }
 }

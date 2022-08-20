@@ -948,11 +948,11 @@ const TokenizeConfig = struct {
     debug: bool,
 };
 
-fn TokenizeContext(comptime State: type, debug: bool) type {
+fn TokenizeContext(comptime StateT: type, debug: bool) type {
     return struct {
-        const State = State;
+        const State = StateT;
 
-        state: State,
+        state: StateT,
         debug: if (debug) *DebugInfo else void,
     };
 }

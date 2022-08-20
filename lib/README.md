@@ -2,7 +2,7 @@
 
 ### SDL2
 For window management and creating graphics context.
-- https://github.com/libsdl-org/SDL.git (d7873e656b3469a48af8040a2e116da02119598d)
+- https://github.com/libsdl-org/SDL.git (5c70e45c537b66c379f265795630bb5ee607fd5b)
 
 ### OpenSSL
 For secure layer over remote connections.

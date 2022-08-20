@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const Transform = stdx.math.Transform;
 const string = stdx.string;
 const ds = stdx.ds;
@@ -19,8 +20,12 @@ pub const PathCommand = enum {
     MoveToRel,
     LineTo,
     LineToRel,
+    HorzLineTo,
+    HorzLineToRel,
     VertLineTo,
     VertLineToRel,
+    EllipticArc,
+    EllipticArcRel,
     CurveTo,
     CurveToRel,
     SmoothCurveTo,
@@ -30,16 +35,20 @@ pub const PathCommand = enum {
 
 pub fn PathCommandData(comptime Tag: PathCommand) type {
     return switch (Tag) {
-        .MoveTo => PathMoveTo,
-        .MoveToRel => PathMoveToRel,
-        .LineTo => PathLineTo,
-        .LineToRel => PathLineToRel,
-        .VertLineTo => PathVertLineTo,
-        .VertLineToRel => PathVertLineToRel,
-        .CurveTo => PathCurveTo,
-        .CurveToRel => PathCurveToRel,
-        .SmoothCurveTo => PathSmoothCurveTo,
-        .SmoothCurveToRel => PathSmoothCurveToRel,
+        .MoveTo,
+        .MoveToRel => PathMoveTo,
+        .LineTo,
+        .LineToRel => PathLineTo,
+        .HorzLineTo,
+        .HorzLineToRel => PathHorzLineTo,
+        .VertLineTo,
+        .VertLineToRel => PathVertLineTo,
+        .EllipticArc,
+        .EllipticArcRel => PathEllipticArc,
+        .CurveTo,
+        .CurveToRel => PathCurveTo,
+        .SmoothCurveTo,
+        .SmoothCurveToRel => PathSmoothCurveTo,
         .ClosePath => void,
     };
 }
@@ -48,16 +57,23 @@ pub const PathCommandPtr = struct {
     tag: PathCommand,
     id: u32,
 
-    fn init(tag: PathCommand, id: u32) @This() {
+    fn init(tag: PathCommand, id: u32) PathCommandPtr {
         return .{
             .tag = tag,
             .id = id,
         };
     }
 
-    fn getData(self: *@This(), comptime Tag: PathCommand, buf: []const u8) PathCommandData(Tag) {
+    fn getData(self: *PathCommandPtr, comptime Tag: PathCommand, buf: []const u8) PathCommandData(Tag) {
         return std.mem.bytesToValue(PathCommandData(Tag), buf[self.id..][0..@sizeOf(PathCommandData(Tag))]);
     }
+};
+
+pub const PathSmoothCurveTo = struct {
+    c2_x: f32,
+    c2_y: f32,
+    x: f32,
+    y: f32,
 };
 
 pub const PathCurveTo = struct {
@@ -69,27 +85,18 @@ pub const PathCurveTo = struct {
     y: f32,
 };
 
-pub const PathSmoothCurveTo = struct {
-    c2_x: f32,
-    c2_y: f32,
+pub const PathEllipticArc = struct {
+    rx: f32,
+    ry: f32,
+    deg: f32,
     x: f32,
     y: f32,
+    large_arc_flag: bool,
+    sweep_flag: bool,
 };
 
-pub const PathSmoothCurveToRel = struct {
-    c2_x: f32,
-    c2_y: f32,
+pub const PathHorzLineTo = struct {
     x: f32,
-    y: f32,
-};
-
-pub const PathCurveToRel = struct {
-    ca_x: f32,
-    ca_y: f32,
-    cb_x: f32,
-    cb_y: f32,
-    x: f32,
-    y: f32,
 };
 
 pub const PathVertLineTo = struct {
@@ -105,17 +112,7 @@ pub const PathLineTo = struct {
     y: f32,
 };
 
-pub const PathLineToRel = struct {
-    x: f32,
-    y: f32,
-};
-
 pub const PathMoveTo = struct {
-    x: f32,
-    y: f32,
-};
-
-pub const PathMoveToRel = struct {
     x: f32,
     y: f32,
 };
@@ -125,22 +122,20 @@ pub const SvgPath = struct {
     data: []const f32,
     cmds: []const PathCommand,
 
-    pub fn deinit(self: @This()) void {
+    pub fn deinit(self: SvgPath) void {
         if (self.alloc) |alloc| {
             alloc.free(self.data);
             alloc.free(self.cmds);
         }
     }
 
-    pub fn getData(self: @This(), comptime Tag: PathCommand, data_idx: usize) PathCommandData(Tag) {
+    pub fn getData(self: SvgPath, comptime Tag: PathCommand, data_idx: usize) PathCommandData(Tag) {
         const Size = @sizeOf(PathCommandData(Tag)) / 4;
         return @ptrCast(*const PathCommandData(Tag), self.data[data_idx .. data_idx + Size]).*;
     }
 };
 
 pub const PathParser = struct {
-    const Self = @This();
-
     data: std.ArrayList(f32),
     cmds: std.ArrayList(u8),
     temp_buf: std.ArrayList(u8),
@@ -151,7 +146,7 @@ pub const PathParser = struct {
     cur_data: std.ArrayList(f32),
     cur_cmds: std.ArrayList(u8),
 
-    pub fn init(alloc: std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) PathParser {
         return .{
             .data = std.ArrayList(f32).init(alloc),
             .temp_buf = std.ArrayList(u8).init(alloc),
@@ -163,14 +158,14 @@ pub const PathParser = struct {
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: PathParser) void {
         self.data.deinit();
         self.cmds.deinit();
         self.temp_buf.deinit();
     }
 
     // Parses into existing buffers.
-    fn parseAppend(self: *Self, cmds: *std.ArrayList(u8), data: *std.ArrayList(f32), str: []const u8) !SvgPath {
+    fn parseAppend(self: *PathParser, cmds: *std.ArrayList(u8), data: *std.ArrayList(f32), str: []const u8) !SvgPath {
         self.cur_cmds = cmds.*;
         self.cur_data = data.*;
         defer {
@@ -180,7 +175,7 @@ pub const PathParser = struct {
         return self.parseInternal(str);
     }
 
-    fn parseAlloc(self: *Self, alloc: std.mem.Allocator, str: []const u8) !SvgPath {
+    fn parseAlloc(self: *PathParser, alloc: std.mem.Allocator, str: []const u8) !SvgPath {
         const path = try self.parse(str);
         const new_cmds = try alloc.alloc(PathCommand, path.cmds.len);
         std.mem.copy(PathCommand, new_cmds, path.cmds);
@@ -193,7 +188,7 @@ pub const PathParser = struct {
         };
     }
 
-    pub fn parse(self: *Self, str: []const u8) !SvgPath {
+    pub fn parse(self: *PathParser, str: []const u8) !SvgPath {
         self.temp_buf.clearRetainingCapacity();
 
         self.cur_cmds = self.cmds;
@@ -208,7 +203,7 @@ pub const PathParser = struct {
         return self.parseInternal(str);
     }
 
-    fn seekToNext(self: *Self) ?u8 {
+    fn seekToNext(self: *PathParser) ?u8 {
         self.consumeDelim();
         if (self.nextAtEnd()) {
             return null;
@@ -216,7 +211,7 @@ pub const PathParser = struct {
         return self.peekNext();
     }
 
-    fn parseInternal(self: *Self, str: []const u8) !SvgPath {
+    fn parseInternal(self: *PathParser, str: []const u8) !SvgPath {
         self.src = str;
         self.next_pos = 0;
 
@@ -242,78 +237,114 @@ pub const PathParser = struct {
             self.consumeNext();
             switch (ch) {
                 'm' => {
-                    var cmd = try self.parseSvgMoveto(true);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    var cmd = try self.parseMoveTo(true);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
 
+                    // Subsequent points are treated as LineTo
                     ch = self.seekToNext() orelse break;
                     while (!std.ascii.isAlpha(ch)) {
-                        // Subsequent points are treated as LineTo
-                        cmd = try self.parseSvgLineto(true);
-                        self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                        cmd = try self.parseLineTo(true);
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
                     }
                 },
                 'M' => {
-                    const cmd = try self.parseSvgMoveto(false);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
-                },
-                'v' => {
-                    const cmd = try self.parseSvgVerticalLineto(true);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
-                },
-                'l' => {
-                    var cmd = try self.parseSvgLineto(true);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    var cmd = try self.parseMoveTo(false);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
 
+                    // Subsequent points are treated as LineTo
                     ch = self.seekToNext() orelse break;
                     while (!std.ascii.isAlpha(ch)) {
-                        // Polyline, keep parsing same command.
-                        cmd = try self.parseSvgLineto(true);
-                        self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                        cmd = try self.parseLineTo(false);
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                        ch = self.seekToNext() orelse break;
+                    }
+                },
+                'a' => {
+                    var cmd = try self.parseEllipticArc(true);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+
+                    // Subsequent args are additional elliptic arc commands.
+                    ch = self.seekToNext() orelse break;
+                    while (!std.ascii.isAlpha(ch)) {
+                        cmd = try self.parseEllipticArc(true);
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                        ch = self.seekToNext() orelse break;
+                    }
+                },
+                'h' => {
+                    const cmd = try self.parsePathHorzLineTo(true);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                },
+                'H' => {
+                    const cmd = try self.parsePathHorzLineTo(false);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                },
+                'v' => {
+                    const cmd = try self.parsePathVertLineTo(true);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                },
+                'l' => {
+                    var cmd = try self.parseLineTo(true);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+
+                    // Subsequent args represent a polyline.
+                    ch = self.seekToNext() orelse break;
+                    while (!std.ascii.isAlpha(ch)) {
+                        cmd = try self.parseLineTo(true);
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
                     }
                 },
                 'L' => {
-                    const cmd = try self.parseSvgLineto(false);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    var cmd = try self.parseLineTo(false);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+
+                    // Subsequent args represent a polyline.
+                    ch = self.seekToNext() orelse break;
+                    while (!std.ascii.isAlpha(ch)) {
+                        cmd = try self.parseLineTo(false);
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                        ch = self.seekToNext() orelse break;
+                    }
                 },
                 'c' => {
                     var cmd = try self.parseSvgCurveto(true);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
 
                     ch = self.seekToNext() orelse break;
                     while (!std.ascii.isAlpha(ch)) {
                         // Polybezier, keep parsing same command.
                         cmd = try self.parseSvgCurveto(true);
-                        self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
                     }
                 },
                 'C' => {
                     const cmd = try self.parseSvgCurveto(false);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                 },
                 's' => {
                     var cmd = try self.parseSvgSmoothCurveto(true);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
 
                     ch = self.seekToNext() orelse break;
                     while (!std.ascii.isAlpha(ch)) {
                         // Polybezier, keep parsing same command.
                         cmd = try self.parseSvgSmoothCurveto(true);
-                        self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
                     }
                 },
                 'S' => {
                     const cmd = try self.parseSvgSmoothCurveto(false);
-                    self.cur_cmds.append(@enumToInt(cmd)) catch unreachable;
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                 },
                 'z' => {
-                    self.cur_cmds.append(@enumToInt(PathCommand.ClosePath)) catch unreachable;
+                    self.cur_cmds.append(@enumToInt(PathCommand.ClosePath)) catch fatal();
                 },
                 'Z' => {
-                    self.cur_cmds.append(@enumToInt(PathCommand.ClosePath)) catch unreachable;
+                    self.cur_cmds.append(@enumToInt(PathCommand.ClosePath)) catch fatal();
                 },
                 else => {
                     log.debug("unsupported command char: {c} {}", .{ ch, ch });
@@ -328,7 +359,7 @@ pub const PathParser = struct {
         };
     }
 
-    fn consumeDelim(self: *Self) void {
+    fn consumeDelim(self: *PathParser) void {
         while (!self.nextAtEnd()) {
             const ch = self.peekNext();
             _ = std.mem.indexOf(u8, SvgPathDelimiters, &.{ch}) orelse return;
@@ -336,121 +367,119 @@ pub const PathParser = struct {
         }
     }
 
-    fn nextAtEnd(self: *Self) bool {
+    fn nextAtEnd(self: *PathParser) bool {
         return self.next_pos == self.src.len;
     }
 
-    fn consumeNext(self: *Self) void {
+    fn consumeNext(self: *PathParser) void {
         self.next_pos += 1;
     }
 
-    fn peekNext(self: *Self) u8 {
+    fn peekNext(self: *PathParser) u8 {
         return self.src[self.next_pos];
     }
 
-    fn parseSvgVerticalLineto(self: *Self, relative: bool) !PathCommand {
-        const y = try self.parseSvgFloat();
+    fn parseEllipticArc(self: *PathParser, relative: bool) !PathCommand{
+        var cmd = PathEllipticArc{
+            .rx = try self.parseSvgFloat(),
+            .ry = try self.parseSvgFloat(),
+            .deg = try self.parseSvgFloat(),
+            .large_arc_flag = (try self.parseSvgFloat()) == 1,
+            .sweep_flag = (try self.parseSvgFloat()) == 1,
+            .x = try self.parseSvgFloat(),
+            .y = try self.parseSvgFloat(),
+        };
         if (relative) {
-            return self.appendCommand(.VertLineToRel, &PathVertLineToRel{
-                .y = y,
-            });
+            return self.appendCommand(.EllipticArcRel, &cmd);
         } else {
-            return self.appendCommand(.VertLineTo, &PathVertLineTo{
-                .y = y,
-            });
+            return self.appendCommand(.EllipticArc, &cmd);
         }
     }
 
-    fn parseSvgLineto(self: *Self, relative: bool) !PathCommand {
-        const x = try self.parseSvgFloat();
-        const y = try self.parseSvgFloat();
+    fn parsePathHorzLineTo(self: *PathParser, relative: bool) !PathCommand {
+        var cmd = PathHorzLineTo{
+            .x = try self.parseSvgFloat(),
+        };
         if (relative) {
-            return self.appendCommand(.LineToRel, &PathLineToRel{
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.HorzLineToRel, &cmd);
         } else {
-            return self.appendCommand(.LineTo, &PathLineTo{
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.HorzLineTo, &cmd);
         }
     }
 
-    fn appendCommand(self: *Self, comptime Tag: PathCommand, cmd: *PathCommandData(Tag)) PathCommand {
+    fn parsePathVertLineTo(self: *PathParser, relative: bool) !PathCommand {
+        var cmd = PathVertLineTo{
+            .y = try self.parseSvgFloat(),
+        };
+        if (relative) {
+            return self.appendCommand(.VertLineToRel, &cmd);
+        } else {
+            return self.appendCommand(.VertLineTo, &cmd);
+        }
+    }
+
+    fn parseLineTo(self: *PathParser, relative: bool) !PathCommand {
+        var cmd = PathLineTo{
+            .x = try self.parseSvgFloat(),
+            .y = try self.parseSvgFloat(),
+        };
+        if (relative) {
+            return self.appendCommand(.LineToRel, &cmd);
+        } else {
+            return self.appendCommand(.LineTo, &cmd);
+        }
+    }
+
+    fn appendCommand(self: *PathParser, comptime Tag: PathCommand, cmd: *PathCommandData(Tag)) PathCommand {
         const Size = @sizeOf(std.meta.Child(@TypeOf(cmd))) / 4;
         self.cur_data.appendSlice(@ptrCast(*[Size]f32, cmd)) catch unreachable;
         return Tag;
     }
 
-    fn parseSvgMoveto(self: *Self, relative: bool) !PathCommand {
+    fn parseMoveTo(self: *PathParser, relative: bool) !PathCommand {
         // log.debug("parse moveto", .{});
-        const x = try self.parseSvgFloat();
-        const y = try self.parseSvgFloat();
+        var cmd = PathMoveTo{
+            .x = try self.parseSvgFloat(),
+            .y = try self.parseSvgFloat(),
+        };
         if (relative) {
-            return self.appendCommand(.MoveToRel, &PathMoveToRel{
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.MoveToRel, &cmd);
         } else {
-            return self.appendCommand(.MoveTo, &PathMoveTo{
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.MoveTo, &cmd);
         }
     }
 
-    fn parseSvgSmoothCurveto(self: *Self, relative: bool) !PathCommand {
-        const c2_x = try self.parseSvgFloat();
-        const c2_y = try self.parseSvgFloat();
-        const x = try self.parseSvgFloat();
-        const y = try self.parseSvgFloat();
+    fn parseSvgSmoothCurveto(self: *PathParser, relative: bool) !PathCommand {
+        var cmd = PathSmoothCurveTo{
+            .c2_x = try self.parseSvgFloat(),
+            .c2_y = try self.parseSvgFloat(),
+            .x = try self.parseSvgFloat(),
+            .y = try self.parseSvgFloat(),
+        };
         if (relative) {
-            return self.appendCommand(.SmoothCurveToRel, &PathSmoothCurveToRel{
-                .c2_x = c2_x,
-                .c2_y = c2_y,
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.SmoothCurveToRel, &cmd);
         } else {
-            return self.appendCommand(.SmoothCurveTo, &PathSmoothCurveTo{
-                .c2_x = c2_x,
-                .c2_y = c2_y,
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.SmoothCurveTo, &cmd);
         }
     }
 
-    fn parseSvgCurveto(self: *Self, relative: bool) !PathCommand {
-        const ca_x = try self.parseSvgFloat();
-        const ca_y = try self.parseSvgFloat();
-        const cb_x = try self.parseSvgFloat();
-        const cb_y = try self.parseSvgFloat();
-        const x = try self.parseSvgFloat();
-        const y = try self.parseSvgFloat();
+    fn parseSvgCurveto(self: *PathParser, relative: bool) !PathCommand {
+        var cmd = PathCurveTo{
+            .ca_x = try self.parseSvgFloat(),
+            .ca_y = try self.parseSvgFloat(),
+            .cb_x = try self.parseSvgFloat(),
+            .cb_y = try self.parseSvgFloat(),
+            .x = try self.parseSvgFloat(),
+            .y = try self.parseSvgFloat(),
+        };
         if (relative) {
-            return self.appendCommand(.CurveToRel, &PathCurveToRel{
-                .ca_x = ca_x,
-                .ca_y = ca_y,
-                .cb_x = cb_x,
-                .cb_y = cb_y,
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.CurveToRel, &cmd);
         } else {
-            return self.appendCommand(.CurveTo, &PathCurveTo{
-                .ca_x = ca_x,
-                .ca_y = ca_y,
-                .cb_x = cb_x,
-                .cb_y = cb_y,
-                .x = x,
-                .y = y,
-            });
+            return self.appendCommand(.CurveTo, &cmd);
         }
     }
 
-    fn parseSvgFloat(self: *Self) !f32 {
+    fn parseSvgFloat(self: *PathParser) !f32 {
         // log.debug("parse float", .{});
         self.consumeDelim();
 
@@ -585,7 +614,34 @@ test "SvgParser.parse CR/LF" {
     _ = try parser.parse(svg);
 }
 
+test "SvgParser.parse viewbox" {
+    var parser = SvgParser.init(t.alloc);
+    defer parser.deinit();
+
+    const svg =
+        \\<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 2 24 25">
+        \\  <g>
+        \\    <path fill="none" d="M0 0h24v24H0z"/>
+        \\  </g>
+        \\</svg>
+        ;
+
+    const res = try parser.parse(svg);
+    try t.eq(res.min_x, 1);
+    try t.eq(res.min_y, 2);
+    try t.eq(res.width, 24);
+    try t.eq(res.height, 25);
+}
+
+test "PathParser.parse with continuation of the same command type." {
+    const path = "M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm0-9.414l2.828-2.829 1.415 1.415L13.414 12l2.829 2.828-1.415 1.415L12 13.414l-2.828 2.829-1.415-1.415L10.586 12 7.757 9.172l1.415-1.415L12 10.586z";
+    const res = try parseSvgPath(t.alloc, path);
+    defer res.deinit();
+    try t.eq(res.cmds.len, 24);
+}
+
 const SvgElement = enum {
+    Svg,
     Group,
     Polygon,
     Path,
@@ -607,8 +663,7 @@ const SvgDrawState = struct {
 
 // Fast parser that just extracts draw commands from svg file. No ast returned.
 pub const SvgParser = struct {
-    const Self = @This();
-
+    alloc: std.mem.Allocator,
     src: []const u8,
     next_ch_idx: u32,
 
@@ -620,6 +675,13 @@ pub const SvgParser = struct {
     str_buf: std.ArrayList(u8),
     state_stack: std.ArrayList(SvgDrawState),
     path_parser: PathParser,
+    last_err: []const u8,
+
+    /// Parsed viewbox.
+    min_x: f32,
+    min_y: f32,
+    width: f32,
+    height: f32,
 
     // Keep track of the current colors set to determine adding FillColor/StrokeColor ops.
     cur_fill: ?Color,
@@ -630,13 +692,15 @@ pub const SvgParser = struct {
     // append transform commands to DrawCommandList in a way similar to setFillColor
     cur_transform: ?Transform,
 
-    pub fn init(alloc: std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) SvgParser {
         var elem_map = ds.OwnedKeyStringHashMap(SvgElement).init(alloc);
+        elem_map.put("svg", .Svg) catch unreachable;
         elem_map.put("g", .Group) catch unreachable;
         elem_map.put("polygon", .Polygon) catch unreachable;
         elem_map.put("path", .Path) catch unreachable;
         elem_map.put("rect", .Rect) catch unreachable;
         return .{
+            .alloc = alloc,
             .src = undefined,
             .next_ch_idx = undefined,
             .extra_data = std.ArrayList(f32).init(alloc),
@@ -650,10 +714,15 @@ pub const SvgParser = struct {
             .cur_stroke = undefined,
             .cur_transform = undefined,
             .path_parser = PathParser.init(alloc),
+            .last_err = "",
+            .min_x = 0,
+            .min_y = 0,
+            .width = 0,
+            .height = 0,
         };
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *SvgParser) void {
         self.extra_data.deinit();
         self.cmd_data.deinit();
         self.sub_cmds.deinit();
@@ -662,28 +731,41 @@ pub const SvgParser = struct {
         self.str_buf.deinit();
         self.state_stack.deinit();
         self.path_parser.deinit();
+        self.alloc.free(self.last_err);
     }
 
-    pub fn parseAlloc(self: *Self, alloc: std.mem.Allocator, src: []const u8) !DrawCommandList {
+    fn reportError(self: *SvgParser, comptime format: []const u8, args: anytype) void {
+        self.alloc.free(self.last_err);
+        self.last_err = std.fmt.allocPrint(self.alloc, format, args) catch fatal();
+    }
+
+    pub fn parseAlloc(self: *SvgParser, alloc: std.mem.Allocator, src: []const u8) !SvgRenderData {
         const res = try self.parse(src);
-        const new_cmd_data = alloc.alloc(f32, res.cmd_data.len) catch unreachable;
-        std.mem.copy(f32, new_cmd_data, res.cmd_data);
-        const new_extra_data = alloc.alloc(f32, res.extra_data.len) catch unreachable;
-        std.mem.copy(f32, new_extra_data, res.extra_data);
-        const new_cmds = alloc.alloc(DrawCommandPtr, res.cmds.len) catch unreachable;
-        std.mem.copy(DrawCommandPtr, new_cmds, res.cmds);
-        const new_sub_cmds = alloc.alloc(u8, res.sub_cmds.len) catch unreachable;
-        std.mem.copy(u8, new_sub_cmds, res.sub_cmds);
-        return DrawCommandList{
-            .alloc = alloc,
-            .extra_data = new_extra_data,
-            .cmd_data = new_cmd_data,
-            .cmds = new_cmds,
-            .sub_cmds = new_sub_cmds,
+        const cmds = res.cmds;
+        const new_cmd_data = alloc.alloc(f32, cmds.cmd_data.len) catch unreachable;
+        std.mem.copy(f32, new_cmd_data, cmds.cmd_data);
+        const new_extra_data = alloc.alloc(f32, cmds.extra_data.len) catch unreachable;
+        std.mem.copy(f32, new_extra_data, cmds.extra_data);
+        const new_cmds = alloc.alloc(DrawCommandPtr, cmds.cmds.len) catch unreachable;
+        std.mem.copy(DrawCommandPtr, new_cmds, cmds.cmds);
+        const new_sub_cmds = alloc.alloc(u8, cmds.sub_cmds.len) catch unreachable;
+        std.mem.copy(u8, new_sub_cmds, cmds.sub_cmds);
+        return SvgRenderData{
+            .min_x = self.min_x,
+            .min_y = self.min_y,
+            .width = self.width,
+            .height = self.height,
+            .cmds = DrawCommandList{
+                .alloc = alloc,
+                .extra_data = new_extra_data,
+                .cmd_data = new_cmd_data,
+                .cmds = new_cmds,
+                .sub_cmds = new_sub_cmds,
+            },
         };
     }
 
-    pub fn parse(self: *Self, src: []const u8) !DrawCommandList {
+    pub fn parse(self: *SvgParser, src: []const u8) !SvgRenderData {
         self.src = src;
         self.next_ch_idx = 0;
 
@@ -694,29 +776,38 @@ pub const SvgParser = struct {
         self.state_stack.clearRetainingCapacity();
 
         // Root state.
-        self.state_stack.append(.{
+        try self.state_stack.append(.{
             .fill = Color.Black,
             .stroke = null,
             .transform = null,
-        }) catch unreachable;
+        });
         self.cur_fill = null;
         self.cur_stroke = null;
         self.cur_transform = null;
 
         while (!self.nextAtEnd()) {
-            _ = try self.parseElement();
+            _ = self.parseElement() catch {
+                log.debug("error: {s}", .{self.last_err});
+                return error.ParseError;
+            };
         }
 
-        return DrawCommandList{
-            .alloc = null,
-            .extra_data = self.extra_data.items,
-            .cmd_data = self.cmd_data.buf.items,
-            .cmds = self.cmds.items,
-            .sub_cmds = self.sub_cmds.items,
+        return SvgRenderData{
+            .min_x = self.min_x,
+            .min_y = self.min_y,
+            .width = self.width,
+            .height = self.height,
+            .cmds = DrawCommandList{
+                .alloc = null,
+                .extra_data = self.extra_data.items,
+                .cmd_data = self.cmd_data.buf.items,
+                .cmds = self.cmds.items,
+                .sub_cmds = self.sub_cmds.items,
+            },
         };
     }
 
-    fn parsePath(self: *Self) !void {
+    fn parsePath(self: *SvgParser) !void {
         // log.debug("parse path", .{});
         while (try self.parseAttribute()) |attr| {
             if (stdx.string.eq(attr.key, "d")) {
@@ -730,7 +821,7 @@ pub const SvgParser = struct {
 
                     // Fill path.
                     if (state.fill != null) {
-                        if (!std.meta.eql(state.fill, self.cur_fill)) {
+                        if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
                             const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
                                 .rgba = state.fill.?.toU32(),
                             }) catch unreachable;
@@ -752,11 +843,11 @@ pub const SvgParser = struct {
         try self.consume('>');
     }
 
-    fn getCurrentState(self: *Self) SvgDrawState {
+    fn getCurrentState(self: *SvgParser) SvgDrawState {
         return self.state_stack.items[self.state_stack.items.len - 1];
     }
 
-    fn parseRect(self: *Self) !void {
+    fn parseRect(self: *SvgParser) !void {
         // log.debug("parse rect", .{});
         var req_fields: u4 = 0;
         var x: f32 = undefined;
@@ -792,7 +883,7 @@ pub const SvgParser = struct {
 
             // Fill rect.
             if (state.fill != null) {
-                if (!std.meta.eql(state.fill, self.cur_fill)) {
+                if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
                     const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
                         .rgba = state.fill.?.toU32(),
                     }) catch unreachable;
@@ -813,7 +904,7 @@ pub const SvgParser = struct {
         try self.consume('>');
     }
 
-    fn parsePolygon(self: *Self) !void {
+    fn parsePolygon(self: *SvgParser) !void {
         // log.debug("parse polygon", .{});
         while (try self.parseAttribute()) |attr| {
             // log.debug("{s}: {s}", .{attr.key, attr.value});
@@ -823,7 +914,10 @@ pub const SvgParser = struct {
                     var num_verts: u32 = 0;
                     const start_vert_id = @intCast(u32, self.extra_data.items.len);
                     while (iter.next()) |pair| {
-                        const sep_idx = stdx.string.indexOf(pair, ',') orelse return error.ParseError;
+                        const sep_idx = stdx.string.indexOf(pair, ',') orelse {
+                            self.reportError("Expected , in points.", .{});
+                            return error.ParseError;
+                        };
                         const x = try std.fmt.parseFloat(f32, pair[0..sep_idx]);
                         const y = try std.fmt.parseFloat(f32, pair[sep_idx + 1 ..]);
                         self.extra_data.appendSlice(&.{ x, y }) catch unreachable;
@@ -834,7 +928,7 @@ pub const SvgParser = struct {
 
                     // Fill polygon.
                     if (state.fill != null) {
-                        if (!std.meta.eql(state.fill, self.cur_fill)) {
+                        if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
                             const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
                                 .rgba = state.fill.?.toU32(),
                             }) catch unreachable;
@@ -855,7 +949,7 @@ pub const SvgParser = struct {
         try self.consume('>');
     }
 
-    fn parseFunctionLastFloatArg(self: *Self, str: []const u8, next_pos: *u32) !f32 {
+    fn parseFunctionLastFloatArg(self: *SvgParser, str: []const u8, next_pos: *u32) !f32 {
         _ = self;
         const pos = next_pos.*;
         if (string.indexOfPos(str, pos, ')')) |end| {
@@ -867,7 +961,7 @@ pub const SvgParser = struct {
         }
     }
 
-    fn parseFunctionFloatArg(self: *Self, str: []const u8, next_pos: *u32) !f32 {
+    fn parseFunctionFloatArg(self: *SvgParser, str: []const u8, next_pos: *u32) !f32 {
         _ = self;
         const pos = next_pos.*;
         if (string.indexOfPos(str, pos, ',')) |end| {
@@ -880,7 +974,7 @@ pub const SvgParser = struct {
     }
 
     // Parses from an attribute value.
-    fn parseFunctionName(self: *Self, str: []const u8, next_pos: *u32) !?[]const u8 {
+    fn parseFunctionName(self: *SvgParser, str: []const u8, next_pos: *u32) !?[]const u8 {
         _ = self;
         var pos = next_pos.*;
         if (pos == str.len) {
@@ -915,8 +1009,24 @@ pub const SvgParser = struct {
         }
     }
 
+    fn parseSvgElement(self: *SvgParser) !void {
+        while (try self.parseAttribute()) |attr| {
+            if (std.ascii.eqlIgnoreCase(attr.key, "viewbox")) {
+                if (attr.value) |value| {
+                    var iter = std.mem.tokenize(u8, value, " ");
+                    self.min_x = try std.fmt.parseFloat(f32, iter.next().?);
+                    self.min_y = try std.fmt.parseFloat(f32, iter.next().?);
+                    self.width = try std.fmt.parseFloat(f32, iter.next().?);
+                    self.height = try std.fmt.parseFloat(f32, iter.next().?);
+                }
+            }
+        }
+        try self.consume('>');
+        try self.parseChildrenAndCloseTag();
+    }
+
     // Parses until end element '>' is consumed.
-    fn parseGroup(self: *Self) !void {
+    fn parseGroup(self: *SvgParser) !void {
         // log.debug("parse group", .{});
 
         // Need a flag to separate declaring "none" and not having a value at all.
@@ -979,7 +1089,7 @@ pub const SvgParser = struct {
         self.cur_transform = state.transform;
     }
 
-    fn parseAttribute(self: *Self) !?Attribute {
+    fn parseAttribute(self: *SvgParser) !?Attribute {
         const key = try self.parseAttributeKey();
         if (key == null) return null;
         // log.debug("attr key: {s}", .{key.?});
@@ -992,7 +1102,7 @@ pub const SvgParser = struct {
         return Attribute{ .key = key.?, .value = value };
     }
 
-    fn consumeUntilIncl(self: *Self, ch: u8) !void {
+    fn consumeUntilIncl(self: *SvgParser, ch: u8) !void {
         while (self.peekNext() != ch) {
             self.next_ch_idx += 1;
             if (self.nextAtEnd()) {
@@ -1002,7 +1112,7 @@ pub const SvgParser = struct {
         self.next_ch_idx += 1;
     }
 
-    fn consume(self: *Self, ch: u8) !void {
+    fn consume(self: *SvgParser, ch: u8) !void {
         if (self.nextAtEnd()) {
             return error.ParseError;
         }
@@ -1014,7 +1124,7 @@ pub const SvgParser = struct {
         }
     }
 
-    fn consumeUntilWhitespace(self: *Self) void {
+    fn consumeUntilWhitespace(self: *SvgParser) void {
         while (!std.ascii.isSpace(self.peekNext())) {
             self.next_ch_idx += 1;
             if (self.nextAtEnd()) {
@@ -1023,7 +1133,7 @@ pub const SvgParser = struct {
         }
     }
 
-    fn consumeWhitespaces(self: *Self) void {
+    fn consumeWhitespaces(self: *SvgParser) void {
         while (std.ascii.isSpace(self.peekNext())) {
             self.next_ch_idx += 1;
             if (self.nextAtEnd()) {
@@ -1032,11 +1142,11 @@ pub const SvgParser = struct {
         }
     }
 
-    fn peekNext(self: *Self) u8 {
+    fn peekNext(self: *SvgParser) u8 {
         return self.src[self.next_ch_idx];
     }
 
-    fn hasLookahead(self: *Self, n: u32, ch: u8) bool {
+    fn hasLookahead(self: *SvgParser, n: u32, ch: u8) bool {
         if (self.next_ch_idx + n < self.src.len) {
             return self.src[self.next_ch_idx + n] == ch;
         } else {
@@ -1045,7 +1155,7 @@ pub const SvgParser = struct {
     }
 
     // Returns whether an element was parsed.
-    fn parseElement(self: *Self) anyerror!bool {
+    fn parseElement(self: *SvgParser) anyerror!bool {
         // log.debug("parse element", .{});
         const ch = self.peekNext();
         if (std.ascii.isSpace(ch)) {
@@ -1073,6 +1183,7 @@ pub const SvgParser = struct {
         self.str_buf.resize(name.len) catch unreachable;
         if (self.elem_map.get(stdx.string.toLower(name, self.str_buf.items))) |elem| {
             switch (elem) {
+                .Svg => try self.parseSvgElement(),
                 .Group => try self.parseGroup(),
                 .Polygon => try self.parsePolygon(),
                 .Path => try self.parsePath(),
@@ -1093,7 +1204,7 @@ pub const SvgParser = struct {
         }
     }
 
-    fn parseChildrenAndCloseTag(self: *Self) !void {
+    fn parseChildrenAndCloseTag(self: *SvgParser) !void {
         // log.debug("parse children", .{});
         while (try self.parseElement()) {}
 
@@ -1108,7 +1219,7 @@ pub const SvgParser = struct {
     }
 
     // Returns whether tag is single element.
-    fn consumeToTagEnd(self: *Self) !bool {
+    fn consumeToTagEnd(self: *SvgParser) !bool {
         while (true) {
             var ch = self.peekNext();
             if (ch == '>') {
@@ -1132,11 +1243,11 @@ pub const SvgParser = struct {
         }
     }
 
-    fn nextAtEnd(self: *Self) bool {
+    fn nextAtEnd(self: *SvgParser) bool {
         return self.next_ch_idx == self.src.len;
     }
 
-    fn parseAttributeKey(self: *Self) anyerror!?[]const u8 {
+    fn parseAttributeKey(self: *SvgParser) anyerror!?[]const u8 {
         if (self.nextAtEnd()) {
             return error.ParseError;
         }
@@ -1165,7 +1276,7 @@ pub const SvgParser = struct {
         }
     }
 
-    fn parseTagName(self: *Self) ![]const u8 {
+    fn parseTagName(self: *SvgParser) ![]const u8 {
         if (self.nextAtEnd()) {
             return error.ParseError;
         }
@@ -1194,5 +1305,20 @@ pub const SvgParser = struct {
             log.debug("Failed to consume: {c} at {}", .{ ch, self.next_ch_idx });
             return error.ParseError;
         }
+    }
+};
+
+pub const SvgRenderData = struct {
+    /// Viewbox.
+    min_x: f32,
+    min_y: f32,
+    width: f32,
+    height: f32,
+
+    /// Render data.
+    cmds: DrawCommandList,
+
+    pub fn deinit(self: SvgRenderData) void {
+        self.cmds.deinit();
     }
 };

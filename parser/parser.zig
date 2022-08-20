@@ -1393,9 +1393,9 @@ pub const DebugInfo = struct {
 
     pub fn formatMaxCallStack(self: *Self, comptime Config: ParseConfig, ast: *const Tree(Config), writer: anytype) void {
         const first = self.max_call_stack.items[0];
-        writer.print("{s}({}'{s}')", .{ ast.grammar.getRuleName(first.parse_rule_id), first.next_token_id, ast.getTokenString(first.next_token_id.?) }) catch unreachable;
+        writer.print("{s}({?}'{s}')", .{ ast.grammar.getRuleName(first.parse_rule_id), first.next_token_id, ast.getTokenString(first.next_token_id.?) }) catch unreachable;
         for (self.max_call_stack.items[1..]) |frame| {
-            writer.print(" -> {s}({}'{s}')", .{ ast.grammar.getRuleName(frame.parse_rule_id), frame.next_token_id, ast.getTokenString(frame.next_token_id.?) }) catch unreachable;
+            writer.print(" -> {s}({?}'{s}')", .{ ast.grammar.getRuleName(frame.parse_rule_id), frame.next_token_id, ast.getTokenString(frame.next_token_id.?) }) catch unreachable;
         }
         writer.print("\n", .{}) catch unreachable;
     }
@@ -1406,13 +1406,13 @@ const CallFrame = struct {
     next_token_id: ?TokenId,
 };
 
-fn ParseContext(comptime State: type, comptime Ast: type, comptime UseCacheMap: bool, comptime Debug: bool) type {
+fn ParseContext(comptime StateT: type, comptime Ast: type, comptime UseCacheMap: bool, comptime Debug: bool) type {
     return struct {
-        const State = State;
+        const State = StateT;
         const debug = Debug;
         const useCacheMap = UseCacheMap;
 
-        state: State,
+        state: StateT,
         ast: *Ast,
         debug: if (Debug) *DebugInfo else void,
     };
@@ -1459,7 +1459,7 @@ pub const NodeId = u32;
 // Index to RuleDecl and special node types.
 pub const NodeTag = u32;
 
-pub const NodeSlice = ds.RelSlice(u32);
+pub const NodeSlice = ds.IndexSlice(u32);
 
 pub fn ParseResult(comptime Config: ParseConfig) type {
     return struct {

@@ -3,8 +3,6 @@ const Function = stdx.Function;
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const platform = @import("platform");
-const MouseUpEvent = platform.MouseUpEvent;
-const MouseDownEvent = platform.MouseDownEvent;
 
 const ui = @import("../ui.zig");
 const w = ui.widgets;
@@ -12,7 +10,7 @@ const log = stdx.log.scoped(.button);
 
 pub const TextButton = struct {
     props: struct {
-        onClick: ?Function(fn (MouseUpEvent) void) = null,
+        onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -28,8 +26,7 @@ pub const TextButton = struct {
             .bg_pressed_color = self.props.bg_pressed_color,
             .border_size = self.props.border_size,
             .border_color = self.props.border_color,
-            .corner_radius = self.props.corner_radius,
-        },
+            .corner_radius = self.props.corner_radius },
             w.Padding(.{ .padding = 10 },
                 w.Text(.{
                     .text = self.props.text,
@@ -39,9 +36,10 @@ pub const TextButton = struct {
     }
 };
 
+/// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
 pub const Button = struct {
     props: struct {
-        onClick: ?Function(fn (platform.MouseUpEvent) void) = null,
+        onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         bg_color: Color = Color.init(220, 220, 220, 255),
         bg_pressed_color: Color = Color.Gray.darker(),
         border_size: f32 = 1,
@@ -53,62 +51,51 @@ pub const Button = struct {
 
     pressed: bool,
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Button, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *Button, c: *ui.InitContext) void {
         self.pressed = false;
-        c.addMouseDownHandler(c.node, handleMouseDownEvent);
-        c.addMouseUpHandler(c.node, handleMouseUpEvent);
+        c.setMouseDownHandler(c.node, handleMouseDownEvent);
+        c.setMouseUpHandler(c.node, handleMouseUpEvent);
     }
 
     fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
-        var self = node.getWidget(Self);
+        var self = node.getWidget(Button);
         if (e.val.button == .Left) {
             if (self.pressed) {
                 self.pressed = false;
-                if (self.props.onClick) |cb| {
-                    cb.call(.{ e.val });
+                if (self.props.onClick.isPresent()) {
+                    self.props.onClick.call(.{ e });
                 }
             }
         }
     }
 
-    fn handleMouseDownEvent(node: *ui.Node, e: ui.Event(MouseDownEvent)) ui.EventResult {
-        var self = node.getWidget(Self);
+    fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
+        var self = node.getWidget(Button);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             self.pressed = true;
+            return .stop;
         }
-        return .Continue;
+        return .default;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
-        var self = node.getWidget(Self);
+        var self = node.getWidget(Button);
         self.pressed = false;
     }
 
-    /// Defaults to a fixed size if there is no child widget.
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
-
-        var res: ui.LayoutSize = cstr;
+    pub fn layout(self: *Button, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
         if (self.props.child != ui.NullFrameId) {
             const child_node = c.getNode().children.items[0];
-            var child_size = c.computeLayout(child_node, cstr);
-            child_size.cropTo(cstr);
-            res = child_size;
-            if (c.prefer_exact_width) {
-                res.width = cstr.width;
-            }
-            if (c.prefer_exact_height) {
-                res.height = cstr.height;
-            }
+            const child_size = c.computeLayoutWithMax(child_node, cstr.max_width, cstr.max_height);
+            var res = child_size;
+            res.growToMin(cstr);
             switch (self.props.halign) {
                 .Left => c.setLayout(child_node, ui.Layout.initWithSize(0, 0, child_size)),
                 .Center => c.setLayout(child_node, ui.Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
@@ -116,19 +103,14 @@ pub const Button = struct {
             }
             return res;
         } else {
-            res = ui.LayoutSize.init(150, 40);
-            if (c.prefer_exact_width) {
-                res.width = cstr.width;
-            }
-            if (c.prefer_exact_height) {
-                res.height = cstr.height;
-            }
+            var res = ui.LayoutSize.init(150, 40);
+            res.growToMin(cstr);
             return res;
         }
     }
 
-    pub fn render(self: *Self, ctx: *ui.RenderContext) void {
-        const alo = ctx.getAbsLayout();
+    pub fn render(self: *Button, ctx: *ui.RenderContext) void {
+        const bounds = ctx.getAbsBounds();
         const g = ctx.getGraphics();
         if (!self.pressed) {
             g.setFillColor(self.props.bg_color);
@@ -136,15 +118,15 @@ pub const Button = struct {
             g.setFillColor(self.props.bg_pressed_color);
         }
         if (self.props.corner_radius > 0) {
-            g.fillRoundRect(alo.x, alo.y, alo.width, alo.height, self.props.corner_radius);
+            ctx.fillRoundBBox(bounds, self.props.corner_radius);
             g.setLineWidth(self.props.border_size);
             g.setStrokeColor(self.props.border_color);
-            g.drawRoundRect(alo.x, alo.y, alo.width, alo.height, self.props.corner_radius);
+            ctx.drawRoundBBox(bounds, self.props.corner_radius);
         } else {
-            g.fillRect(alo.x, alo.y, alo.width, alo.height);
+            ctx.fillBBox(bounds);
             g.setLineWidth(self.props.border_size);
             g.setStrokeColor(self.props.border_color);
-            g.drawRect(alo.x, alo.y, alo.width, alo.height);
+            ctx.drawBBox(bounds);
         }
     }
 };

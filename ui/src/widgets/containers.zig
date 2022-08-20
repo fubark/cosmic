@@ -1,6 +1,10 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const graphics = @import("graphics");
+const Color = graphics.Color;
+
 const ui = @import("../ui.zig");
+const u = ui.widgets;
 const log = stdx.log.scoped(.containers);
 
 /// Provides padding around a child widget.
@@ -14,8 +18,7 @@ pub const Padding = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    pub fn build(self: *Padding, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Padding, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
@@ -28,23 +31,21 @@ pub const Padding = struct {
         const h_pad = pad_left + pad_right;
         const v_pad = pad_top + pad_bottom;
 
-        const cstr = c.getSizeConstraint();
-        const node = c.getNode();
-        if (node.children.items.len == 0) {
+        if (self.props.child == ui.NullFrameId) {
             return ui.LayoutSize.init(h_pad, v_pad);
         }
 
+        const cstr = c.getSizeConstraints();
+        const node = c.getNode();
         const child = node.children.items[0];
-        if (!c.prefer_exact_width_or_height) {
-            var child_size = c.computeLayout(child, cstr);
-            c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
-            return child_size.toIncSize(h_pad, v_pad);
-        } else {
-            const child_cstr = cstr.toIncSize(-h_pad, -v_pad);
-            const child_size = c.computeLayoutStretch(child, child_cstr, c.prefer_exact_width, c.prefer_exact_height);
-            c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
-            return child_size.toIncSize(h_pad, v_pad);
-        }
+
+        const min_width = std.math.max(cstr.min_width - h_pad, 0);
+        const min_height = std.math.max(cstr.min_height - v_pad, 0);
+        const max_width = std.math.max(cstr.max_width - h_pad, 0);
+        const max_height = std.math.max(cstr.max_height - v_pad, 0);
+        const child_size = c.computeLayout(child, min_width, min_height, max_width, max_height);
+        c.setLayout(child, ui.Layout.init(pad_left, pad_top, child_size.width, child_size.height));
+        return child_size.toIncSize(h_pad, v_pad);
     }
 };
 
@@ -59,43 +60,49 @@ pub const Sized = struct {
         child: ui.FrameId = ui.NullFrameId,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Sized, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        if (self.props.child != ui.NullFrameId) {
-            var child_cstr = c.getSizeConstraint();
-            var prefer_exact_width = c.prefer_exact_width;
-            var prefer_exact_height = c.prefer_exact_height;
-            if (self.props.width) |width| {
-                child_cstr.width = width;
-                prefer_exact_width = true;
-            }
-            if (self.props.height) |height| {
-                child_cstr.height = height;
-                prefer_exact_height = true;
-            }
-
-            const child = c.getNode().children.items[0];
-            const child_size = c.computeLayoutStretch(child, child_cstr, prefer_exact_width, prefer_exact_height);
-            c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
-
-            var res = ui.LayoutSize.init(0, 0);
-            res.width = self.props.width orelse child_size.width;
-            res.height = self.props.height orelse child_size.height;
-            return res;
-        } else {
-            var res = ui.LayoutSize.init(0, 0);
-            res.width = self.props.width orelse 0;
-            res.height = self.props.height orelse 0;
-            return res;
-        }
+    pub fn layout(self: *Sized, ctx: *ui.LayoutContext) ui.LayoutSize {
+        return sizedWrapChildLayout(ctx, self.props.width, self.props.height, self.props.child);
     }
 };
+
+fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, child_id: ui.FrameId) ui.LayoutSize {
+    var child_cstr = ctx.getSizeConstraints();
+    if (m_width) |width| {
+        if (width != ui.ExpandedWidth) {
+            if (width < child_cstr.max_width) {
+                child_cstr.min_width = width;
+                child_cstr.max_width = width;
+            }
+        } else {
+            child_cstr.min_width = child_cstr.max_width;
+        }
+    }
+    if (m_height) |height| {
+        if (height != ui.ExpandedHeight) {
+            if (height < child_cstr.max_height) {
+                child_cstr.min_height = height;
+                child_cstr.max_height = height;
+            }
+        } else {
+            child_cstr.min_height = child_cstr.max_height;
+        }
+    }
+    if (child_id != ui.NullFrameId) {
+        const child = ctx.getNode().children.items[0];
+        const child_size = ctx.computeLayout2(child, child_cstr);
+        ctx.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
+
+        var res = child_size;
+        res.growToMin(child_cstr);
+        return res;
+    } else {
+        return child_cstr.getMinLayoutSize();
+    }
+}
 
 pub const Center = struct {
     props: struct {
@@ -110,22 +117,21 @@ pub const Center = struct {
     }
 
     pub fn layout(self: *Center, c: *ui.LayoutContext) ui.LayoutSize {
-        const cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
 
         if (self.props.child == ui.NullFrameId) {
-            return cstr;
+            return cstr.getMaxLayoutSize();
         }
 
         const node = c.getNode();
         const child = node.children.items[0];
-        var child_size = c.computeLayout(child, cstr);
-        child_size.cropTo(cstr);
+        var child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
-        const x = if (self.props.hcenter) (cstr.width - child_size.width)/2 else 0;
-        const y = if (self.props.vcenter) (cstr.height - child_size.height)/2 else 0;
+        const x = if (self.props.hcenter) (cstr.max_width - child_size.width) * 0.5 else 0;
+        const y = if (self.props.vcenter) (cstr.max_height - child_size.height) * 0.5 else 0;
 
         c.setLayout(child, ui.Layout.init(x, y, child_size.width, child_size.height));
-        return cstr;
+        return cstr.getMaxLayoutSize();
     }
 };
 
@@ -149,21 +155,21 @@ pub const Stretch = struct {
         aspect_ratio: f32 = 1,
     },
 
-    pub fn build(self: *Stretch, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Stretch, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
     pub fn layout(self: *Stretch, c: *ui.LayoutContext) ui.LayoutSize {
-        var cstr = c.getSizeConstraint();
+        const cstr = c.getSizeConstraints();
+        var child_cstr = cstr.getMaxLayoutSize();
         switch (self.props.method) {
-            .WidthAndKeepRatio => cstr.height = cstr.width / self.props.aspect_ratio,
-            .HeightAndKeepRatio => cstr.width = cstr.height * self.props.aspect_ratio,
+            .WidthAndKeepRatio => child_cstr.height = child_cstr.width / self.props.aspect_ratio,
+            .HeightAndKeepRatio => child_cstr.width = child_cstr.height * self.props.aspect_ratio,
             else => {},
         }
 
         if (self.props.child == ui.NullFrameId) {
-            return cstr;
+            return child_cstr;
         }
 
         const h_stretch = self.props.method == .Both or self.props.method == .Width or self.props.method == .WidthAndKeepRatio or self.props.method == .HeightAndKeepRatio;
@@ -171,18 +177,11 @@ pub const Stretch = struct {
 
         const node = c.getNode();
         const child = node.children.items[0];
-        var child_size = c.computeLayoutStretch(child, cstr, h_stretch, v_stretch);
-        child_size.cropTo(cstr);
-
+        const min_width = if (h_stretch) child_cstr.width else 0;
+        const min_height = if (v_stretch) child_cstr.height else 0;
+        const child_size = c.computeLayout(child, min_width, min_height, child_cstr.width, child_cstr.height);
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
-        var res = child_size;
-        if (h_stretch) {
-            res.width = cstr.width;
-        }
-        if (v_stretch) {
-            res.height = cstr.height;
-        }
-        return res;
+        return child_size;
     }
 };
 
@@ -200,13 +199,14 @@ pub const ZStack = struct {
     /// Ordered by z-index desc.
     child_event_ordering: std.ArrayList(*ui.Node),
 
+    pub const ChildrenCanOverlap = true;
+
     pub fn init(self: *ZStack, c: *ui.InitContext) void {
         self.ordered_children = std.ArrayList(u32).init(c.alloc);
         self.child_event_ordering = std.ArrayList(*ui.Node).init(c.alloc);
     }
 
-    pub fn deinit(node: *ui.Node, _: std.mem.Allocator) void {
-        const self = node.getWidget(ZStack);
+    pub fn deinit(self: *ZStack, _: std.mem.Allocator) void {
         self.ordered_children.deinit();
         self.child_event_ordering.deinit();
     }
@@ -255,7 +255,123 @@ pub const ZStack = struct {
     }
 };
 
-// TODO: Container with more comprehensive properties.
-// pub const Container = struct {
-//     const Self = @This();
-// };
+pub const Container = struct {
+    props: struct {
+        bgColor: Color = Color.Transparent,
+
+        /// If width is not provided, this container will shrink to the child's width.
+        width: ?f32 = null,
+
+        /// If height is not provided, this container will shrink to the child's height.
+        height: ?f32 = null,
+
+        /// Outline is drawn if size is greater than 0.
+        outlineSize: f32 = 0,
+        outlineColor: Color = Color.Transparent,
+
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn build(self: *Container, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Container, ctx: *ui.LayoutContext) ui.LayoutSize {
+        return sizedWrapChildLayout(ctx, self.props.width, self.props.height, self.props.child);
+    }
+
+    pub fn render(self: *Container, ctx: *ui.RenderContext) void {
+        const bounds = ctx.getAbsBounds();
+        const gctx = ctx.gctx;
+
+        if (self.props.bgColor.channels.a > 0) {
+            gctx.setFillColor(self.props.bgColor);
+            ctx.fillBBox(bounds);
+        }
+    }
+
+    pub fn postRender(self: *Container, ctx: *ui.RenderContext) void {
+        const gctx = ctx.gctx;
+        if (self.props.outlineSize > 0) {
+            gctx.setStrokeColor(self.props.outlineColor);
+            gctx.setLineWidth(self.props.outlineSize);
+            ctx.drawBBox(ctx.getAbsBounds());
+        }
+    }
+};
+
+/// Takes up max available space and positions child to relative itself.
+pub const Positioned = struct {
+    props: struct {
+        /// Relative x from parent.
+        x: f32,
+        /// Relative y from parent.
+        y: f32,
+        width: ?f32 = null,
+        height: ?f32 = null,
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn build(self: *Positioned, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Positioned, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
+        if (self.props.child == ui.NullFrameId) {
+            return cstr.getMaxLayoutSize();
+        }
+
+        const node = c.getNode();
+        const child = node.children.items[0];
+
+        const max_child_width = self.props.width orelse cstr.max_width - self.props.x;
+        const max_child_height = self.props.height orelse cstr.max_height - self.props.y;
+        const child_size = c.computeLayoutWithMax(child, max_child_width, max_child_height);
+        c.setLayout(child, ui.Layout.init(self.props.x, self.props.y, child_size.width, child_size.height));
+        return cstr.getMaxLayoutSize();
+    }
+};
+
+pub const TabView = struct {
+    props: struct {
+        numTabs: u32 = 0,
+        buildTab: stdx.Function(fn (*ui.BuildContext, idx: u32, active: bool) ui.FrameId) = .{},
+        buildContent: stdx.Function(fn (*ui.BuildContext, idx: u32) ui.FrameId) = .{},
+    },
+
+    tab_idx: u32,
+
+    pub fn init(self: *TabView, _: *ui.InitContext) void {
+        self.tab_idx = 0;
+    }
+
+    pub fn build(self: *TabView, ctx: *ui.BuildContext) ui.FrameId {
+        const S = struct {
+            fn buildTab(self_: *TabView, ctx_: *ui.BuildContext, idx: u32) ui.FrameId {
+                const active = self_.tab_idx == idx;
+                const user_inner = self_.props.buildTab.call(.{ ctx_, idx, active });
+                return u.MouseArea(.{ .onClick = ctx_.closurePtrId(self_, idx, onClickTab) }, user_inner);
+            }
+        };
+        var content = ui.NullFrameId;
+        if (self.props.buildContent.isPresent()) {
+            content = self.props.buildContent.call(.{ ctx, self.tab_idx });
+        }
+
+        var tabs: []const ui.FrameId = &.{};
+        if (self.props.buildTab.isPresent()) {
+            tabs = ctx.tempRange(self.props.numTabs, self, S.buildTab);
+        }
+        return u.Column(.{ .expand_child_width = true }, &.{
+            u.Row(.{}, tabs),
+            u.Flex(.{}, content),
+        });
+    }
+
+    pub fn onClickTab(ptr_id: ui.PtrId, _: ui.MouseUpEvent) void {
+        const self = ptr_id.castPtr(*TabView);
+        const idx = @intCast(u32, ptr_id.id);
+        self.tab_idx = idx;
+    }
+};

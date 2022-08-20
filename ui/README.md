@@ -5,7 +5,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 - [x] Declarative retained mode. Persists widget state and performs fast diffs to reuse existing widget instances.
 - [x] Fast linear time layout algorithm.
 - [x] Widgets defined as plain structs. Easy to navigate with your editor and ZLS.
-- [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextEditor, Color Picker, Popovers, Modals, and more. Collection is still growing.
+- [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextArea, Color Picker, Popovers, Modals, and more. Collection is still growing.
 - [x] Custom widgets. Easily create your own widgets with your own build/layout/render steps.
 - [x] Draw with Canvas API / Vector graphics directly from a custom widget.
 - [x] Register input handlers (mouse, keyboard, etc).
@@ -145,7 +145,7 @@ pub const Counter = struct {
         // Invoked after the widget instance and it's child widgets were created.
     }
 
-    pub fn deinit(node: *Node, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *Counter, alloc: std.mem.Allocator) void {
         // Invoked when the widget instance is destroyed.
     }
 
@@ -179,7 +179,7 @@ pub const Counter = struct {
 ### Declaring Widgets.
 Before any widget instances are created, the engine needs to know the structure of your ui. This is when it invokes the `build` hooks:
 ```zig
-    const w = ui.widgets;
+    const u = ui.widgets;
 
     // ... in Counter struct.
 
@@ -190,15 +190,15 @@ Before any widget instances are created, the engine needs to know the structure 
             }
         };
 
-        return w.Center(.{},
-            w.Row(.{ .expand = false }, &.{
-                w.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
-                    w.Text(.{
+        return u.Center(.{},
+            u.Row(.{}, &.{
+                u.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
+                    u.Text(.{
                         .text = c.fmt("{}", .{self.counter}),
                         .color = Color.White,
                     }),
                 ),
-                w.TextButton(.{
+                u.TextButton(.{
                     .text = "Count",
                     .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
                     .corner_radius = 10,
@@ -215,7 +215,7 @@ The engine then proceeds to diff the structure provided by `build` against any e
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
 ```zig
 const App = struct {
-    slider: WidgetRef(w.SliderUI),
+    slider: WidgetRef(u.SliderT),
 
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
@@ -223,7 +223,7 @@ const App = struct {
                 std.debug.print("slider value {}", .{self_.slider.getWidget().getValue()});
             }
         };
-        return w.Slider(.{
+        return u.Slider(.{
             .bind = &self.slider,
             .init_val = 30,
         })

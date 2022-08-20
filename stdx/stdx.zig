@@ -28,6 +28,7 @@ pub const Function = function.Function;
 pub const FunctionSimple = function.FunctionSimple;
 const callback = @import("callback.zig");
 pub const Callback = callback.Callback;
+pub const IndexSlice = ds.IndexSlice;
 
 // Common utils.
 pub const panic = debug.panic;

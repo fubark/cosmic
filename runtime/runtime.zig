@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const build_options = @import("build_options");
 const Backend = build_options.GraphicsBackend;
 const t = stdx.testing;
@@ -517,7 +518,7 @@ pub const RuntimeContext = struct {
     fn getRenderer(self: *Self, win: *platform.Window) *graphics.Renderer {
         if (self.inited_renderer) {
             // Lazy load renderer.
-            self.renderer.init(self.alloc, win);
+            self.renderer.init(self.alloc, win) catch fatal();
             self.inited_renderer = true;
         }
         return &self.renderer;
@@ -1036,7 +1037,7 @@ pub const RuntimeContext = struct {
                     return false;
                 }
                 const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
-                return cs_window.window.inner.id == _sdl_win_id;
+                return cs_window.window.impl.id == _sdl_win_id;
             }
         };
         return self.resources.findInList(self.window_resource_list, sdl_win_id, S.pred) orelse return null;
@@ -2041,7 +2042,7 @@ pub const CsWindow = struct {
                         .event = sdl.SDL_WINDOWEVENT_RESIZED,
                         .data1 = @intCast(c_int, final_width),
                         .data2 = @intCast(c_int, final_height),
-                        .windowID = self.window.inner.id,
+                        .windowID = self.window.impl.id,
                         .timestamp = undefined,
                         .padding1 = undefined,
                         .padding2 = undefined,

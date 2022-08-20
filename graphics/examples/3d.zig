@@ -2,6 +2,7 @@
 // zig build run -Dpath="graphics/examples/3d.zig" -Dgraphics
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
@@ -71,21 +72,21 @@ pub const App = struct {
         };
 
         // Currently zig is unstable with nested structs in anonymous tuples, so declare outside.
-        const metallic_slider = ui.WidgetProps(w.SliderFloatUI){
+        const metallic_slider = ui.WidgetProps(w.SliderFloatT){
             .init_val = 0,
             .min_val = 0,
             .max_val = 1,
             .onChange = c.closure(self, S.onDuckMetallicChange),
         };
 
-        const roughness_slider = ui.WidgetProps(w.SliderFloatUI){
+        const roughness_slider = ui.WidgetProps(w.SliderFloatT){
             .init_val = 0,
             .min_val = 0,
             .max_val = 1,
             .onChange = c.closure(self, S.onDuckRoughnessChange),
         };
 
-        const emissivity_slider = ui.WidgetProps(w.SliderFloatUI){
+        const emissivity_slider = ui.WidgetProps(w.SliderFloatT){
             .init_val = 0,
             .min_val = 0,
             .max_val = 1,
@@ -93,17 +94,17 @@ pub const App = struct {
         };
 
         return w.Sized(.{ .width = 250 }, 
-            w.Column(.{ .expand = false }, &.{
+            w.Column(.{}, &.{
                 w.ColorPicker(.{
                     .label = "Box Color",
-                    .font_size = 14,
+                    .fontSize = 14,
                     .init_val = self.box_color,
                     .onPreviewChange = c.funcExt(self, S.onBoxColorPreview),
                     .onResult = c.funcExt(self, S.onBoxColor),
                 }),
                 w.ColorPicker(.{
                     .label = "Duck Color",
-                    .font_size = 14,
+                    .fontSize = 14,
                     .init_val = self.duck_color,
                     .onPreviewChange = c.funcExt(self, S.onDuckColorPreview),
                     .onResult = c.funcExt(self, S.onDuckColor),
@@ -150,8 +151,12 @@ fn loadGLTF(alloc: std.mem.Allocator, gctx: *graphics.Graphics, data: []const u8
 }
 
 pub fn main() !void {
+    if (build_options.GraphicsBackend != .Vulkan) {
+        @panic("3d example requires Vulkan renderer enabled.");
+    }
+    
     // This is the app loop for desktop. For web/wasm see wasm exports below.
-    app.init("3d");
+    try app.init("3d");
     defer app.deinit();
 
     const alloc = app.alloc;
@@ -309,11 +314,11 @@ fn update(delta_ms: f32) void {
 }
 
 pub usingnamespace if (IsWasm) struct {
-    export fn wasmInit() *const u8 {
+    export fn wasmInit() [*]const u8 {
         return helper.wasmInit(&app, "3d");
     }
 
-    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
+    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) [*]const u8 {
         return helper.wasmUpdate(cur_time_ms, input_buffer_len, &app, update);
     }
 

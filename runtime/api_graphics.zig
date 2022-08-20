@@ -442,7 +442,8 @@ pub const cs_graphics = struct {
         /// @param content
         pub fn compileSvgContent(rt: *RuntimeContext, g: *Graphics, content: []const u8) v8.Object {
             const ptr = rt.alloc.create(graphics.DrawCommandList) catch unreachable;
-            ptr.* = g.compileSvgContent(rt.alloc, content) catch unreachable;
+            const res = g.compileSvgContent(rt.alloc, content) catch unreachable;
+            ptr.* = res.cmds;
             return runtime.createWeakHandle(rt, .DrawCommandList, ptr);
         }
 
@@ -454,8 +455,8 @@ pub const cs_graphics = struct {
 
         /// Executes a draw list handle.
         /// @param handle
-        pub fn executeDrawList(g: *Graphics, list: Handle(.DrawCommandList)) void {
-            g.executeDrawList(list.ptr.*);
+        pub fn drawCommandList(g: *Graphics, list: Handle(.DrawCommandList)) void {
+            g.drawCommandList(list.ptr.*);
         }
 
         /// Paints an image.
@@ -607,10 +608,10 @@ pub fn debugTriangulateProcessNext(rt: *RuntimeContext, g: *Graphics) ?ManagedSt
     return ManagedStruct(graphics.tessellator.DebugTriangulateStepResult).init(rt.alloc, res);
 }
 
-pub fn executeDrawListLyon(g: *Graphics, list: Handle(.DrawCommandList)) void {
-    g.executeDrawListLyon(list.ptr.*);
+pub fn drawCommandListLyon(g: *Graphics, list: Handle(.DrawCommandList)) void {
+    g.drawCommandListLyon(list.ptr.*);
 }
 
-pub fn executeDrawListTess2(g: *Graphics, list: Handle(.DrawCommandList)) void {
-    g.executeDrawListTess2(list.ptr.*);
+pub fn drawCommandListTess2(g: *Graphics, list: Handle(.DrawCommandList)) void {
+    g.drawCommandListTess2(list.ptr.*);
 }

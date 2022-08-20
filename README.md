@@ -6,61 +6,15 @@
 The goals for Cosmic is changing and the project description will be updated soon. In the meantime, check out the [graphics](https://github.com/fubark/cosmic/tree/master/graphics) and [ui](https://github.com/fubark/cosmic/tree/master/ui) zig libraries with examples.
 
 ## Progress
-The Cosmic API is subject to change during the Alpha version. After version 1.0, the API will remain backwards compatible until the next major version. Check out the latest [API docs](https://cosmic-js.com/docs).
-- JavaScript API (*In progress.*)
-- WASM/WASI API (*Not started.*)
+- Cosmic Web (*In progress.*)
+- Cosmic Desktop (*In progress.*)
 
-Here are some Zig libs we have built while working on Cosmic:
+The following components were created during the development of Cosmic.
 - 2D/3D Graphics ([Source](https://github.com/fubark/cosmic/tree/master/graphics))
-- UI and animation framework. ([Source](https://github.com/fubark/cosmic/tree/master/ui))
+- UI and animation framework ([Source](https://github.com/fubark/cosmic/tree/master/ui))
+- JavaScript runtime ([Source](https://github.com/fubark/cosmic/tree/master/runtime), [API docs](https://cosmic-js.com/docs)).
 - V8 bindings ([Source](https://github.com/fubark/zig-v8))
-- General purpose text editor. (*In progress*)
 - Incremental AST parser and tokenizer. ([Source](https://github.com/fubark/cosmic/tree/master/parser))
-
-## Getting Started
-You can download a prebuilt version of Cosmic from the Releases page.
-Then checkout the repo to try a few examples:
-```sh
-git clone https://github.com/fubark/cosmic.git
-cd cosmic
-cosmic examples/paddleball.js
-cosmic examples/demo.js
-```
-
-## Building
-Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/). 
-
-Once you have Zig, checkout, run tests, and build.
-```sh
-git clone https://github.com/fubark/cosmic.git
-cd cosmic
-
-# This will fetch the prebuilt v8 lib for your platform.
-zig build get-v8-lib
-
-# Generates supplementary js for some API functions.
-# For the first time running this command, you'll need -Dfetch to get any deps.
-zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js" -Dfetch
-
-# Run unit tests.
-zig build test
-
-# Run behavior tests.
-zig build test-behavior
-
-# Run js behavior tets.
-zig build test-cosmic-js
-
-# Build the main app. Final binary will be at ./zig-out/{platform}/main/main. Use -Drelease-safe for an optimized version.
-zig build cosmic
-```
-
-## Docs
-See the latest docs at [API docs](https://cosmic-js.com/docs).
-Generate the docs locally with:
-```sh
-zig build gen -Darg="docs" -Darg="docs-out"
-```
 
 ## Contributing
 We will be building the app primarily in Zig.

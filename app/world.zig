@@ -54,7 +54,7 @@ const OctRegion = struct {
 
 pub const World = struct {
     alloc: std.mem.Allocator,
-    objects: stdx.ds.DenseHandleList(u32, WorldObject),
+    objects: stdx.ds.DenseHandleList(u32, WorldObject, false),
 
     // Voxels.
     chunks: std.AutoHashMap(ChunkPt, Chunk),
@@ -77,7 +77,7 @@ pub const World = struct {
     pub fn init(alloc: std.mem.Allocator) World {
         var ret = World{
             .alloc = alloc,
-            .objects = stdx.ds.DenseHandleList(u32, WorldObject).init(alloc),
+            .objects = stdx.ds.DenseHandleList(u32, WorldObject, false).init(alloc),
             .physics_sys = undefined,
             .body_iface = undefined,
             .bp_layer_iface = undefined,

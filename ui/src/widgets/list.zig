@@ -4,7 +4,7 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
-const ScrollView = ui.widgets.ScrollView;
+const w = ui.widgets;
 
 const NullId = std.math.maxInt(u32);
 const log = stdx.log.scoped(.list);
@@ -18,15 +18,17 @@ pub const ScrollList = struct {
     list: ui.WidgetRef(List),
 
     pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
-        return c.build(ScrollView, .{
+        return w.ScrollView(.{
             .enable_hscroll = false,
-            .bg_color = self.props.bg_color,
-            .child = c.build(List, .{
-                .bind = &self.list,
-                .bg_color = self.props.bg_color,
-                .children = self.props.children,
-            }),
-        });
+            .bg_color = self.props.bg_color },
+            w.Stretch(.{ .method = .Width },
+                c.build(List, .{
+                    .bind = &self.list,
+                    .bg_color = self.props.bg_color,
+                    .children = self.props.children,
+                }),
+            ),
+        );
     }
 
     /// Index of ui.NullId represents no selection.
@@ -35,6 +37,7 @@ pub const ScrollList = struct {
     }
 };
 
+/// Fills maximum space and lays out children in a column.
 pub const List = struct {
     props: struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
@@ -45,7 +48,7 @@ pub const List = struct {
 
     pub fn init(self: *List, c: *ui.InitContext) void {
         self.selected_idx = NullId;
-        c.addMouseDownHandler(c.node, handleMouseDownEvent);
+        c.setMouseDownHandler(c.node, onMouseDown);
         c.addKeyDownHandler(self, onKeyDown);
     }
 
@@ -77,27 +80,27 @@ pub const List = struct {
         }
     }
 
-    fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
+    fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(List);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(onBlur);
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
-            if (xf >= node.abs_pos.x and xf <= node.abs_pos.x + node.layout.width) {
+            if (xf >= node.abs_bounds.min_x and xf <= node.abs_bounds.max_x) {
                 var i: u32 = 0;
                 while (i < node.children.items.len) : (i += 1) {
                     const child = node.children.items[i];
-                    if (yf < child.abs_pos.y) {
+                    if (yf < child.abs_bounds.min_y) {
                         break;
                     }
-                    if (yf >= child.abs_pos.y and yf <= child.abs_pos.y + child.layout.height) {
+                    if (yf >= child.abs_bounds.min_y and yf <= child.abs_bounds.max_y) {
                         self.selected_idx = i;
                         break;
                     }
                 }
             }
         }
-        return .Continue;
+        return .default;
     }
 
     pub fn postPropsUpdate(self: *List) void {
@@ -112,16 +115,14 @@ pub const List = struct {
         }
     }
 
-    pub fn layout(self: *List, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
+    pub fn layout(_: *List, c: *ui.LayoutContext) ui.LayoutSize {
         const node = c.getNode();
-
-        const cstr = c.getSizeConstraint();
-        var vacant_size = cstr;
+        const cstr = c.getSizeConstraints();
+        var vacant_size = cstr.getMaxLayoutSize();
         var max_width: f32 = 0;
         var cur_y: f32 = 0;
         for (node.children.items) |child| {
-            const child_size = c.computeLayout(child, vacant_size);
+            const child_size = c.computeLayoutWithMax(child, vacant_size.width, vacant_size.height);
             c.setLayout(child, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
             vacant_size.height -= child_size.height;
             cur_y += child_size.height;
@@ -130,19 +131,17 @@ pub const List = struct {
             }
         }
         var res = ui.LayoutSize.init(max_width, cur_y);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        }
+        res.growToMin(cstr);
         return res;
     }
 
     pub fn renderCustom(self: *List, c: *ui.RenderContext) void {
         const g = c.gctx;
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
         const node = c.node;
 
         g.setFillColor(self.props.bg_color);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        c.fillBBox(bounds);
 
         c.renderChildren();
 
@@ -151,7 +150,7 @@ pub const List = struct {
             g.setStrokeColor(Color.Blue);
             g.setLineWidth(2);
             const child = node.children.items[self.selected_idx];
-            g.drawRect(child.abs_pos.x, child.abs_pos.y, alo.width, child.layout.height);
+            g.drawRectBounds(child.abs_bounds.min_x, child.abs_bounds.min_y, bounds.max_x, child.abs_bounds.max_y);
         }
     }
 };

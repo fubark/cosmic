@@ -15,6 +15,6 @@ pub fn render(mod: *Module) void {
 
 pub inline fn defaultRenderChildren(node: *Node, ctx: *ui.RenderContext) void {
     for (node.children.items) |it| {
-        it.vtable.render(it, ctx, node.abs_pos.x, node.abs_pos.y);
+        it.vtable.render(it, ctx, node.abs_bounds.min_x, node.abs_bounds.min_y);
     }
 }

@@ -30,7 +30,7 @@ pub const Switch = struct {
     
     pub fn build(self: *Switch, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
-            fn onClick(self_: *Switch, _: platform.MouseUpEvent) void {
+            fn onClick(self_: *Switch, _: ui.MouseUpEvent) void {
                 self_.toggle();
             }
         };
@@ -57,14 +57,14 @@ pub const Switch = struct {
 
     pub fn render(self: *Switch, c: *ui.RenderContext) void {
         const g = c.gctx;
-        const alo = c.getAbsLayout();
+        const bounds = c.getAbsBounds();
 
         if (self.is_set) {
             g.setFillColor(Color.Blue);
         } else {
             g.setFillColor(Color.DarkGray);
         }
-        g.fillRoundRect(alo.x, alo.y, alo.width, alo.height, alo.height * 0.5);
+        c.fillRoundBBox(bounds, bounds.computeHeight() * 0.5);
 
         g.setFillColor(Color.White);
         self.anim.step(c.delta_ms);
@@ -74,6 +74,6 @@ pub const Switch = struct {
         } else {
             offset_x = (1 - self.anim.t) * (Width - InnerPadding * 2 - InnerRadius * 2);
         }
-        g.fillCircle(alo.x + InnerPadding + InnerRadius + offset_x, alo.y + InnerPadding + InnerRadius, InnerRadius);
+        g.fillCircle(bounds.min_x + InnerPadding + InnerRadius + offset_x, bounds.min_y + InnerPadding + InnerRadius, InnerRadius);
     }
 };

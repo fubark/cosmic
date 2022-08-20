@@ -4,22 +4,34 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("../ui.zig");
-const Node = ui.Node;
-const FrameListPtr = ui.FrameListPtr;
 
 const log = stdx.log.scoped(.scroll_view);
+
+const ScrollBarVisibility = enum(u2) {
+    /// Scroll bar is not displayed.
+    hidden = 0,
+    /// Scroll bar is displayed when content exceeds bounds.
+    auto = 1,
+    /// Scroll bar is always displayed.
+    visible = 2,
+};
 
 /// By default, scroll view will stretch to it's child. Must be constrained by parent sizer (eg. Sized, Flex) to trigger scrollbars. 
 pub const ScrollView = struct {
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
-        bg_color: Color = Color.White,
+        bg_color: Color = Color.Transparent,
         border_color: Color = Color.DarkGray,
+        show_hscroll: ScrollBarVisibility = .auto,
+        show_vscroll: ScrollBarVisibility = .auto,
+        /// Whether scrolling is enabled along the x axis. If false, the child's width is bounded by the ScrollView's width.
         enable_hscroll: bool = true,
+        /// Whether scrolling is enabled along the y axis. If false, the child's height is bounded by the ScrollView's height.
+        enable_vscroll: bool = true,
         show_border: bool = true,
 
         /// Triggered when mouse down hits the content rather than the scrollbars.
-        onContentMouseDown: ?stdx.Function(fn (platform.MouseDownEvent) void) = null,
+        onContentMouseDown: ?stdx.Function(fn (platform.MouseDownEvent) ui.EventResult) = null,
     },
 
     /// Internal vars. They should not be modified after the layout phase.
@@ -38,13 +50,12 @@ pub const ScrollView = struct {
     dragging_offset: f32,
     dragging_vbar: bool,
 
-    node: *Node,
+    node: *ui.Node,
     scroll_to_bottom_after_layout: bool,
 
-    const Self = @This();
     const BarSize = 15;
 
-    pub fn init(self: *Self, c: *ui.InitContext) void {
+    pub fn init(self: *ScrollView, c: *ui.InitContext) void {
         self.scroll_x = 0;
         self.scroll_y = 0;
         self.scroll_width = 0;
@@ -57,70 +68,65 @@ pub const ScrollView = struct {
         self.has_hbar = false;
         self.dragging_hbar = false;
         self.dragging_vbar = false;
-        c.addMouseDownHandler(self, onMouseDown);
+        c.setMouseDownHandler(self, onMouseDown);
         c.addMouseScrollHandler(self, onMouseScroll);
     }
 
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *ScrollView, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
-    fn onMouseDown(self: *Self, e: ui.MouseDownEvent) ui.EventResult {
-        const alo = e.ctx.node.getAbsLayout();
+    fn onMouseDown(self: *ScrollView, e: ui.MouseDownEvent) ui.EventResult {
+        const nbounds = e.ctx.node.getAbsBounds();
         const xf = @intToFloat(f32, e.val.x);
         const yf = @intToFloat(f32, e.val.y);
 
         if (self.has_hbar) {
-            const bounds = self.getHBarBounds(alo);
+            const bounds = self.getHBarBounds(nbounds);
             if (xf >= bounds.thumb_x and xf <= bounds.thumb_x + bounds.thumb_width and yf >= bounds.y and yf <= bounds.y + bounds.height) {
                 self.dragging_hbar = true;
                 self.dragging_offset = xf - bounds.thumb_x;
-                e.ctx.removeMouseMoveHandler(*Self, onMouseMove);
-                e.ctx.removeMouseUpHandler(*Self, onMouseUp);
-                e.ctx.addMouseMoveHandler(self, onMouseMove);
-                e.ctx.addGlobalMouseUpHandler(self, onMouseUp);
+                e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+                e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
                 e.ctx.requestCaptureMouse(true);
-                return .Stop;
+                return .stop;
             }
         }
 
         if (self.has_vbar) {
-            const bounds = self.getVBarBounds(alo);
+            const bounds = self.getVBarBounds(nbounds);
             if (xf >= bounds.x and xf <= bounds.x + bounds.width and yf >= bounds.thumb_y and yf <= bounds.thumb_y + bounds.height) {
                 self.dragging_vbar = true;
                 self.dragging_offset = yf - bounds.thumb_y;
-                e.ctx.removeMouseMoveHandler(*Self, onMouseMove);
-                e.ctx.removeMouseUpHandler(*Self, onMouseUp);
-                e.ctx.addMouseMoveHandler(self, onMouseMove);
-                e.ctx.addGlobalMouseUpHandler(self, onMouseUp);
+                e.ctx.setGlobalMouseMoveHandler(self, onMouseMove);
+                e.ctx.setGlobalMouseUpHandler(self, onMouseUp);
                 e.ctx.requestCaptureMouse(true);
-                return .Stop;
+                return .stop;
             }
         }
 
         if (self.props.onContentMouseDown) |cb| {
-            cb.call(.{ e.val });
+            return cb.call(.{ e.val });
         }
 
-        return .Continue;
+        return .default;
     }
 
-    fn onMouseUp(self: *Self, e: ui.MouseUpEvent) void {
+    fn onMouseUp(self: *ScrollView, e: ui.MouseUpEvent) void {
         self.dragging_hbar = false;
         self.dragging_vbar = false;
-        e.ctx.removeMouseMoveHandler(*Self, onMouseMove);
-        e.ctx.removeMouseUpHandler(*Self, onMouseUp);
+        e.ctx.clearGlobalMouseMoveHandler();
+        e.ctx.clearGlobalMouseUpHandler();
         e.ctx.requestCaptureMouse(false);
     }
 
-    fn onMouseMove(self: *Self, e: ui.MouseMoveEvent) void {
+    fn onMouseMove(self: *ScrollView, e: ui.MouseMoveEvent) void {
         const xf = @intToFloat(f32, e.val.x);
         const yf = @intToFloat(f32, e.val.y);
 
         if (self.dragging_hbar) {
-            const alo = self.node.getAbsLayout();
-            const bounds = self.getHBarBounds(alo);
+            const nbounds = self.node.getAbsBounds();
+            const bounds = self.getHBarBounds(nbounds);
             var thumb_x = xf - (bounds.x + self.dragging_offset);
             if (thumb_x < 0) {
                 thumb_x = 0;
@@ -131,8 +137,8 @@ pub const ScrollView = struct {
             // thumbx back to scrollx
             self.scroll_x = thumb_x / bounds.width * self.eff_scroll_width;
         } else if (self.dragging_vbar) {
-            const alo = self.node.getAbsLayout();
-            const bounds = self.getVBarBounds(alo);
+            const nbounds = self.node.getAbsBounds();
+            const bounds = self.getVBarBounds(nbounds);
             var thumb_y = yf - (bounds.y + self.dragging_offset);
             if (thumb_y < 0) {
                 thumb_y = 0;
@@ -145,20 +151,20 @@ pub const ScrollView = struct {
         }
     }
 
-    fn onMouseScroll(self: *Self, e: ui.MouseScrollEvent) void {
+    fn onMouseScroll(self: *ScrollView, e: ui.MouseScrollEvent) void {
         self.scroll_y += e.val.delta_y;
         self.checkScroll();
     }
 
-    pub fn postPropsUpdate(self: *Self) void {
+    pub fn postPropsUpdate(self: *ScrollView) void {
         self.checkScroll();
     }
 
-    pub fn scrollToBottomAfterLayout(self: *Self) void {
+    pub fn scrollToBottomAfterLayout(self: *ScrollView) void {
         self.scroll_to_bottom_after_layout = true;
     }
 
-    fn checkScroll(self: *Self) void {
+    fn checkScroll(self: *ScrollView) void {
         if (self.scroll_y < 0) {
             self.scroll_y = 0;
         }
@@ -176,7 +182,7 @@ pub const ScrollView = struct {
     /// In some cases, it's desirable to change the scroll view after the layout phase (when scroll width/height is updated) and before the render phase.
     /// eg. Scroll to cursor view.
     /// Since layout has already run, the children need to be repositioned.
-    pub fn setScrollPosAfterLayout(self: *Self, node: *Node, scroll_x: f32, scroll_y: f32) void {
+    pub fn setScrollPosAfterLayout(self: *ScrollView, node: *ui.Node, scroll_x: f32, scroll_y: f32) void {
         self.scroll_x = scroll_x;
         self.scroll_y = scroll_y;
         for (node.children.items) |it| {
@@ -186,26 +192,28 @@ pub const ScrollView = struct {
         self.computeEffScrollDims(node.layout.width, node.layout.height);
     }
 
-    /// Take up the same amount of space as it's child or constrained by the parent.
+    /// Take up the same amount of space as it's child and respects parent's constraints.
     /// Updates scroll width and height.
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        const node = c.getNode();
-        const size_cstr = ui.LayoutSize.init(std.math.inf(f32), std.math.inf(f32));
-
+    pub fn layout(self: *ScrollView, c: *ui.LayoutContext) ui.LayoutSize {
         self.scroll_height = 0;
         self.scroll_width = 0;
 
+        const cstr = c.getSizeConstraints();
+
         if (self.props.child != ui.NullFrameId) {
+            const node = c.getNode();
             const child = node.children.items[0];
             var child_size: ui.LayoutSize = undefined;
-            if (c.prefer_exact_width and !self.props.enable_hscroll) {
-                if (self.has_vbar) {
-                    child_size = c.computeLayoutStretch(child, ui.LayoutSize.init(c.getSizeConstraint().width - BarSize, std.math.inf(f32)), true, false);
-                } else {
-                    child_size = c.computeLayoutStretch(child, ui.LayoutSize.init(c.getSizeConstraint().width, std.math.inf(f32)), true, false);
-                }
+            if (!self.props.enable_hscroll) {
+                const child_cstr = ui.SizeConstraints{
+                    .min_width = 0,
+                    .min_height = 0,
+                    .max_width = if (self.has_vbar) cstr.max_width - BarSize else cstr.max_width,
+                    .max_height = ui.ExpandedHeight,
+                };
+                child_size = c.computeLayout2(child, child_cstr);
             } else {
-                child_size = c.computeLayout(child, size_cstr);
+                child_size = c.computeLayoutWithMax(child, ui.ExpandedWidth, ui.ExpandedHeight);
             }
             if (child_size.height > self.scroll_height) {
                 self.scroll_height = child_size.height;
@@ -216,18 +224,9 @@ pub const ScrollView = struct {
             c.setLayout(child, ui.Layout.init(-self.scroll_x, -self.scroll_y, child_size.width, child_size.height));
         }
 
-        const cstr = c.getSizeConstraint();
+        // Natural size is child's size.
         var res = ui.LayoutSize.init(self.scroll_width, self.scroll_height);
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        } else {
-            res.cropToWidth(cstr.width);
-        }
-        if (c.prefer_exact_height) {
-            res.height = cstr.height;
-        } else {
-            res.cropToHeight(cstr.height);
-        }
+        res.limitToMinMax(cstr);
 
         if (self.scroll_to_bottom_after_layout) {
             if (self.scroll_height > res.height) {
@@ -238,8 +237,8 @@ pub const ScrollView = struct {
 
         var prev_has_vbar = self.has_vbar;
         self.computeEffScrollDims(res.width, res.height);
-        if (!prev_has_vbar and self.has_vbar and c.prefer_exact_width) {
-            // Recompute layout when turning on the vbar when prefer_exact_width is on.
+        if (!prev_has_vbar and self.has_vbar) {
+            // Recompute layout when turning on the vbar.
             return self.layout(c);
         }
 
@@ -247,7 +246,7 @@ pub const ScrollView = struct {
     }
 
     /// Computes the effective scroll width/height.
-    fn computeEffScrollDims(self: *Self, width: f32, height: f32) void {
+    fn computeEffScrollDims(self: *ScrollView, width: f32, height: f32) void {
         // The view will show more than the scroll height if the scroll y is close to the bottom.
         if (self.scroll_height > height) {
             self.eff_scroll_height = self.scroll_height + height * 0.5;
@@ -264,15 +263,17 @@ pub const ScrollView = struct {
         self.has_hbar = width < self.eff_scroll_width;
     }
 
-    pub fn renderCustom(self: *Self, ctx: *ui.RenderContext) void {
-        const alo = ctx.getAbsLayout();
+    pub fn renderCustom(self: *ScrollView, ctx: *ui.RenderContext) void {
+        const bounds = ctx.getAbsBounds();
         const g = ctx.getGraphics();
 
-        g.setFillColor(self.props.bg_color);
-        g.fillRect(alo.x, alo.y, alo.width, alo.height);
+        if (self.props.bg_color.channels.a > 0) {
+            g.setFillColor(self.props.bg_color);
+            ctx.fillBBox(bounds);
+        }
 
         g.pushState();
-        g.clipRect(alo.x, alo.y, alo.width, alo.height);
+        g.clipRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
 
         ctx.renderChildren();
 
@@ -283,72 +284,74 @@ pub const ScrollView = struct {
         if (self.props.show_border) {
             g.setStrokeColor(self.props.border_color);
             g.setLineWidth(2);
-            g.drawRect(alo.x, alo.y, alo.width, alo.height);
+            ctx.drawBBox(bounds);
         }
 
         // Draw bottom right corner.
         if (self.has_vbar and self.has_hbar) {
             g.setFillColor(Color.LightGray);
-            g.fillRect(alo.x + alo.width - BarSize, alo.y + alo.height - BarSize, BarSize, BarSize);
+            g.fillRect(bounds.max_x - BarSize, bounds.max_y - BarSize, BarSize, BarSize);
         }
 
         if (self.has_vbar) {
-            const bounds = self.getVBarBounds(alo);
+            const bar_bounds = self.getVBarBounds(bounds);
 
             // Draw vertical scrollbar.
             g.setFillColor(Color.LightGray);
-            g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
 
             // Draw thumb.
             g.setFillColor(Color.Gray);
-            g.fillRect(bounds.x, bounds.thumb_y, bounds.width, bounds.thumb_height);
+            g.fillRect(bar_bounds.x, bar_bounds.thumb_y, bar_bounds.width, bar_bounds.thumb_height);
         }
 
         if (self.has_hbar) {
-            const bounds = self.getHBarBounds(alo);
+            const bar_bounds = self.getHBarBounds(bounds);
 
             // Draw horizontal scrollbar.
             g.setFillColor(Color.LightGray);
-            g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
 
             // Draw thumb.
             g.setFillColor(Color.Gray);
-            g.fillRect(bounds.thumb_x, bounds.y, bounds.thumb_width, bounds.height);
+            g.fillRect(bar_bounds.thumb_x, bar_bounds.y, bar_bounds.thumb_width, bar_bounds.height);
         }
     }
 
-    fn getVBarBounds(self: Self, alo: ui.Layout) VBarBounds {
-        var max_bar_height = alo.height;
+    fn getVBarBounds(self: ScrollView, bounds: stdx.math.BBox) VBarBounds {
+        const height = bounds.computeHeight();
+        var max_bar_height = height;
         if (self.has_hbar) {
             max_bar_height -= BarSize;
         }
         const view_to_scroll_height = max_bar_height / self.eff_scroll_height;
-        const vert_thumb_length = view_to_scroll_height * alo.height;
+        const vert_thumb_length = view_to_scroll_height * height;
         const vert_thumb_y = view_to_scroll_height * self.scroll_y;
         return .{
-            .x = alo.x + alo.width - BarSize,
-            .y = alo.y,
+            .x = bounds.max_x - BarSize,
+            .y = bounds.min_y,
             .width = BarSize,
             .height = max_bar_height,
-            .thumb_y = alo.y + vert_thumb_y,
+            .thumb_y = bounds.min_y + vert_thumb_y,
             .thumb_height = vert_thumb_length,
         };
     }
 
-    fn getHBarBounds(self: Self, alo: ui.Layout) HBarBounds {
-        var max_bar_width = alo.width;
+    fn getHBarBounds(self: ScrollView, bounds: stdx.math.BBox) HBarBounds {
+        const width = bounds.computeWidth();
+        var max_bar_width = width;
         if (self.has_vbar) {
             max_bar_width -= BarSize;
         }
         const view_to_scroll_width = max_bar_width / self.eff_scroll_width;
-        const hor_thumb_length = view_to_scroll_width * alo.width;
+        const hor_thumb_length = view_to_scroll_width * width;
         const hor_thumb_x = view_to_scroll_width * self.scroll_x;
         return .{
-            .x = alo.x,
-            .y = alo.y + alo.height - BarSize,
+            .x = bounds.min_x,
+            .y = bounds.max_y - BarSize,
             .width = max_bar_width,
             .height = BarSize,
-            .thumb_x = alo.x + hor_thumb_x,
+            .thumb_x = bounds.min_x + hor_thumb_x,
             .thumb_width = hor_thumb_length,
         };
     }

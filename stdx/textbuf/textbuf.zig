@@ -9,10 +9,8 @@ pub const TextBuffer = struct {
     buf: std.ArrayList(u8),
     num_chars: u32,
 
-    const Self = @This();
-
-    pub fn init(alloc: std.mem.Allocator, buf: []const u8) !Self {
-        var new = Self{
+    pub fn init(alloc: std.mem.Allocator, buf: []const u8) !TextBuffer {
+        var new = TextBuffer{
             .buf = std.ArrayList(u8).init(alloc),
             .num_chars = 0,
         };
@@ -29,16 +27,16 @@ pub const TextBuffer = struct {
         return new;
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: TextBuffer) void {
         self.buf.deinit();
     }
 
-    pub fn clear(self: *Self) void {
+    pub fn clear(self: *TextBuffer) void {
         self.buf.clearRetainingCapacity();
         self.num_chars = 0;
     }
 
-    pub fn insertCodepoint(self: *Self, idx: u32, cp: u21) !void {
+    pub fn insertCodepoint(self: *TextBuffer, idx: u32, cp: u21) !void {
         const len = try std.unicode.utf8CodepointSequenceLength(cp);
         const buf_idx = self.getBufferIdx(idx);
         const old_len = self.buf.items.len;
@@ -48,7 +46,7 @@ pub const TextBuffer = struct {
         self.num_chars += 1;
     }
 
-    pub fn appendCodepoint(self: *Self, cp: u21) !void {
+    pub fn appendCodepoint(self: *TextBuffer, cp: u21) !void {
         const len = try std.unicode.utf8CodepointSequenceLength(cp);
         const next = self.buf.items.len;
         self.buf.resize(next + len) catch @panic("error");
@@ -56,7 +54,7 @@ pub const TextBuffer = struct {
         self.num_chars += 1;
     }
 
-    pub fn appendSubStr(self: *Self, str: []const u8) !void {
+    pub fn appendSubStr(self: *TextBuffer, str: []const u8) !void {
         const view = try std.unicode.Utf8View.init(str);
         var iter = view.iterator();
         var i: u32 = 0;
@@ -67,7 +65,7 @@ pub const TextBuffer = struct {
         self.num_chars += i;
     }
 
-    pub fn appendFmt(self: *Self, comptime fmt: []const u8, args: anytype) void {
+    pub fn appendFmt(self: *TextBuffer, comptime fmt: []const u8, args: anytype) void {
         const next = self.buf.items.len;
         self.buf.resize(next + @intCast(usize, std.fmt.count(fmt, args))) catch @panic("error");
         _ = std.fmt.bufPrint(self.buf.items[next..], fmt, args) catch @panic("error");
@@ -80,22 +78,22 @@ pub const TextBuffer = struct {
         self.num_chars += i;
     }
 
-    pub fn getSubStr(self: Self, start_idx: u32, end_idx: u32) []const u8 {
+    pub fn getSubStr(self: TextBuffer, start_idx: u32, end_idx: u32) []const u8 {
         const range = self.getBufferRange(start_idx, end_idx);
         return self.buf.items[range.buf_start_idx..range.buf_end_idx];
     }
 
-    pub fn removeChar(self: *Self, idx: u32) void {
+    pub fn removeChar(self: *TextBuffer, idx: u32) void {
         self.removeSubStr(idx, idx + 1);
     }
 
-    pub fn removeSubStr(self: *Self, start_idx: u32, end_idx: u32) void {
+    pub fn removeSubStr(self: *TextBuffer, start_idx: u32, end_idx: u32) void {
         const range = self.getBufferRange(start_idx, end_idx);
         self.buf.replaceRange(range.buf_start_idx, range.buf_end_idx - range.buf_start_idx, "") catch @panic("error");
         self.num_chars -= (end_idx - start_idx);
     }
 
-    fn getBufferIdx(self: Self, idx: u32) u32 {
+    fn getBufferIdx(self: TextBuffer, idx: u32) u32 {
         if (idx == 0) {
             return 0;
         }
@@ -112,7 +110,7 @@ pub const TextBuffer = struct {
         @panic("error");
     }
 
-    fn getBufferRange(self: Self, start_idx: u32, end_idx: u32) Range {
+    fn getBufferRange(self: TextBuffer, start_idx: u32, end_idx: u32) Range {
         var iter = std.unicode.Utf8View.initUnchecked(self.buf.items).iterator();
         var i: u32 = 0;
         var buf_start_idx: u32 = 0;

@@ -20,7 +20,7 @@ var game_char_image: graphics.Image = undefined;
 var font_id: graphics.FontId = undefined;
 
 pub fn main() !void {
-    app.init("Demo");
+    try app.init("Demo");
     defer app.deinit();
 
     try initAssets(app.alloc);
@@ -193,8 +193,11 @@ fn rasterizeTigerHead(tiger_head_svg: []const u8) void {
     // Renders the svg to an image and then the image is drawn.
     // The graphics context also supports drawing the svg directly to the main frame buffer, although it isn't recommended for large svgs like the tiger head.
     const gctx = app.gctx;
-    tiger_head_image = gctx.createImageFromBitmap(600, 600, null, true);
-    gctx.bindImageBuffer(tiger_head_image);
+    tiger_head_image = gctx.createImageFromBitmap(600, 600, null, .{
+        .linear_filter = true,
+        .offscreen_rendering = true,
+    });
+    gctx.bindOffscreenImage(tiger_head_image);
     gctx.setFillColor(Color.Transparent);
     gctx.fillRect(0, 0, 600, 600);
     gctx.translate(200, 200);
@@ -213,7 +216,7 @@ var tiger_head_id: u32 = undefined;
 var loaded_assets: u32 = 0;
 
 pub usingnamespace if (IsWasm) struct {
-    export fn wasmInit() *const u8 {
+    export fn wasmInit() [*]const u8 {
         const ret = helper.wasmInit(&app, "Demo");
         galloc = stdx.heap.getDefaultAllocator();
         const S = struct {
@@ -248,7 +251,7 @@ pub usingnamespace if (IsWasm) struct {
         return ret;
     }
 
-    export fn wasmUpdate(cur_time_ms: f32, input_len: u32) *const u8 {
+    export fn wasmUpdate(cur_time_ms: f32, input_len: u32) [*]const u8 {
         return helper.wasmUpdate(cur_time_ms, input_len, &app, update);
     }
 } else struct {};

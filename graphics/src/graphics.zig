@@ -102,12 +102,12 @@ pub const Graphics = struct {
     svg_parser: svg.SvgParser,
     text_buf: std.ArrayList(u8),
 
-    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32) !void {
+    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gl.Renderer) !void {
         self.initCommon(alloc);
         switch (Backend) {
             .OpenGL => {
-                try gl.Graphics.init(&self.new_impl, alloc);
-                try gpu.Graphics.initGL(&self.impl, alloc, &self.new_impl.renderer, dpr);
+                try gl.Graphics.init(&self.new_impl, alloc, renderer);
+                try gpu.Graphics.initGL(&self.impl, alloc, renderer, dpr);
                 self.new_impl.gpu_ctx = &self.impl;
                 self.new_impl.renderer.image_store = &self.impl.image_store;
             },
@@ -270,6 +270,20 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setFillColor3f(self: *Graphics, r: f32, g: f32, b: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.setFillColor3f(&self.impl, r, g, b),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn setFillColor4f(self: *Graphics, r: f32, g: f32, b: f32, a: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.setFillColor4f(&self.impl, r, g, b, a),
+            else => stdx.unsupported(),
+        }
+    }
+
     /// Set a linear gradient fill style.
     pub fn setFillGradient(self: *Graphics, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         switch (Backend) {
@@ -312,32 +326,60 @@ pub const Graphics = struct {
 
     pub fn fillRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillRect(&self.impl, x, y, width, height),
+            .OpenGL, .Vulkan => gpu.Graphics.fillRectBounds(&self.impl, x, y, x + width, y + height),
             .WasmCanvas => canvas.Graphics.fillRect(&self.impl, x, y, width, height),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn fillRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillRectBounds(&self.impl, x0, y0, x1, y1),
             else => stdx.unsupported(),
         }
     }
 
     pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRect(&self.impl, x, y, width, height),
+            .OpenGL, .Vulkan => gpu.Graphics.drawRectBounds(&self.impl, x, y, x + width, y + height),
             .WasmCanvas => canvas.Graphics.drawRect(&self.impl, x, y, width, height),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawRectBounds(&self.impl, x0, y0, x1, y1),
             else => stdx.unsupported(),
         }
     }
 
     pub fn fillRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.fillRoundRectBounds(&self.impl, x, y, x + width, y + height, radius),
             .WasmCanvas => canvas.Graphics.fillRoundRect(&self.impl, x, y, width, height, radius),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn fillRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillRoundRectBounds(&self.impl, x0, y0, x1, y1, radius),
             else => stdx.unsupported(),
         }
     }
 
     pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRectBounds(&self.impl, x, y, x + width, y + height, radius),
             .WasmCanvas => canvas.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRectBounds(&self.impl, x0, y0, x1, y1, radius),
             else => stdx.unsupported(),
         }
     }
@@ -499,7 +541,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !DrawCommandList {
+    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !svg.SvgRenderData {
         return try self.svg_parser.parseAlloc(alloc, str);
     }
 
@@ -508,8 +550,8 @@ pub const Graphics = struct {
     // For large svg content, render into an image and then draw the image.
     // TODO: allow x, y offset
     pub fn drawSvgContent(self: *Graphics, str: []const u8) !void {
-        const draw_list = try self.svg_parser.parse(str);
-        self.executeDrawList(draw_list);
+        const data = try self.svg_parser.parse(str);
+        self.drawCommandList(data.cmds);
     }
 
     // This will be slower since it will parse the text every time.
@@ -539,7 +581,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawList(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandList(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -569,7 +611,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawListLyon(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandListLyon(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -603,7 +645,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn executeDrawListTess2(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandListTess2(self: *Graphics, _list: DrawCommandList) void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -675,12 +717,24 @@ pub const Graphics = struct {
         }
     }
 
-    /// Assumes data is rgba in row major starting from top left of image.
-    /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
-    pub fn createImageFromBitmap(self: *Graphics, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
+    /// Creates an image from svg content. The svg will be rendered to fit the provided image size.
+    pub fn createSvgImage(self: *Graphics, data: []const u8, width: u32, height: u32) !Image {
         switch (Backend) {
             .OpenGL, .Vulkan => {
-                const image = gpu.ImageStore.createImageFromBitmap(&self.impl.image_store, width, height, data, linear_filter);
+                const res = try self.compileSvgContent(self.alloc, data);
+                defer res.deinit();
+                return gpu.ImageStore.createSvgImage(&self.impl.image_store, res, width, height);
+            },
+            else => stdx.unsupported(),
+        }
+    }
+
+    /// Assumes data is rgba in row major starting from top left of image.
+    /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
+    pub fn createImageFromBitmap(self: *Graphics, width: usize, height: usize, data: ?[]const u8, opts: CreateImageOptions) ImageId {
+        switch (Backend) {
+            .OpenGL, .Vulkan => {
+                const image = gpu.ImageStore.createImageFromBitmap(&self.impl.image_store, width, height, data, opts);
                 return image.image_id;
             },
             else => stdx.unsupported(),
@@ -697,9 +751,9 @@ pub const Graphics = struct {
         _ = stbi.stbi_write_bmp(path, src_width, src_height, channels, &bitmap[0]);
     }
 
-    pub inline fn bindImageBuffer(self: *Graphics, image_id: ImageId) void {
+    pub inline fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL => gpu.Graphics.bindImageBuffer(&self.impl, image_id),
+            .OpenGL => gpu.Graphics.bindOffscreenImage(&self.impl, image_id),
             else => stdx.unsupported(),
         }
     }
@@ -707,6 +761,13 @@ pub const Graphics = struct {
     pub inline fn removeImage(self: *Graphics, image_id: ImageId) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.ImageStore.markForRemoval(&self.impl.image_store, image_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub inline fn getImageSize(self: *Graphics, image_id: ImageId) stdx.math.Point2(u32) {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.ImageStore.getImageSize(&self.impl.image_store, image_id),
             else => stdx.unsupported(),
         }
     }
@@ -1070,6 +1131,13 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x, y, width, height),
             .WasmCanvas => canvas.Graphics.clipRect(&self.impl, x, y, width, height),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn clipRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x0, y0, x1 - x0, y1 - y0),
             else => stdx.unsupported(),
         }
     }
@@ -2259,4 +2327,13 @@ pub const Material = struct {
             .albedo_color = color.toFloatArray(),
         };
     }
+};
+
+pub const CreateImageOptions = struct {
+    /// Image is intended to be used for offscreen rendering.
+    /// eg. Use graphics commands that paint to the image rather than the screen buffer.
+    offscreen_rendering: bool = false,
+
+    /// Whether image samplers will use linear filtering.
+    linear_filter: bool = true,
 };

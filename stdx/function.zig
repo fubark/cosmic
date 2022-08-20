@@ -6,6 +6,7 @@ const ClosureSimple = stdx.ClosureSimple;
 const ClosureSimpleIface = stdx.ClosureSimpleIface;
 
 /// An interface for a free function or a closure.
+/// Default values represent a null value which can be queried from Function.isNull().
 pub fn Function(comptime Fn: type) type {
     stdx.meta.assertFunctionType(Fn);
 
@@ -13,19 +14,27 @@ pub fn Function(comptime Fn: type) type {
     var dummy: stdx.meta.FnParamsTuple(Fn) = undefined;
     _ = dummy;
     return struct {
-        const Self = @This();
-
-        ctx: *anyopaque,
-        call_fn: fn (*const anyopaque, *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn),
+        ctx: *anyopaque = undefined,
+        call_fn: ?fn (*const anyopaque, *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) = null,
 
         // For closures.
-        user_fn: *const anyopaque,
+        user_fn: *const anyopaque = undefined,
 
-        pub fn initClosure(closure: anytype) Self {
+        const FunctionT = @This();
+
+        pub fn initNull() FunctionT {
+            return .{
+                .ctx = undefined,
+                .call_fn = null,
+                .user_fn = undefined,
+            };
+        }
+
+        pub fn initClosure(closure: anytype) FunctionT {
             return initClosureIface(closure.iface());
         }
 
-        pub fn initClosureIface(iface: ClosureIface(Fn)) Self {
+        pub fn initClosureIface(iface: ClosureIface(Fn)) FunctionT {
             return .{
                 .ctx = iface.capture_ptr,
                 .call_fn = iface.call_fn,
@@ -33,7 +42,7 @@ pub fn Function(comptime Fn: type) type {
             };
         }
 
-        pub fn initContext(ctx_ptr: anytype, comptime func: anytype) Self {
+        pub fn initContext(ctx_ptr: anytype, comptime func: anytype) FunctionT {
             const ContextPtr = @TypeOf(ctx_ptr);
             stdx.meta.assertPointerType(ContextPtr);
             const gen = struct {
@@ -49,7 +58,7 @@ pub fn Function(comptime Fn: type) type {
             };
         }
 
-        pub fn init(comptime func: anytype) Self {
+        pub fn init(comptime func: anytype) FunctionT {
             const gen = struct {
                 fn call(_: *const anyopaque, _: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
                     return @call(.{}, func, args);
@@ -62,8 +71,16 @@ pub fn Function(comptime Fn: type) type {
             };
         }
 
-        pub fn call(self: Self, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-            return self.call_fn(self.user_fn, self.ctx, args);
+        pub fn isNull(self: FunctionT) bool {
+            return self.call_fn == null;
+        }
+
+        pub fn isPresent(self: FunctionT) bool {
+            return self.call_fn != null;
+        }
+
+        pub fn call(self: FunctionT, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
+            return self.call_fn.?(self.user_fn, self.ctx, args);
         }
     };
 }
@@ -90,19 +107,19 @@ test "Function" {
 /// Prefer Function, keeping this in case using the FnParamsTuple method breaks.
 pub fn FunctionSimple(comptime Param: type) type {
     return struct {
-        const Self = @This();
-
         ctx: *anyopaque,
         call_fn: fn (*const anyopaque, *anyopaque, Param) void,
 
         // For closures.
         user_fn: *const anyopaque,
 
-        pub fn initClosure(closure: anytype) Self {
+        const FunctionSimpleT = @This();
+
+        pub fn initClosure(closure: anytype) FunctionSimpleT {
             return initClosureIface(closure.iface());
         }
 
-        pub fn initClosureIface(iface: ClosureSimpleIface(Param)) Self {
+        pub fn initClosureIface(iface: ClosureSimpleIface(Param)) FunctionSimpleT {
             return .{
                 .ctx = iface.capture_ptr,
                 .call_fn = iface.call_fn,
@@ -110,7 +127,7 @@ pub fn FunctionSimple(comptime Param: type) type {
             };
         }
 
-        pub fn initContext(ctx_ptr: anytype, comptime func: anytype) Self {
+        pub fn initContext(ctx_ptr: anytype, comptime func: anytype) FunctionSimpleT {
             const ContextPtr = @TypeOf(ctx_ptr);
             stdx.meta.assertPointerType(ContextPtr);
             const gen = struct {
@@ -126,7 +143,7 @@ pub fn FunctionSimple(comptime Param: type) type {
             };
         }
 
-        pub fn init(comptime func: anytype) Self {
+        pub fn init(comptime func: anytype) FunctionSimpleT {
             const gen = struct {
                 fn call(_: *const anyopaque, _: *anyopaque, arg: Param) void {
                     func(arg);
@@ -139,7 +156,7 @@ pub fn FunctionSimple(comptime Param: type) type {
             };
         }
 
-        pub fn call(self: Self, arg: Param) void {
+        pub fn call(self: FunctionSimpleT, arg: Param) void {
             self.call_fn(self.user_fn, self.ctx, arg);
         }
     };

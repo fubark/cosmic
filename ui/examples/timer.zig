@@ -13,7 +13,7 @@ const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    progress_bar: ui.WidgetRef(w.ProgressBarUI),
+    progress_bar: ui.WidgetRef(w.ProgressBarT),
 
     duration_secs: f32,
     progress_ms: f32,
@@ -57,7 +57,7 @@ pub const App = struct {
                 self_.duration_secs = duration_secs;
                 self_.reset();
             }
-            fn onClickReset(self_: *App, e: platform.MouseUpEvent) void {
+            fn onClickReset(self_: *App, e: ui.MouseUpEvent) void {
                 _ = e;
                 self_.reset();
             }
@@ -65,7 +65,7 @@ pub const App = struct {
 
         return w.Center(.{}, 
             w.Sized(.{ .width = 400 },
-                w.Column(.{ .expand = false, .spacing = 20 }, &.{
+                w.Column(.{ .expand_child_width = true, .spacing = 20 }, &.{
                     w.Row(.{}, &.{
                         w.Text(.{
                             .text = "Elapsed Time: ",
@@ -117,7 +117,7 @@ var app: helper.App = undefined;
 
 pub fn main() !void {
     // This is the app loop for desktop. For web/wasm see wasm exports below.
-    app.init("Timer");
+    try app.init("Timer");
     defer app.deinit();
     app.runEventLoop(update);
 }
@@ -134,11 +134,11 @@ fn update(delta_ms: f32) void {
 }
 
 pub usingnamespace if (IsWasm) struct {
-    export fn wasmInit() *const u8 {
+    export fn wasmInit() [*]const u8 {
         return helper.wasmInit(&app, "Timer");
     }
 
-    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) *const u8 {
+    export fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32) [*]const u8 {
         return helper.wasmUpdate(cur_time_ms, input_buffer_len, &app, update);
     }
 

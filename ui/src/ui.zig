@@ -1,24 +1,36 @@
+const std = @import("std");
+
 const module = @import("module.zig");
 pub const Module = module.Module;
 pub const Layout = module.Layout;
 pub const TextMeasureId = module.TextMeasureId;
-pub const BuildContext = module.BuildContext;
 pub const RenderContext = module.RenderContext;
 pub const LayoutContext = module.LayoutContext;
-pub const EventContext = module.EventContext;
 pub const InitContext = module.InitContext;
 pub const ModuleContext = module.ModuleContext;
 pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
-pub const Event = module.Event;
-pub const IntervalEvent = module.IntervalEvent;
-pub const KeyDownEvent = module.KeyDownEvent;
-pub const KeyUpEvent = module.KeyUpEvent;
-pub const MouseDownEvent = module.MouseDownEvent;
-pub const MouseUpEvent = module.MouseUpEvent;
-pub const MouseMoveEvent = module.MouseMoveEvent;
-pub const MouseScrollEvent = module.MouseScrollEvent;
 pub const WidgetProps = module.WidgetProps;
+pub const SizeConstraints = module.SizeConstraints;
+
+const events = @import("events.zig");
+pub const Event = events.Event;
+pub const IntervalEvent = events.IntervalEvent;
+pub const KeyDownEvent = events.KeyDownEvent;
+pub const KeyUpEvent = events.KeyUpEvent;
+pub const MouseDownEvent = events.MouseDownEvent;
+pub const MouseUpEvent = events.MouseUpEvent;
+pub const MouseMoveEvent = events.MouseMoveEvent;
+pub const MouseScrollEvent = events.MouseScrollEvent;
+pub const HoverChangeEvent = events.HoverChangeEvent;
+pub const DragStartEvent = events.DragStartEvent;
+pub const DragMoveEvent = events.DragMoveEvent;
+pub const EventContext = events.EventContext;
+pub const EventResult = events.EventResult;
+
+const build = @import("build.zig");
+pub const BuildContext = build.BuildContext;
+pub const PtrId = build.PtrId;
 
 const config = @import("config.zig");
 pub const Config = config.Config;
@@ -31,14 +43,20 @@ pub const NullId = @import("std").math.maxInt(u32);
 pub const NullFrameId = frame.NullFrameId;
 pub const FrameListPtr = frame.FrameListPtr;
 pub const FramePropsPtr = frame.FramePropsPtr;
+pub const NoChild = NullId;
 
 const widget = @import("widget.zig");
 pub const Node = widget.Node;
+pub const NodeRef = widget.NodeRef;
+pub const NodeStateMasks = widget.NodeStateMasks;
+pub const EventHandlerMasks = widget.EventHandlerMasks;
 pub const WidgetTypeId = widget.WidgetTypeId;
 pub const WidgetUserId = widget.WidgetUserId;
 pub const WidgetKey = widget.WidgetKey;
+pub const WidgetKeyId = widget.WidgetKeyId;
 pub const WidgetRef = widget.WidgetRef;
-pub const NodeRef = widget.NodeRef;
+pub const NodeRefMap = widget.NodeRefMap;
+pub const BindNodeFunc = widget.BindNodeFunc;
 pub const WidgetVTable = widget.WidgetVTable;
 pub const LayoutSize = widget.LayoutSize;
 
@@ -88,9 +106,7 @@ pub fn createDeclFn(comptime Widget: type) fn (*BuildContext, anytype) callconv(
     return S.decl;
 }
 
-pub const EventResult = enum(u1) {
-    /// Allow event to propagate down to children.
-    Continue = 0,
-    /// Stop the event from propagating to children.
-    Stop = 1,
-};
+pub const ExpandedWidth = std.math.inf_f32;
+pub const ExpandedHeight = std.math.inf_f32;
+
+pub const OverlayId = @import("widgets/root.zig").OverlayId;

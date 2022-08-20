@@ -13,35 +13,34 @@ pub const Column = struct {
     props: struct {
         bg_color: ?Color = null,
         valign: ui.VAlign = .Top,
-        stretch_width: bool = false,
+
+        /// Prefers child to take up max width of available space.
+        expand_child_width: bool = false,
         spacing: f32 = 0,
 
-        /// Whether the columns's height will shrink to the total height of it's children or expand to the parent container's height.
-        /// Expands to the parent container's height by default.
+        /// Whether the columns's height will expand to the max height of available space.
         /// flex and flex_fit are only used when expand is true.
-        expand: bool = true,
+        expand: bool = false,
         flex: u32 = 1,
         flex_fit: ui.FlexFit = .Exact,
 
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = self;
+    pub fn build(self: *Column, c: *ui.BuildContext) ui.FrameId {
         return c.fragment(self.props.children);
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
-        const cstr = c.getSizeConstraint();
-        var vacant_size = cstr;
+    pub fn layout(self: *Column, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
+        var vacant_size = cstr.getMaxLayoutSize();
         var cur_y: f32 = 0;
         var max_child_width: f32 = 0;
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.height -= total_spacing;
+
+        const min_width = if (self.props.expand_child_width) vacant_size.width else 0;
 
         // First pass computes non expanding children.
         var has_expanding_children = false;
@@ -61,8 +60,7 @@ pub const Column = struct {
                     continue;
                 }
             }
-            var child_size = c.computeLayoutStretch(it, vacant_size, self.props.stretch_width, false);
-            child_size.cropTo(vacant_size);
+            var child_size = c.computeLayout(it, min_width, 0, vacant_size.width, vacant_size.height);
             c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
             cur_y += child_size.height + self.props.spacing;
             vacant_size.height -= child_size.height;
@@ -105,8 +103,7 @@ pub const Column = struct {
                 var child_size: ui.LayoutSize = undefined;
                 switch (flex_fit) {
                     .ShrinkAndGive => {
-                        child_size = c.computeLayoutStretch(it, max_child_size, self.props.stretch_width, false);
-                        child_size.cropTo(max_child_size);
+                        child_size = c.computeLayout(it, min_width, 0, max_child_size.width, max_child_size.height);
                         c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
                         cur_y += child_size.height + self.props.spacing;
                         if (child_size.height < max_child_size.height) {
@@ -114,8 +111,7 @@ pub const Column = struct {
                         }
                     },
                     else => {
-                        child_size = c.computeLayoutStretch(it, max_child_size, self.props.stretch_width, true);
-                        child_size.cropTo(max_child_size);
+                        child_size = c.computeLayout(it, min_width, max_child_size.height, max_child_size.width, max_child_size.height);
                         c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
                         cur_y += child_size.height + self.props.spacing;
                         if (child_size.width > max_child_width) {
@@ -131,7 +127,7 @@ pub const Column = struct {
             // No expanding children. Check to realign vertically.
             if (self.props.expand and self.props.valign == .Bottom) {
                 const inner_height = cur_y - self.props.spacing;
-                var scratch_y = cstr.height - inner_height;
+                var scratch_y = cstr.max_height - inner_height;
                 for (c.node.children.items) |it| {
                     c.setLayoutPos(it, 0, scratch_y);
                     scratch_y += it.layout.height + self.props.spacing;
@@ -140,17 +136,19 @@ pub const Column = struct {
         }
 
         if (self.props.expand) {
-            return ui.LayoutSize.init(max_child_width, cstr.height);
+            return ui.LayoutSize.init(max_child_width, cstr.max_height);
         } else {
             if (c.node.children.items.len > 0) {
-                return ui.LayoutSize.init(max_child_width, cur_y - self.props.spacing);
+                var res = ui.LayoutSize.init(max_child_width, cur_y - self.props.spacing);
+                res.growToMin(cstr);
+                return res;
             } else {
-                return ui.LayoutSize.init(max_child_width, cur_y);
+                return cstr.getMinLayoutSize();
             }
         }
     }
 
-    pub fn render(self: *Self, ctx: *ui.RenderContext) void {
+    pub fn render(self: *Column, ctx: *ui.RenderContext) void {
         _ = self;
         _ = ctx;
         // const g = c.g;
@@ -177,22 +175,18 @@ pub const Row = struct {
 
         /// Whether the row's width will shrink to the total width of it's children or expand to the parent container's width.
         /// Expands to the parent container's width by default.
-        expand: bool = true,
+        expand: bool = false,
 
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = self;
+    pub fn build(self: *Row, c: *ui.BuildContext) ui.FrameId {
         return c.fragment(self.props.children);
     }
 
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
-        const cstr = c.getSizeConstraint();
-        var vacant_size = cstr;
+    pub fn layout(self: *Row, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
+        var vacant_size = cstr.getMaxLayoutSize();
         var cur_x: f32 = 0;
         var max_child_height: f32 = 0;
 
@@ -217,8 +211,7 @@ pub const Row = struct {
                     continue;
                 }
             }
-            var child_size = c.computeLayout(it, vacant_size);
-            child_size.cropTo(vacant_size);
+            var child_size = c.computeLayoutWithMax(it, vacant_size.width, vacant_size.height);
             c.setLayout(it, ui.Layout.init(cur_x, 0, child_size.width, child_size.height));
             cur_x += child_size.width + self.props.spacing;
             vacant_size.width -= child_size.width;
@@ -249,8 +242,7 @@ pub const Row = struct {
                 }
 
                 max_child_size.width = flex_unit_size * @intToFloat(f32, flex);
-                var child_size = c.computeLayoutStretch(it, max_child_size, true, false);
-                child_size.cropTo(max_child_size);
+                var child_size = c.computeLayout(it, max_child_size.width, 0, max_child_size.width, max_child_size.height);
                 c.setLayout(it, ui.Layout.init(cur_x, 0, child_size.width, child_size.height));
                 cur_x += child_size.width + self.props.spacing;
                 if (child_size.height > max_child_height) {
@@ -259,9 +251,9 @@ pub const Row = struct {
             }
         } else {
             // No expanding children. Check to realign in x dim.
-            if (self.props.expand and self.props.halign == .Right) {
+            if (self.props.halign == .Right) {
                 const inner_width = cur_x - self.props.spacing;
-                var scratch_x = cstr.width - inner_width;
+                var scratch_x = cstr.max_width - inner_width;
                 for (c.node.children.items) |it| {
                     c.setLayoutPos(it, scratch_x, 0);
                     scratch_x += it.layout.width + self.props.spacing;
@@ -281,26 +273,27 @@ pub const Row = struct {
         }
 
         if (self.props.expand) {
-            return ui.LayoutSize.init(cstr.width, max_child_height);
+            return ui.LayoutSize.init(cstr.max_width, max_child_height);
         } else {
             if (c.node.children.items.len > 0) {
-                return ui.LayoutSize.init(cur_x - self.props.spacing, max_child_height);
+                var res = ui.LayoutSize.init(cur_x - self.props.spacing, max_child_height);
+                res.growToMin(cstr);
+                return res;
             } else {
-                return ui.LayoutSize.init(cur_x, max_child_height);
+                return cstr.getMinLayoutSize();
             }
         }
     }
 
-    pub fn render(self: *Self, c: *ui.RenderContext) void {
-        _ = self;
-        const g = c.gctx;
-        const alo = c.getAbsLayout();
+    pub fn render(self: *Row, c: *ui.RenderContext) void {
+        const gctx = c.gctx;
+        const bounds = c.getAbsBounds();
 
         const props = self.props;
 
         if (props.bg_color != null) {
-            g.setFillColor(props.bg_color.?);
-            g.fillRect(alo.x, alo.y, alo.width, alo.height);
+            gctx.setFillColor(props.bg_color.?);
+            c.fillBBox(bounds);
         }
         // TODO: draw border
     }
@@ -310,48 +303,31 @@ pub const Row = struct {
 pub const Flex = struct {
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
+
+        /// Flex properties are used by the parent.
         flex: u32 = 1,
         flex_fit: ui.FlexFit = .Exact,
-
-        /// When false, stretching is inherited by the parent.
-        stretch_width: bool = false,
     },
 
-    const Self = @This();
-
-    pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
-        _ = c;
+    pub fn build(self: *Flex, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
     /// Computes the child layout preferring to stretch it and returns the current constraint.
-    pub fn layout(self: *Self, c: *ui.LayoutContext) ui.LayoutSize {
-        _ = self;
-        const cstr = c.getSizeConstraint();
+    pub fn layout(self: *Flex, c: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = c.getSizeConstraints();
+
+        if (self.props.child == ui.NullFrameId) {
+            return cstr.getMinLayoutSize();
+        }
+
         const node = c.getNode();
-
-        if (node.children.items.len == 0) {
-            var res = ui.LayoutSize.init(0, 0);
-            if (c.prefer_exact_width) {
-                res.width = cstr.width;
-            }
-            if (c.prefer_exact_height) {
-                res.height = cstr.height;
-            }
-            return res;
-        }
-
         const child = node.children.items[0];
-        const stretch_width = if (self.props.stretch_width) true else c.prefer_exact_width;
-        const child_size = c.computeLayoutStretch(child, cstr, stretch_width, c.prefer_exact_height);
-        var res = child_size;
-        if (c.prefer_exact_width) {
-            res.width = cstr.width;
-        }
-        if (c.prefer_exact_height) {
-            res.height = cstr.height;
-        }
+        const child_size = c.computeLayout2(child, cstr);
         c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
+
+        var res = child_size;
+        res.limitToMinMax(cstr);
         return res;
     }
 };

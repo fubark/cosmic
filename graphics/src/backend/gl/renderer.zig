@@ -42,6 +42,7 @@ pub const Renderer = struct {
 
     /// State.
     depth_test: bool,
+    binded_draw_framebuffer: gl.GLuint,
 
     pub fn init(self: *Renderer, alloc: std.mem.Allocator) !void {
         self.* = .{
@@ -55,6 +56,7 @@ pub const Renderer = struct {
             .mesh = undefined,
             .pipelines = undefined,
             .image_store = undefined,
+            .binded_draw_framebuffer = 0,
         };
         const max_total_textures = gl.getMaxTotalTextures();
         const max_fragment_textures = gl.getMaxFragmentTextures();
@@ -109,6 +111,11 @@ pub const Renderer = struct {
         self.mesh.deinit();
 
         self.pipelines.deinit();
+    }
+
+    pub fn bindDrawFramebuffer(self: *Renderer, framebuffer: gl.GLuint) void {
+        gl.bindFramebuffer(gl.GL_DRAW_FRAMEBUFFER, framebuffer);
+        self.binded_draw_framebuffer = framebuffer;
     }
 
     pub fn pushTex3D(self: *Renderer, mvp: Mat4, tex_id: TextureId) void {

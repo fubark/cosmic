@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expectEqual = std.testing.expectEqual;
 
 pub const alloc = std.testing.allocator;
@@ -100,7 +101,9 @@ pub fn setLogLevel(level: std.log.Level) void {
     std.testing.log_level = level;
 }
 
-var mocks: std.ArrayList(*Mock) = std.ArrayList(*Mock).init(alloc);
+var mocks: std.ArrayList(*Mock) = std.ArrayList(*Mock).init(
+    if (builtin.is_test) alloc else std.heap.page_allocator,
+);
 
 pub fn unitTrace(loc: std.builtin.SourceLocation) void {
     for (mocks.items) |mock| {
