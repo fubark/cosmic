@@ -1334,6 +1334,32 @@ const IntersectResult = struct {
     }
 };
 
+fn testCountMulti(polygons: []const []const f32, exp_tri_count: u32) !void {
+    var pts = std.ArrayList(Vec2).init(t.alloc);
+    defer pts.deinit();
+
+    var polygons_buf = std.ArrayList(stdx.IndexSlice(u32)).init(t.alloc);
+    defer polygons_buf.deinit();
+
+    for (polygons) |polygon| {
+        const start = pts.items.len;
+        var i: u32 = 0;
+        while (i < polygon.len) : (i += 2) {
+            try pts.append(vec2(polygon[i], polygon[i+1]));
+        }
+        try polygons_buf.append(.{
+            .start = @intCast(u32, start),
+            .end = @intCast(u32, pts.items.len),
+        });
+    }
+
+    var tessellator: Tessellator = undefined;
+    tessellator.init(t.alloc);
+    defer tessellator.deinit();
+    tessellator.triangulatePolygons2(pts.items, polygons_buf.items);
+    try t.eq(tessellator.out_idxes.items.len/3, exp_tri_count);
+}
+
 /// Just check triangle count.
 /// TODO: Verify all triangles take up the entire space.
 fn testCount(polygon: []const f32, exp_tri_count: u32) !void {

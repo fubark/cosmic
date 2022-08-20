@@ -1359,6 +1359,32 @@ pub const Graphics = struct {
                     cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
                     self.vec2_helper_buf.append(cur_pt) catch unreachable;
                 },
+                .CurveTo => {
+                    const data = path.getData(.CurveTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.CurveTo)) / 4;
+
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    last_control_pt = .{
+                        .x = data.cb_x,
+                        .y = data.cb_y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = data.ca_x,
+                        .cy0 = data.ca_y,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
                 .CurveToRel => {
                     const data = path.getData(.CurveToRel, cur_data_idx);
                     cur_data_idx += @sizeOf(svg.PathCommandData(.CurveToRel)) / 4;
@@ -1405,6 +1431,48 @@ pub const Graphics = struct {
                     };
                     self.vec2_helper_buf.append(cur_pt) catch unreachable;
                 },
+                .EllipticArcRel => {
+                    const data = path.getData(.EllipticArcRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.EllipticArcRel)) / 4;
+                    // TODO.
+                    _ = data;
+                },
+                .SmoothCurveTo => {
+                    const data = path.getData(.SmoothCurveTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveTo)) / 4;
+
+                    var cx0: f32 = undefined;
+                    var cy0: f32 = undefined;
+                    if (last_cmd_was_curveto) {
+                        // Reflection of last control point over current pos.
+                        cx0 = cur_pt.x + (cur_pt.x - last_control_pt.x);
+                        cy0 = cur_pt.y + (cur_pt.y - last_control_pt.y);
+                    } else {
+                        cx0 = cur_pt.x;
+                        cy0 = cur_pt.y;
+                    }
+                    const prev_pt = cur_pt;
+                    cur_pt = .{
+                        .x = data.x,
+                        .y = data.y,
+                    };
+                    last_control_pt = .{
+                        .x = data.c2_x,
+                        .y = data.c2_y,
+                    };
+                    const c_bez = CubicBez{
+                        .x0 = prev_pt.x,
+                        .y0 = prev_pt.y,
+                        .cx0 = cx0,
+                        .cy0 = cy0,
+                        .cx1 = last_control_pt.x,
+                        .cy1 = last_control_pt.y,
+                        .x1 = cur_pt.x,
+                        .y1 = cur_pt.y,
+                    };
+                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
+                    cmd_is_curveto = true;
+                },
                 .SmoothCurveToRel => {
                     const data = path.getData(.SmoothCurveToRel, cur_data_idx);
                     cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveToRel)) / 4;
@@ -1441,11 +1509,29 @@ pub const Graphics = struct {
                     c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
                     cmd_is_curveto = true;
                 },
+                .HorzLineToRel => {
+                    const data = path.getData(.HorzLineToRel, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.HorzLineToRel)) / 4;
+                    cur_pt.x += data.x;
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .HorzLineTo => {
+                    const data = path.getData(.HorzLineTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.HorzLineTo)) / 4;
+                    cur_pt.x = data.x;
+                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
                 .VertLineToRel => {
                     const data = path.getData(.VertLineToRel, cur_data_idx);
                     cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineToRel)) / 4;
                     cur_pt.y += data.y;
                     self.vec2_helper_buf.append(cur_pt) catch unreachable;
+                },
+                .VertLineTo => {
+                    const data = path.getData(.VertLineTo, cur_data_idx);
+                    cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineTo)) / 4;
+                    cur_pt.y = data.y;
+                    self.vec2_helper_buf.append(cur_pt) catch fatal();
                 },
                 .ClosePath => {
                     if (fill) {
@@ -1458,45 +1544,6 @@ pub const Graphics = struct {
                     stdx.panicFmt("unsupported: {}", .{cmd});
                 },
             }
-        //         .VertLineTo => {
-        //             const data = path.getData(.VertLineTo, cur_data_idx);
-        //             cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineTo)) / 4;
-        //             cur_pos.y = data.y;
-        //             lyon.lineTo(b, &cur_pos);
-        //         },
-        //         .CurveTo => {
-        //             const data = path.getData(.CurveTo, cur_data_idx);
-        //             cur_data_idx += @sizeOf(svg.PathCommandData(.CurveTo)) / 4;
-        //             cur_pos.x = data.x;
-        //             cur_pos.y = data.y;
-        //             last_control_pos.x = data.cb_x;
-        //             last_control_pos.y = data.cb_y;
-        //             cmd_is_curveto = true;
-        //             lyon.cubicBezierTo(b, &pt(data.ca_x, data.ca_y), &last_control_pos, &cur_pos);
-        //         },
-        //         .SmoothCurveTo => {
-        //             const data = path.getData(.SmoothCurveTo, cur_data_idx);
-        //             cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveTo)) / 4;
-
-        //             // Reflection of last control point over current pos.
-        //             var c1_x: f32 = undefined;
-        //             var c1_y: f32 = undefined;
-        //             if (last_cmd_was_curveto) {
-        //                 c1_x = cur_pos.x + (cur_pos.x - last_control_pos.x);
-        //                 c1_y = cur_pos.y + (cur_pos.y - last_control_pos.y);
-        //             } else {
-        //                 c1_x = cur_pos.x;
-        //                 c1_y = cur_pos.y;
-        //             }
-
-        //             cur_pos.x = data.x;
-        //             cur_pos.y = data.y;
-        //             last_control_pos.x = data.c2_x;
-        //             last_control_pos.y = data.c2_y;
-        //             cmd_is_curveto = true;
-        //             lyon.cubicBezierTo(b, &pt(c1_x, c1_y), &last_control_pos, &cur_pos);
-        //         },
-        //     }
             last_cmd_was_curveto = cmd_is_curveto;
         }
 
@@ -1665,6 +1712,10 @@ pub const Graphics = struct {
                     lyon.close(b);
                     cur_path_ended = true;
                 },
+                .EllipticArc,
+                .EllipticArcRel,
+                .HorzLineToRel,
+                .HorzLineTo => stdx.unsupported(),
             }
             last_cmd_was_curveto = cmd_is_curveto;
         }
