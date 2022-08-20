@@ -228,7 +228,9 @@ pub const Graphics = struct {
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
         std.mem.set(u32, &buf, 0xFFFFFFFF);
-        self.white_tex = self.image_store.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), false);
+        self.white_tex = self.image_store.createImageFromBitmap(4, 4, std.mem.sliceAsBytes(buf[0..]), .{
+            .linear_filter = false,
+        });
 
         self.font_cache.init(alloc, self);
 
@@ -268,6 +270,7 @@ pub const Graphics = struct {
         self.font_cache.deinit();
 
         self.main_ps.deinit(self.alloc);
+        self.alloc.destroy(self.main_ps);
 
         if (build_options.has_lyon) {
             lyon.deinit();
@@ -1098,7 +1101,7 @@ pub const Graphics = struct {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
                         self.vec2_slice_helper_buf.append(.{
                             .start = cur_poly_start,
-                            .end = self.vec2_helper_buf.items.len,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
                         }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
@@ -1117,7 +1120,7 @@ pub const Graphics = struct {
                     if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
                         self.vec2_slice_helper_buf.append(.{
                             .start = cur_poly_start,
-                            .end = self.vec2_helper_buf.items.len,
+                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
                         }) catch fatal();
                     } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
                         // Only one unused point. Remove it.
@@ -1238,15 +1241,16 @@ pub const Graphics = struct {
             // Push the current polygon.
             self.vec2_slice_helper_buf.append(.{
                 .start = cur_poly_start,
-                .end = self.vec2_helper_buf.items.len,
+                .end = @intCast(u32, self.vec2_helper_buf.items.len),
             }) catch fatal();
         }
         if (self.vec2_slice_helper_buf.items.len == 0) {
             return;
         }
 
-        for (self.vec2_slice_helper_buf.items) |polygon| {
+        for (self.vec2_slice_helper_buf.items) |polygon_slice| {
             var tess = getTess2Handle();
+            const polygon = self.vec2_helper_buf.items[polygon_slice.start..polygon_slice.end];
             tess2.tessAddContour(tess, 2, &polygon[0], 8, @intCast(c_int, polygon.len));
             const res = tess2.tessTesselate(tess, tess2.TESS_WINDING_ODD, tess2.TESS_POLYGONS, 3, 2, null);
             if (res == 0) {
@@ -1275,9 +1279,9 @@ pub const Graphics = struct {
             const elems = tess2.tessGetElements(tess);
             i = 0;
             while (i < nelems) : (i += 1) {
-                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
-                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
-                self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
+                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
+                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3]));
                 // log.debug("idx {}", .{elems[i]});
             }
         }
@@ -1774,9 +1778,9 @@ pub const Graphics = struct {
         const elems = tess2.tessGetElements(tess);
         i = 0;
         while (i < nelems) : (i += 1) {
-            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
-            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
-            self.batcher.mesh.addIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
+            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
+            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3]));
         }
     }
 
@@ -2390,7 +2394,7 @@ pub const Graphics = struct {
         self.buf_width = buf_width;
         self.buf_height = buf_height;
         self.inner.cur_frame = self.inner.renderer.frames[frame_idx];
-        self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.clear_color);
+        self.batcher.resetStateVK(self.white_tex, frame_idx, framebuffer, self.ps.clear_color);
 
         self.ps.clip_rect = .{
             .x = 0,

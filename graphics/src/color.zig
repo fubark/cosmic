@@ -56,6 +56,7 @@ pub const Color = extern union {
     }
 
     pub fn initFloat(r: f32, g: f32, b: f32, a: f32) Color {
+        @setRuntimeSafety(false);
         return init(@floatToInt(u8, r * 255), @floatToInt(u8, g * 255), @floatToInt(u8, b * 255), @floatToInt(u8, a * 255));
     }
 
@@ -208,6 +209,17 @@ pub const Color = extern union {
         };
     }
 };
+
+test "Color.initFloat" {
+    var c = Color.initFloat(0, 0.5, 1.0, 1.0);
+    try t.eq(c.channels.r, 0);
+    try t.eq(c.channels.g, 127);
+    try t.eq(c.channels.b, 255);
+    try t.eq(c.channels.a, 255);
+
+    // Exceed byte bounds. Ensure no runtime error.
+    _ = Color.initFloat(2.0, 2.0, 2.0, 2.0);
+}
 
 test "Color.Transparent" {
     try t.eq(0, Color.Transparent.value);

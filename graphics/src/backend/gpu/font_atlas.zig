@@ -47,7 +47,9 @@ pub const FontAtlas = struct {
             .linear_filter = linear_filter,
             .dirty = false,
         };
-        self.image = g.image_store.createImageFromBitmap(width, height, null, linear_filter);
+        self.image = g.image_store.createImageFromBitmap(width, height, null, .{
+            .linear_filter = linear_filter
+        });
 
         self.gl_buf = alloc.alloc(u8, width * height * self.channels) catch @panic("error");
         std.mem.set(u8, self.gl_buf, 0);
@@ -85,7 +87,9 @@ pub const FontAtlas = struct {
         // End the current command so the current uv data still maps to correct texture data and create a new image.
         const old_image_id = self.image.image_id;
         self.g.image_store.endCmdAndMarkForRemoval(self.image.image_id);
-        self.image = self.g.image_store.createImageFromBitmap(self.width, self.height, null, self.linear_filter);
+        self.image = self.g.image_store.createImageFromBitmap(self.width, self.height, null, .{
+            .linear_filter = self.linear_filter,
+        });
 
         // Update tex_id and uvs in existing glyphs.
         const tex_width = @intToFloat(f32, self.width);

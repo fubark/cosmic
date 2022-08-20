@@ -56,7 +56,7 @@ pub const ImageStore = struct {
     }
 
     /// Cleans up images and their textures that are no longer used.
-    pub fn processRemovals(self: *Self) void {
+    pub fn processRemovals(self: *ImageStore) void {
         for (self.removals.items) |*entry, entry_idx| {
             if (entry.frame_age < gvk.MaxActiveFrames) {
                 entry.frame_age += 1;
@@ -78,7 +78,7 @@ pub const ImageStore = struct {
             // No more images in the texture. Cleanup.
             if (tex.inner.cs_images.items.len == 0) {
                 if (Backend == .Vulkan) {
-                    tex.deinitVK(self.gctx.inner.ctx.device);
+                    tex.deinitVK(self.gpu.inner.ctx.device);
                 } else if (Backend == .OpenGL) {
                     tex.deinitGL();
                 }
@@ -112,7 +112,9 @@ pub const ImageStore = struct {
         // log.debug("loaded image: {} {} {} {*}", .{src_width, src_height, channels, bitmap});
 
         const bitmap_len = @intCast(usize, src_width * src_height * 4);
-        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], true);
+        const desc = self.createImageFromBitmap(@intCast(usize, src_width), @intCast(usize, src_height), bitmap[0..bitmap_len], .{
+            .linear_filter = true,
+        });
         return graphics.Image{
             .id = desc.image_id,
             .width = @intCast(usize, src_width),
@@ -122,13 +124,13 @@ pub const ImageStore = struct {
 
     // TODO: Each texture resource should be an atlas of images since the number of textures is limited on the gpu.
     /// Assumes rgba data.
-    pub fn createImageFromBitmapInto(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
-        self.initImage(image, width, height, data, linear_filter);
+    pub fn createImageFromBitmapInto(self: *ImageStore, image: *Image, width: usize, height: usize, data: ?[]const u8, opts: graphics.CreateImageOptions) ImageId {
+        self.initImage(image, width, height, data, opts.linear_filter);
 
         if (Backend == .Vulkan) {
-            const device = self.gctx.inner.ctx.device;
-            const desc_pool = self.gctx.inner.renderer.desc_pool;
-            const layout = self.gctx.inner.tex_desc_set_layout;
+            const device = self.gpu.inner.ctx.device;
+            const desc_pool = self.gpu.inner.renderer.desc_pool;
+            const layout = self.gpu.inner.tex_desc_set_layout;
             const desc_set = gvk.descriptor.createDescriptorSet(device, desc_pool, layout);
             const image_infos: []vk.VkDescriptorImageInfo = &[_]vk.VkDescriptorImageInfo{
                 vk.VkDescriptorImageInfo{
@@ -152,41 +154,46 @@ pub const ImageStore = struct {
             }) catch stdx.fatal();
             image.tex_id = tex_id;
         } else if (Backend == .OpenGL) {
+            // TODO: initImage shouldn't set tex_id to gl tex id.
+            const gl_tex_id = image.tex_id;
             const tex_id = self.textures.add(.{
                 .inner = .{
-                    // TODO: initImage shouldn't set tex_id to gl tex id.
-                    .tex_id = image.tex_id,
+                    .tex_id = gl_tex_id,
                 },
             }) catch stdx.fatal();
             image.tex_id = tex_id;
+
+            if (opts.offscreen_rendering) {
+                image.fbo_id = self.gpu.createTextureFramebuffer(gl_tex_id);
+            }
         }
         return self.images.add(image.*) catch stdx.fatal();
     }
 
     // TODO: Rename to initTexture.
     /// Assumes rgba data.
-    pub fn initImage(self: *Self, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) void {
+    pub fn initImage(self: *ImageStore, image: *Image, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) void {
         switch (Backend) {
             .OpenGL => {
                 graphics.gl.initImage(image, width, height, data, linear_filter);
             },
             .Vulkan => {
-                graphics.vk.initImage(self.gctx.inner.renderer, image, width, height, data, linear_filter);
+                graphics.vk.initImage(self.gpu.inner.renderer, image, width, height, data, linear_filter);
             },
             else => stdx.panicUnsupported(),
         }
     }
 
-    pub fn createImageFromBitmap(self: *Self, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageTex {
+    pub fn createImageFromBitmap(self: *ImageStore, width: usize, height: usize, data: ?[]const u8, opts: graphics.CreateImageOptions) ImageTex {
         var image: Image = undefined;
-        const image_id = self.createImageFromBitmapInto(&image, width, height, data, linear_filter);
+        const image_id = self.createImageFromBitmapInto(&image, width, height, data, opts);
         return ImageTex{
             .image_id = image_id,
             .tex_id = image.tex_id,
         };
     }
 
-    pub fn markForRemoval(self: *Self, id: ImageId) void {
+    pub fn markForRemoval(self: *ImageStore, id: ImageId) void {
         const image = self.images.getPtrNoCheck(id);
         if (!image.remove) {
             self.removals.append(.{
@@ -195,6 +202,10 @@ pub const ImageStore = struct {
             }) catch stdx.fatal();
             image.remove = true;
         }
+    }
+
+    pub fn getImage(self: *ImageStore, id: ImageId) Image {
+        return self.images.getNoCheck(id);
     }
 
     pub fn getImageSize(self: *ImageStore, id: ImageId) stdx.math.Point2(u32) {
@@ -209,12 +220,12 @@ pub const ImageStore = struct {
         return self.textures.getNoCheck(id);
     }
 
-    pub fn endCmdAndMarkForRemoval(self: *Self, image_id: ImageId) void {
+    pub fn endCmdAndMarkForRemoval(self: *ImageStore, image_id: ImageId) void {
         const image = self.images.getNoCheck(image_id);
         // If we deleted the current tex, flush and reset to default texture.
-        if (self.gctx.batcher.cur_image_tex.tex_id == image.tex_id) {
-            self.gctx.endCmd();
-            self.gctx.batcher.cur_image_tex = self.gctx.white_tex;
+        if (self.gpu.batcher.cur_image_tex.tex_id == image.tex_id) {
+            self.gpu.endCmd();
+            self.gpu.batcher.cur_image_tex = self.gpu.white_tex;
         }
         self.markForRemoval(image_id);
     }
