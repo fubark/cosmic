@@ -270,6 +270,20 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn setFillColor3f(self: *Graphics, r: f32, g: f32, b: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.setFillColor3f(&self.impl, r, g, b),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn setFillColor4f(self: *Graphics, r: f32, g: f32, b: f32, a: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.setFillColor4f(&self.impl, r, g, b, a),
+            else => stdx.unsupported(),
+        }
+    }
+
     /// Set a linear gradient fill style.
     pub fn setFillGradient(self: *Graphics, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         switch (Backend) {
@@ -703,12 +717,24 @@ pub const Graphics = struct {
         }
     }
 
-    /// Assumes data is rgba in row major starting from top left of image.
-    /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
-    pub fn createImageFromBitmap(self: *Graphics, width: usize, height: usize, data: ?[]const u8, linear_filter: bool) ImageId {
+    /// Creates an image from svg content. The svg will be rendered to fit the provided image size.
+    pub fn createSvgImage(self: *Graphics, data: []const u8, width: u32, height: u32) !Image {
         switch (Backend) {
             .OpenGL, .Vulkan => {
-                const image = gpu.ImageStore.createImageFromBitmap(&self.impl.image_store, width, height, data, linear_filter);
+                const res = try self.compileSvgContent(self.alloc, data);
+                defer res.deinit();
+                return gpu.ImageStore.createSvgImage(&self.impl.image_store, res, width, height);
+            },
+            else => stdx.unsupported(),
+        }
+    }
+
+    /// Assumes data is rgba in row major starting from top left of image.
+    /// If data is null, an empty image will be created. In OpenGL, the empty image will have undefined pixel data.
+    pub fn createImageFromBitmap(self: *Graphics, width: usize, height: usize, data: ?[]const u8, opts: CreateImageOptions) ImageId {
+        switch (Backend) {
+            .OpenGL, .Vulkan => {
+                const image = gpu.ImageStore.createImageFromBitmap(&self.impl.image_store, width, height, data, opts);
                 return image.image_id;
             },
             else => stdx.unsupported(),
@@ -2301,4 +2327,13 @@ pub const Material = struct {
             .albedo_color = color.toFloatArray(),
         };
     }
+};
+
+pub const CreateImageOptions = struct {
+    /// Image is intended to be used for offscreen rendering.
+    /// eg. Use graphics commands that paint to the image rather than the screen buffer.
+    offscreen_rendering: bool = false,
+
+    /// Whether image samplers will use linear filtering.
+    linear_filter: bool = true,
 };

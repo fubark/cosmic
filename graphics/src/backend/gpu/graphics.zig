@@ -451,6 +451,16 @@ pub const Graphics = struct {
         self.ps.fill_color = color;
     }
 
+    pub fn setFillColor3f(self: *Graphics, r: f32, g: f32, b: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        self.ps.fill_color = Color.initFloat(r, g, b, 1.0);
+    }
+
+    pub fn setFillColor4f(self: *Graphics, r: f32, g: f32, b: f32, a: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        self.ps.fill_color = Color.initFloat(r, g, b, a);
+    }
+
     pub fn setFillGradient(self: *Graphics, start_x: f32, start_y: f32, start_color: Color, end_x: f32, end_y: f32, end_color: Color) void {
         // Convert to buffer coords on cpu.
         if (Backend == .OpenGL and IsWasm) {
