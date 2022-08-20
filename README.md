@@ -12,6 +12,7 @@ The goals for Cosmic is changing and the project description will be updated soo
 The following components were created during the development of Cosmic.
 - 2D/3D Graphics ([Source](https://github.com/fubark/cosmic/tree/master/graphics))
 - UI and animation framework ([Source](https://github.com/fubark/cosmic/tree/master/ui))
+- CScript language and compiler ([Source](https://github.com/fubark/cosmic/tree/master/cscript))
 - JavaScript runtime ([Source](https://github.com/fubark/cosmic/tree/master/runtime), [API docs](https://cosmic-js.com/docs)).
 - V8 bindings ([Source](https://github.com/fubark/zig-v8))
 - Incremental AST parser and tokenizer. ([Source](https://github.com/fubark/cosmic/tree/master/parser))
