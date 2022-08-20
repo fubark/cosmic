@@ -68,6 +68,10 @@ pub const Positioned = genBuildWithChild(PositionedT);
 pub const WindowT = @import("widgets/window.zig").Window;
 pub const Window = genBuildWithChild(WindowT);
 
+/// Multimedia.
+pub const ImageT = @import("widgets/image.zig").Image;
+pub const Image = genBuildWithNoChild(ImageT);
+
 /// Buttons.
 const button = @import("widgets/button.zig");
 pub const ButtonT = button.Button;
