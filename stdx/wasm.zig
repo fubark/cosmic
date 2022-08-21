@@ -9,10 +9,10 @@ const log = stdx.log.scoped(.wasm);
 /// A global buffer for wasm that can be used for:
 /// Writing to js: In some cases in order to share the same abstraction as desktop code, a growing buffer is useful without needing an allocator. eg. logging.
 /// Reading from js: If js needs to return dynamic data, it would need to write to memory which wasm knows about.
-pub var js_buffer: WasmJsBuffer = WasmJsBuffer.init(galloc);
+pub var js_buffer: WasmJsBuffer = undefined;
 
-pub const galloc: std.mem.Allocator = std.heap.page_allocator;
-var atexits = std.ArrayList(AtExitCallback).init(galloc);
+pub var galloc: std.mem.Allocator = undefined;
+var atexits: std.ArrayList(AtExitCallback) = undefined;
 
 const AtExitCallback = struct {
     func: fn (ctx: ?*anyopaque) void,
@@ -20,6 +20,10 @@ const AtExitCallback = struct {
 };
 
 pub fn init(alloc: std.mem.Allocator) void {
+    @import("log_wasm.zig").init(alloc);
+    galloc = alloc;
+    atexits = std.ArrayList(AtExitCallback).init(alloc);
+    js_buffer = WasmJsBuffer.init(alloc);
     js_buffer.ensureNotEmpty();
     promises = ds.PooledHandleList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
@@ -27,6 +31,8 @@ pub fn init(alloc: std.mem.Allocator) void {
 
 pub fn deinit() void {
     js_buffer.deinit();
+    atexits.deinit();
+    @import("log_wasm.zig").deinit();
 }
 
 pub fn getJsBuffer() *WasmJsBuffer {
