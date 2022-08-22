@@ -57,6 +57,8 @@ const LibCurlPath: ?[]const u8 = null;
 const LibUvPath: ?[]const u8 = null;
 const LibH2oPath: ?[]const u8 = null;
 
+const DefaultGraphicsBackend: backend.GraphicsBackend = .OpenGL;
+
 // To enable tracy profiling, append -Dtracy and ./lib/tracy must point to their main src tree.
 
 pub fn build(b: *Builder) !void {
@@ -104,10 +106,11 @@ pub fn build(b: *Builder) !void {
     }
 
     // Default build context.
-    var ctx = BuilderContext{
+    var ctx = BuildContext{
         .builder = b,
         .enable_tracy = tracy,
         .link_graphics = link_graphics,
+        .graphics_backend = DefaultGraphicsBackend,
         .link_physics = link_physics,
         .link_audio = audio,
         .add_v8_pkg = v8,
@@ -390,14 +393,13 @@ pub fn build(b: *Builder) !void {
     // b.default_step.dependOn(&build_cosmic.step);
 }
 
-const BuilderContext = struct {
-    const Self = @This();
-
+const BuildContext = struct {
     builder: *std.build.Builder,
     path: []const u8,
     filter: []const u8,
     enable_tracy: bool,
     link_graphics: bool,
+    graphics_backend: backend.GraphicsBackend,
     link_physics: bool = false,
 
     // For testing, benchmarks.
@@ -416,16 +418,16 @@ const BuilderContext = struct {
     // This is only used to detect running a linux binary in WSL.
     wsl: bool = false,
 
-    fn fromRoot(self: *Self, path: []const u8) []const u8 {
+    fn fromRoot(self: *BuildContext, path: []const u8) []const u8 {
         return self.builder.pathFromRoot(path);
     }
 
-    fn setOutputDir(self: *Self, obj: *LibExeObjStep, name: []const u8) void {
+    fn setOutputDir(self: *BuildContext, obj: *LibExeObjStep, name: []const u8) void {
         const output_dir = self.fromRoot(self.builder.fmt("zig-out/{s}", .{ name }));
         obj.setOutputDir(output_dir);
     }
 
-    fn createBuildLibStep(self: *Self) *LibExeObjStep {
+    fn createBuildLibStep(self: *BuildContext) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
@@ -457,8 +459,7 @@ const BuilderContext = struct {
         const pkg = opts_step.getPackage("build_options");
         wasm.addPackage(pkg);
 
-        const graphics_backend = backend.getGraphicsBackend(wasm);
-        opts_step.addOption(backend.GraphicsBackend, "GraphicsBackend", graphics_backend);
+        opts_step.addOption(backend.GraphicsBackend, "GraphicsBackend", self.graphics_backend);
 
         self.addDeps(wasm) catch unreachable;
 
@@ -495,11 +496,11 @@ const BuilderContext = struct {
     }
 
     /// dst_rel_path is relative to the step's custom dest directory.
-    fn addStepInstallFile(self: *Self, step: *LibExeObjStep, src_path: []const u8, dst_rel_path: []const u8) *std.build.InstallFileStep {
+    fn addStepInstallFile(self: *BuildContext, step: *LibExeObjStep, src_path: []const u8, dst_rel_path: []const u8) *std.build.InstallFileStep {
         return self.builder.addInstallFile(.{ .path = src_path }, self.builder.fmt("{s}/{s}", .{step.install_step.?.dest_dir.custom, dst_rel_path}));
     }
 
-    fn copyAssets(self: *Self, step: *LibExeObjStep) void {
+    fn copyAssets(self: *BuildContext, step: *LibExeObjStep) void {
         if (self.path.len == 0) {
             return;
         }
@@ -520,7 +521,7 @@ const BuilderContext = struct {
         }
     }
 
-    fn joinResolvePath(self: *Self, paths: []const []const u8) []const u8 {
+    fn joinResolvePath(self: *BuildContext, paths: []const []const u8) []const u8 {
         return std.fs.path.join(self.builder.allocator, paths) catch unreachable;
     }
 
@@ -528,7 +529,7 @@ const BuilderContext = struct {
         return target.toTarget().linuxTriple(b.allocator) catch unreachable;
     }
 
-    fn addInstallArtifact(self: *Self, artifact: *LibExeObjStep) *std.build.InstallArtifactStep {
+    fn addInstallArtifact(self: *BuildContext, artifact: *LibExeObjStep) *std.build.InstallArtifactStep {
         const triple = getSimpleTriple(self.builder, artifact.target);
         if (artifact.kind == .exe or artifact.kind == .test_exe) {
             const basename = std.fs.path.basename(artifact.root_src.?.path);
@@ -543,7 +544,7 @@ const BuilderContext = struct {
         return self.builder.addInstallArtifact(artifact);
     }
 
-    fn createBuildExeStep(self: *Self, options_step: ?*std.build.OptionsStep) *LibExeObjStep {
+    fn createBuildExeStep(self: *BuildContext, options_step: ?*std.build.OptionsStep) *LibExeObjStep {
         const basename = std.fs.path.basename(self.path);
         const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
         const name = basename[0..i];
@@ -571,13 +572,13 @@ const BuilderContext = struct {
         return exe;
     }
 
-    fn createCopyVendorStep(self: *Self, path: []const u8, vendor_path: []const u8) *CopyVendorStep {
+    fn createCopyVendorStep(self: *BuildContext, path: []const u8, vendor_path: []const u8) *CopyVendorStep {
         const b = self.builder;
         const step = CopyVendorStep.create(b, path, vendor_path);
         return step;
     }
 
-    fn createTestFileStep(self: *Self, path: []const u8, build_options: ?*std.build.OptionsStep) *std.build.LibExeObjStep {
+    fn createTestFileStep(self: *BuildContext, path: []const u8, build_options: ?*std.build.OptionsStep) *std.build.LibExeObjStep {
         const step = self.builder.addTest(path);
         self.setBuildMode(step);
         self.setTarget(step);
@@ -595,7 +596,7 @@ const BuilderContext = struct {
         return step;
     }
 
-    fn createTestExeStep(self: *Self) *std.build.LibExeObjStep {
+    fn createTestExeStep(self: *BuildContext) *std.build.LibExeObjStep {
         const step = self.builder.addTestExe("main_test", "./test/main_test.zig");
         self.setBuildMode(step);
         self.setTarget(step);
@@ -615,7 +616,7 @@ const BuilderContext = struct {
         return step;
     }
 
-    fn postStep(self: *Self, step: *std.build.LibExeObjStep) void {
+    fn postStep(self: *BuildContext, step: *std.build.LibExeObjStep) void {
         if (self.enable_tracy) {
             self.linkTracy(step);
         }
@@ -624,17 +625,16 @@ const BuilderContext = struct {
         }
     }
 
-    fn isWasmTarget(self: Self) bool {
+    fn isWasmTarget(self: BuildContext) bool {
         return self.target.getCpuArch().isWasm();
     }
 
-    fn addDeps(self: *Self, step: *LibExeObjStep) !void {
-        const graphics_backend = backend.getGraphicsBackend(step);
+    fn addDeps(self: *BuildContext, step: *LibExeObjStep) !void {
         stdx.addPackage(step, .{
             .enable_tracy = self.enable_tracy,
         });
         platform.addPackage(step, .{
-            .graphics_backend = graphics_backend,
+            .graphics_backend = self.graphics_backend,
             .add_dep_pkgs = false,
         });
         curl.addPackage(step);
@@ -671,12 +671,12 @@ const BuilderContext = struct {
             mingw.buildAndLinkWinPthreads(step);
         }
         ui.addPackage(step, .{
-            .graphics_backend = graphics_backend,
+            .graphics_backend = self.graphics_backend,
             .add_dep_pkgs = false,
         });
 
         const graphics_opts = graphics.Options{
-            .graphics_backend = graphics_backend,
+            .graphics_backend = self.graphics_backend,
             .enable_tracy = self.enable_tracy,
             .link_lyon = self.link_lyon,
             .link_tess2 = self.link_tess2,
@@ -687,7 +687,7 @@ const BuilderContext = struct {
         graphics.addPackage(step, graphics_opts);
         if (self.link_graphics) {
             graphics.buildAndLink(step, graphics_opts);
-            if (graphics_backend == .Vulkan) {
+            if (self.graphics_backend == .Vulkan) {
                 glslang.buildAndLink(step);
             }
         }
@@ -720,7 +720,7 @@ const BuilderContext = struct {
         cscript.addPackage(step, .{ .add_dep_pkgs = false });
         if (self.add_runtime_pkg) {
             runtime.addPackage(step, .{
-                .graphics_backend = graphics_backend,
+                .graphics_backend = self.graphics_backend,
                 .link_lyon = self.link_lyon,
                 .link_tess2 = self.link_tess2,
                 .add_dep_pkgs = false,
@@ -737,14 +737,14 @@ const BuilderContext = struct {
         }
     }
 
-    fn setBuildMode(self: *Self, step: *std.build.LibExeObjStep) void {
+    fn setBuildMode(self: *BuildContext, step: *std.build.LibExeObjStep) void {
         step.setBuildMode(self.mode);
         if (self.mode == .ReleaseSafe) {
             step.strip = true;
         }
     }
 
-    fn setTarget(self: *Self, step: *std.build.LibExeObjStep) void {
+    fn setTarget(self: *BuildContext, step: *std.build.LibExeObjStep) void {
         var target = self.target;
         if (target.os_tag == null) {
             // Native
@@ -760,7 +760,7 @@ const BuilderContext = struct {
         step.setTarget(target);
     }
 
-    fn createDefaultBuildOptions(self: Self) *std.build.OptionsStep {
+    fn createDefaultBuildOptions(self: BuildContext) *std.build.OptionsStep {
         const build_options = self.builder.addOptions();
         build_options.addOption(bool, "enable_tracy", self.enable_tracy);
         build_options.addOption(bool, "has_lyon", self.link_lyon);
@@ -768,7 +768,7 @@ const BuilderContext = struct {
         return build_options;
     }
 
-    fn linkTracy(self: *Self, step: *std.build.LibExeObjStep) void {
+    fn linkTracy(self: *BuildContext, step: *std.build.LibExeObjStep) void {
         const path = "lib/tracy";
         const client_cpp = std.fs.path.join(
             self.builder.allocator,
@@ -792,7 +792,7 @@ const BuilderContext = struct {
         // }
     }
 
-    fn buildLinkMacSys(self: *Self, step: *LibExeObjStep) void {
+    fn buildLinkMacSys(self: *BuildContext, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mac_sys", null);
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
@@ -809,12 +809,12 @@ const BuilderContext = struct {
         step.linkLibrary(lib);
     }
 
-    fn addCSourceFileFmt(self: *Self, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
+    fn addCSourceFileFmt(self: *BuildContext, lib: *LibExeObjStep, comptime format: []const u8, args: anytype, c_flags: []const []const u8) void {
         const path = std.fmt.allocPrint(self.builder.allocator, format, args) catch unreachable;
         lib.addCSourceFile(self.fromRoot(path), c_flags);
     }
 
-    fn linkZigV8(self: *Self, step: *LibExeObjStep) void {
+    fn linkZigV8(self: *BuildContext, step: *LibExeObjStep) void {
         const path = getV8_StaticLibPath(self.builder, step.target);
         step.addAssemblyFile(path);
         step.linkLibCpp();
@@ -827,7 +827,7 @@ const BuilderContext = struct {
         }
     }
 
-    fn buildLinkMock(self: *Self, step: *LibExeObjStep) void {
+    fn buildLinkMock(self: *BuildContext, step: *LibExeObjStep) void {
         const lib = self.builder.addStaticLibrary("mock", self.fromRoot("./test/lib_mock.zig"));
         lib.setTarget(self.target);
         lib.setBuildMode(self.mode);
@@ -1103,7 +1103,7 @@ fn getV8_StaticLibPath(b: *Builder, target: std.zig.CrossTarget) []const u8 {
     }
     const lib_name: []const u8 = if (target.getOsTag() == .windows) "c_v8" else "libc_v8";
     const lib_ext: []const u8 = if (target.getOsTag() == .windows) "lib" else "a";
-    const triple = BuilderContext.getSimpleTriple(b, target);
+    const triple = BuildContext.getSimpleTriple(b, target);
     const path = std.fmt.allocPrint(b.allocator, "./lib/{s}-{s}.{s}", .{ lib_name, triple, lib_ext }) catch unreachable;
     return b.pathFromRoot(path);
 }
