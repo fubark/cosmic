@@ -7,6 +7,40 @@ const qjs = @import("qjs");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.behavior_test);
 
+test "variables" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Variable declaration.
+    var val = try run.evaluate(
+        \\block:
+        \\  a = 1
+        \\  a
+    );
+    try t.eq(val.getInt32(), 1);
+    run.deinitValue(val);
+
+    // Overwrite existing var.
+    val = try run.evaluate(
+        \\block:
+        \\  a = 1
+        \\  a = 2
+        \\  a
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+
+    // Use existing var.
+    val = try run.evaluate(
+        \\block:
+        \\  a = 1
+        \\  b = a + 2
+        \\  b
+    );
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+}
+
 test "if expression" {
     const run = Runner.create();
     defer run.destroy();
