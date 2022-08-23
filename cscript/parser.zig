@@ -375,8 +375,10 @@ pub const Parser = struct {
             },
         };
 
-        const indent = self.consumeIndentBeforeStmt() orelse return if_stmt;
+        const save = self.next_pos;
+        const indent = self.consumeIndentBeforeStmt();
         if (indent != self.cur_indent) {
+            self.next_pos = save;
             return if_stmt;
         }
 
