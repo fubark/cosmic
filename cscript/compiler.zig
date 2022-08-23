@@ -22,6 +22,7 @@ pub const JsTargetCompiler = struct {
     writer: std.ArrayListUnmanaged(u8).Writer,
     opts: CompileOptions,
     buf: std.ArrayListUnmanaged(u8),
+    use_generators: bool,
 
     vars: std.StringHashMapUnmanaged(VarDesc),
     block_stack: std.ArrayListUnmanaged(BlockState),
@@ -44,6 +45,7 @@ pub const JsTargetCompiler = struct {
             .block_stack = .{},
             .buf = .{},
             .opts = undefined,
+            .use_generators = undefined,
         };
     }
 
@@ -67,6 +69,7 @@ pub const JsTargetCompiler = struct {
         self.vars.clearRetainingCapacity();
         self.block_stack.clearRetainingCapacity();
         self.opts = opts;
+        self.use_generators = opts.gas_meter == .yield_interrupt;
 
         const root = self.nodes[ast.root_id];
 
@@ -333,7 +336,11 @@ pub const JsTargetCompiler = struct {
             .lambda_multi => {
                 const func = self.func_decls[node.head.func.decl_id];
 
-                _ = try self.writer.write("(function ");
+                if (self.use_generators) {
+                    _ = try self.writer.write("(function* ");
+                } else {
+                    _ = try self.writer.write("(function ");
+                }
 
                 try self.genFunctionParams(func.params);
                 _ = try self.writer.write(" {\n");
@@ -347,7 +354,11 @@ pub const JsTargetCompiler = struct {
             .lambda_single => {
                 const func = self.func_decls[node.head.func.decl_id];
 
-                _ = try self.writer.write("(function ");
+                if (self.use_generators) {
+                    _ = try self.writer.write("(function* ");
+                } else {
+                    _ = try self.writer.write("(function ");
+                }
 
                 try self.genFunctionParams(func.params);
                 _ = try self.writer.write(" { return ");
@@ -467,5 +478,11 @@ const VarDesc = struct {
 };
 
 const CompileOptions = struct {
-    embed_mileage_interrupt: bool = false,
+    gas_meter: GasMeterOption = .none,
+};
+
+const GasMeterOption = enum(u2) {
+    none,
+    error_interrupt,
+    yield_interrupt,
 };
