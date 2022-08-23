@@ -150,7 +150,12 @@ pub const JsTargetCompiler = struct {
     fn genStatement(self: *JsTargetCompiler, node: parser.Node) !void {
         // log.debug("gen stmt {}", .{node.node_t});
         switch (node.node_t) {
+            .break_stmt => {
+                try self.indent();
+                _ = try self.writer.write("break\n");
+            },
             .return_stmt => {
+                try self.indent();
                 _ = try self.writer.write("return\n");
             },
             .return_expr_stmt => {
@@ -254,23 +259,43 @@ pub const JsTargetCompiler = struct {
                 try self.indent();
                 _ = try self.writer.write("}\n");
             },
+            .for_cond_stmt => {
+                try self.indent();
+                _ = try self.writer.write("while (");
+                const cond = self.nodes[node.head.left_right.left];
+                try self.genExpression(cond);
+                _ = try self.writer.write(") {\n");
+
+                try self.genForBody(node.head.left_right.right);
+
+                try self.indent();
+                _ = try self.writer.write("}\n");
+            },
             .for_inf_stmt => {
                 try self.indent();
                 _ = try self.writer.write("while (true) {\n");
 
-                self.cur_indent += IndentWidth;
-                if (self.opts.embed_mileage_interrupt) {
-                    try self.indent();
-                    _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > 10000) throw new Error('Interrupted');\n");
-                }
-                try self.genStatements(node.head.child_head);
-                self.cur_indent -= IndentWidth;
+                try self.genForBody(node.head.child_head);
 
                 try self.indent();
                 _ = try self.writer.write("}\n");
             },
             else => return self.reportError(error.Unsupported, "Unsupported node", .{}, node),
         }
+    }
+
+    fn genForBody(self: *JsTargetCompiler, first_stmt_id: parser.NodeId) !void {
+        self.cur_indent += IndentWidth;
+        if (self.opts.gas_meter != .none) {
+            try self.indent();
+            if (self.opts.gas_meter == .error_interrupt) {
+                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) throw new Error('Interrupted');\n");
+            } else if (self.opts.gas_meter == .yield_interrupt) {
+                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) yield new Error('Interrupted');\n");
+            }
+        }
+        try self.genStatements(first_stmt_id);
+        self.cur_indent -= IndentWidth;
     }
 
     fn genExpression(self: *JsTargetCompiler, node: parser.Node) anyerror!void {
@@ -342,6 +367,21 @@ pub const JsTargetCompiler = struct {
                     },
                     .equal_equal => {
                         _ = try self.writer.write("==");
+                    },
+                    .bang_equal => {
+                        _ = try self.writer.write("!=");
+                    },
+                    .less => {
+                        try self.writer.writeByte('<');
+                    },
+                    .less_equal => {
+                        _ = try self.writer.write("<=");
+                    },
+                    .greater => {
+                        try self.writer.writeByte('>');
+                    },
+                    .greater_equal => {
+                        _ = try self.writer.write(">=");
                     },
                     else => return self.reportError(error.Unsupported, "Unsupported binary op: {}", .{op}, node),
                 }

@@ -75,12 +75,24 @@ test "for statement" {
 
     // Infinite loop clause.
     var val = try run.evaluate(
-        \\i = 0
-        \\for:
+        \\block:
+        \\  i = 0
+        \\  for:
         \\    i += 1
         \\    if i == 10:
-        \\        break
-        \\i
+        \\      break
+        \\  i
+    );
+    try t.eq(val.getInt32(), 10);
+    run.deinitValue(val);
+
+    // `for` with condition expression.
+    val = try run.evaluate(
+        \\block:
+        \\  i = 0
+        \\  for i != 10:
+        \\    i += 1
+        \\  i
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
