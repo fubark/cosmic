@@ -822,20 +822,24 @@ pub const Parser = struct {
 
     fn parseExpression(self: *Parser, consider_assignment_stmt: bool, out_is_assignment_stmt: *bool) anyerror!?NodeId {
         var start = self.next_pos;
-        const token = self.peekToken();
+        var token = self.peekToken();
 
         var left_id = switch (token.token_t) {
-            .ident => label: {
+            .ident => b: {
                 self.advanceToken();
-                break :label self.pushNode(.ident, start);
+                break :b self.pushNode(.ident, start);
             },
-            .number => label: {
+            .number => b: {
                 self.advanceToken();
-                break :label self.pushNode(.number, start);
+                break :b self.pushNode(.number, start);
             },
-            .func => label: {
+            .string => b: {
+                self.advanceToken();
+                break :b self.pushNode(.string, start);
+            },
+            .func => b: {
                 // Lambda function.
-                break :label try self.parseLambdaFunction();
+                break :b try self.parseLambdaFunction();
             },
             .if_k => {
                 const if_expr = self.pushNode(.if_expr, start);
@@ -912,6 +916,33 @@ pub const Parser = struct {
                         start = self.next_pos;
                     } else return self.reportTokenError(error.BadToken, "Expected ident", next2);
                 },
+                .left_bracket => {
+                    // If left is an accessor expression or identifier, parse as access expression.
+                    const left_t = self.nodes.items[left_id].node_t;
+                    if (left_t == .ident or left_t == .access_expr) {
+                        // Consume left bracket.
+                        self.advanceToken();
+
+                        var dummy = false;
+                        const expr_id = (try self.parseExpression(false, &dummy)) orelse {
+                            return self.reportTokenError(error.SyntaxError, "Expected expression.", self.peekToken());
+                        };
+
+                        token = self.peekToken();
+                        if (token.token_t == .right_bracket) {
+                            self.advanceToken();
+                            const access_id = self.pushNode(.access_expr, start);
+                            self.nodes.items[access_id].head = .{
+                                .left_right = .{
+                                    .left = left_id,
+                                    .right = expr_id,
+                                },
+                            };
+                            left_id = access_id;
+                            start = self.next_pos;
+                        } else return self.reportTokenError(error.SyntaxError, "Expected right bracket.", token);
+                    } else return self.reportTokenError(error.SyntaxError, "Expected variable to left of access expression.", next);
+                },
                 .left_paren => {
                     // If left is an accessor expression or identifier, parse as call expression.
                     const left_t = self.nodes.items[left_id].node_t;
@@ -920,6 +951,7 @@ pub const Parser = struct {
                         left_id = call_id;
                     } else return self.reportTokenError(error.SyntaxError, "Expected variable to left of call expression.", next);
                 },
+                .right_bracket => break,
                 .right_paren => break,
                 .right_brace => break,
                 .else_k => break,

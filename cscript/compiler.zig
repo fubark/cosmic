@@ -419,9 +419,16 @@ pub const JsTargetCompiler = struct {
             .access_expr => {
                 const left = self.nodes[node.head.left_right.left];
                 try self.genExpression(left);
-                _ = try self.writer.writeByte('.');
+
                 const right = self.nodes[node.head.left_right.right];
-                try self.genExpression(right);
+                if (right.node_t == .ident) {
+                    _ = try self.writer.writeByte('.');
+                    try self.genExpression(right);
+                } else {
+                    _ = try self.writer.writeByte('[');
+                    try self.genExpression(right);
+                    _ = try self.writer.writeByte(']');
+                }
             },
             .call_expr => {
                 const left = self.nodes[node.head.left_right.left];
