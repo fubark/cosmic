@@ -7,6 +7,60 @@ const qjs = @import("qjs");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.behavior_test);
 
+test "Dictionairies" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Number entry.
+    var val = try run.evaluate(
+        \\block:
+        \\  a = {
+        \\    b: 32
+        \\  }
+        \\  a.b
+    );
+    try t.eq(val.getInt32(), 32);
+    run.deinitValue(val);
+
+    // String entry.
+    val = try run.evaluate(
+        \\block:
+        \\  a = {
+        \\    b: 'hello'
+        \\  }
+        \\  a.b
+    );
+    const str = try run.valueToString(val);
+    defer t.alloc.free(str);
+    try t.eqStr(str, "hello");
+    run.deinitValue(val);
+
+    // Nested list.
+    val = try run.evaluate(
+        \\block:
+        \\  a = {
+        \\    b: [ 1, 2 ]
+        \\  }
+        \\  a.b[1]
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+
+    // Nested list with items separated by new line.
+    val = try run.evaluate(
+        \\block:
+        \\  a = {
+        \\    b: [
+        \\      1
+        \\      2
+        \\    ]
+        \\  }
+        \\  a.b[1]
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+}
+
 test "variables" {
     const run = Runner.create();
     defer run.destroy();
@@ -217,7 +271,7 @@ const Runner = struct {
     pub fn valueToString(self: *Runner, val: cs.JsValue) ![]const u8 {
         const str = qjs.JS_ToCString(self.ctx, val.inner);
         defer qjs.JS_FreeCString(self.ctx, str);
-        return try self.alloc.dupe(u8, stdx.cstr.spanOrEmpty(str));
+        return try t.alloc.dupe(u8, stdx.cstr.spanOrEmpty(str));
     }
 
     pub fn getExceptionString(self: *Runner, val: cs.JsValue) ![]const u8 {
