@@ -222,6 +222,20 @@ vec3 = math#:
     vec1 + vec2
 ```
 
+### CDATA: CScript Data Format
+Similar to JSON/JavaScript, the CDATA format uses the same literal value semantics as CScript.
+```cscript
+{
+    name: 'John Doe'
+    'age': 25
+    cities: [
+        'New York'
+        'San Francisco'
+        'Tokyo'
+    ]
+}
+```
+
 ### Gas Meters
 TODO
 
