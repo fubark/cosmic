@@ -587,6 +587,64 @@ pub const Parser = struct {
         }
     }
 
+    fn parseArrayLiteral(self: *Parser) !NodeId {
+        const start = self.next_pos;
+        // Assume first token is left bracket.
+        self.advanceToken();
+
+        var last_entry: NodeId = undefined;
+        var first_entry: NodeId = NullId;
+        outer: {
+            self.consumeWhitespaceTokens();
+            var token = self.peekToken();
+
+            if (token.token_t == .right_bracket) {
+                // Empty array.
+                break :outer;
+            } else {
+                var dummy = false;
+                first_entry = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected array item.", token);
+                };
+                last_entry = first_entry;
+            }
+
+            while (true) {
+                self.consumeWhitespaceTokens();
+                token = self.peekToken();
+                if (token.token_t == .comma) {
+                    self.advanceToken();
+                } else if (token.token_t == .right_bracket) {
+                    break :outer;
+                }
+
+                token = self.peekToken();
+                if (token.token_t == .right_bracket) {
+                    break :outer;
+                } else {
+                    var dummy = false;
+                    const expr_id = (try self.parseExpression(false, &dummy)) orelse {
+                        return self.reportTokenError(error.SyntaxError, "Expected array item.", token);
+                    };
+                    self.nodes.items[last_entry].next = expr_id;
+                    last_entry = expr_id;
+                }
+            }
+        }
+
+        const arr_id = self.pushNode(.arr_literal, start);
+        self.nodes.items[arr_id].head = .{
+            .child_head = first_entry,
+        };
+
+        // Parse closing bracket.
+        const token = self.peekToken();
+        if (token.token_t == .right_bracket) {
+            self.advanceToken();
+            return arr_id;
+        } else return self.reportTokenError(error.SyntaxError, "Expected closing bracket.", token);
+    }
+
     fn parseDictLiteral(self: *Parser) !NodeId {
         const start = self.next_pos;
         // Assume first token is left brace.
@@ -818,12 +876,18 @@ pub const Parser = struct {
                 }
                 return if_expr;
             },
-            .left_brace => label: {
+            .left_brace => b: {
                 // Dictionary literal.
                 const dict_id = try self.parseDictLiteral();
-                break :label dict_id;
+                break :b dict_id;
+            },
+            .left_bracket => b: {
+                // Array literal.
+                const arr_id = try self.parseArrayLiteral();
+                break :b arr_id;
             },
             .right_paren => return null,
+            .right_bracket => return null,
             else => return self.reportTokenError(error.BadToken, "Unexpected left token in expression", token),
         };
 
@@ -1052,6 +1116,8 @@ pub const Parser = struct {
                     ')' => self.pushToken(.right_paren, start),
                     '{' => self.pushToken(.left_brace, start),
                     '}' => self.pushToken(.right_brace, start),
+                    '[' => self.pushToken(.left_bracket, start),
+                    ']' => self.pushToken(.right_bracket, start),
                     ',' => self.pushToken(.comma, start),
                     '.' => self.pushToken(.dot, start),
                     ':' => self.pushToken(.colon, start),
@@ -1392,6 +1458,8 @@ const TokenType = enum(u5) {
     right_paren,
     left_brace,
     right_brace,
+    left_bracket,
+    right_bracket,
     equal_greater,
     comma,
     colon,
@@ -1449,6 +1517,7 @@ const NodeType = enum(u5) {
     lambda_multi,  // Multi line.
     dict_literal,
     dict_entry,
+    arr_literal,
 };
 
 pub const BinaryExprOp = enum(u4) {
@@ -1495,6 +1564,12 @@ pub const ResultView = struct {
     src: []const u8,
     func_decls: []const FunctionDeclaration,
     func_params: []const FunctionParam,
+
+    pub fn getTokenString(self: ResultView, token_id: u32) []const u8 {
+        // Assumes token with end_pos.
+        const token = self.tokens[token_id];
+        return self.src[token.start_pos..token.data.end_pos];
+    }
 };
 
 const FuncDeclId = u32;

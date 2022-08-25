@@ -316,22 +316,39 @@ pub const JsTargetCompiler = struct {
                 const token = self.tokens[node.start_token];
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);
             },
-            .dict_entry => {
-                const key = self.nodes[node.head.left_right.left];
-                try self.genExpression(key);
-                _ = try self.writer.write(": ");
-                const val_expr = self.nodes[node.head.left_right.right];
-                try self.genExpression(val_expr);
-                if (node.next != NullId) {
-                    _ = try self.writer.write(",");
-                    try self.genExpression(self.nodes[node.next]);
-                }
-            },
             .dict_literal => {
                 _ = try self.writer.write("{");
-                const first_entry = self.nodes[node.head.child_head];
-                try self.genExpression(first_entry);
+
+                var entry_id = node.head.child_head;
+                while (entry_id != NullId) {
+                    var entry = self.nodes[entry_id];
+                    const key = self.nodes[entry.head.left_right.left];
+                    try self.genExpression(key);
+                    _ = try self.writer.write(": ");
+                    const val_expr = self.nodes[entry.head.left_right.right];
+                    try self.genExpression(val_expr);
+                    entry_id = entry.next;
+                    if (entry_id != NullId) {
+                        _ = try self.writer.write(",");
+                    }   
+                }
+
                 _ = try self.writer.write("}");
+            },
+            .arr_literal => {
+                _ = try self.writer.write("[");
+
+                var expr_id = node.head.child_head;
+                while (expr_id != NullId) {
+                    var expr = self.nodes[expr_id];
+                    try self.genExpression(expr);
+                    expr_id = expr.next;
+                    if (expr_id != NullId) {
+                        _ = try self.writer.write(",");
+                    }   
+                }
+
+                _ = try self.writer.write("]");
             },
             .lambda_multi => {
                 const func = self.func_decls[node.head.func.decl_id];
