@@ -58,6 +58,25 @@ cs.log arr[0]
 dict = { a: 123, b: fun () => 5 }
 cs.log dict.a
 cs.log dict['a']
+
+// Dictionaries entries can be separated by the new line.
+map = {
+    foo: 1
+    bar: 2
+}
+
+// Entries can also follow a `{}:` block.
+colors = {}:
+    red: 0xFF0000
+    green: 0x00FF00
+    blue: 0x0000FF
+
+    // This pattern can also be used in child entries like this.
+    darker {}: 
+        red: 0xAA0000
+        green: 0x00AA00
+        blue: 0x0000AA
+        
 ```
 
 ### Branching
