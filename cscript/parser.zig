@@ -104,21 +104,16 @@ pub const Parser = struct {
     fn parseRoot(self: *Parser) !NodeId {
         self.next_pos = 0;
         self.nodes.clearRetainingCapacity();
-        self.nodes.append(self.alloc, .{
-            .node_t = .root,
-            .start_token = 0,
-            .next = NullId,
-            .head = .{
-                .child_head = undefined,
-            },
-        }) catch fatal();
         self.block_stack.clearRetainingCapacity();
         self.func_decls.clearRetainingCapacity();
         self.func_params.clearRetainingCapacity();
         self.cur_indent = 0;
 
+        const root_id = self.pushNode(.root, 0);
         const first_stmt = try self.parseBodyStatements(0);
-        self.nodes.items[0].head.child_head = first_stmt;
+        self.nodes.items[root_id].head = .{
+            .child_head = first_stmt,
+        };
         return 0;
     }
 
@@ -563,11 +558,14 @@ pub const Parser = struct {
         }
         self.advanceToken();
         var dummy = false;
-        const val_id = (try self.parseExpression(false, &dummy)) orelse return self.reportTokenError(error.SyntaxError, "Expected dictionary value.", token);
+        const val_id = (try self.parseExpression(false, &dummy)) orelse {
+            return self.reportTokenError(error.SyntaxError, "Expected dictionary value.", token);
+        };
+        const key_id = self.pushNode(key_node_t, start);
         const entry_id = self.pushNode(.dict_entry, start);
         self.nodes.items[entry_id].head = .{
             .left_right = .{
-                .left = self.pushNode(key_node_t, start),
+                .left = key_id,
                 .right = val_id,
             }
         };
