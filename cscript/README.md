@@ -30,6 +30,23 @@ TODO
 ### Variables
 TODO
 
+### Strings
+```cscript
+// Single line string literal.
+apple = 'a fruit'
+
+// There are two methods to write a multiple line string literal. 
+// The recommended way is to use quotes to clearly show the whitespace surrounding a line.
+poem =: 'one semicolon'
+    'two blobs missing from a screen'
+    'hours of life lost'
+
+// The other method is to use backticks.
+poem = `one semicolon
+two blobs missing from a screen
+hours of life lost`
+```
+
 ### Arrays
 ```cscript
 arr = [ 1, 2, 3 ]
