@@ -7,6 +7,52 @@ const qjs = @import("qjs");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.behavior_test);
 
+test "Strings" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Single quotes.
+    var val = try run.evaluate(
+        \\block:
+        \\  str = 'abc'
+        \\  str
+    );
+    var str = try run.valueToString(val);
+    try t.eqStr(str, "abc");
+    t.alloc.free(str);
+
+    // Unicode.
+    val = try run.evaluate(
+        \\block:
+        \\  str = 'abc🦊xyz🐶'
+        \\  str
+    );
+    str = try run.valueToString(val);
+    try t.eqStr(str, "abc🦊xyz🐶");
+    t.alloc.free(str);
+
+    // Escape single quote.
+    val = try run.evaluate(
+        \\block:
+        \\  str = 'ab\'c'
+        \\  str
+    );
+    str = try run.valueToString(val);
+    try t.eqStr(str, "ab'c");
+    t.alloc.free(str);
+
+    // Multi-line backtick literal.
+    val = try run.evaluate(
+        \\block:
+        \\  str = `abc
+        \\abc`
+        \\  str
+    );
+    str = try run.valueToString(val);
+    try t.eqStr(str, "abc\nabc");
+    t.alloc.free(str);
+}
+
 test "Dictionairies" {
     const run = Runner.create();
     defer run.destroy();

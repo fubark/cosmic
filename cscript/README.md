@@ -35,6 +35,10 @@ TODO
 // Single line string literal.
 apple = 'a fruit'
 
+// Escape the single quote to use it inside the string or use backticks.
+apple = 'Bob\'s fruit'
+apple = `Bob's fruit`
+
 // There are two methods to write a multiple line string literal. 
 // The recommended way is to use quotes to clearly show the whitespace surrounding a line.
 poem =: 'one semicolon'
@@ -76,7 +80,6 @@ colors = {}:
         red: 0xAA0000
         green: 0x00AA00
         blue: 0x0000AA
-        
 ```
 
 ### Branching

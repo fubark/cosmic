@@ -1214,18 +1214,52 @@ pub const Parser = struct {
                         self.pushToken(.new_line, start);
                         break;
                     },
+                    '`' => {
+                        while (true) {
+                            if (self.isAtEndChar()) {
+                                return error.UnterminatedString;
+                            }
+                            const ch_ = self.consumeChar();
+                            switch (ch_) {
+                                '`' => {
+                                    self.pushStringToken(start, self.next_pos);
+                                    break;
+                                },
+                                '\\' => {
+                                    // Escape the next character.
+                                    if (self.isAtEndChar()) {
+                                        return error.UnterminatedString;
+                                    }
+                                    _ = self.consumeChar();
+                                    continue;
+                                },
+                                else => {},
+                            }
+                        }
+                    },
                     '\'' => {
                         while (true) {
                             if (self.isAtEndChar()) {
                                 return error.UnterminatedString;
                             }
                             const ch_ = self.consumeChar();
-                            if (ch_ == '\'') {
-                                self.pushStringToken(start, self.next_pos);
-                                break;
-                            }
-                            if (ch_ == '\n') {
-                                return error.UnterminatedString;
+                            switch (ch_) {
+                                '\'' => {
+                                    self.pushStringToken(start, self.next_pos);
+                                    break;
+                                },
+                                '\\' => {
+                                    // Escape the next character.
+                                    if (self.isAtEndChar()) {
+                                        return error.UnterminatedString;
+                                    }
+                                    _ = self.consumeChar();
+                                    continue;
+                                },
+                                '\n' => {
+                                    return error.UnterminatedString;
+                                },
+                                else => {},
                             }
                         }
                     },
