@@ -109,6 +109,45 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             return new_id;
         }
 
+        /// Add with specific id.
+        pub fn addWithId(self: *PooledHandleListT, id: Id, item: T) !void {
+            if (id < self.data.items.len) {
+                if (self.data_exists.isSet(id)) {
+                    return error.AlreadyExists;
+                }
+                // Remove the free space entry.
+                const free_buf = self.id_gen.next_ids.buf;
+                const free_head = self.id_gen.next_ids.head;
+                const free_len = self.id_gen.next_ids.count;
+                const src = free_buf[free_head..free_head+free_len];
+                for (src) |free_id, idx| {
+                    if (free_id == id) {
+                        if (idx == 0) {
+                            self.id_gen.next_ids.discard(1);
+                            self.id_gen.next_ids.head += 1;
+                            self.id_gen.next_ids.count -= 1;
+                        } else {
+                            const abs_idx = free_head + idx;
+                            std.mem.copy(Id, free_buf[abs_idx..free_head+free_len-1], free_buf[abs_idx+1..free_head+free_len]);
+                            self.id_gen.next_ids.count -= 1;
+                        }
+                        break;
+                    }
+                }
+            } else {
+                const last_len = self.data.items.len;
+                try self.data.resize(id + 1);
+                try self.data_exists.resizeFillNew(id + 1, false);
+                var i = @intCast(Id, last_len);
+                while (i < id) : (i += 1) {
+                    self.id_gen.deleteId(i);
+                }
+                self.id_gen.next_default_id = @intCast(u32, self.data.items.len);
+            }
+            self.data.items[id] = item;
+            self.data_exists.set(id);
+        }
+
         pub fn set(self: *PooledHandleListT, id: Id, item: T) void {
             self.data.items[id] = item;
         }
@@ -157,33 +196,53 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
 test "PooledHandleList" {
     {
         // General test.
-        var arr = PooledHandleList(u32, u8).init(t.alloc);
-        defer arr.deinit();
+        var list = PooledHandleList(u32, u8).init(t.alloc);
+        defer list.deinit();
 
-        _ = try arr.add(1);
-        const id = try arr.add(2);
-        _ = try arr.add(3);
-        arr.remove(id);
+        _ = try list.add(1);
+        const id = try list.add(2);
+        _ = try list.add(3);
+        list.remove(id);
         // Test adding to a removed slot.
-        _ = try arr.add(4);
-        const id2 = try arr.add(5);
+        _ = try list.add(4);
+        const id2 = try list.add(5);
         // Test iterator skips removed slot.
-        arr.remove(id2);
+        list.remove(id2);
 
-        var iter = arr.iterator();
+        var iter = list.iterator();
         try t.eq(iter.next(), 1);
         try t.eq(iter.next(), 4);
         try t.eq(iter.next(), 3);
         try t.eq(iter.next(), null);
-        try t.eq(arr.size(), 3);
+        try t.eq(list.size(), 3);
     }
     {
         // Empty test.
-        var arr = PooledHandleList(u32, u8).init(t.alloc);
-        defer arr.deinit();
-        var iter = arr.iterator();
+        var list = PooledHandleList(u32, u8).init(t.alloc);
+        defer list.deinit();
+        var iter = list.iterator();
         try t.eq(iter.next(), null);
-        try t.eq(arr.size(), 0);
+        try t.eq(list.size(), 0);
+    }
+    {
+        // addWithId.
+        var list = PooledHandleList(u32, u8).init(t.alloc);
+        defer list.deinit();
+
+        // Add that stretches the list capacity.
+        try list.addWithId(3, 100);
+        try t.eq(list.size(), 1);
+        try t.eq(list.getNoCheck(3), 100);
+
+        // Add in middle to make sure free id list is updated.
+        try list.addWithId(1, 101);
+        try t.eq(list.size(), 2);
+        try t.eq(list.getNoCheck(1), 101);
+        try t.eq(list.add(102), 0);
+        try t.eq(list.add(103), 2);
+
+        // After free list is used up, the next id should still be valid.
+        try t.eq(list.add(104), 4);
     }
 }
 
@@ -195,9 +254,9 @@ pub fn PoolIdGenerator(comptime T: type) type {
         next_default_id: T,
         next_ids: std.fifo.LinearFifo(T, .Dynamic),
 
-        const Self = @This();
+        const PoolIdGeneratorT = @This();
 
-        pub fn init(alloc: std.mem.Allocator, start_id: T) Self {
+        pub fn init(alloc: std.mem.Allocator, start_id: T) PoolIdGeneratorT {
             return .{
                 .start_id = start_id,
                 .next_default_id = start_id,
@@ -205,7 +264,7 @@ pub fn PoolIdGenerator(comptime T: type) type {
             };
         }
 
-        pub fn peekNextId(self: Self) T {
+        pub fn peekNextId(self: PoolIdGeneratorT) T {
             if (self.next_ids.readableLength() == 0) {
                 return self.next_default_id;
             } else {
@@ -213,7 +272,7 @@ pub fn PoolIdGenerator(comptime T: type) type {
             }
         }
 
-        pub fn getNextId(self: *Self) T {
+        pub fn getNextId(self: *PoolIdGeneratorT) T {
             if (self.next_ids.readableLength() == 0) {
                 defer self.next_default_id += 1;
                 return self.next_default_id;
@@ -222,17 +281,17 @@ pub fn PoolIdGenerator(comptime T: type) type {
             }
         }
 
-        pub fn clearRetainingCapacity(self: *Self) void {
+        pub fn clearRetainingCapacity(self: *PoolIdGeneratorT) void {
             self.next_default_id = self.start_id;
             self.next_ids.head = 0;
             self.next_ids.count = 0;
         }
 
-        pub fn deleteId(self: *Self, id: T) void {
+        pub fn deleteId(self: *PoolIdGeneratorT, id: T) void {
             self.next_ids.writeItem(id) catch fatal();
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: PoolIdGeneratorT) void {
             self.next_ids.deinit();
         }
     };
