@@ -11,13 +11,23 @@
         canvas {
             border: none;
         }
+        textarea#text-area {
+            opacity: 0;
+            z-index: 100;
+            position: absolute;
+            left: 0px;
+            top: 0px;
+        }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
+    <textarea id="text-area"></textarea>
     <script src="./stdx.js"></script>
     <script src="./graphics.js"></script>
     <script>
+        const textEncoder = new TextEncoder()
+
         const canvas = document.getElementById('canvas');
         const wasm = {
             imports: {
@@ -29,14 +39,13 @@
                         console.log('__stack_chk_fail')
                     },
                 },
-                graphics: {},
-                stdx: {},
             },
             exports: {},
             inputPtr: 0,
             inputCap: 0,
             inputLen: 0,
         };
+        wasm.imports.app = {}
         wasm.imports.graphics = initGraphicsImports(wasm, canvas);
         wasm.imports.stdx = initStdxImports(wasm);
 
@@ -85,7 +94,7 @@
                 wasm.exports = res.instance.exports;
                 // console.log(wasm);
                 const ptr = wasm.exports.wasmInit();
-                processWasmResult(ptr);
+                processWasmInitResult(ptr);
                 initApp();
             });
 
@@ -131,7 +140,36 @@
                 view.setFloat32(cur_ptr+5, e.deltaY, true)
                 wasm.inputLen += 9
             })
-            window.addEventListener('keydown', function(e) {
+
+            window.addEventListener('resize', function() {
+                resize(window.innerWidth, window.innerHeight)
+            })
+            // Initially resize to the window size.
+            resize(window.innerWidth, window.innerHeight)
+            window.requestAnimationFrame(loop)
+
+            const textArea = document.getElementById('text-area')
+            function requestKeyFocus() {
+                textArea.focus()
+            }
+            textArea.addEventListener('paste', function(e) {
+                e.stopPropagation()
+                e.preventDefault()
+                const clipboardData = e.clipboardData || window.clipboardData
+                const clipboard = clipboardData.getData('Text')
+                // For now submit event directly to wasm since it has dynamic payload.
+                const ptr = ensureJsCapacity(clipboard.length * 3)
+                const buf = new Uint8Array(wasm.exports.memory.buffer, ptr, wasm.jsCap)
+                const len = textEncoder.encodeInto(clipboard, buf).written
+                wasm.exports.wasmEmitPasteEvent(ptr, len);
+            })
+            textArea.addEventListener('blur', function(e) {
+                requestKeyFocus()
+            })
+            textArea.addEventListener('input', function(e) {
+                textArea.value = ''
+            })
+            textArea.addEventListener('keydown', function(e) {
                 // console.log('keydown', e.code, e.which, e.key);
                 ensureFreeCapacity(4)
                 var cur_ptr = wasm.inputPtr + wasm.inputLen
@@ -154,8 +192,16 @@
                 view.setUint8(cur_ptr+2, mod)
                 view.setUint8(cur_ptr+3, e.repeat)
                 wasm.inputLen += 4
+
+                // Need to prevent some browser default shortcuts. eg. Ctrl+S would bring up a save page dialog.
+                if (preventKeyDowns.has((e.which << 4) | mod)) {
+                    e.preventDefault()
+                }
             });
-            window.addEventListener('keyup', function(e) {
+            const preventKeyDowns = new Set()
+            preventKeyDowns.add((83 << 4) | 4) // Ctrl+S
+
+            textArea.addEventListener('keyup', function(e) {
                 // console.log('keyup', e.code, e.which, e.key, e.shiftKey);
                 ensureFreeCapacity(3);
                 var cur_ptr = wasm.inputPtr + wasm.inputLen
@@ -178,12 +224,7 @@
                 view.setUint8(cur_ptr+2, mod)
                 wasm.inputLen += 3
             })
-            window.addEventListener('resize', function() {
-                resize(window.innerWidth, window.innerHeight)
-            })
-            // Initially resize to the window size.
-            resize(window.innerWidth, window.innerHeight)
-            window.requestAnimationFrame(loop)
+            requestKeyFocus()
         }
 
         function resize(width, height) {
@@ -245,9 +286,18 @@
             }
         }
 
+        function processWasmInitResult(ptr) {
+            const view = new DataView(wasm.exports.memory.buffer)
+            wasm.inputPtr = view.getUint32(ptr, true)
+            wasm.inputCap = view.getUint32(ptr + 4, true)
+            wasm.jsPtr = view.getUint32(ptr + 8, true)
+            wasm.jsCap = view.getUint32(ptr + 12, true)
+            wasm.inputLen = 0;
+        }
+
         function processWasmResult(ptr) {
             // Must create a view directly over the buffer (slices won't allow writing to the original buffer)
-            let view = new DataView(wasm.exports.memory.buffer)
+            const view = new DataView(wasm.exports.memory.buffer)
             wasm.inputPtr = view.getUint32(ptr, true)
             wasm.inputCap = view.getUint32(ptr + 4, true)
             wasm.inputLen = 0;

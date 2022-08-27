@@ -370,6 +370,15 @@ pub const Module = struct {
         return stdx.mem.ptrCastAlign(*Widget, node.widget);
     }
 
+    /// The way to receive paste events from the browser.
+    pub fn processPasteEvent(self: *Module, str: []const u8) void {
+        if (self.common.focused_widget) |node| {
+            if (self.common.focused_onpaste) |on_paste| {
+                on_paste(node, &self.common.ctx, str);
+            }
+        }
+    }
+
     pub fn processMouseUpEvent(self: *Module, e: platform.MouseUpEvent) void {
         const xf = @intToFloat(f32, e.x);
         const yf = @intToFloat(f32, e.y);
@@ -394,9 +403,12 @@ pub const Module = struct {
         }
 
         if (self.common.last_focused_widget != null and self.common.last_focused_widget == self.common.focused_widget and !self.common.hit_last_focused) {
-            self.common.focused_onblur(self.common.focused_widget.?, &self.common.ctx);
+            if (self.common.focused_onblur) |on_blur| {
+                on_blur(self.common.focused_widget.?, &self.common.ctx);
+            }
             self.common.focused_widget = null;
-            self.common.focused_onblur = undefined;
+            self.common.focused_onblur = null;
+            self.common.focused_onpaste = null;
         }
     }
 
@@ -436,9 +448,12 @@ pub const Module = struct {
         }
         // If the existing focused widget wasn't hit and no other widget requested focus, trigger blur.
         if (self.common.last_focused_widget != null and self.common.last_focused_widget == self.common.focused_widget and !self.common.hit_last_focused) {
-            self.common.focused_onblur(self.common.focused_widget.?, &self.common.ctx);
+            if (self.common.focused_onblur) |on_blur| {
+                on_blur(self.common.focused_widget.?, &self.common.ctx);
+            }
             self.common.focused_widget = null;
-            self.common.focused_onblur = undefined;
+            self.common.focused_onblur = null;
+            self.common.focused_onpaste = null;
         }
         if (hit_widget) {
             return .Stop;
@@ -1333,6 +1348,7 @@ pub fn MixinContextFontOps(comptime Context: type) type {
 }
 
 const BlurHandler = fn (node: *ui.Node, ctx: *CommonContext) void;
+const PasteHandler = fn (node: *ui.Node, ctx: *CommonContext, str: []const u8) void;
 
 /// Ops that need an attached node.
 /// Requires Context.node and Context.common.
@@ -1342,8 +1358,8 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             return self.node;
         }
 
-        pub inline fn requestFocus(self: *Context, on_blur: BlurHandler) void {
-            self.common.requestFocus(self.node, on_blur);
+        pub inline fn requestFocus(self: *Context, opts: RequestFocusOptions) void {
+            self.common.requestFocus(self.node, opts);
         }
 
         pub inline fn requestCaptureMouse(self: *Context, capture: bool) void {
@@ -1564,6 +1580,11 @@ pub const LayoutContext = struct {
     pub usingnamespace MixinContextFontOps(LayoutContext);
 };
 
+const RequestFocusOptions = struct {
+    onBlur: ?BlurHandler = null,
+    onPaste: ?PasteHandler = null,
+};
+
 /// Access to common utilities.
 pub const CommonContext = struct {
     common: *ModuleCommon,
@@ -1651,15 +1672,18 @@ pub const CommonContext = struct {
         platform.captureMouse(capture);
     }
 
-    pub fn requestFocus(self: *CommonContext, node: *ui.Node, on_blur: BlurHandler) void {
+    pub fn requestFocus(self: *CommonContext, node: *ui.Node, opts: RequestFocusOptions) void {
         if (self.common.focused_widget) |focused_widget| {
             if (focused_widget != node) {
                 // Trigger blur for the current focused widget.
-                self.common.focused_onblur(focused_widget, self);
+                if (self.common.focused_onblur) |on_blur| {
+                    on_blur(focused_widget, self);
+                }
             }
         }
         self.common.focused_widget = node;
-        self.common.focused_onblur = on_blur;
+        self.common.focused_onblur = opts.onBlur;
+        self.common.focused_onpaste = opts.onPaste;
     }
 
     pub fn isFocused(self: *CommonContext, node: *ui.Node) bool {
@@ -2013,7 +2037,8 @@ pub const ModuleCommon = struct {
 
     /// Currently focused widget.
     focused_widget: ?*ui.Node,
-    focused_onblur: BlurHandler,
+    focused_onblur: ?BlurHandler,
+    focused_onpaste: ?PasteHandler,
     /// Scratch vars to track the last focused widget.
     last_focused_widget: ?*ui.Node,
     hit_last_focused: bool,
@@ -2082,7 +2107,8 @@ pub const ModuleCommon = struct {
             // .next_post_render_cbs = std.ArrayList(*ui.Node).init(alloc),
 
             .focused_widget = null,
-            .focused_onblur = undefined,
+            .focused_onblur = null,
+            .focused_onpaste = null,
             .last_focused_widget = null,
             .hit_last_focused = false,
             .widget_hit_flag = false,
@@ -2612,7 +2638,7 @@ test "Widget instance lifecycle." {
             c.setMouseUpHandler({}, onMouseUp);
             c.setGlobalMouseMoveHandler(@as(u32, 1), onMouseMove);
             _ = c.addInterval(Duration.initSecsF(1), {}, onInterval);
-            c.requestFocus(onBlur);
+            c.requestFocus(.{ .onBlur = onBlur });
         }
         fn onInterval(_: void, _: ui.IntervalEvent) void {}
         fn onBlur(_: *ui.Node, _: *ui.CommonContext) void {}

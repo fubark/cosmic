@@ -1,5 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const fatal = stdx.fatal;
 const Duration = stdx.time.Duration;
 const platform = @import("platform");
@@ -18,7 +20,7 @@ const log = stdx.log.scoped(.text_area);
 pub const TextArea = struct {
     props: struct {
         init_val: []const u8,
-        font_family: graphics.FontFamily = graphics.FontFamily.Default,
+        fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
         width: f32 = 400,
         height: f32 = 300,
         text_color: Color = Color.Black,
@@ -47,7 +49,7 @@ pub const TextArea = struct {
     pub fn init(self: *TextArea, c: *ui.InitContext) void {
         const props = self.props;
 
-        self.font_gid = c.getFontGroupByFamily(self.props.font_family);
+        self.font_gid = c.getFontGroupByFamily(self.props.fontFamily);
         self.lines = std.ArrayList(Line).init(c.alloc);
         self.caret_line = 0;
         self.caret_col = 0;
@@ -59,7 +61,7 @@ pub const TextArea = struct {
         self.setFontSize(24);
 
         self.setText(props.init_val);
-        c.addKeyDownHandler(self, handleKeyDownEvent);
+        c.addKeyDownHandler(self, onKeyDown);
     }
 
     pub fn deinit(self: *TextArea, _: std.mem.Allocator) void {
@@ -82,7 +84,7 @@ pub const TextArea = struct {
     }
 
     pub fn postPropsUpdate(self: *TextArea) void {
-        const new_font_gid = self.ctx.getFontGroupByFamily(self.props.font_family);
+        const new_font_gid = self.ctx.getFontGroupByFamily(self.props.fontFamily);
         if (new_font_gid != self.font_gid) {
             self.font_gid = new_font_gid;
             self.remeasureText();
@@ -112,7 +114,7 @@ pub const TextArea = struct {
         var iter = std.mem.split(u8, text, "\n");
         while (iter.next()) |it| {
             var line = Line.init(self.alloc);
-            line.buf.appendSubStr(it) catch fatal();
+            _ = line.buf.appendSubStr(it) catch fatal();
             line.needs_measure = true;
             self.lines.append(line) catch fatal();
         }
@@ -143,10 +145,43 @@ pub const TextArea = struct {
 
     /// Request focus on the TextArea.
     pub fn requestFocus(self: *TextArea) void {
-        self.ctx.requestFocus(self.node, onBlur);
+        self.ctx.requestFocus(self.node, .{ .onBlur = onBlur, .onPaste = onPaste });
         const inner = self.inner.getWidget();
         inner.setFocused();
         // std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
+    }
+
+    fn onPaste(node: *ui.Node, _: *ui.CommonContext, str: []const u8) void {
+        const self = node.getWidget(TextArea);
+        self.paste(str);
+    }
+
+    fn paste(self: *TextArea, str: []const u8) void {
+        if (str.len == 0) {
+            return;
+        }
+
+        var iter = std.mem.split(u8, str, "\n");
+        // First line inserts to the caret pos.
+        const first = iter.next().?;
+        var num_new_chars = self.lines.items[self.caret_line].buf.insertSubStr(self.caret_col, first) catch fatal();
+        self.postLineUpdate(self.caret_line);
+        self.caret_col += num_new_chars;
+
+        while (iter.next()) |line| {
+            self.caret_line += 1;
+
+            // Insert a new line.
+            var new_line = Line.init(self.alloc);
+            num_new_chars = new_line.buf.appendSubStr(line) catch fatal();
+            self.lines.insert(self.caret_line, new_line) catch fatal();
+            self.postLineUpdate(self.caret_line);
+
+            self.caret_col = num_new_chars;
+        }
+
+        self.postCaretUpdate();
+        self.postCaretActivity();
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
@@ -256,9 +291,15 @@ pub const TextArea = struct {
     fn postLineUpdate(self: *TextArea, idx: usize) void {
         const line = &self.lines.items[idx];
         line.needs_measure = true;
+    }
+
+    /// After something was done at the caret position.
+    /// This would provide a hint to the user that they performed some action.
+    fn postCaretActivity(self: *TextArea) void {
         self.inner.getWidget().resetCaretAnimation();
     }
 
+    /// After caret position was changed or the text to the caret pos has changed.
     fn postCaretUpdate(self: *TextArea) void {
         self.inner.getWidget().postCaretUpdate();
 
@@ -293,7 +334,7 @@ pub const TextArea = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
-    fn handleKeyDownEvent(self: *TextArea, e: ui.Event(KeyDownEvent)) void {
+    fn onKeyDown(self: *TextArea, e: ui.KeyDownEvent) void {
         _ = self;
         const c = e.ctx.common;
         const val = e.val;
@@ -309,29 +350,33 @@ pub const TextArea = struct {
 
                 self.caret_col -= 1;
                 self.postCaretUpdate();
+                self.postCaretActivity();
             } else if (self.caret_line > 0) {
                 // Join current line with previous.
                 var prev_line = &self.lines.items[self.caret_line-1];
                 self.caret_col = prev_line.buf.num_chars;
-                prev_line.buf.appendSubStr(line.buf.buf.items) catch @panic("error");
+                _ = prev_line.buf.appendSubStr(line.buf.buf.items) catch @panic("error");
                 line.deinit();
                 _ = self.lines.orderedRemove(self.caret_line);
                 self.postLineUpdate(self.caret_line-1);
 
                 self.caret_line -= 1;
                 self.postCaretUpdate();
+                self.postCaretActivity();
             }
         } else if (val.code == .Delete) {
             if (self.caret_col < line.buf.num_chars) {
                 line.buf.removeChar(self.caret_col);
                 self.postLineUpdate(self.caret_line);
+                self.postCaretActivity();
             } else {
                 // Append next line.
                 if (self.caret_line < self.lines.items.len-1) {
-                    line.buf.appendSubStr(self.lines.items[self.caret_line+1].buf.buf.items) catch @panic("error");
+                    _ = line.buf.appendSubStr(self.lines.items[self.caret_line+1].buf.buf.items) catch @panic("error");
                     self.lines.items[self.caret_line+1].deinit();
                     _ = self.lines.orderedRemove(self.caret_line+1);
                     self.postLineUpdate(self.caret_line);
+                    self.postCaretActivity();
                 }
             }
         } else if (val.code == .Enter) {
@@ -342,7 +387,7 @@ pub const TextArea = struct {
             if (self.caret_col < cur_line.buf.num_chars) {
                 // Move text after caret to the new line.
                 const after_text = cur_line.buf.getSubStr(self.caret_col, cur_line.buf.num_chars);
-                self.lines.items[self.caret_line+1].buf.appendSubStr(after_text) catch @panic("error");
+                _ = self.lines.items[self.caret_line+1].buf.appendSubStr(after_text) catch @panic("error");
                 cur_line.buf.removeSubStr(self.caret_col, cur_line.buf.num_chars);
                 self.postLineUpdate(self.caret_line);
             }
@@ -351,30 +396,31 @@ pub const TextArea = struct {
             self.caret_line += 1;
             self.caret_col = 0;
             self.postCaretUpdate();
+            self.postCaretActivity();
         } else if (val.code == .ArrowLeft) {
             if (self.caret_col > 0) {
                 self.caret_col -= 1;
                 self.postCaretUpdate();
-                self.inner.getWidget().resetCaretAnimation();
+                self.postCaretActivity();
             } else {
                 if (self.caret_line > 0) {
                     self.caret_line -= 1;
                     self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
                     self.postCaretUpdate();
-                    self.inner.getWidget().resetCaretAnimation();
+                    self.postCaretActivity();
                 }
             }
         } else if (val.code == .ArrowRight) {
             if (self.caret_col < line.buf.num_chars) {
                 self.caret_col += 1;
                 self.postCaretUpdate();
-                self.inner.getWidget().resetCaretAnimation();
+                self.postCaretActivity();
             } else {
                 if (self.caret_line < self.lines.items.len-1) {
                     self.caret_line += 1;
                     self.caret_col = 0;
                     self.postCaretUpdate();
-                    self.inner.getWidget().resetCaretAnimation();
+                    self.postCaretActivity();
                 }
             }
         } else if (val.code == .ArrowUp) {
@@ -384,7 +430,7 @@ pub const TextArea = struct {
                     self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
                 }
                 self.postCaretUpdate();
-                self.inner.getWidget().resetCaretAnimation();
+                self.postCaretActivity();
             }
         } else if (val.code == .ArrowDown) {
             if (self.caret_line < self.lines.items.len-1) {
@@ -393,7 +439,13 @@ pub const TextArea = struct {
                     self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
                 }
                 self.postCaretUpdate();
-                self.inner.getWidget().resetCaretAnimation();
+                self.postCaretActivity();
+            }
+        } else if (val.code == .V and val.isControlPressed()) {
+            if (!IsWasm) {
+                const clipboard = platform.allocClipboardText(self.alloc);
+                defer self.alloc.free(clipboard);
+                self.paste(clipboard);
             }
         } else {
             if (val.getPrintChar()) |ch| {
@@ -406,6 +458,7 @@ pub const TextArea = struct {
 
                 self.caret_col += 1;
                 self.postCaretUpdate();
+                self.postCaretActivity();
             }
         }
     }
