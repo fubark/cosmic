@@ -1,8 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
 const sdl = @import("sdl");
 
+const log = stdx.log.scoped(.platform);
 pub const GraphicsBackend = @import("backend.zig").GraphicsBackend;
 
 const input_sdl = @import("input_sdl.zig");
@@ -122,6 +124,32 @@ fn jsSetSystemCursor2(name: []const u8) void {
 }
 
 extern "stdx" fn jsSetSystemCursor(ptr: [*]const u8, len: usize) void;
+extern "stdx" fn jsGetClipboard(len: *usize) [*]const u8;
+
+pub fn allocClipboardText(alloc: std.mem.Allocator) ![]const u8 {
+    if (IsWasm) {
+        // TODO: Implement clipboard api (requires permission and async)
+        stdx.unsupported();
+    } else {
+        sdl.ensureVideoInit() catch return error.FailedInit;
+        const text = sdl.SDL_GetClipboardText();
+        defer sdl.SDL_free(text);
+        return try alloc.dupe(u8, std.mem.span(text));
+    }
+}
+
+pub fn setClipboardText(str: [:0]const u8) !void {
+    if (IsWasm) {
+        stdx.unsupported();
+    } else {
+        sdl.ensureVideoInit() catch return error.Unknown;
+        const res = sdl.SDL_SetClipboardText(str);
+        if (res != 0) {
+            log.debug("unknown error: {} {s}", .{res, sdl.SDL_GetError()});
+            return error.Unknown;
+        }
+    }
+}
 
 pub fn deinit() void {
     if (comptime !builtin.target.isWasm()) {

@@ -1205,24 +1205,16 @@ pub const cs_core = struct {
     /// Get the current clipboard text.
     pub fn getClipboardText(rt: *RuntimeContext) Error!ds.Box([]const u8) {
         // Requires video device to be initialized.
-        sdl.ensureVideoInit() catch return error.Unknown;
-        const text = sdl.SDL_GetClipboardText();
-        defer sdl.SDL_free(text);
-        const dupe = rt.alloc.dupe(u8, std.mem.span(text)) catch unreachable;
-        return ds.Box([]const u8).init(rt.alloc, dupe);
+        const text = platform.allocClipboardText(rt.alloc) catch return error.Unknown;
+        return ds.Box([]const u8).init(rt.alloc, text);
     }
 
     /// Set the current clipboard text.
     /// @param text
     pub fn setClipboardText(rt: *RuntimeContext, text: []const u8) Error!void {
-        sdl.ensureVideoInit() catch return error.Unknown;
         const cstr = std.cstr.addNullByte(rt.alloc, text) catch unreachable;
         defer rt.alloc.free(cstr);
-        const res = sdl.SDL_SetClipboardText(cstr);
-        if (res != 0) {
-            log.debug("unknown error: {} {s}", .{res, sdl.SDL_GetError()});
-            return error.Unknown;
-        }
+        platform.setClipboardText(cstr) catch return error.Unknown;
     }
 
     /// Prints the current stack trace and exits the program with an error code.
