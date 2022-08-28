@@ -1163,7 +1163,20 @@ pub const Parser = struct {
                         }
                     },
                     '*' => self.pushOpToken(.star, start),
-                    '/' => self.pushOpToken(.slash, start),
+                    '/' => {
+                        if (self.peekChar() == '/') {
+                            // Single line comment. Ignore chars until eol.
+                            while (!self.isAtEndChar()) {
+                                _ = self.consumeChar();
+                                if (self.peekChar() == '\n') {
+                                    _ = self.consumeChar();
+                                    break;
+                                }
+                            }
+                        } else {
+                            self.pushOpToken(.slash, start);
+                        }
+                    },
                     '!' => {
                         if (self.isNextChar('=')) {
                             self.pushLogicOpToken(.bang_equal, start);

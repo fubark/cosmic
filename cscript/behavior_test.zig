@@ -7,6 +7,29 @@ const qjs = @import("qjs");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.behavior_test);
 
+test "Comments" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Single line comment.
+    var val = try run.evaluate(
+        \\// 1
+        \\2
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+
+    // Multiple single line comments.
+    val = try run.evaluate(
+        \\// 1
+        \\// 2
+        \\// 3
+        \\4
+    );
+    try t.eq(val.getInt32(), 4);
+    run.deinitValue(val);
+}
+
 test "Strings" {
     const run = Runner.create();
     defer run.destroy();
