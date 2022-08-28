@@ -7,6 +7,61 @@ const qjs = @import("qjs");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.behavior_test);
 
+test "Numbers." {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\1
+    );
+    try t.eq(val.getInt32(), 1);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\-1
+    );
+    try t.eq(val.getInt32(), -1);
+    run.deinitValue(val);
+}
+
+test "Parentheses" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Parentheses at left of binary expression.
+    var val = try run.evaluate(
+        \\(2 + 3) * 4
+    );
+    try t.eq(val.getInt32(), 20);
+    run.deinitValue(val);
+
+    // Parentheses at right of binary expression.
+    val = try run.evaluate(
+        \\2 * (3 + 4)
+    );
+    try t.eq(val.getInt32(), 14);
+    run.deinitValue(val);
+
+    // Nested parentheses.
+    val = try run.evaluate(
+        \\2 + ((3 + 4) / 7)
+    );
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+}
+
+test "Operator precedence." {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Multiplication before addition.
+    var val = try run.evaluate(
+        \\2 + 3 * 4
+    );
+    try t.eq(val.getInt32(), 14);
+    run.deinitValue(val);
+}
+
 test "Comments" {
     const run = Runner.create();
     defer run.destroy();

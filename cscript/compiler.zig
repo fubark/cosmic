@@ -385,9 +385,26 @@ pub const JsTargetCompiler = struct {
 
                 _ = try self.writer.write("; })\n");
             },
+            .unary_expr => {
+                const child = self.nodes[node.head.unary.child];
+                const op = node.head.unary.op;
+                switch (op) {
+                    .minus => {
+                        try self.writer.writeByte('-');
+                        try self.genExpression(child);
+                    },
+                    // else => return self.reportError(error.Unsupported, "Unsupported unary op: {}", .{op}, node),
+                }
+            },
             .bin_expr => {
                 const left = self.nodes[node.head.left_right.left];
-                try self.genExpression(left);
+                if (left.node_t == .bin_expr) {
+                    try self.writer.writeByte('(');
+                    try self.genExpression(left);
+                    try self.writer.writeByte(')');
+                } else {
+                    try self.genExpression(left);
+                }
                 const op = @intToEnum(parser.BinaryExprOp, node.head.left_right.extra);
                 switch (op) {
                     .plus => {
@@ -411,10 +428,26 @@ pub const JsTargetCompiler = struct {
                     .greater_equal => {
                         _ = try self.writer.write(">=");
                     },
+                    .star => {
+                        _ = try self.writer.write("*");
+                    },
+                    .slash => {
+                        _ = try self.writer.write("/");
+                    },
+                    .percent => {
+                        _ = try self.writer.write("%");
+                    },
                     else => return self.reportError(error.Unsupported, "Unsupported binary op: {}", .{op}, node),
                 }
+
                 const right = self.nodes[node.head.left_right.right];
-                try self.genExpression(right);
+                if (right.node_t == .bin_expr) {
+                    try self.writer.writeByte('(');
+                    try self.genExpression(right);
+                    try self.writer.writeByte(')');
+                } else {
+                    try self.genExpression(right);
+                }
             },
             .access_expr => {
                 const left = self.nodes[node.head.left_right.left];

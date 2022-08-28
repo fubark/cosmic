@@ -804,42 +804,76 @@ pub const Parser = struct {
     }
 
     /// Parses the right expression of a BinaryExpression.
-    fn parseRightExpression(self: *Parser) !NodeId {
-        const start = self.next_pos;
-        const token = self.consumeToken();
-        switch (token.token_t) {
-            .number => {
-                return self.pushNode(.number, start);
-            },
-            .ident => {
-                return self.pushNode(.ident, start);
+    fn parseRightExpression(self: *Parser, left_op: BinaryExprOp) anyerror!NodeId {
+        var start = self.next_pos;
+        var token = self.consumeToken();
+
+        const expr_id = switch (token.token_t) {
+            .number => self.pushNode(.number, start),
+            .ident => self.pushNode(.ident, start),
+            .left_paren => b: {
+                var dummy = false;
+                const expr_id = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected expression.", token);
+                };
+                token = self.peekToken();
+                if (token.token_t == .right_paren) {
+                    _ = self.consumeToken();
+                    break :b expr_id;
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected right parenthesis.", token);
+                }
             },
             else => {
                 return self.reportTokenError(error.BadToken, "Unexpected right token in binary expression", token);
             },
+        };
+
+        // Check if next token is an operator with higher precedence.
+        token = self.peekToken();
+        if (token.token_t == .operator) {
+            const op_prec = getBinOpPrecedence(left_op);
+            const right_op = toBinExprOp(token.data.operator_t);
+            const right_op_prec = getBinOpPrecedence(right_op);
+            if (right_op_prec > op_prec) {
+                // Continue parsing right.
+                _ = self.consumeToken();
+                start = self.next_pos;
+                const right_id = try self.parseRightExpression(right_op);
+
+                const bin_expr = self.pushNode(.bin_expr, start);
+                self.nodes.items[bin_expr].head = .{
+                    .left_right = .{
+                        .left = expr_id,
+                        .right = right_id,
+                        .extra = @enumToInt(right_op),
+                    },
+                };
+                return bin_expr;
+            }
         }
+        return expr_id;
     }
 
-    fn parseExpression(self: *Parser, consider_assignment_stmt: bool, out_is_assignment_stmt: *bool) anyerror!?NodeId {
-        var start = self.next_pos;
+    fn parseTermExpr(self: *Parser) anyerror!NodeId {
+        const start = self.next_pos;
         var token = self.peekToken();
-
-        var left_id = switch (token.token_t) {
-            .ident => b: {
+        switch (token.token_t) {
+            .ident => {
                 self.advanceToken();
-                break :b self.pushNode(.ident, start);
+                return self.pushNode(.ident, start);
             },
-            .number => b: {
+            .number => {
                 self.advanceToken();
-                break :b self.pushNode(.number, start);
+                return self.pushNode(.number, start);
             },
-            .string => b: {
+            .string => {
                 self.advanceToken();
-                break :b self.pushNode(.string, start);
+                return self.pushNode(.string, start);
             },
-            .func => b: {
+            .func => {
                 // Lambda function.
-                break :b try self.parseLambdaFunction();
+                return self.parseLambdaFunction();
             },
             .if_k => {
                 const if_expr = self.pushNode(.if_expr, start);
@@ -880,19 +914,65 @@ pub const Parser = struct {
                 }
                 return if_expr;
             },
-            .left_brace => b: {
+            .left_paren => {
+                _ = self.consumeToken();
+                token = self.peekToken();
+
+                var dummy = false;
+                const expr_id = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected expression.", token);
+                };
+                token = self.peekToken();
+                if (token.token_t == .right_paren) {
+                    _ = self.consumeToken();
+                    return expr_id;
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected right parenthesis.", token);
+                }
+            },
+            .left_brace => {
                 // Dictionary literal.
                 const dict_id = try self.parseDictLiteral();
-                break :b dict_id;
+                return dict_id;
             },
-            .left_bracket => b: {
+            .left_bracket => {
                 // Array literal.
                 const arr_id = try self.parseArrayLiteral();
-                break :b arr_id;
+                return arr_id;
             },
+            .operator => {
+                if (token.data.operator_t == .minus) {
+                    _ = self.consumeToken();
+                    const expr_id = self.pushNode(.unary_expr, start);
+                    const term_id = try self.parseTermExpr();
+                    self.nodes.items[expr_id].head = .{
+                        .unary = .{
+                            .child = term_id,
+                            .op = .minus,
+                        },
+                    };
+                    return expr_id;
+                } else return self.reportTokenError(error.SyntaxError, "Unexpected operator.", token);
+            },
+            .none => return self.reportTokenError(error.SyntaxError, "Expected term expr.", token),
+            else => return self.reportTokenError(error.SyntaxError, "Expected term expr.", token),
+        }
+    }
+
+    fn parseExpression(self: *Parser, consider_assignment_stmt: bool, out_is_assignment_stmt: *bool) anyerror!?NodeId {
+        var start = self.next_pos;
+        var token = self.peekToken();
+
+        var left_id = switch (token.token_t) {
+            .if_k => {
+                return try self.parseTermExpr();
+            },
+            .none => return null,
             .right_paren => return null,
             .right_bracket => return null,
-            else => return self.reportTokenError(error.BadToken, "Unexpected left token in expression", token),
+            else => self.parseTermExpr() catch {
+                return self.reportTokenError(error.SyntaxError, "Unexpected left token in expression", token);
+            },
         };
 
         while (true) {
@@ -974,16 +1054,11 @@ pub const Parser = struct {
                 .operator => {
                     // BinaryExpression.
                     const op_t = next.data.operator_t;
+                    const bin_op = toBinExprOp(op_t);
                     self.advanceToken();
-                    const right_id = try self.parseRightExpression();
+                    const right_id = try self.parseRightExpression(bin_op);
 
                     const bin_expr = self.pushNode(.bin_expr, start);
-                    const bin_op: BinaryExprOp = switch (op_t) {
-                        .plus => .plus,
-                        .minus => .minus,
-                        .star => .star,
-                        .slash => .slash,
-                    };
                     self.nodes.items[bin_expr].head = .{
                         .left_right = .{
                             .left = left_id,
@@ -996,19 +1071,11 @@ pub const Parser = struct {
                 .logic_op => {
                     // BinaryExpression.
                     const op_t = next.data.logic_op_t;
+                    const bin_op = try toBinExprOpFromLogicOp(op_t);
                     self.advanceToken();
-                    const right_id = try self.parseRightExpression();
+                    const right_id = try self.parseRightExpression(bin_op);
 
                     const bin_expr = self.pushNode(.bin_expr, start);
-                    const bin_op: BinaryExprOp = switch (op_t) {
-                        .bang_equal => .bang_equal,
-                        .less => .less,
-                        .less_equal => .less_equal,
-                        .greater => .greater,
-                        .greater_equal => .greater_equal,
-                        .equal_equal => .equal_equal,
-                        else => return self.reportTokenError(error.Unsupported, "Unsupported logic op.", next),
-                    };
                     self.nodes.items[bin_expr].head = .{
                         .left_right = .{
                             .left = left_id,
@@ -1154,6 +1221,7 @@ pub const Parser = struct {
                     '.' => self.pushToken(.dot, start),
                     ':' => self.pushToken(.colon, start),
                     '-' => self.pushOpToken(.minus, start),
+                    '%' => self.pushOpToken(.percent, start),
                     '+' => {
                         if (self.peekChar() == '=') {
                             self.advanceChar();
@@ -1511,11 +1579,12 @@ pub const Parser = struct {
     }
 };
 
-pub const OperatorType = enum(u2) {
-    plus = 0,
-    minus = 1,
-    star = 2,
-    slash = 3,
+pub const OperatorType = enum(u3) {
+    plus,
+    minus,
+    star,
+    slash,
+    percent,
 };
 
 const LogicOpType = enum(u3) {
@@ -1584,6 +1653,7 @@ const NodeType = enum(u5) {
     access_expr,
     call_expr,
     bin_expr,
+    unary_expr,
     number,
     if_expr,
     if_stmt,
@@ -1604,12 +1674,17 @@ pub const BinaryExprOp = enum(u4) {
     minus,
     star,
     slash,
+    percent,
     bang_equal,
     less,
     less_equal,
     greater,
     greater_equal,
     equal_equal,
+};
+
+const UnaryOp = enum {
+    minus,
 };
 
 pub const Node = struct {
@@ -1622,6 +1697,10 @@ pub const Node = struct {
             left: NodeId,
             right: NodeId,
             extra: u32 = NullId,
+        },
+        unary: struct {
+            child: NodeId,
+            op: UnaryOp,
         },
         child_head: NodeId,
         func: struct {
@@ -1661,3 +1740,49 @@ pub const FunctionDeclaration = struct {
 pub const FunctionParam = struct {
     name: IndexSlice,
 };
+
+fn toBinExprOp(op: OperatorType) BinaryExprOp {
+    return switch (op) {
+        .plus => .plus,
+        .minus => .minus,
+        .star => .star,
+        .slash => .slash,
+        .percent => .percent,
+    };
+}
+
+fn toBinExprOpFromLogicOp(op: LogicOpType) !BinaryExprOp {
+    return switch (op) {
+        .bang_equal => .bang_equal,
+        .less => .less,
+        .less_equal => .less_equal,
+        .greater => .greater,
+        .greater_equal => .greater_equal,
+        .equal_equal => .equal_equal,
+        else => {
+            log.debug("unsupported logic op: {}", .{op});
+            return error.Unsupported;
+        },
+    };
+}
+
+pub fn getBinOpPrecedence(op: BinaryExprOp) u8 {
+    switch (op) {
+        .star => {
+            return 2;
+        },
+        .minus,
+        .plus => {
+            return 1;
+        },
+        .greater,
+        .greater_equal,
+        .less,
+        .less_equal,
+        .bang_equal,
+        .equal_equal => {
+            return 0;
+        },
+        else => return 0,
+    }
+}
