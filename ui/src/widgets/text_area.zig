@@ -21,6 +21,7 @@ pub const TextArea = struct {
     props: struct {
         init_val: []const u8,
         fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
+        fontSize: f32 = 18,
         width: f32 = 400,
         height: f32 = 300,
         text_color: Color = Color.Black,
@@ -58,7 +59,7 @@ pub const TextArea = struct {
         self.ctx = c.common;
         self.node = c.node;
         self.alloc = c.alloc;
-        self.setFontSize(24);
+        self.setFontSize(self.props.fontSize);
 
         self.setText(props.init_val);
         c.addKeyDownHandler(self, onKeyDown);
@@ -88,6 +89,9 @@ pub const TextArea = struct {
         if (new_font_gid != self.font_gid) {
             self.font_gid = new_font_gid;
             self.remeasureText();
+        }
+        if (self.props.fontSize != self.font_size) {
+            self.setFontSize(self.props.fontSize);
         }
     }
 
