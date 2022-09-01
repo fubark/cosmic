@@ -410,6 +410,9 @@ pub const JsTargetCompiler = struct {
                     .plus => {
                         try self.writer.writeByte('+');
                     },
+                    .minus => {
+                        try self.writer.writeByte('-');
+                    },
                     .equal_equal => {
                         _ = try self.writer.write("==");
                     },

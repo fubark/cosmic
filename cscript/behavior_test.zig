@@ -355,6 +355,35 @@ test "access expression" {
     run.deinitValue(val);
 }
 
+test "Binary Expressions" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\1 + 2
+    );
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\3 - 1
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\3 * 4
+    );
+    try t.eq(val.getInt32(), 12);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\20 / 5
+    );
+    try t.eq(val.getInt32(), 4);
+    run.deinitValue(val);
+}
+
 const Runner = struct {
     parser: cs.Parser,
     compiler: cs.JsTargetCompiler,

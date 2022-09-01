@@ -1681,6 +1681,7 @@ pub const BinaryExprOp = enum(u4) {
     greater,
     greater_equal,
     equal_equal,
+    dummy,
 };
 
 const UnaryOp = enum {
