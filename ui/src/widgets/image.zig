@@ -35,6 +35,6 @@ pub const Image = struct {
         const bounds = ctx.getAbsBounds();
         const gctx = ctx.getGraphics();
 
-        gctx.drawImage(bounds.min_x, bounds.min_y, self.props.imageId);
+        gctx.drawImageSized(bounds.min_x, bounds.min_y, bounds.computeWidth(), bounds.computeHeight(), self.props.imageId);
     }
 };

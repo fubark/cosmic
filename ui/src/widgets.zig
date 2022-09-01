@@ -63,6 +63,8 @@ pub const ContainerT = containers.Container;
 pub const Container = genBuildWithChild(ContainerT);
 pub const PositionedT = containers.Positioned;
 pub const Positioned = genBuildWithChild(PositionedT);
+pub const KeepAspectRatioT = containers.KeepAspectRatio;
+pub const KeepAspectRatio = genBuildWithChild(KeepAspectRatioT);
 
 /// Window.
 pub const WindowT = @import("widgets/window.zig").Window;
