@@ -333,7 +333,6 @@ test "function declaration" {
 }
 
 test "Function named parameters call." {
-    t.setLogLevel(.debug);
     const run = Runner.create();
     defer run.destroy();
 
@@ -351,6 +350,18 @@ test "Function named parameters call." {
         \\foo(a: 1, b: 3)
     );
     try t.eq(val.getInt32(), -2);
+    run.deinitValue(val);
+
+    // New line as arg separation.
+    val = try run.evaluate(
+        \\fun foo(a, b):
+        \\  return a - b
+        \\foo(
+        \\  a: 3
+        \\  b: 1
+        \\)
+    );
+    try t.eq(val.getInt32(), 2);
     run.deinitValue(val);
 }
 

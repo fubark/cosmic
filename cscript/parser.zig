@@ -722,6 +722,7 @@ pub const Parser = struct {
     }
 
     fn parseCallArg(self: *Parser) !?NodeId {
+        self.consumeWhitespaceTokens();
         const start = self.next_pos;
         const token = self.peekToken();
         if (token.token_t == .ident) {
@@ -768,12 +769,12 @@ pub const Parser = struct {
             var last_arg_id = first;
             while (true) {
                 const token = self.peekToken();
-                if (token.token_t != .comma) {
+                if (token.token_t != .comma and token.token_t != .new_line) {
                     break;
                 }
                 self.advanceToken();
                 const arg_id = (try self.parseCallArg()) orelse {
-                    return self.reportTokenError(error.SyntaxError, "Expected arg expression.", self.peekToken());
+                    break;
                 };
                 self.nodes.items[last_arg_id].next = arg_id;
                 last_arg_id = arg_id;
@@ -783,6 +784,7 @@ pub const Parser = struct {
             }
         }
         // Parse closing paren.
+        self.consumeWhitespaceTokens();
         const token = self.peekToken();
         if (token.token_t == .right_paren) {
             self.advanceToken();
