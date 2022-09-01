@@ -7,6 +7,30 @@ const qjs = @import("qjs");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.behavior_test);
 
+test "Indentation." {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Detect end of block.
+    var val = try run.evaluate(
+        \\fun foo():
+        \\  return 123
+        \\foo()
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
+
+    // Comment before end of block.
+    val = try run.evaluate(
+        \\fun foo():
+        \\  return 123
+        \\  // Comment.
+        \\foo()
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
+}
+
 test "Numbers." {
     const run = Runner.create();
     defer run.destroy();

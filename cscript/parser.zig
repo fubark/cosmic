@@ -1237,7 +1237,7 @@ pub const Parser = struct {
                             while (!self.isAtEndChar()) {
                                 _ = self.consumeChar();
                                 if (self.peekChar() == '\n') {
-                                    _ = self.consumeChar();
+                                    // Don't consume new line or the current indentation could augment with the next line.
                                     break;
                                 }
                             }
