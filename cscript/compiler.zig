@@ -467,23 +467,68 @@ pub const JsTargetCompiler = struct {
                 }
             },
             .call_expr => {
-                const left = self.nodes[node.head.left_right.left];
-                try self.genExpression(left);
-                _ = try self.writer.write("(");
-                var arg_id = node.head.left_right.right;
-                if (arg_id != NullId) {
-                    var arg = self.nodes[arg_id];
-                    try self.genExpression(arg);
-                    arg_id = arg.next;
-                    while (arg_id != NullId) {
-                        arg = self.nodes[arg_id];
-                        _ = try self.writer.write(", ");
+                if (node.head.left_right.extra == 0) {
+                    // No named args.
+                    const left = self.nodes[node.head.left_right.left];
+                    try self.genExpression(left);
+                    _ = try self.writer.write("(");
+                    var arg_id = node.head.left_right.right;
+                    if (arg_id != NullId) {
+                        var arg = self.nodes[arg_id];
                         try self.genExpression(arg);
                         arg_id = arg.next;
+                        while (arg_id != NullId) {
+                            arg = self.nodes[arg_id];
+                            _ = try self.writer.write(", ");
+                            try self.genExpression(arg);
+                            arg_id = arg.next;
+                        }
                     }
                     _ = try self.writer.write(")");
                 } else {
-                    _ = try self.writer.write(")");
+                    // Named args.
+                    _ = try self.writer.write("_internal.callNamed(");
+                    const left = self.nodes[node.head.left_right.left];
+                    try self.genExpression(left);
+                    _ = try self.writer.write(", [");
+
+                    var arg_id = node.head.left_right.right;
+                    if (arg_id != NullId) {
+                        var arg = self.nodes[arg_id];
+                        if (arg.node_t != .named_arg) {
+                            try self.genExpression(arg);
+                            arg_id = arg.next;
+                            while (arg_id != NullId) {
+                                arg = self.nodes[arg_id];
+                                if (arg.node_t == .named_arg) {
+                                    break;
+                                }
+                                _ = try self.writer.write(", ");
+                                try self.genExpression(arg);
+                                arg_id = arg.next;
+                            }
+                        }
+                    }
+                    _ = try self.writer.write("], {");
+                    var narg = self.nodes[arg_id];
+                    var name = self.nodes[narg.head.left_right.left];
+                    try self.genExpression(name);
+                    _ = try self.writer.write(": ");
+                    var arg = self.nodes[narg.head.left_right.right];
+                    try self.genExpression(arg);
+
+                    arg_id = narg.next;
+                    while (arg_id != NullId) {
+                        _ = try self.writer.write(", ");
+                        narg = self.nodes[arg_id];
+                        name = self.nodes[narg.head.left_right.left];
+                        try self.genExpression(name);
+                        _ = try self.writer.write(": ");
+                        arg = self.nodes[narg.head.left_right.right];
+                        try self.genExpression(arg);
+                        arg_id = arg.next;
+                    }
+                    _ = try self.writer.write("})");
                 }
             },
             .if_expr => {

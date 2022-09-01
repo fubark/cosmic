@@ -721,6 +721,34 @@ pub const Parser = struct {
         } else return self.reportTokenError(error.SyntaxError, "Expected closing brace.", token);
     }
 
+    fn parseCallArg(self: *Parser) !?NodeId {
+        const start = self.next_pos;
+        const token = self.peekToken();
+        if (token.token_t == .ident) {
+            if (self.peekTokenAhead(1).token_t == .colon) {
+                // Named arg.
+                const name = self.pushNode(.ident, start);
+                _ = self.consumeToken();
+                _ = self.consumeToken();
+                var dummy = false;
+                var arg = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected arg expression.", self.peekToken());
+                };
+                const named_arg = self.pushNode(.named_arg, start);
+                self.nodes.items[named_arg].head = .{
+                    .left_right = .{
+                        .left = name,
+                        .right = arg,
+                    },
+                };
+                return named_arg;
+            } 
+        }
+
+        var dummy = false;
+        return try self.parseExpression(false, &dummy);
+    }
+
     fn parseCallExpression(self: *Parser, left_id: NodeId) !NodeId {
         // Assume first token is left paren.
         self.advanceToken();
@@ -728,40 +756,43 @@ pub const Parser = struct {
         const expr_start = self.nodes.items[left_id].start_token;
         const expr_id = self.pushNode(.call_expr, expr_start);
 
+        var has_named_arg = false;
+        var first: NodeId = NullId;
         inner: {
-            var dummy = false;
-            var last_arg_id = (try self.parseExpression(false, &dummy)) orelse {
-                self.nodes.items[expr_id].head = .{
-                    .left_right = .{
-                        .left = left_id,
-                        .right = NullId,
-                    },
-                };
+            first = (try self.parseCallArg()) orelse {
                 break :inner;
             };
-            self.nodes.items[expr_id].head = .{
-                .left_right = .{
-                    .left = left_id,
-                    .right = last_arg_id,
-                },
-            };
+            if (self.nodes.items[first].node_t == .named_arg) {
+                has_named_arg = true;
+            }
+            var last_arg_id = first;
             while (true) {
                 const token = self.peekToken();
                 if (token.token_t != .comma) {
                     break;
                 }
                 self.advanceToken();
-                const arg_id = (try self.parseExpression(false, &dummy)) orelse {
+                const arg_id = (try self.parseCallArg()) orelse {
                     return self.reportTokenError(error.SyntaxError, "Expected arg expression.", self.peekToken());
                 };
                 self.nodes.items[last_arg_id].next = arg_id;
                 last_arg_id = arg_id;
+                if (self.nodes.items[last_arg_id].node_t == .named_arg) {
+                    has_named_arg = true;
+                }
             }
         }
         // Parse closing paren.
         const token = self.peekToken();
         if (token.token_t == .right_paren) {
             self.advanceToken();
+            self.nodes.items[expr_id].head = .{
+                .left_right = .{
+                    .left = left_id,
+                    .right = first,
+                    .extra = if (has_named_arg) 1 else 0,
+                },
+            };
             return expr_id;
         } else return self.reportTokenError(error.SyntaxError, "Expected closing parenthesis.", token);
     }
@@ -1652,6 +1683,7 @@ const NodeType = enum(u5) {
     string,
     access_expr,
     call_expr,
+    named_arg,
     bin_expr,
     unary_expr,
     number,

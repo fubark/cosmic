@@ -332,6 +332,28 @@ test "function declaration" {
     run.deinitValue(val);
 }
 
+test "Function named parameters call." {
+    t.setLogLevel(.debug);
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\fun foo(a, b):
+        \\  return a - b
+        \\foo(a: 3, b: 1)
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\fun foo(a, b):
+        \\  return a - b
+        \\foo(a: 1, b: 3)
+    );
+    try t.eq(val.getInt32(), -2);
+    run.deinitValue(val);
+}
+
 test "access expression" {
     const run = Runner.create();
     defer run.destroy();
@@ -384,6 +406,8 @@ test "Binary Expressions" {
     run.deinitValue(val);
 }
 
+const qjs_init_js = @embedFile("qjs_init.js");
+
 const Runner = struct {
     parser: cs.Parser,
     compiler: cs.JsTargetCompiler,
@@ -399,8 +423,23 @@ const Runner = struct {
             .impl = undefined,
             .ctx = undefined,
         };
-        new.impl = qjs.JS_NewRuntime().?;
+        const rt = qjs.JS_NewRuntime().?;
+        new.impl = rt;
         new.ctx = qjs.JS_NewContext(new.impl).?;
+
+        // Run qjs_init.js
+        const val = cs.JsValue{
+            .inner = qjs.JS_Eval(new.ctx, qjs_init_js, qjs_init_js.len, "eval", qjs.JS_EVAL_TYPE_GLOBAL),
+        };
+        defer qjs.JS_FreeValue(new.ctx, val.inner);
+        const val_t = val.getTag(new.ctx);
+        if (val_t == .exception) {
+            const exception = qjs.JS_GetException(new.ctx);
+            const str = qjs.JS_ToCString(new.ctx, exception);
+            defer qjs.JS_FreeCString(new.ctx, str);
+            stdx.panicFmt("init js exception {s}", .{ str });
+        }
+
         return new;
     }
 
