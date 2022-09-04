@@ -5,7 +5,32 @@ const t = stdx.testing;
 const qjs = @import("qjs");
 
 const cs = @import("cscript.zig");
+const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
+
+test "await" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\fun foo():
+        \\  task = @asyncTask()
+        \\  @queueTask(fun () => task.resolve(123))
+        \\  return task.promise
+        \\await foo()
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
+
+    // await on value.
+    val = try run.evaluate(
+        \\fun foo():
+        \\  return 234
+        \\await foo()
+    );
+    try t.eq(val.getInt32(), 234);
+    run.deinitValue(val);
+}
 
 test "Indentation." {
     const run = Runner.create();
@@ -425,6 +450,11 @@ const Runner = struct {
 
     impl: *qjs.JSRuntime,
     ctx: *qjs.JSContext,
+    promise: qjs.JSValue,
+    watchPromiseFunc: qjs.JSValue,
+
+    tasks: std.ArrayList(qjs.JSValue),
+    eval_promise_res: ?qjs.JSValue,
 
     fn create() *Runner {
         var new = t.alloc.create(Runner) catch fatal();
@@ -433,10 +463,26 @@ const Runner = struct {
             .compiler = cs.JsTargetCompiler.init(t.alloc),
             .impl = undefined,
             .ctx = undefined,
+            .promise = undefined,
+            .tasks = std.ArrayList(qjs.JSValue).init(t.alloc),
+            .watchPromiseFunc = undefined,
+            .eval_promise_res = undefined,
         };
         const rt = qjs.JS_NewRuntime().?;
         new.impl = rt;
         new.ctx = qjs.JS_NewContext(new.impl).?;
+        qjs.JS_SetContextOpaque(new.ctx, new);
+
+        const global = qjs.JS_GetGlobalObject(new.ctx);
+        defer qjs.JS_FreeValue(new.ctx, global);
+
+        var func = qjs.JS_NewCFunction(new.ctx, queueTask, "queueTask", 1);
+        var ret = qjs.JS_SetPropertyStr(new.ctx, global, "queueTask", func);
+        if (ret != 1) {
+            stdx.panicFmt("set property {}", .{ret});
+        }
+
+        new.promise = qjs.JS_GetPropertyStr(new.ctx, global, "Promise");
 
         // Run qjs_init.js
         const val = cs.JsValue{
@@ -451,10 +497,23 @@ const Runner = struct {
             stdx.panicFmt("init js exception {s}", .{ str });
         }
 
+        const internal = qjs.JS_GetPropertyStr(new.ctx, global, "_internal");
+        defer qjs.JS_FreeValue(new.ctx, internal);
+        new.watchPromiseFunc = qjs.JS_GetPropertyStr(new.ctx, internal, "watchPromise");
+
+        func = qjs.JS_NewCFunction(new.ctx, promiseResolved, "promiseResolved", 2);
+        ret = qjs.JS_SetPropertyStr(new.ctx, internal, "promiseResolved", func);
+        if (ret != 1) {
+            stdx.panicFmt("set property {}", .{ret});
+        }
+
         return new;
     }
 
     fn destroy(self: *Runner) void {
+        self.tasks.deinit();
+        qjs.JS_FreeValue(self.ctx, self.promise);
+        qjs.JS_FreeValue(self.ctx, self.watchPromiseFunc);
         qjs.JS_FreeContext(self.ctx);
         qjs.JS_FreeRuntime(self.impl);
         self.parser.deinit();
@@ -482,11 +541,54 @@ const Runner = struct {
         const val = cs.JsValue{
             .inner = qjs.JS_Eval(self.ctx, csrc.ptr, csrc.len, "eval", qjs.JS_EVAL_TYPE_GLOBAL),
         };
-        if (val.getTag(self.ctx) == .exception) {
+
+        const tag = val.getTag(self.ctx);
+        if (tag == .exception) {
             const str = try self.getExceptionString(val);
             defer t.alloc.free(str);
             log.err("Runtime exception: {s}", .{str});
             return error.RuntimeError;
+        } else {
+            self.eval_promise_res = null;
+            if (qjs.JS_IsInstanceOf(self.ctx, val.inner, self.promise) == 1) {
+                defer qjs.JS_FreeValue(self.ctx, val.inner);
+                    
+                const id = qjs.JS_NewInt32(self.ctx, 1);
+                _ = qjs.JS_Call(self.ctx, self.watchPromiseFunc, qjs.Undefined, 2, &[_]qjs.JSValue{ id, val.inner });
+                qjs.js_std_loop(self.ctx);
+                if (self.eval_promise_res) |promise_res| {
+                    return cs.JsValue{ .inner = promise_res };
+                }
+
+                if (self.tasks.items.len == 0) {
+                    return error.UnresolvedPromise;
+                }
+                while (self.tasks.items.len > 0) {
+                    const num_tasks = self.tasks.items.len;
+                    for (self.tasks.items[0..num_tasks]) |task| {
+                        const task_res = qjs.JS_Call(self.ctx, task, qjs.Undefined, 0, null);
+                        qjs.JS_FreeValue(self.ctx, task);
+
+                        const task_res_tag = QJS.getTag(self.ctx, task_res);
+                        if (task_res_tag == .exception) {
+                            const str = try self.getExceptionString(.{ .inner = task_res });
+                            defer t.alloc.free(str);
+                            log.err("Task exception: {s}", .{str});
+                            return error.RuntimeError;
+                        }
+                        log.debug("call task {}", .{task_res_tag});
+                    }
+                    try self.tasks.replaceRange(0, num_tasks, &.{});
+
+                    // Deplete event loop.
+                    qjs.js_std_loop(self.ctx);
+
+                    if (self.eval_promise_res) |promise_res| {
+                        return cs.JsValue{ .inner = promise_res };
+                    }
+                }
+                return error.UnresolvedPromise;
+            }
         }
         return val;
     }
@@ -511,3 +613,19 @@ const Runner = struct {
         return try t.alloc.dupe(u8, stdx.cstr.spanOrEmpty(str));
     }
 };
+
+fn queueTask(ctx: ?*qjs.JSContext, _: qjs.JSValueConst, _: c_int, argv: [*c]qjs.JSValueConst) callconv(.C) qjs.JSValue {
+    const runner = stdx.mem.ptrCastAlign(*Runner, qjs.JS_GetContextOpaque(ctx));
+    const dupe = qjs.JS_DupValue(runner.ctx, argv[0]);
+    runner.tasks.append(dupe) catch fatal();
+    log.debug("queued task", .{});
+    return qjs.Undefined;
+}
+
+fn promiseResolved(ctx: ?*qjs.JSContext, _: qjs.JSValueConst, _: c_int, argv: [*c]qjs.JSValueConst) callconv(.C) qjs.JSValue {
+    const runner = stdx.mem.ptrCastAlign(*Runner, qjs.JS_GetContextOpaque(ctx));
+    const id = QJS.getInt32(argv[0]);
+    _ = id;
+    runner.eval_promise_res = qjs.JS_DupValue(runner.ctx, argv[1]);
+    return qjs.Undefined;
+}

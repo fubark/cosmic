@@ -58,12 +58,17 @@ pub const QJS = struct {
         return val.u.float64;
     }
 
+    pub fn getBool(val: qjs.JSValue) bool {
+        return val.u.int32 == 1;
+    }
+
     pub fn getTag(ctx: *qjs.JSContext, val: qjs.JSValue) JsValueType {
         const tag = if (NanBoxing) b: {
             // Nan Boxing.
             break :b val >> 32;
         } else val.tag;
         return switch (tag) {
+            qjs.JS_TAG_BOOL => .boolean,
             qjs.JS_TAG_STRING => .string,
             qjs.JS_TAG_EXCEPTION => .exception,
             qjs.JS_TAG_FLOAT64 => .float64,

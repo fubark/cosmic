@@ -15,4 +15,18 @@ globalThis._internal = {
         }
         return fn.apply(undefined, args)
     },
+    watchPromise: function(id, promise) {
+        promise.then(function (res) {
+            globalThis._internal.promiseResolved(id, res)
+        })
+    },
 };
+
+globalThis.asyncTask = function() {
+    const res = {}
+    const p = new Promise(resolve => {
+        res.resolve = resolve
+    })
+    res.promise = p
+    return res
+}

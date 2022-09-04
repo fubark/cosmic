@@ -14,6 +14,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "for", .for_k },
     .{ "fun", .func },
     .{ "break", .break_k },
+    .{ "await", .await_k },
 });
 
 const BlockState = struct {
@@ -889,20 +890,46 @@ pub const Parser = struct {
     }
 
     fn parseTermExpr(self: *Parser) anyerror!NodeId {
-        const start = self.next_pos;
+        var start = self.next_pos;
         var token = self.peekToken();
-        switch (token.token_t) {
-            .ident => {
+
+        var left_id = switch (token.token_t) {
+            .ident => b: {
                 self.advanceToken();
-                return self.pushNode(.ident, start);
+                break :b self.pushNode(.ident, start);
             },
-            .number => {
+            .number => b: {
                 self.advanceToken();
-                return self.pushNode(.number, start);
+                break :b self.pushNode(.number, start);
             },
-            .string => {
+            .string => b: {
                 self.advanceToken();
-                return self.pushNode(.string, start);
+                break :b self.pushNode(.string, start);
+            },
+            .at => b: {
+                self.advanceToken();
+                token = self.peekToken();
+                if (token.token_t == .ident) {
+                    const ident = self.pushNode(.ident, self.next_pos);
+                    self.advanceToken();
+                    const at_ident = self.pushNode(.at_ident, start);
+                    self.nodes.items[at_ident].head = .{
+                        .child_head = ident,
+                    };
+                    break :b at_ident;
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected identifier.", token);
+                }
+            },
+            .await_k => {
+                // Await expression.
+                const expr_id = self.pushNode(.await_expr, start);
+                self.advanceToken();
+                const term_id = try self.parseTermExpr();
+                self.nodes.items[expr_id].head = .{
+                    .child_head = term_id,
+                };
+                return expr_id;
             },
             .func => {
                 // Lambda function.
@@ -947,7 +974,7 @@ pub const Parser = struct {
                 }
                 return if_expr;
             },
-            .left_paren => {
+            .left_paren => b: {
                 _ = self.consumeToken();
                 token = self.peekToken();
 
@@ -958,24 +985,24 @@ pub const Parser = struct {
                 token = self.peekToken();
                 if (token.token_t == .right_paren) {
                     _ = self.consumeToken();
-                    return expr_id;
+                    break :b expr_id;
                 } else {
                     return self.reportTokenError(error.SyntaxError, "Expected right parenthesis.", token);
                 }
             },
-            .left_brace => {
+            .left_brace => b: {
                 // Dictionary literal.
                 const dict_id = try self.parseDictLiteral();
-                return dict_id;
+                break :b dict_id;
             },
-            .left_bracket => {
+            .left_bracket => b: {
                 // Array literal.
                 const arr_id = try self.parseArrayLiteral();
-                return arr_id;
+                break :b arr_id;
             },
             .operator => {
                 if (token.data.operator_t == .minus) {
-                    _ = self.consumeToken();
+                    self.advanceToken();
                     const expr_id = self.pushNode(.unary_expr, start);
                     const term_id = try self.parseTermExpr();
                     self.nodes.items[expr_id].head = .{
@@ -989,23 +1016,6 @@ pub const Parser = struct {
             },
             .none => return self.reportTokenError(error.SyntaxError, "Expected term expr.", token),
             else => return self.reportTokenError(error.SyntaxError, "Expected term expr.", token),
-        }
-    }
-
-    fn parseExpression(self: *Parser, consider_assignment_stmt: bool, out_is_assignment_stmt: *bool) anyerror!?NodeId {
-        var start = self.next_pos;
-        var token = self.peekToken();
-
-        var left_id = switch (token.token_t) {
-            .if_k => {
-                return try self.parseTermExpr();
-            },
-            .none => return null,
-            .right_paren => return null,
-            .right_bracket => return null,
-            else => self.parseTermExpr() catch {
-                return self.reportTokenError(error.SyntaxError, "Unexpected left token in expression", token);
-            },
         };
 
         while (true) {
@@ -1059,11 +1069,55 @@ pub const Parser = struct {
                 .left_paren => {
                     // If left is an accessor expression or identifier, parse as call expression.
                     const left_t = self.nodes.items[left_id].node_t;
-                    if (left_t == .ident or left_t == .access_expr) {
+                    if (left_t == .ident or left_t == .access_expr or left_t == .at_ident) {
                         const call_id = try self.parseCallExpression(left_id);
                         left_id = call_id;
                     } else return self.reportTokenError(error.SyntaxError, "Expected variable to left of call expression.", next);
                 },
+                .right_bracket => break,
+                .right_paren => break,
+                .right_brace => break,
+                .else_k => break,
+                .comma => break,
+                .colon => break,
+                .plus_equal,
+                .equal => break,
+                .operator => break,
+                .logic_op => break,
+                .ident,
+                .number,
+                .string => {
+                    // CallExpression.
+                    left_id = try self.parseNoParenCallExpression(left_id);
+                    start = self.next_pos;
+                },
+                .new_line,
+                .none => break,
+                else => return self.reportTokenError(error.UnknownToken, "Unknown token", next),
+            }
+        }
+        return left_id;
+    }
+
+    fn parseExpression(self: *Parser, consider_assignment_stmt: bool, out_is_assignment_stmt: *bool) anyerror!?NodeId {
+        var start = self.next_pos;
+        var token = self.peekToken();
+
+        var left_id = switch (token.token_t) {
+            .if_k => {
+                return try self.parseTermExpr();
+            },
+            .none => return null,
+            .right_paren => return null,
+            .right_bracket => return null,
+            else => self.parseTermExpr() catch {
+                return self.reportTokenError(error.SyntaxError, "Unexpected left token in expression", token);
+            },
+        };
+
+        while (true) {
+            const next = self.peekToken();
+            switch (next.token_t) {
                 .right_bracket => break,
                 .right_paren => break,
                 .right_brace => break,
@@ -1117,13 +1171,6 @@ pub const Parser = struct {
                         },
                     };
                     left_id = bin_expr;
-                },
-                .ident,
-                .number,
-                .string => {
-                    // CallExpression.
-                    left_id = try self.parseNoParenCallExpression(left_id);
-                    start = self.next_pos;
                 },
                 .new_line,
                 .none => break,
@@ -1253,6 +1300,7 @@ pub const Parser = struct {
                     ',' => self.pushToken(.comma, start),
                     '.' => self.pushToken(.dot, start),
                     ':' => self.pushToken(.colon, start),
+                    '@' => self.pushToken(.at, start),
                     '-' => self.pushOpToken(.minus, start),
                     '%' => self.pushOpToken(.percent, start),
                     '+' => {
@@ -1635,6 +1683,7 @@ const TokenType = enum(u5) {
     number,
     string,
     operator,
+    at,
     left_paren,
     right_paren,
     left_brace,
@@ -1655,6 +1704,7 @@ const TokenType = enum(u5) {
     if_k,
     else_k,
     for_k,
+    await_k,
     func,
     /// Used to indicate no token.
     none,
@@ -1682,7 +1732,9 @@ const NodeType = enum(u5) {
     return_stmt,
     return_expr_stmt,
     ident,
+    at_ident,
     string,
+    await_expr,
     access_expr,
     call_expr,
     named_arg,
@@ -1820,4 +1872,20 @@ pub fn getBinOpPrecedence(op: BinaryExprOp) u8 {
         },
         else => return 0,
     }
+}
+
+pub fn getLastStmt(nodes: []const Node, head: NodeId, out_prev: *NodeId) NodeId {
+    var prev: NodeId = NullId;
+    var cur_id = head;
+    while (cur_id != NullId) {
+        const node = nodes[cur_id];
+        if (node.next == NullId) {
+            out_prev.* = prev;
+            return cur_id;
+        }
+        prev = cur_id;
+        cur_id = node.next;
+    }
+    out_prev.* = NullId;
+    return NullId;
 }

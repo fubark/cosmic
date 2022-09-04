@@ -23,11 +23,13 @@ pub const JsTargetCompiler = struct {
     opts: CompileOptions,
     buf: std.ArrayListUnmanaged(u8),
     use_generators: bool,
+    top_level_async: bool,
 
     vars: std.StringHashMapUnmanaged(VarDesc),
     block_stack: std.ArrayListUnmanaged(BlockState),
 
     cur_indent: u32,
+    cur_block: *BlockState,
 
     pub fn init(alloc: std.mem.Allocator) JsTargetCompiler {
         return .{
@@ -41,11 +43,13 @@ pub const JsTargetCompiler = struct {
             .last_err = "",
             .writer = undefined,
             .cur_indent = 0,
+            .cur_block = undefined,
             .vars = .{},
             .block_stack = .{},
             .buf = .{},
             .opts = undefined,
             .use_generators = undefined,
+            .top_level_async = undefined,
         };
     }
 
@@ -66,12 +70,33 @@ pub const JsTargetCompiler = struct {
         self.out.clearRetainingCapacity();
         self.writer = self.out.writer(self.alloc);
         self.cur_indent = 0;
-        self.vars.clearRetainingCapacity();
         self.block_stack.clearRetainingCapacity();
+        defer {
+            for (self.block_stack.items) |*block| {
+                block.deinit(self.alloc);
+            } 
+        }
+        self.vars.clearRetainingCapacity();
+
         self.opts = opts;
         self.use_generators = opts.gas_meter == .yield_interrupt;
+        self.top_level_async = false;
 
         const root = self.nodes[ast.root_id];
+
+        // First perform analysis.
+        try self.analyze(root);
+
+        if (self.top_level_async) {
+            // Last stmt is turned into a return statement.
+            var prev: parser.NodeId = undefined;
+            const last = parser.getLastStmt(self.nodes, root.head.child_head, &prev);
+            const node = self.nodes[last];
+            if (node.node_t == .expr_stmt) {
+                // Turn into return statement.
+                ast.nodes.items[last].node_t = .return_expr_stmt;
+            }
+        }
 
         self.pushBlock();
         self.genStatements(root.head.child_head) catch {
@@ -81,13 +106,45 @@ pub const JsTargetCompiler = struct {
                 .has_error = true,
             };
         };
-        self.popBlock();
+
+        if (self.top_level_async) {
+            self.out.insertSlice(self.alloc, 0, "(async function () {") catch fatal();
+            self.out.appendSlice(self.alloc, "})();") catch fatal();
+        }
 
         return .{
             .output = self.out.items,
             .err_msg = "",
             .has_error = false,
         };
+    }
+
+    fn analyze(self: *JsTargetCompiler, root: parser.Node) !void {
+        var cur_id = root.head.child_head;
+        while (cur_id != NullId) {
+            const node = self.nodes[cur_id];
+            try self.analyzeRootStmt(node);
+            cur_id = node.next;
+        }
+    }
+
+    fn analyzeRootStmt(self: *JsTargetCompiler, stmt: parser.Node) !void {
+        switch (stmt.node_t) {
+            .expr_stmt => {
+                const expr = self.nodes[stmt.head.child_head];
+                try self.analyzeRootExpr(expr);
+            },
+            else => return,
+        }
+    }
+
+    fn analyzeRootExpr(self: *JsTargetCompiler, expr: parser.Node) !void {
+        switch (expr.node_t) {
+            .await_expr => {
+                self.top_level_async = true;
+            },
+            else => return,
+        }
     }
 
     fn declVar(self: *JsTargetCompiler, name: []const u8, value: []const u8) !void {
@@ -113,6 +170,7 @@ pub const JsTargetCompiler = struct {
         self.block_stack.append(self.alloc, .{
             .vars = .{},
         }) catch fatal();
+        self.cur_block = &self.block_stack.items[self.block_stack.items.len-1];
     }
 
     fn popBlock(self: *JsTargetCompiler) void {
@@ -121,6 +179,7 @@ pub const JsTargetCompiler = struct {
             _ = self.vars.remove(name);
         }
         last.deinit(self.alloc);
+        self.cur_block = &self.block_stack.items[self.block_stack.items.len-1];
     }
 
     fn genStatements(self: *JsTargetCompiler, head: parser.NodeId) anyerror!void {
@@ -155,17 +214,17 @@ pub const JsTargetCompiler = struct {
         switch (node.node_t) {
             .break_stmt => {
                 try self.indent();
-                _ = try self.writer.write("break\n");
+                _ = try self.writer.write("break;\n");
             },
             .return_stmt => {
                 try self.indent();
-                _ = try self.writer.write("return\n");
+                _ = try self.writer.write("return;\n");
             },
             .return_expr_stmt => {
                 _ = try self.writer.write("return ");
                 const expr = self.nodes[node.head.child_head];
                 try self.genExpression(expr);
-                _ = try self.writer.writeByte('\n');
+                _ = try self.writer.write(";\n");
             },
             .add_assign_stmt => {
                 const left = self.nodes[node.head.left_right.left];
@@ -174,7 +233,7 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write(" += ");
                 const right = self.nodes[node.head.left_right.right];
                 try self.genExpression(right);
-                _ = try self.writer.write("\n");
+                _ = try self.writer.write(";\n");
             },
             .assign_stmt => {
                 const left = self.nodes[node.head.left_right.left];
@@ -200,13 +259,13 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write(" = ");
                 const right = self.nodes[node.head.left_right.right];
                 try self.genExpression(right);
-                _ = try self.writer.write("\n");
+                _ = try self.writer.write(";\n");
             },
             .expr_stmt => {
                 const expr = self.nodes[node.head.child_head];
                 try self.indent();
                 try self.genExpression(expr);
-                _ = try self.writer.write("\n");
+                _ = try self.writer.write(";\n");
             },
             .func_decl => {
                 const func = self.func_decls[node.head.func.decl_id];
@@ -223,7 +282,7 @@ pub const JsTargetCompiler = struct {
                 self.cur_indent -= IndentWidth;
 
                 try self.indent();
-                _ = try self.writer.write("}\n");
+                _ = try self.writer.write("};\n");
             },
             .label_decl => {
                 try self.indent();
@@ -308,6 +367,11 @@ pub const JsTargetCompiler = struct {
                 const token = self.tokens[node.start_token];
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);
             },
+            .at_ident => {
+                const ident = self.nodes[node.head.child_head];
+                const token = self.tokens[ident.start_token];
+                _ = try self.writer.print("globalThis.{s}", .{self.src[token.start_pos..token.data.end_pos]});
+            },
             .number => {
                 const token = self.tokens[node.start_token];
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);
@@ -350,6 +414,11 @@ pub const JsTargetCompiler = struct {
 
                 _ = try self.writer.write("]");
             },
+            .await_expr => {
+                _ = try self.writer.write("await ");
+                var expr = self.nodes[node.head.child_head];
+                try self.genExpression(expr);
+            },
             .lambda_multi => {
                 const func = self.func_decls[node.head.func.decl_id];
 
@@ -383,7 +452,7 @@ pub const JsTargetCompiler = struct {
                 const body_expr = self.nodes[node.head.func.body_head];
                 try self.genExpression(body_expr);
 
-                _ = try self.writer.write("; })\n");
+                _ = try self.writer.write("; })");
             },
             .unary_expr => {
                 const child = self.nodes[node.head.unary.child];
