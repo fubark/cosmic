@@ -790,10 +790,10 @@ pub const Parser = struct {
         if (token.token_t == .right_paren) {
             self.advanceToken();
             self.nodes.items[expr_id].head = .{
-                .left_right = .{
-                    .left = left_id,
-                    .right = first,
-                    .extra = if (has_named_arg) 1 else 0,
+                .func_call = .{
+                    .func = left_id,
+                    .arg_head = first,
+                    .has_named_arg = has_named_arg,
                 },
             };
             return expr_id;
@@ -814,9 +814,10 @@ pub const Parser = struct {
             else => return self.reportTokenError(error.BadToken, "Expected arg token", token),
         };
         self.nodes.items[expr_id].head = .{
-            .left_right = .{
-                .left = left_id,
-                .right = last_arg_id,
+            .func_call = .{
+                .func = left_id,
+                .arg_head = last_arg_id,
+                .has_named_arg = false,
             },
         };
 
@@ -1784,6 +1785,11 @@ pub const Node = struct {
             left: NodeId,
             right: NodeId,
             extra: u32 = NullId,
+        },
+        func_call: struct {
+            func: NodeId,
+            arg_head: NodeId,
+            has_named_arg: bool,
         },
         unary: struct {
             child: NodeId,

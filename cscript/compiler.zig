@@ -536,12 +536,12 @@ pub const JsTargetCompiler = struct {
                 }
             },
             .call_expr => {
-                if (node.head.left_right.extra == 0) {
+                if (!node.head.func_call.has_named_arg) {
                     // No named args.
-                    const left = self.nodes[node.head.left_right.left];
+                    const left = self.nodes[node.head.func_call.func];
                     try self.genExpression(left);
                     _ = try self.writer.write("(");
-                    var arg_id = node.head.left_right.right;
+                    var arg_id = node.head.func_call.arg_head;
                     if (arg_id != NullId) {
                         var arg = self.nodes[arg_id];
                         try self.genExpression(arg);
@@ -557,11 +557,11 @@ pub const JsTargetCompiler = struct {
                 } else {
                     // Named args.
                     _ = try self.writer.write("_internal.callNamed(");
-                    const left = self.nodes[node.head.left_right.left];
+                    const left = self.nodes[node.head.func_call.func];
                     try self.genExpression(left);
                     _ = try self.writer.write(", [");
 
-                    var arg_id = node.head.left_right.right;
+                    var arg_id = node.head.func_call.arg_head;
                     if (arg_id != NullId) {
                         var arg = self.nodes[arg_id];
                         if (arg.node_t != .named_arg) {
