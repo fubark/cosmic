@@ -841,31 +841,10 @@ pub const Parser = struct {
     /// Parses the right expression of a BinaryExpression.
     fn parseRightExpression(self: *Parser, left_op: BinaryExprOp) anyerror!NodeId {
         var start = self.next_pos;
-        var token = self.consumeToken();
-
-        const expr_id = switch (token.token_t) {
-            .number => self.pushNode(.number, start),
-            .ident => self.pushNode(.ident, start),
-            .left_paren => b: {
-                var dummy = false;
-                const expr_id = (try self.parseExpression(false, &dummy)) orelse {
-                    return self.reportTokenError(error.SyntaxError, "Expected expression.", token);
-                };
-                token = self.peekToken();
-                if (token.token_t == .right_paren) {
-                    _ = self.consumeToken();
-                    break :b expr_id;
-                } else {
-                    return self.reportTokenError(error.SyntaxError, "Expected right parenthesis.", token);
-                }
-            },
-            else => {
-                return self.reportTokenError(error.BadToken, "Unexpected right token in binary expression", token);
-            },
-        };
+        const expr_id = try self.parseTermExpr();
 
         // Check if next token is an operator with higher precedence.
-        token = self.peekToken();
+        const token = self.peekToken();
         if (token.token_t == .operator) {
             const op_prec = getBinOpPrecedence(left_op);
             const right_op = toBinExprOp(token.data.operator_t);

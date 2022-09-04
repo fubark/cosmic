@@ -440,6 +440,15 @@ test "Binary Expressions" {
     );
     try t.eq(val.getInt32(), 4);
     run.deinitValue(val);
+
+    // Right function call.
+    val = try run.evaluate(
+        \\fun foo():
+        \\  return 123
+        \\1 + foo()
+    );
+    try t.eq(val.getInt32(), 124);
+    run.deinitValue(val);
 }
 
 const qjs_init_js = @embedFile("qjs_init.js");
