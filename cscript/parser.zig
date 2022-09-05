@@ -219,6 +219,7 @@ pub const Parser = struct {
         var decl = FunctionDeclaration{
             .name = undefined,
             .params = undefined,
+            .return_type = null,
         };
 
         decl.params = try self.parseFunctionParams();
@@ -304,6 +305,7 @@ pub const Parser = struct {
         var decl = FunctionDeclaration{
             .name = undefined,
             .params = undefined,
+            .return_type = null,
         };
 
         // Parse function name.
@@ -316,10 +318,19 @@ pub const Parser = struct {
         decl.params = try self.parseFunctionParams();
 
         token = self.peekToken();
-        if (token.token_t != .colon) {
-            return self.reportTokenError(error.SyntaxError, "Expected colon.", token);
+        if (token.token_t == .colon) {
+            self.advanceToken();
+        } else if (token.token_t == .ident) {
+            decl.return_type = IndexSlice.init(token.start_pos, token.data.end_pos);
+            self.advanceToken();
+            token = self.peekToken();
+            if (token.token_t != .colon) {
+                return self.reportTokenError(error.SyntaxError, "Expected colon.", token);
+            }
+            self.advanceToken();
+        } else {
+            return self.reportTokenError(error.SyntaxError, "Expected colon or type.", token);
         }
-        self.advanceToken();
 
         // Parse body.
         const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
@@ -1807,6 +1818,7 @@ const FuncDeclId = u32;
 pub const FunctionDeclaration = struct {
     name: IndexSlice,
     params: IndexSlice,
+    return_type: ?IndexSlice,
 };
 
 pub const FunctionParam = struct {
@@ -1873,4 +1885,15 @@ pub fn getLastStmt(nodes: []const Node, head: NodeId, out_prev: *NodeId) NodeId 
     }
     out_prev.* = NullId;
     return NullId;
+}
+
+pub fn pushNodeToList(alloc: std.mem.Allocator, nodes: *std.ArrayListUnmanaged(Node), node_t: NodeType, start: u32) NodeId {
+    const id = nodes.items.len;
+    nodes.append(alloc, .{
+        .node_t = node_t,
+        .start_token = start,
+        .next = NullId,
+        .head = undefined,
+    }) catch fatal();
+    return @intCast(NodeId, id);
 }

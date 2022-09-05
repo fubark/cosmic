@@ -8,6 +8,11 @@ const log = stdx.log.scoped(.compiler);
 
 const IndentWidth = 4;
 
+// Special types.
+const AnyId: CTypeId = 0;
+const PromiseId: CTypeId = 1;
+const LastPrimitiveId = 1;
+
 pub const JsTargetCompiler = struct {
     alloc: std.mem.Allocator,
     out: std.ArrayListUnmanaged(u8),
@@ -17,6 +22,8 @@ pub const JsTargetCompiler = struct {
     func_decls: []const parser.FunctionDeclaration,
     func_params: []const parser.FunctionParam,
     nodes: []const parser.Node,
+    node_list: *std.ArrayListUnmanaged(parser.Node),
+
     tokens: []const parser.Token,
     src: []const u8,
     writer: std.ArrayListUnmanaged(u8).Writer,
@@ -27,17 +34,19 @@ pub const JsTargetCompiler = struct {
 
     vars: std.StringHashMapUnmanaged(VarDesc),
     block_stack: std.ArrayListUnmanaged(BlockState),
+    ctypes: std.ArrayListUnmanaged(CType),
 
     cur_indent: u32,
     cur_block: *BlockState,
 
     pub fn init(alloc: std.mem.Allocator) JsTargetCompiler {
-        return .{
+        const new = JsTargetCompiler{
             .alloc = alloc,
             .out = .{},
             .func_decls = undefined,
             .func_params = undefined,
             .nodes = undefined,
+            .node_list = undefined,
             .tokens = undefined,
             .src = undefined,
             .last_err = "",
@@ -50,7 +59,9 @@ pub const JsTargetCompiler = struct {
             .opts = undefined,
             .use_generators = undefined,
             .top_level_async = undefined,
+            .ctypes = .{},
         };
+        return new;
     }
 
     pub fn deinit(self: *JsTargetCompiler) void {
@@ -59,12 +70,15 @@ pub const JsTargetCompiler = struct {
         self.out.deinit(self.alloc);
         self.alloc.free(self.last_err);
         self.buf.deinit(self.alloc);
+        self.ctypes.deinit(self.alloc);
     }
 
     pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) ResultView {
+        self.ctypes.resize(self.alloc, LastPrimitiveId + 1) catch fatal();
         self.func_decls = ast.func_decls;
         self.func_params = ast.func_params;
         self.nodes = ast.nodes.items;
+        self.node_list = ast.nodes;
         self.tokens = ast.tokens;
         self.src = ast.src;
         self.out.clearRetainingCapacity();
@@ -85,7 +99,16 @@ pub const JsTargetCompiler = struct {
         const root = self.nodes[ast.root_id];
 
         // First perform analysis.
-        try self.analyze(root);
+        self.pushBlock();
+        self.analyze(root) catch fatal();
+
+        for (self.block_stack.items) |*block| {
+            block.deinit(self.alloc);
+        } 
+        self.block_stack.clearRetainingCapacity();
+        self.vars.clearRetainingCapacity();
+        // Analyze can transform the ast.
+        self.nodes = self.node_list.items;
 
         if (self.top_level_async) {
             // Last stmt is turned into a return statement.
@@ -132,16 +155,110 @@ pub const JsTargetCompiler = struct {
         switch (stmt.node_t) {
             .expr_stmt => {
                 const expr = self.nodes[stmt.head.child_head];
-                try self.analyzeRootExpr(expr);
+                try self.analyzeRootExpr(stmt.head.child_head, expr);
+            },
+            .func_decl => {
+                const func = self.func_decls[stmt.head.func.decl_id];
+                const name = self.src[func.name.start..func.name.end];
+                if (self.getScopedVarDesc(name) == null) {
+                    const return_ctype = if (func.return_type) |slice| b: {
+                        const str = self.src[slice.start..slice.end];
+                        if (std.mem.eql(u8, "apromise", str)) {
+                            break :b PromiseId;
+                        }
+                        break :b AnyId;
+                    } else AnyId;
+
+                    try self.cur_block.vars.put(self.alloc, name, .{
+                        .ctype = .{
+                            .ctype_t = .func,
+                            .inner = .{
+                                .func = .{
+                                    .return_ctype = return_ctype,
+                                },
+                            },
+                        },
+                    });
+                }
             },
             else => return,
         }
     }
 
-    fn analyzeRootExpr(self: *JsTargetCompiler, expr: parser.Node) !void {
+    fn getScopedVarDesc(self: *JsTargetCompiler, var_name: []const u8) ?VarDesc {
+        if (self.cur_block.vars.get(var_name)) |desc| {
+            return desc;
+        }
+        // Start looking at parent scopes.
+        var i = self.block_stack.items.len - 1;
+        while (i > 0) {
+            i -= 1;
+            if (self.block_stack.items[i].vars.get(var_name)) |desc| {
+                return desc;
+            }
+        }
+        return null;
+    }
+
+    fn getScopedVarType(self: *JsTargetCompiler, var_name: []const u8) CType {
+        if (self.getScopedVarDesc(var_name)) |desc| {
+            return desc.ctype;
+        } else return AnyCtype;
+    }
+
+    fn getOrResolveType(self: *JsTargetCompiler, expr_id: parser.NodeId) CType {
+        const expr = self.nodes[expr_id];
         switch (expr.node_t) {
+            .ident => {
+                const token = self.tokens[expr.start_token];
+                const var_name = self.src[token.start_pos .. token.data.end_pos];
+                log.debug("resolve ident type {s}", .{var_name});
+                return self.getScopedVarType(var_name);
+            },
+            else => return AnyCtype,
+        }
+    }
+
+    fn analyzeRootExpr(self: *JsTargetCompiler, expr_id: parser.NodeId, expr: parser.Node) anyerror!void {
+        switch (expr.node_t) {
+            .call_expr => {
+                const ctype = self.getOrResolveType(expr.head.func_call.func);
+                var wrap_await = false;
+                switch (ctype.ctype_t) {
+                    .any => {
+                        self.top_level_async = true;
+                        wrap_await = true;
+                    },
+                    .func => {
+                        if (ctype.inner.func.return_ctype == PromiseId) {
+                            self.top_level_async = true;
+                            wrap_await = true;
+                        }
+                    },
+                    else => {},
+                }
+                if (wrap_await) {
+                    const dupe_id = parser.pushNodeToList(self.alloc, self.node_list, .call_expr, expr.start_token);
+                    self.node_list.items[dupe_id].head = expr.head;
+
+                    self.node_list.items[expr_id].node_t = .await_expr;
+                    self.node_list.items[expr_id].head = .{
+                        .child_head = dupe_id,
+                    };
+                }
+            },
             .await_expr => {
                 self.top_level_async = true;
+                const child = self.nodes[expr.head.child_head];
+                if (child.node_t != .call_expr) {
+                    try self.analyzeRootExpr(expr.head.child_head, child);
+                }
+            },
+            .bin_expr => {
+                const left = self.nodes[expr.head.left_right.left];
+                try self.analyzeRootExpr(expr.head.left_right.left, left);
+                const right = self.nodes[expr.head.left_right.right];
+                try self.analyzeRootExpr(expr.head.left_right.right, right);
             },
             else => return,
         }
@@ -151,8 +268,7 @@ pub const JsTargetCompiler = struct {
         const res = try self.vars.getOrPut(self.alloc, name);
         if (!res.found_existing) {
             // Variable declaration.
-            const block = &self.block_stack.items[self.block_stack.items.len-1];
-            try block.vars.append(self.alloc, name);
+            try self.cur_block.vars.append(self.alloc, name);
             res.value_ptr.* = .{ .dummy = true };
             
             try self.indent();
@@ -241,12 +357,12 @@ pub const JsTargetCompiler = struct {
                 if (left.node_t == .ident) {
                     const ident_tok = self.tokens[left.start_token];
                     const var_name = self.src[ident_tok.start_pos .. ident_tok.data.end_pos];
-                    const res = try self.vars.getOrPut(self.alloc, var_name);
-                    if (!res.found_existing) {
+
+                    if (self.getScopedVarDesc(var_name) == null) {
                         // Variable declaration.
-                        const block = &self.block_stack.items[self.block_stack.items.len-1];
-                        try block.vars.append(self.alloc, var_name);
-                        res.value_ptr.* = .{ .dummy = true };
+                        try self.cur_block.vars.put(self.alloc, var_name, .{
+                            .ctype = AnyCtype,
+                        });
                         is_decl = true;
                     }
                 }
@@ -640,7 +756,7 @@ const ResultView = struct {
 };
 
 const BlockState = struct {
-    vars: std.ArrayListUnmanaged([]const u8),
+    vars: std.StringHashMapUnmanaged(VarDesc),
 
     fn deinit(self: *BlockState, alloc: std.mem.Allocator) void {
         self.vars.deinit(alloc);
@@ -648,7 +764,7 @@ const BlockState = struct {
 };
 
 const VarDesc = struct {
-    dummy: bool,
+    ctype: CType,
 };
 
 const CompileOptions = struct {
@@ -659,4 +775,29 @@ const GasMeterOption = enum(u2) {
     none,
     error_interrupt,
     yield_interrupt,
+};
+
+const CTypeKind = enum {
+    any,
+    func,
+    struct_t,
+};
+
+const CTypeId = u32;
+const CType = struct {
+    ctype_t: CTypeKind,
+    inner: union {
+        any: void,
+        func: struct {
+            return_ctype: u32
+        },
+        struct_t: u32,
+    },
+};
+
+const AnyCtype = CType{
+    .ctype_t = .any,
+    .inner = .{
+        .any = {},
+    },
 };

@@ -8,6 +8,21 @@ const cs = @import("cscript.zig");
 const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
 
+test "implicit await" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\fun foo() apromise:
+        \\  task = @asyncTask()
+        \\  @queueTask(fun () => task.resolve(123))
+        \\  return task.promise
+        \\1 + foo()
+    );
+    try t.eq(val.getInt32(), 124);
+    run.deinitValue(val);
+}
+
 test "await" {
     const run = Runner.create();
     defer run.destroy();
