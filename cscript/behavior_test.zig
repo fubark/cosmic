@@ -8,6 +8,16 @@ const cs = @import("cscript.zig");
 const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
 
+test "@name" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var res = try run.parse(
+        \\@name foo
+    );
+    try t.eqStr(res.name, "foo");
+}
+
 test "implicit await" {
     const run = Runner.create();
     defer run.destroy();
@@ -545,8 +555,12 @@ const Runner = struct {
         t.alloc.destroy(self);
     }
 
+    fn parse(self: *Runner, src: []const u8) !cs.ResultView {
+        return try self.parser.parse(src);
+    }
+
     fn evaluate(self: *Runner, src: []const u8) !cs.JsValue {
-        const ast_res = self.parser.parse(src);
+        const ast_res = try self.parser.parse(src);
         if (ast_res.has_error) {
             log.debug("Parse Error: {s}", .{ast_res.err_msg});
             return error.ParseError;

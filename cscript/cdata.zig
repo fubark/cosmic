@@ -356,7 +356,7 @@ const NullId = std.math.maxInt(u32);
 
 // Currently uses cscript parser.
 pub fn decodeDict(alloc: std.mem.Allocator, parser: *Parser, ctx: anytype, out: anytype, decode_dict: fn (DecodeDictIR, @TypeOf(ctx), @TypeOf(out)) anyerror!void, cdata: []const u8) !void {
-    const res = parser.parse(cdata);
+    const res = try parser.parse(cdata);
     if (res.has_error) {
         log.debug("Parse Error: {s}", .{res.err_msg});
         return error.ParseError;

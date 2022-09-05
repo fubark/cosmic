@@ -222,7 +222,7 @@ pub const JsTargetCompiler = struct {
     fn analyzeRootExpr(self: *JsTargetCompiler, expr_id: parser.NodeId, expr: parser.Node) anyerror!void {
         switch (expr.node_t) {
             .call_expr => {
-                const ctype = self.getOrResolveType(expr.head.func_call.func);
+                const ctype = self.getOrResolveType(expr.head.func_call.callee);
                 var wrap_await = false;
                 switch (ctype.ctype_t) {
                     .any => {
@@ -551,7 +551,7 @@ pub const JsTargetCompiler = struct {
                 try self.genStatements(node.head.func.body_head);
                 self.cur_indent -= IndentWidth;
 
-                _ = try self.writer.write("})\n");
+                _ = try self.writer.write("})");
             },
             .lambda_single => {
                 const func = self.func_decls[node.head.func.decl_id];
@@ -654,7 +654,7 @@ pub const JsTargetCompiler = struct {
             .call_expr => {
                 if (!node.head.func_call.has_named_arg) {
                     // No named args.
-                    const left = self.nodes[node.head.func_call.func];
+                    const left = self.nodes[node.head.func_call.callee];
                     try self.genExpression(left);
                     _ = try self.writer.write("(");
                     var arg_id = node.head.func_call.arg_head;
@@ -673,7 +673,7 @@ pub const JsTargetCompiler = struct {
                 } else {
                     // Named args.
                     _ = try self.writer.write("_internal.callNamed(");
-                    const left = self.nodes[node.head.func_call.func];
+                    const left = self.nodes[node.head.func_call.callee];
                     try self.genExpression(left);
                     _ = try self.writer.write(", [");
 

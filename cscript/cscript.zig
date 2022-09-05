@@ -1,5 +1,6 @@
 const parser = @import("parser.zig");
 pub const Parser = parser.Parser;
+pub const ResultView = parser.ResultView;
 
 const compiler = @import("compiler.zig");
 pub const JsTargetCompiler = compiler.JsTargetCompiler;
