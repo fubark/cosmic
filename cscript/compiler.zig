@@ -73,8 +73,8 @@ pub const JsTargetCompiler = struct {
         self.ctypes.deinit(self.alloc);
     }
 
-    pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) ResultView {
-        self.ctypes.resize(self.alloc, LastPrimitiveId + 1) catch fatal();
+    pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) !ResultView {
+        try self.ctypes.resize(self.alloc, LastPrimitiveId + 1);
         self.func_decls = ast.func_decls;
         self.func_params = ast.func_params;
         self.nodes = ast.nodes.items;
@@ -100,7 +100,7 @@ pub const JsTargetCompiler = struct {
 
         // First perform analysis.
         self.pushBlock();
-        self.analyze(root) catch fatal();
+        try self.analyze(root);
 
         for (self.block_stack.items) |*block| {
             block.deinit(self.alloc);
@@ -123,7 +123,7 @@ pub const JsTargetCompiler = struct {
 
         self.pushBlock();
         self.genStatements(root.head.child_head) catch {
-            return .{
+            return ResultView{
                 .output = "",
                 .err_msg = self.last_err,
                 .has_error = true,
@@ -131,11 +131,11 @@ pub const JsTargetCompiler = struct {
         };
 
         if (self.top_level_async) {
-            self.out.insertSlice(self.alloc, 0, "(async function () {") catch fatal();
-            self.out.appendSlice(self.alloc, "})();") catch fatal();
+            try self.out.insertSlice(self.alloc, 0, "(async function () {");
+            try self.out.appendSlice(self.alloc, "})();");
         }
 
-        return .{
+        return ResultView{
             .output = self.out.items,
             .err_msg = "",
             .has_error = false,
@@ -212,7 +212,6 @@ pub const JsTargetCompiler = struct {
             .ident => {
                 const token = self.tokens[expr.start_token];
                 const var_name = self.src[token.start_pos .. token.data.end_pos];
-                log.debug("resolve ident type {s}", .{var_name});
                 return self.getScopedVarType(var_name);
             },
             else => return AnyCtype,
@@ -484,7 +483,7 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);
             },
             .at_ident => {
-                const ident = self.nodes[node.head.child_head];
+                const ident = self.nodes[node.head.annotation.child];
                 const token = self.tokens[ident.start_token];
                 _ = try self.writer.print("globalThis.{s}", .{self.src[token.start_pos..token.data.end_pos]});
             },
@@ -749,7 +748,7 @@ pub const JsTargetCompiler = struct {
     }
 };
 
-const ResultView = struct {
+pub const ResultView = struct {
     output: []const u8,
     err_msg: []const u8,
     has_error: bool,

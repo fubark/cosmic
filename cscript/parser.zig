@@ -514,6 +514,73 @@ pub const Parser = struct {
                     }
                 }
             },
+            .at => {
+                const start = self.next_pos;
+                self.advanceToken();
+                token = self.peekToken();
+                if (token.token_t == .ident) {
+                    const name_token = self.tokens.items[self.next_pos];
+                    const name = self.src.items[name_token.start_pos .. name_token.data.end_pos];
+                    if (std.mem.eql(u8, "name", name)) {
+                        var skip_compile = false;
+
+                        const ident = self.pushNode(.ident, self.next_pos);
+                        self.advanceToken();
+                        const at_ident = self.pushNode(.at_ident, start);
+                        self.nodes.items[at_ident].head = .{
+                            .annotation = .{
+                                .child = ident,
+                            },
+                        };
+
+                        const child = b: {
+                            // Annotation must begin the source.
+                            if (self.nodes.items.len == 3) {
+                                // Parse as call expr.
+                                const call_id = try self.parseAnyCallExpr(at_ident);
+                                const call_expr = self.nodes.items[call_id];
+                                if (call_expr.head.func_call.arg_head == NullId) {
+                                    return self.reportTokenError(error.SyntaxError, "Expected arg for @name.", token);
+                                }
+                                const arg = self.nodes.items[call_expr.head.func_call.arg_head];
+                                if (arg.node_t == .ident) {
+                                    const arg_token = self.tokens.items[arg.start_token];
+                                    self.name = self.src.items[arg_token.start_pos .. arg_token.data.end_pos];
+                                    skip_compile = true;
+                                    break :b call_id;
+                                } else {
+                                    return self.reportTokenError(error.SyntaxError, "Expected ident arg for @name.", token);
+                                }
+                            } else {
+                                return self.reportTokenError(error.SyntaxError, "Expected @name to be the first statement.", token);
+                            }
+                            break :b at_ident;
+                        };
+
+                        const id = self.pushNode(.at_stmt, start);
+                        self.nodes.items[id].head = .{
+                            .at_stmt = .{
+                                .child = child,
+                                .skip_compile = skip_compile,
+                            },
+                        };
+
+                        token = self.peekToken();
+                        if (token.token_t == .new_line) {
+                            self.advanceToken();
+                            return id;
+                        } else if (token.token_t == .none) {
+                            return id;
+                        } else return self.reportTokenError(error.BadToken, "Expected end of line or file", token);
+                    }
+                }
+
+                // Reparse as expression.
+                self.next_pos = start;
+                if (try self.parseExprOrAssignStatement()) |id| {
+                    return id;
+                }
+            },
             .func => {
                 return try self.parseFunctionDeclaration();
             },
@@ -921,31 +988,10 @@ pub const Parser = struct {
                     self.advanceToken();
                     const at_ident = self.pushNode(.at_ident, start);
                     self.nodes.items[at_ident].head = .{
-                        .child_head = ident,
+                        .annotation = .{
+                            .child = ident,
+                        },
                     };
-
-                    const name_token = self.tokens.items[start+1];
-                    const name = self.src.items[name_token.start_pos .. name_token.data.end_pos];
-                    if (std.mem.eql(u8, "name", name)) {
-                        // Annotation must begin the source.
-                        if (self.nodes.items.len == 3) {
-                            // Parse as call expr.
-                            const call_id = try self.parseAnyCallExpr(at_ident);
-                            const call_expr = self.nodes.items[call_id];
-                            if (call_expr.head.func_call.arg_head == NullId) {
-                                return self.reportTokenError(error.SyntaxError, "Expected arg for @name.", token);
-                            }
-                            const arg = self.nodes.items[call_expr.head.func_call.arg_head];
-                            if (arg.node_t == .ident) {
-                                const arg_token = self.tokens.items[arg.start_token];
-                                self.name = self.src.items[arg_token.start_pos .. arg_token.data.end_pos];
-                            } else {
-                                return self.reportTokenError(error.SyntaxError, "Expected ident arg for @name.", token);
-                            }
-                        } else {
-                            return self.reportTokenError(error.SyntaxError, "Expected @name to be the first statement.", token);
-                        }
-                    }
                     break :b at_ident;
                 } else {
                     return self.reportTokenError(error.SyntaxError, "Expected identifier.", token);
@@ -1761,6 +1807,7 @@ const NodeType = enum(u5) {
     break_stmt,
     return_stmt,
     return_expr_stmt,
+    at_stmt,
     ident,
     at_ident,
     string,
@@ -1825,6 +1872,13 @@ pub const Node = struct {
             op: UnaryOp,
         },
         child_head: NodeId,
+        annotation: struct {
+            child: NodeId,
+        },
+        at_stmt: struct {
+            child: NodeId,
+            skip_compile: bool,
+        },
         func: struct {
             decl_id: FuncDeclId,
             body_head: NodeId,

@@ -12,10 +12,16 @@ test "@name" {
     const run = Runner.create();
     defer run.destroy();
 
-    var res = try run.parse(
+    const parse_res = try run.parse(
         \\@name foo
     );
-    try t.eqStr(res.name, "foo");
+    try t.eqStr(parse_res.name, "foo");
+
+    // Compile step skips the statement.
+    const compile_res = try run.compile(
+        \\@name foo
+    );
+    try t.eqStr(compile_res.output, "");
 }
 
 test "implicit await" {
@@ -555,8 +561,17 @@ const Runner = struct {
         t.alloc.destroy(self);
     }
 
-    fn parse(self: *Runner, src: []const u8) !cs.ResultView {
+    fn parse(self: *Runner, src: []const u8) !cs.ParserResultView {
         return try self.parser.parse(src);
+    }
+
+    fn compile(self: *Runner, src: []const u8) !cs.JsTargetResultView {
+        const ast_res = try self.parser.parse(src);
+        if (ast_res.has_error) {
+            log.debug("Parse Error: {s}", .{ast_res.err_msg});
+            return error.ParseError;
+        }
+        return try self.compiler.compile(ast_res, .{});
     }
 
     fn evaluate(self: *Runner, src: []const u8) !cs.JsValue {
@@ -566,7 +581,7 @@ const Runner = struct {
             return error.ParseError;
         }
 
-        const res = self.compiler.compile(ast_res, .{});
+        const res = try self.compiler.compile(ast_res, .{});
         if (res.has_error) {
             log.debug("Compile Error: {s}", .{res.err_msg});
             return error.CompileError;
