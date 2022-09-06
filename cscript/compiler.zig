@@ -32,7 +32,6 @@ pub const JsTargetCompiler = struct {
     use_generators: bool,
     top_level_async: bool,
 
-    vars: std.StringHashMapUnmanaged(VarDesc),
     block_stack: std.ArrayListUnmanaged(BlockState),
     ctypes: std.ArrayListUnmanaged(CType),
 
@@ -53,7 +52,6 @@ pub const JsTargetCompiler = struct {
             .writer = undefined,
             .cur_indent = 0,
             .cur_block = undefined,
-            .vars = .{},
             .block_stack = .{},
             .buf = .{},
             .opts = undefined,
@@ -66,7 +64,6 @@ pub const JsTargetCompiler = struct {
 
     pub fn deinit(self: *JsTargetCompiler) void {
         self.block_stack.deinit(self.alloc);
-        self.vars.deinit(self.alloc);
         self.out.deinit(self.alloc);
         self.alloc.free(self.last_err);
         self.buf.deinit(self.alloc);
@@ -90,7 +87,6 @@ pub const JsTargetCompiler = struct {
                 block.deinit(self.alloc);
             } 
         }
-        self.vars.clearRetainingCapacity();
 
         self.opts = opts;
         self.use_generators = opts.gas_meter == .yield_interrupt;
@@ -106,7 +102,6 @@ pub const JsTargetCompiler = struct {
             block.deinit(self.alloc);
         } 
         self.block_stack.clearRetainingCapacity();
-        self.vars.clearRetainingCapacity();
         // Analyze can transform the ast.
         self.nodes = self.node_list.items;
 
@@ -264,11 +259,9 @@ pub const JsTargetCompiler = struct {
     }
 
     fn declVar(self: *JsTargetCompiler, name: []const u8, value: []const u8) !void {
-        const res = try self.vars.getOrPut(self.alloc, name);
-        if (!res.found_existing) {
+        if (!self.cur_block.vars.contains(name)) {
             // Variable declaration.
-            try self.cur_block.vars.append(self.alloc, name);
-            res.value_ptr.* = .{ .dummy = true };
+            try self.cur_block.vars.put(self.alloc, name);
             
             try self.indent();
             _ = try self.writer.write("let ");
@@ -276,9 +269,7 @@ pub const JsTargetCompiler = struct {
             _ = try self.writer.write(" = ");
             _ = try self.writer.write(value);
             _ = try self.writer.write(";\n");
-        } else {
-            return error.DuplicateVar;
-        }
+        } else return error.DuplicateVar;
     }
 
     fn pushBlock(self: *JsTargetCompiler) void {
@@ -290,9 +281,6 @@ pub const JsTargetCompiler = struct {
 
     fn popBlock(self: *JsTargetCompiler) void {
         var last = self.block_stack.pop();
-        for (last.vars.items) |name| {
-            _ = self.vars.remove(name);
-        }
         last.deinit(self.alloc);
         self.cur_block = &self.block_stack.items[self.block_stack.items.len-1];
     }
@@ -375,6 +363,9 @@ pub const JsTargetCompiler = struct {
                 const right = self.nodes[node.head.left_right.right];
                 try self.genExpression(right);
                 _ = try self.writer.write(";\n");
+            },
+            .at_stmt => {
+                // Skip for now.
             },
             .expr_stmt => {
                 const expr = self.nodes[node.head.child_head];

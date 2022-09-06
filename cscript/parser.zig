@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const t = stdx.testing;
 const fatal = stdx.fatal;
 
 pub const NodeId = u32;
@@ -19,6 +20,11 @@ const keywords = std.ComptimeStringMap(TokenType, .{
 
 const BlockState = struct {
     indent_spaces: u32,
+    vars: std.StringHashMapUnmanaged(void),
+
+    fn deinit(self: *BlockState, alloc: std.mem.Allocator) void {
+        self.vars.deinit(alloc);
+    }
 };
 
 /// Parses source code into AST.
@@ -35,7 +41,12 @@ pub const Parser = struct {
     cur_indent: u32,
     func_params: std.ArrayListUnmanaged(FunctionParam),
     func_decls: std.ArrayListUnmanaged(FunctionDeclaration),
+
+    // TODO: This should be implemented by user callbacks.
+    /// @name arg.
     name: []const u8,
+    /// Variable dependencies.
+    deps: std.StringHashMapUnmanaged(NodeId),
 
     pub fn init(alloc: std.mem.Allocator) Parser {
         return .{
@@ -50,6 +61,7 @@ pub const Parser = struct {
             .func_params = .{},
             .func_decls = .{},
             .name = "",
+            .deps = .{},
         };
     }
 
@@ -61,12 +73,23 @@ pub const Parser = struct {
         self.block_stack.deinit(self.alloc);
         self.func_params.deinit(self.alloc);
         self.func_decls.deinit(self.alloc);
+        self.deps.deinit(self.alloc);
+    }
+
+    pub fn parseNoErr(self: *Parser, src: []const u8) !ResultView {
+        const res = try self.parse(src);
+        if (res.has_error) {
+            log.debug("{s}", .{res.err_msg});
+            return error.ParseError;
+        }
+        return res;
     }
 
     pub fn parse(self: *Parser, src: []const u8) !ResultView {
         self.src.clearRetainingCapacity();
         try self.src.appendSlice(self.alloc, src);
         self.name = "";
+        self.deps.clearRetainingCapacity();
 
         self.tokenize() catch |err| {
             log.debug("tokenize error: {}", .{err});
@@ -80,6 +103,7 @@ pub const Parser = struct {
                 .tokens = &.{},
                 .src = "",
                 .name = self.name,
+                .deps = &self.deps,
             };
         };
         const root_id = self.parseRoot() catch |err| {
@@ -94,6 +118,7 @@ pub const Parser = struct {
                 .tokens = &.{},
                 .src = "",
                 .name = self.name,
+                .deps = &self.deps,
             };
         };
         return ResultView{
@@ -106,6 +131,7 @@ pub const Parser = struct {
             .func_decls = self.func_decls.items,
             .func_params = self.func_params.items,
             .name = self.name,
+            .deps = &self.deps,
         };
     }
 
@@ -147,12 +173,22 @@ pub const Parser = struct {
         }
     }
 
+    fn pushBlock(self: *Parser, indent: u32) !void {
+        try self.block_stack.append(self.alloc, .{
+            .indent_spaces = indent,
+            .vars = .{},
+        });
+    }
+
+    fn popBlock(self: *Parser) void {
+        self.block_stack.items[self.block_stack.items.len-1].deinit(self.alloc);
+        _ = self.block_stack.pop();
+    }
+
     /// Like parseIndentedBodyStatements but the body indentation is already known.
     fn parseBodyStatements(self: *Parser, body_indent: u32) !NodeId {
-        try self.block_stack.append(self.alloc, .{
-            .indent_spaces = body_indent,
-        });
-        defer _ = self.block_stack.pop();
+        try self.pushBlock(body_indent);
+        defer self.popBlock();
 
         var indent = self.consumeIndentBeforeStmt();
         if (indent != body_indent) {
@@ -177,11 +213,9 @@ pub const Parser = struct {
     /// Returns the first statement or NullId.
     fn parseIndentedBodyStatements(self: *Parser, start_indent: u32) !NodeId {
         // New block. Indent spaces is determines by the first body statement.
-        try self.block_stack.append(self.alloc, .{
-            .indent_spaces = 0,
-        });
+        try self.pushBlock(0);
         defer {
-            _ = self.block_stack.pop();
+            self.popBlock();
             self.cur_indent = start_indent;
         }
 
@@ -352,6 +386,11 @@ pub const Parser = struct {
                 .body_head = first_stmt,
             },
         };
+
+        const name = self.src.items[decl.name.start..decl.name.end];
+        const block = &self.block_stack.items[self.block_stack.items.len-1];
+        try block.vars.put(self.alloc, name, {});
+
         return id;
     }
 
@@ -963,6 +1002,17 @@ pub const Parser = struct {
         return expr_id;
     }
 
+    fn isVarDeclaredFromScope(self: *Parser, name: []const u8) bool {
+        var i = self.block_stack.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.block_stack.items[i].vars.contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     fn parseTermExpr(self: *Parser) anyerror!NodeId {
         var start = self.next_pos;
         var token = self.peekToken();
@@ -970,7 +1020,15 @@ pub const Parser = struct {
         var left_id = switch (token.token_t) {
             .ident => b: {
                 self.advanceToken();
-                break :b self.pushNode(.ident, start);
+                const id = self.pushNode(.ident, start);
+
+                const name_token = self.tokens.items[start];
+                const name = self.src.items[name_token.start_pos..name_token.data.end_pos];
+                if (!self.isVarDeclaredFromScope(name)) {
+                    try self.deps.put(self.alloc, name, id);
+                }
+
+                break :b id;
             },
             .number => b: {
                 self.advanceToken();
@@ -1297,6 +1355,20 @@ pub const Parser = struct {
                     .right = right_expr_id,
                 },
             };
+
+            const left = self.nodes.items[expr_id];
+            if (left.node_t == .ident) {
+                const name_token = self.tokens.items[left.start_token];
+                const name = self.src.items[name_token.start_pos..name_token.data.end_pos];
+                const block = &self.block_stack.items[self.block_stack.items.len-1];
+                if (self.deps.get(name)) |node_id| {
+                    if (node_id == expr_id) {
+                        // Remove dependency now that it's recognized as assign statement.
+                        _ = self.deps.remove(name);
+                    }
+                }
+                try block.vars.put(self.alloc, name, {});
+            }
 
             token = self.peekToken();
             if (token.token_t == .new_line) {
@@ -1899,8 +1971,8 @@ pub const ResultView = struct {
     func_decls: []const FunctionDeclaration,
     func_params: []const FunctionParam,
 
-    /// Meta annotation.
     name: []const u8,
+    deps: *std.StringHashMapUnmanaged(NodeId),
 
     pub fn getTokenString(self: ResultView, token_id: u32) []const u8 {
         // Assumes token with end_pos.
@@ -1992,4 +2064,38 @@ pub fn pushNodeToList(alloc: std.mem.Allocator, nodes: *std.ArrayListUnmanaged(N
         .head = undefined,
     }) catch fatal();
     return @intCast(NodeId, id);
+}
+
+test "Parse dependency variables" {
+    var parser = Parser.init(t.alloc);
+    defer parser.deinit();
+
+    var res = try parser.parseNoErr(
+        \\foo
+    );
+    try t.eq(res.deps.size, 1);
+    try t.eq(res.deps.contains("foo"), true);
+
+    // Assign statement.
+    res = try parser.parseNoErr(
+        \\foo = 123
+        \\foo
+    );
+    try t.eq(res.deps.size, 0);
+
+    // Function call.
+    res = try parser.parseNoErr(
+        \\foo()
+    );
+    try t.eq(res.deps.size, 1);
+    try t.eq(res.deps.contains("foo"), true);
+
+    // Function call after declaration.
+    t.setLogLevel(.debug);
+    res = try parser.parseNoErr(
+        \\fun foo():
+        \\  // nop
+        \\foo()
+    );
+    try t.eq(res.deps.size, 0);
 }

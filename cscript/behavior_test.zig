@@ -561,7 +561,7 @@ const Runner = struct {
         t.alloc.destroy(self);
     }
 
-    fn parse(self: *Runner, src: []const u8) !cs.ParserResultView {
+    fn parse(self: *Runner, src: []const u8) !cs.ParseResultView {
         return try self.parser.parse(src);
     }
 
