@@ -22,6 +22,7 @@ const box = @import("box.zig");
 pub const Box = box.Box;
 pub const SizedBox = box.SizedBox;
 pub const RbTree = @import("rb_tree.zig").RbTree;
+pub const Queue = @import("queue.zig").Queue;
 
 // Shared opaque type.
 pub const Opaque = opaque {
