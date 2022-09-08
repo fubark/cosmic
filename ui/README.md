@@ -50,6 +50,7 @@ cd cosmic
 
 ## Run demo (Desktop)
 ```sh
+# If you are using the latest zig stage3 compiler, append "-fstage1" to the command.
 zig build run -Dpath="ui/examples/counter.zig" -Dgraphics -Drelease-safe
 ```
 
