@@ -43,6 +43,7 @@ pub const tessellator = @import("tessellator.zig");
 pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
 pub const Renderer = @import("renderer.zig").Renderer;
+pub const WindowRenderer = @import("renderer.zig").WindowRenderer;
 pub const FrameResultVK = @import("renderer.zig").FrameResultVK;
 
 const _text = @import("text.zig");

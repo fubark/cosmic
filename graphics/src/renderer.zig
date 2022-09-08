@@ -11,15 +11,8 @@ const gpu = graphics.gpu;
 const gvk = graphics.vk;
 const ggl = graphics.gl;
 
-/// A Renderer abstracts how and where a frame is drawn to and provides:
-/// 1. An interface to begin/end a frame.
-/// 2. A graphics context to paint things to a frame.
-/// 3. TODO: If the window resizes, it is responsible for adjusting the framebuffers and graphics context.
-/// 4. TODO: Measuring fps should probably be here.
 pub const Renderer = struct {
-    swapchain: graphics.SwapChain,
     gctx: graphics.Graphics,
-    win: *platform.Window,
     inner: switch (Backend) {
         .Vulkan => struct {
             ctx: gvk.VkContext,
@@ -31,36 +24,25 @@ pub const Renderer = struct {
         else => void,
     },
 
-    /// Creates a renderer that targets a window.
-    pub fn init(self: *Renderer, alloc: std.mem.Allocator, win: *platform.Window) !void {
-        self.win = win;
+    // TODO: Remove swapchain and window dependency.
+    pub fn initVK(self: *Renderer, alloc: std.mem.Allocator, swapc: graphics.SwapChain, win: *platform.Window) !void {
+        self.inner.vk = try gvk.Renderer.init(alloc, win, swapc);
+        const vk_ctx = gvk.VkContext.init(alloc, win);
+        self.inner.ctx = vk_ctx;
+        self.gctx.initVK(alloc, win.impl.dpr, &self.inner.vk, vk_ctx);
+    }
+
+    pub fn init(self: *Renderer, alloc: std.mem.Allocator, dpr: f32) !void {
         switch (Backend) {
-            .Vulkan => {
-                self.swapchain.initVK(alloc, win);
-
-                self.inner.vk = gvk.Renderer.init(alloc, win, self.swapchain) catch |err| {
-                    stdx.panicFmt("{}", .{ err });
-                };
-                const vk_ctx = gvk.VkContext.init(alloc, win);
-                self.inner.ctx = vk_ctx;
-
-                self.gctx.initVK(alloc, win.impl.dpr, &self.inner.vk, vk_ctx);
-            },
             .OpenGL => {
                 try self.inner.renderer.init(alloc);
-
-                self.swapchain.init(alloc, win);
-                self.gctx.init(alloc, win.impl.dpr, &self.inner.renderer) catch |err| {
-                    stdx.panicFmt("{}", .{err});
-                };
+                try self.gctx.init(alloc, dpr, &self.inner.renderer);
             },
             else => {},
         }
     }
 
     pub fn deinit(self: *Renderer, alloc: std.mem.Allocator) void {
-        // Deinit swapchain first to make sure there aren't any pending resources in use.
-        self.swapchain.deinit(alloc);
         self.gctx.deinit();
         switch (Backend) {
             .Vulkan => self.inner.vk.deinit(alloc),
@@ -74,28 +56,65 @@ pub const Renderer = struct {
     pub fn getGraphics(self: *Renderer) *graphics.Graphics {
         return &self.gctx;
     }
+};
+
+/// A WindowRenderer abstracts how and where a frame is drawn to and provides:
+/// 1. An interface to begin/end a frame.
+/// 2. A graphics context to paint things to a frame.
+/// 3. TODO: If the window resizes, it is responsible for adjusting the framebuffers and graphics context.
+/// 4. TODO: Measuring fps should probably be here.
+pub const WindowRenderer = struct {
+    swapchain: graphics.SwapChain,
+    renderer: Renderer,
+    win: *platform.Window,
+
+    /// Creates a renderer that targets a window.
+    pub fn init(self: *WindowRenderer, alloc: std.mem.Allocator, win: *platform.Window) !void {
+        self.win = win;
+        switch (Backend) {
+            .Vulkan => {
+                self.swapchain.initVK(alloc, win);
+                try self.renderer.initVK(alloc, self.swapchain, win);
+            },
+            .OpenGL => {
+                self.swapchain.init(alloc, win);
+                try self.renderer.init(alloc, win.impl.dpr);
+            },
+            else => {},
+        }
+    }
+
+    pub fn deinit(self: *WindowRenderer, alloc: std.mem.Allocator) void {
+        // Deinit swapchain first to make sure there aren't any pending resources in use.
+        self.swapchain.deinit(alloc);
+        self.renderer.deinit(alloc);
+    }
+
+    pub fn getGraphics(self: *WindowRenderer) *graphics.Graphics {
+        return self.renderer.getGraphics();
+    }
     
     /// Start of frame with a camera view.
-    pub inline fn beginFrame(self: *Renderer, cam: graphics.Camera) void {
+    pub inline fn beginFrame(self: *WindowRenderer, cam: graphics.Camera) void {
         self.swapchain.beginFrame();
         switch (Backend) {
             .Vulkan => {
                 const cur_image_idx = self.swapchain.impl.cur_image_idx;
                 const cur_frame_idx = self.swapchain.impl.cur_frame_idx;
                 const framebuffer = self.inner.vk.framebuffers[cur_image_idx];
-                gpu.Graphics.beginFrameVK(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, cur_frame_idx, framebuffer);
+                gpu.Graphics.beginFrameVK(&self.renderer.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, cur_frame_idx, framebuffer);
             },
             .OpenGL => {
                 // In OpenGL, glClear can block if there there are too many commands in the queue.
-                gpu.Graphics.beginFrame(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, self.win.impl.fbo_id);
+                gpu.Graphics.beginFrame(&self.renderer.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, self.win.impl.fbo_id);
             },
             else => stdx.unsupported(),
         }
-        gpu.Graphics.setCamera(&self.gctx.impl, cam);
+        gpu.Graphics.setCamera(&self.renderer.gctx.impl, cam);
     }
 
     /// End of frame, flush to framebuffer.
-    pub inline fn endFrame(self: *Renderer) void {
+    pub inline fn endFrame(self: *WindowRenderer) void {
         switch (Backend) {
             .Vulkan => {
                 const frame_res = gpu.Graphics.endFrameVK(&self.gctx.impl);
@@ -128,7 +147,7 @@ pub const Renderer = struct {
                 vk.assertSuccess(res);
             },
             .OpenGL => {
-                gpu.Graphics.endFrame(&self.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, self.win.impl.fbo_id);
+                gpu.Graphics.endFrame(&self.renderer.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, self.win.impl.fbo_id);
             },
             else => stdx.unsupported(),
         }

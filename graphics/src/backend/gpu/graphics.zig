@@ -2418,6 +2418,7 @@ pub const Graphics = struct {
     }
 
     /// Binds an image to the write buffer. 
+    /// Note this doesn't bind a paint state. If the image has it's own paint state, it should be set just before this call.
     pub fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
         self.endCmd();
         var img = self.image_store.images.getPtrNoCheck(image_id);
@@ -2436,10 +2437,14 @@ pub const Graphics = struct {
     }
 
     pub fn createTextureFramebuffer(self: Graphics, tex_id: gl.GLuint) gl.GLuint {
-        _ = self;
+        // Restore current fbo after creating framebuffer.
+        const cur_fbo = self.inner.renderer.binded_draw_framebuffer;
+        defer self.inner.renderer.bindDrawFramebuffer(cur_fbo);
+
         var fbo_id: gl.GLuint = 0;
         gl.genFramebuffers(1, &fbo_id);
-        gl.bindFramebuffer(gl.GL_FRAMEBUFFER, fbo_id);
+        self.inner.renderer.bindDrawFramebuffer(fbo_id);
+        // gl.bindFramebuffer(gl.GL_FRAMEBUFFER, fbo_id);
 
         gl.bindTexture(gl.GL_TEXTURE_2D, tex_id);
         gl.framebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, tex_id, 0);
