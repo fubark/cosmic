@@ -163,15 +163,21 @@ pub const World = struct {
     }
 
     pub fn genTerrain(self: *World) void {
-        const scale = 0.01;
+        const scale = 0.1;
 
-        var x: i32 = -5;
-        while (x < 10) : (x += 1) {
-            var z: i32 = -5;
-            while (z < 5) : (z += 1) {
+        const start_x: i32 = -30;
+        const end_x: i32 = 30;
+        const start_z: i32 = -30;
+        const end_z: i32 = 30;
+        const half_height: i32 = 10;
+
+        var x = start_x;
+        while (x < end_x) : (x += 1) {
+            var z = start_z;
+            while (z < end_z) : (z += 1) {
                 const noise = graphics.perlinNoise(@intToFloat(f32, x) * scale, @intToFloat(f32, z) * scale, 0);
-                var y = @floatToInt(i32, noise * 100);
-                while (y > -5) : (y -= 1) {
+                var y = @floatToInt(i32, noise * @intToFloat(f32, half_height));
+                while (y > -half_height) : (y -= 1) {
                     const pt = VoxelPt.init(x, y, z);
                     // log.debug("setVoxel {}", .{pt});
                     Chunks.setVoxel(self, pt, .Block);
@@ -291,7 +297,7 @@ pub const World = struct {
         }
 
         // Draw terrain.
-        const material = gctx.pushMaterial(graphics.Material.initAlbedoColor(Color.Green));
+        const material = graphics.Material.initAlbedoColor(Color.Green);
         var chunk_x: i32 = -3;
         var voxels: u32 = 0;
         while (chunk_x < 3) : (chunk_x += 1) {
@@ -329,7 +335,7 @@ pub const World = struct {
             xform.scale3D(obj.scale.x, obj.scale.y, obj.scale.z);
             xform.rotateQuat(obj.rot);
             xform.translate3D(obj.pos.x, obj.pos.y, obj.pos.z);
-            gctx.drawSingleCuboidPbr3D(xform, graphics.Material.initAlbedoColor(Color.Gray));
+            gctx.drawCuboidPbr3D(xform, graphics.Material.initAlbedoColor(Color.Gray));
         }
     }
 };

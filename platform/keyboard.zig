@@ -187,8 +187,6 @@ const PrintableCharMap = b: {
 };
 
 pub const KeyDownEvent = struct {
-    const Self = @This();
-
     code: KeyCode,
 
     // Keyboard modifiers.
@@ -197,7 +195,7 @@ pub const KeyDownEvent = struct {
     // Whether it's a repeated key down, pressed and held. Frequency depends on target platform settings.
     is_repeat: bool,
 
-    pub fn initWithMods(code: KeyCode, mods: u8, is_repeat: bool) @This() {
+    pub fn initWithMods(code: KeyCode, mods: u8, is_repeat: bool) KeyDownEvent {
         return .{
             .code = code,
             .mods = mods,
@@ -205,7 +203,7 @@ pub const KeyDownEvent = struct {
         };
     }
 
-    pub fn init(code: KeyCode, is_repeat: bool, shift_pressed: bool, control_pressed: bool, alt_pressed: bool, meta_pressed: bool) Self {
+    pub fn init(code: KeyCode, is_repeat: bool, shift_pressed: bool, control_pressed: bool, alt_pressed: bool, meta_pressed: bool) KeyDownEvent {
         var mods: u8 = 0;
         if (shift_pressed) {
             mods |= ShiftMask;
@@ -227,45 +225,43 @@ pub const KeyDownEvent = struct {
     }
 
     /// Returns the printable ascii char. Returns null if it's not a visible char.
-    pub fn getPrintChar(self: Self) ?u8 {
+    pub fn getPrintChar(self: KeyDownEvent) ?u8 {
         const shift_idx = @boolToInt((self.mods & ShiftMask) == ShiftMask);
         const res = PrintableCharMap[@enumToInt(self.code)][shift_idx];
         if (res != 0) return res else return null;
     }
 
-    pub fn isShiftPressed(self: Self) bool {
+    pub fn isShiftPressed(self: KeyDownEvent) bool {
         return self.mods & ShiftMask > 0;
     }
 
-    pub fn isControlPressed(self: Self) bool {
+    pub fn isControlPressed(self: KeyDownEvent) bool {
         return self.mods & ControlMask > 0;
     }
 
-    pub fn isAltPressed(self: Self) bool {
+    pub fn isAltPressed(self: KeyDownEvent) bool {
         return self.mods & AltMask > 0;
     }
 
-    pub fn isMetaPressed(self: Self) bool {
+    pub fn isMetaPressed(self: KeyDownEvent) bool {
         return self.mods & MetaMask > 0;
     }
 };
 
 pub const KeyUpEvent = struct {
-    const Self = @This();
-
     code: KeyCode,
 
     // Keyboard modifiers.
     mods: u8,
 
-    pub fn initWithMods(code: KeyCode, mods: u8) @This() {
+    pub fn initWithMods(code: KeyCode, mods: u8) KeyUpEvent {
         return .{
             .code = code,
             .mods = mods,
         };
     }
 
-    pub fn init(code: KeyCode, shift_pressed: bool, control_pressed: bool, alt_pressed: bool, meta_pressed: bool) Self {
+    pub fn init(code: KeyCode, shift_pressed: bool, control_pressed: bool, alt_pressed: bool, meta_pressed: bool) KeyUpEvent {
         var mods: u8 = 0;
         if (shift_pressed) {
             mods |= ShiftMask;
@@ -286,25 +282,25 @@ pub const KeyUpEvent = struct {
     }
 
     /// Returns the printable ascii char. Returns null if it's not a visible char.
-    pub fn getPrintChar(self: Self) ?u8 {
+    pub fn getPrintChar(self: KeyUpEvent) ?u8 {
         const shift_idx = @boolToInt((self.mods & ShiftMask) == ShiftMask);
         const res = PrintableCharMap[@enumToInt(self.code)][shift_idx];
         if (res != 0) return res else return null;
     }
 
-    pub fn isShiftPressed(self: Self) bool {
+    pub fn isShiftPressed(self: KeyUpEvent) bool {
         return self.mods & ShiftMask > 0;
     }
 
-    pub fn isControlPressed(self: Self) bool {
+    pub fn isControlPressed(self: KeyUpEvent) bool {
         return self.mods & ControlMask > 0;
     }
 
-    pub fn isAltPressed(self: Self) bool {
+    pub fn isAltPressed(self: KeyUpEvent) bool {
         return self.mods & AltMask > 0;
     }
 
-    pub fn isMetaPressed(self: Self) bool {
+    pub fn isMetaPressed(self: KeyUpEvent) bool {
         return self.mods & MetaMask > 0;
     }
 };

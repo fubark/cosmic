@@ -10,7 +10,7 @@ const log = stdx.log.scoped(.helper);
 
 pub const App = struct {
     gctx: *graphics.Graphics,
-    renderer: graphics.Renderer,
+    renderer: graphics.WindowRenderer,
     cam: graphics.Camera,
     dispatcher: EventDispatcher,
     win: Window,

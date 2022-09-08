@@ -30,6 +30,30 @@ TODO
 ### Variables
 TODO
 
+### Strings
+```cscript
+// Single line string literal.
+apple = 'a fruit'
+
+// Escape the single quote to use it inside the string or use backticks.
+apple = 'Bob\'s fruit'
+apple = `Bob's fruit`
+
+// Unicode.
+str = 'abc🦊xyz🐶'
+
+// There are two methods to write a multiple line string literal. 
+// The recommended way is to use quotes to clearly show the whitespace surrounding a line.
+poem =: 'one semicolon'
+    'two blobs missing from a screen'
+    'hours of life lost'
+
+// The other method is to use backticks.
+poem = `one semicolon
+two blobs missing from a screen
+hours of life lost`
+```
+
 ### Arrays
 ```cscript
 arr = [ 1, 2, 3 ]
@@ -41,6 +65,24 @@ cs.log arr[0]
 dict = { a: 123, b: fun () => 5 }
 cs.log dict.a
 cs.log dict['a']
+
+// Dictionaries entries can be separated by the new line.
+map = {
+    foo: 1
+    bar: 2
+}
+
+// Entries can also follow a `{}:` block.
+colors = {}:
+    red: 0xFF0000
+    green: 0x00FF00
+    blue: 0x0000FF
+
+    // This pattern can also be used in child entries like this.
+    darker {}: 
+        red: 0xAA0000
+        green: 0x00AA00
+        blue: 0x0000AA
 ```
 
 ### Branching
@@ -152,6 +194,27 @@ TODO
 ### Exceptions and errors.
 TODO
 
+### Async
+An async task can be created using `@asyncTask()`. Code can suspend on an `apromise` and wait for the value to resolve with `await`.
+```cscript
+fun foo():
+    task = @asyncTask()
+    @queueTask(fun () => task.resolve(123))
+    return task.promise
+await foo()
+// Returns 123.
+```
+
+When the function is declared to return an `apromise`. Callers can omit the `await` keyword:
+```cscript
+fun foo() apromise:
+    task = @asyncTask()
+    @queueTask(fun () => task.resolve(123))
+    return task.promise
+1 + foo()
+// Returns 124. Equivalent to "1 + await foo()".
+```
+
 ### Coroutines
 TODO
 
@@ -168,7 +231,8 @@ TODO
 TODO
 
 ### Access Control
-Declarations are all public. Fields and declarations can have a private annotation but it isn't enforced and only serves to ignore the autocompletion in the code editor.
+Declarations are all public. Fields and declarations can have a `@private` annotation but it isn't enforced and only serves to ignore the autocompletion in the code editor.
+
 <details>
 <summary>Explain</summary>
 The author may not know all use cases of their library so this removes friction for users to access the library internals.
@@ -184,6 +248,20 @@ language math:
 vec3 = math# vec1 + vec2
 vec3 = math#:
     vec1 + vec2
+```
+
+### CDATA: CScript Data Format
+Similar to JSON/JavaScript, the CDATA format uses the same literal value semantics as CScript.
+```cscript
+{
+    name: 'John Doe'
+    'age': 25
+    cities: [
+        'New York'
+        'San Francisco'
+        'Tokyo'
+    ]
+}
 ```
 
 ### Gas Meters

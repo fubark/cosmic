@@ -55,7 +55,7 @@ pub fn compileErrorFmt(comptime format: []const u8, args: anytype) noreturn {
 const EnableTimerTrace = builtin.mode == .Debug;
 
 const TimerTrace = struct {
-    timer: if (EnableTimerTrace) std.time.Timer else void,
+    timer: if (EnableTimerTrace) stdx.time.Timer else void,
 
     pub fn end(self: *TimerTrace) void {
         if (EnableTimerTrace) {
@@ -76,7 +76,7 @@ const TimerTrace = struct {
 pub fn trace() TimerTrace {
     if (EnableTimerTrace) {
         return .{
-            .timer = std.time.Timer.start() catch unreachable,
+            .timer = stdx.time.Timer.start() catch unreachable,
         };
     } else {
         return .{

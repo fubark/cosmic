@@ -35,6 +35,6 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     step.linkLibrary(lib);
 }
 
-fn srcPath() []const u8 {
-    return std.fs.path.dirname(@src().file) orelse unreachable;
+inline fn srcPath() []const u8 {
+    return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

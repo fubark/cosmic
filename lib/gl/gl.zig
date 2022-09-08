@@ -75,6 +75,8 @@ extern "graphics" fn jsGlGetUniformLocation(program: u32, name_ptr: *const u8, n
 extern "graphics" fn jsGlCheckFramebufferStatus(target: u32) u32;
 extern "graphics" fn jsGlDeleteVertexArray(vao: u32) void;
 extern "graphics" fn jsGlDeleteBuffer(buffer: u32) void;
+extern "graphics" fn jsGlFlush() void;
+extern "graphics" fn jsGlFinish() void;
 
 const IsWindows = builtin.os.tag == .windows;
 
@@ -284,6 +286,22 @@ pub inline fn drawElements(mode: c.GLenum, num_indices: usize, index_type: c.GLe
         jsGlDrawElements(mode, num_indices, index_type, index_offset);
     } else {
         c.glDrawElements(mode, @intCast(c_int, num_indices), index_type, @intToPtr(?*const c.GLvoid, index_offset));
+    }
+}
+
+pub inline fn flush() void {
+    if (IsWasm) {
+        jsGlFlush();
+    } else {
+        c.glFlush();
+    }
+}
+
+pub inline fn finish() void {
+    if (IsWasm) {
+        jsGlFinish();
+    } else {
+        c.glFinish();
     }
 }
 

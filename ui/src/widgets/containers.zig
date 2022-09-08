@@ -135,6 +135,42 @@ pub const Center = struct {
     }
 };
 
+/// Respects parent constraints and keeps the child's aspect ratio.
+/// Only child widgets that support resize work.
+pub const KeepAspectRatio = struct {
+    props: struct {
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub fn build(self: *KeepAspectRatio, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *KeepAspectRatio, c: *ui.LayoutContext) ui.LayoutSize {
+        if (self.props.child == ui.NullFrameId) {
+            return ui.LayoutSize.init(0, 0);
+        }
+
+        const cstr = c.getSizeConstraints();
+
+        const node = c.getNode();
+        const child = node.children.items[0];
+        var child_size = c.computeLayoutInherit(child);
+        if (child_size.width > cstr.max_width) {
+            child_size.height = cstr.max_width * child_size.height / child_size.width;
+            child_size.width = cstr.max_width;
+        }
+        if (child_size.height > cstr.max_height) {
+            child_size.width = cstr.max_height * child_size.width / child_size.height;
+            child_size.height = cstr.max_height;
+        }
+        c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
+
+        // TODO: Handle min size.
+        return child_size;
+    }
+};
+
 const StretchMethod = enum(u3) {
     None = 0,
     Both = 1,

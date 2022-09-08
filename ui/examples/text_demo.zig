@@ -33,6 +33,7 @@ pub const App = struct {
     ctx: *ui.CommonContext,
 
     font_family: graphics.FontFamily,
+    font_size: f32,
 
     pub fn init(self: *App, c: *ui.InitContext) void {
         self.* = .{
@@ -46,6 +47,7 @@ pub const App = struct {
             .cwd = undefined,
             .file_m = undefined,
             .font_family = graphics.FontFamily.Default,
+            .font_size = 20,
             .ctx = c.common,
         };
         var buf: [std.os.PATH_MAX]u8 = undefined;
@@ -60,7 +62,7 @@ pub const App = struct {
     pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn onSliderChange(self_: *App, value: i32) void {
-                self_.text_editor.getWidget().setFontSize(@intToFloat(f32, value));
+                self_.font_size = @intToFloat(f32, value);
             }
 
             fn onFgPreviewChange(self_: *App, color: Color) void {
@@ -120,8 +122,9 @@ pub const App = struct {
                         u.Padding(.{ .padding = 10 }, 
                             u.TextArea(.{
                                 .bind = &self.text_editor,
-                                // .font_family = "Tamzen",
-                                .font_family = self.font_family,
+                                // .fontFamily = "Tamzen",
+                                .fontFamily = self.font_family,
+                                .fontSize = self.font_size,
                                 .init_val = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built on top of Freetype and OpenGL/Vulkan.",
                                 .text_color = self.text_color,
                                 .bg_color = self.bg_color,

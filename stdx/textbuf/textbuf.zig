@@ -40,10 +40,26 @@ pub const TextBuffer = struct {
         const len = try std.unicode.utf8CodepointSequenceLength(cp);
         const buf_idx = self.getBufferIdx(idx);
         const old_len = self.buf.items.len;
-        self.buf.resize(old_len + len) catch @panic("error");
+        try self.buf.resize(old_len + len);
         std.mem.copyBackwards(u8, self.buf.items[buf_idx+len..], self.buf.items[buf_idx..old_len]);
-        _ = std.unicode.utf8Encode(cp, self.buf.items[buf_idx..buf_idx+len]) catch @panic("error");
+        _ = try std.unicode.utf8Encode(cp, self.buf.items[buf_idx..buf_idx+len]);
         self.num_chars += 1;
+    }
+
+    /// Returns number of utf8 chars inserted.
+    pub fn insertSubStr(self: *TextBuffer, idx: u32, str: []const u8) !u32 {
+        const view = try std.unicode.Utf8View.init(str);
+
+        const buf_idx = self.getBufferIdx(idx);
+        try self.buf.insertSlice(buf_idx, str);
+
+        var iter = view.iterator();
+        var i: u32 = 0;
+        while (iter.nextCodepoint()) |_| {
+            i += 1;
+        }
+        self.num_chars += i;
+        return i;
     }
 
     pub fn appendCodepoint(self: *TextBuffer, cp: u21) !void {
@@ -54,15 +70,16 @@ pub const TextBuffer = struct {
         self.num_chars += 1;
     }
 
-    pub fn appendSubStr(self: *TextBuffer, str: []const u8) !void {
+    pub fn appendSubStr(self: *TextBuffer, str: []const u8) !u32 {
         const view = try std.unicode.Utf8View.init(str);
+        try self.buf.appendSlice(str);
         var iter = view.iterator();
         var i: u32 = 0;
         while (iter.nextCodepoint()) |_| {
             i += 1;
         }
-        self.buf.appendSlice(str) catch @panic("error");
         self.num_chars += i;
+        return i;
     }
 
     pub fn appendFmt(self: *TextBuffer, comptime fmt: []const u8, args: anytype) void {
@@ -95,7 +112,12 @@ pub const TextBuffer = struct {
 
     fn getBufferIdx(self: TextBuffer, idx: u32) u32 {
         if (idx == 0) {
+            // The starting char.
             return 0;
+        }
+        if (idx == self.num_chars) {
+            // After the last char.
+            return @intCast(u32, self.buf.items.len);
         }
         var iter = std.unicode.Utf8View.initUnchecked(self.buf.items).iterator();
         var cur_char_idx: u32 = 0;
@@ -150,6 +172,17 @@ test "TextBuffer.clear" {
     try t.eq(buf.num_chars, 0);
 }
 
+test "TextBuffer.getBufferIdx" {
+    var buf = try TextBuffer.init(t.alloc, "ab🫐c");
+    defer buf.deinit();
+    try t.eq(buf.getBufferIdx(0), 0);
+    try t.eq(buf.getBufferIdx(1), 1);
+    try t.eq(buf.getBufferIdx(2), 2);
+    try t.eq(buf.getBufferIdx(3), 6);
+    try t.eq(buf.getBufferIdx(4), 7);
+    try t.eq(buf.buf.items.len, 7);
+}
+
 test "TextBuffer.insertCodepoint" {
     var buf = try TextBuffer.init(t.alloc, "");
     defer buf.deinit();
@@ -172,6 +205,23 @@ test "TextBuffer.insertCodepoint" {
     try t.eqStr(buf.buf.items, "aa🫐b");
 }
 
+test "TextBuffer.insertSubStr" {
+    var buf = try TextBuffer.init(t.alloc, "");
+    defer buf.deinit();
+
+    try t.eq(try buf.insertSubStr(0, "abc"), 3);
+    try t.eq(buf.num_chars, 3);
+    try t.eqStr(buf.buf.items, "abc");
+
+    try t.eq(try buf.insertSubStr(2, "s🫐t"), 3);
+    try t.eq(buf.num_chars, 6);
+    try t.eqStr(buf.buf.items, "abs🫐tc");
+
+    try t.eq(try buf.insertSubStr(2, ""), 0);
+    try t.eq(buf.num_chars, 6);
+    try t.eqStr(buf.buf.items, "abs🫐tc");
+}
+
 test "TextBuffer.appendCodepoint" {
     var buf = try TextBuffer.init(t.alloc, "");
     defer buf.deinit();
@@ -189,11 +239,15 @@ test "TextBuffer.appendSubStr" {
     var buf = try TextBuffer.init(t.alloc, "");
     defer buf.deinit();
 
-    try buf.appendSubStr("a");
+    try t.eq(try buf.appendSubStr("a"), 1);
     try t.eq(buf.num_chars, 1);
     try t.eqStr(buf.buf.items, "a");
 
-    try buf.appendSubStr("b🫐c");
+    try t.eq(try buf.appendSubStr("b🫐c"), 3);
+    try t.eq(buf.num_chars, 4);
+    try t.eqStr(buf.buf.items, "ab🫐c");
+
+    try t.eq(try buf.appendSubStr(""), 0);
     try t.eq(buf.num_chars, 4);
     try t.eqStr(buf.buf.items, "ab🫐c");
 }
