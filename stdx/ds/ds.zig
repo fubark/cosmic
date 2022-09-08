@@ -23,7 +23,9 @@ pub const Box = box.Box;
 pub const SizedBox = box.SizedBox;
 pub const RbTree = @import("rb_tree.zig").RbTree;
 pub const Queue = @import("queue.zig").Queue;
-pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
+const linked_list = @import("linked_list.zig");
+pub const SinglyLinkedList = linked_list.SinglyLinkedList;
+pub const SLLUnmanaged = linked_list.SLLUnmanaged;
 
 // Shared opaque type.
 pub const Opaque = opaque {
