@@ -71,13 +71,13 @@ jobs:
       - name: Get version.
         if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
         run: |
-          zig build version 2>&1 | tee version
+          zig build version -fstage1 2>&1 | tee version
           echo "BUILD_VERSION=$(cat version)" >> $GITHUB_ENV
 
       - name: Get version. (windows)
         if: env.BUILD_HOST == 'windows-2019'
         run: |
-          zig build version > version 2>&1
+          zig build version -fstage1 > version 2>&1
           echo "BUILD_VERSION=$(cat version)" >> $env:GITHUB_ENV
 
       - name: Cache.
@@ -95,7 +95,7 @@ jobs:
             pr-build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-3
 
       - name: Get extras.
-        run: zig build get-extras ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
+        run: zig build get-extras -fstage1 ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
 
       # - name: Get prebuilt v8.
       #   run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
@@ -107,11 +107,11 @@ jobs:
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
         if: env.BUILD_TARGET != 'aarch64-macos-none'
-        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch
+        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch -fstage1
 
       - name: Test app.
         if: env.BUILD_TARGET != 'aarch64-macos-none' && env.BUILD_TARGET != 'x86_64-windows-gnu'
-        run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+        run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -fstage1
 
       # - name: Test behavior.
       #   if: env.BUILD_TARGET != 'aarch64-macos-none'
