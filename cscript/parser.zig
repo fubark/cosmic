@@ -1958,6 +1958,48 @@ pub const Node = struct {
     },
 };
 
+pub const Result = struct {
+    inner: ResultView,
+    
+    pub fn init(alloc: std.mem.Allocator, view: ResultView) !Result {
+        const arr = try view.nodes.clone(alloc);
+        const nodes = try alloc.create(std.ArrayListUnmanaged(Node));
+        nodes.* = arr;
+
+        const deps_map = try view.deps.clone(alloc);
+        const deps = try alloc.create(std.StringHashMapUnmanaged(NodeId));
+        deps.* = deps_map;
+
+        return Result{
+            .inner = .{
+                .has_error = view.has_error,
+                .err_msg = try alloc.dupe(u8, view.err_msg),
+                .root_id = view.root_id,
+                .nodes = nodes,
+                .src = try alloc.dupe(u8, view.src),
+                .tokens = try alloc.dupe(Token, view.tokens),
+                .func_decls = try alloc.dupe(FunctionDeclaration, view.func_decls),
+                .func_params = try alloc.dupe(FunctionParam, view.func_params),
+                .name = try alloc.dupe(u8, view.name),
+                .deps = deps,
+            },
+        };
+    }
+
+    pub fn deinit(self: Result, alloc: std.mem.Allocator) void {
+        alloc.free(self.inner.err_msg);
+        self.inner.nodes.deinit(alloc);
+        alloc.destroy(self.inner.nodes);
+        alloc.free(self.inner.tokens);
+        alloc.free(self.inner.src);
+        alloc.free(self.inner.func_decls);
+        alloc.free(self.inner.func_params);
+        alloc.free(self.inner.name);
+        self.inner.deps.deinit(alloc);
+        alloc.destroy(self.inner.deps);
+    }
+};
+
 /// Result data is owned by the Parser instance.
 pub const ResultView = struct {
     has_error: bool,
@@ -1978,6 +2020,10 @@ pub const ResultView = struct {
         // Assumes token with end_pos.
         const token = self.tokens[token_id];
         return self.src[token.start_pos..token.data.end_pos];
+    }
+
+    pub fn dupe(self: ResultView, alloc: std.mem.Allocator) !Result {
+        return try Result.init(alloc, self);
     }
 };
 
