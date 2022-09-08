@@ -7,6 +7,7 @@ pub const JsTargetCompiler = compiler.JsTargetCompiler;
 pub const JsTargetResultView = compiler.ResultView;
 
 const interpreter = @import("interpreter.zig");
+pub const JsEngine = interpreter.JsEngine;
 pub const JsValue = interpreter.JsValue;
 pub const JsValueType = interpreter.JsValueType;
 pub const WebJsValue = interpreter.WebJsValue;
