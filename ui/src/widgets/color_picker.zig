@@ -134,7 +134,7 @@ const ColorPickerPopover = struct {
 
         const palette_bounds = self.palette.node.getAbsBounds();
         if (palette_bounds.containsPt(xf, yf)) {
-            e.ctx.requestFocus(onBlur);
+            e.ctx.requestFocus(.{ .onBlur = onBlur });
             self.is_pressed = true;
             self.setMouseValue(e.val.x, e.val.y);
 

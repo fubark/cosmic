@@ -83,7 +83,7 @@ pub const List = struct {
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(List);
         if (e.val.button == .Left) {
-            e.ctx.requestFocus(onBlur);
+            e.ctx.requestFocus(.{ .onBlur = onBlur });
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
             if (xf >= node.abs_bounds.min_x and xf <= node.abs_bounds.max_x) {

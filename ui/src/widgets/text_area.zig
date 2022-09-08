@@ -447,7 +447,7 @@ pub const TextArea = struct {
             }
         } else if (val.code == .V and val.isControlPressed()) {
             if (!IsWasm) {
-                const clipboard = platform.allocClipboardText(self.alloc);
+                const clipboard = platform.allocClipboardText(self.alloc) catch fatal();
                 defer self.alloc.free(clipboard);
                 self.paste(clipboard);
             }
