@@ -266,7 +266,7 @@ pub fn build(b: *Builder) !void {
             .os_tag = .freestanding,
             .abi = .musl,
         };
-        const build_wasm = ctx_.createBuildWasmBundleStep(ctx_.path);
+        const build_wasm = ctx_.createBuildWasmBundleStep(ctx_.path, .{});
         b.step("wasm", "Build wasm bundle with main file at -Dpath").dependOn(&build_wasm.step);
     }
 
@@ -278,13 +278,13 @@ pub fn build(b: *Builder) !void {
             .os_tag = .freestanding,
             .abi = .musl,
         };
-        const counter = ctx_.createBuildWasmBundleStep("ui/examples/counter.zig");
+        const counter = ctx_.createBuildWasmBundleStep("ui/examples/counter.zig", .{});
         step.step.dependOn(&counter.step);
-        const converter = ctx_.createBuildWasmBundleStep("ui/examples/converter.zig");
+        const converter = ctx_.createBuildWasmBundleStep("ui/examples/converter.zig", .{});
         step.step.dependOn(&converter.step);
-        const timer = ctx_.createBuildWasmBundleStep("ui/examples/timer.zig");
+        const timer = ctx_.createBuildWasmBundleStep("ui/examples/timer.zig", .{});
         step.step.dependOn(&timer.step);
-        const crud = ctx_.createBuildWasmBundleStep("ui/examples/crud.zig");
+        const crud = ctx_.createBuildWasmBundleStep("ui/examples/crud.zig", .{});
         step.step.dependOn(&crud.step);
         b.step("wasm-examples", "Builds all the wasm examples.").dependOn(&step.step);
     }
@@ -440,11 +440,19 @@ const BuildContext = struct {
         return step;
     }
 
+    const WasmBundleOptions = struct {
+        name: ?[]const u8 = null,
+        output_dir: ?[]const u8 = null,
+        index_html: []const u8 = "./lib/wasm/index.html",
+    };
+
     /// Similar to createBuildLibStep except we also copy over index.html and required js libs.
-    fn createBuildWasmBundleStep(self: *Self, path: []const u8) *LibExeObjStep {
-        const basename = std.fs.path.basename(path);
-        const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
-        const name = basename[0..i];
+    fn createBuildWasmBundleStep(self: *BuildContext, path: []const u8, opts: WasmBundleOptions) *LibExeObjStep {
+        const name = opts.name orelse b: {
+            const basename = std.fs.path.basename(path);
+            const i = std.mem.indexOf(u8, basename, ".zig") orelse basename.len;
+            break :b basename[0..i];
+        };
 
         const wasm = self.builder.addSharedLibrary(name, path, .unversioned);
         // const step = self.builder.addStaticLibrary(name, path);
@@ -465,12 +473,13 @@ const BuildContext = struct {
 
         _ = self.addInstallArtifact(wasm);
         // This is needed for wasm builds or the main .wasm file won't output to the custom directory. 
-        self.setOutputDir(wasm, wasm.install_step.?.dest_dir.custom);
+        const output_dir = opts.output_dir orelse wasm.install_step.?.dest_dir.custom;
+        self.setOutputDir(wasm, output_dir);
 
         self.copyAssets(wasm);
 
         // Create copy of index.html.
-        var cp = CopyFileStep.create(self.builder, self.fromRoot("./lib/wasm/index.html"), self.fromRoot("./lib/wasm/gen-index.html"));
+        var cp = CopyFileStep.create(self.builder, self.fromRoot(opts.index_html), self.fromRoot("./lib/wasm/gen-index.html"));
         wasm.step.dependOn(&cp.step);
 
         // Replace wasm file name in gen-index.html
