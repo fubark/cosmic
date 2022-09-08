@@ -39,6 +39,9 @@ apple = 'a fruit'
 apple = 'Bob\'s fruit'
 apple = `Bob's fruit`
 
+// Unicode.
+str = 'abc🦊xyz🐶'
+
 // There are two methods to write a multiple line string literal. 
 // The recommended way is to use quotes to clearly show the whitespace surrounding a line.
 poem =: 'one semicolon'
@@ -191,6 +194,27 @@ TODO
 ### Exceptions and errors.
 TODO
 
+### Async
+An async task can be created using `@asyncTask()`. Code can suspend on an `apromise` and wait for the value to resolve with `await`.
+```cscript
+fun foo():
+    task = @asyncTask()
+    @queueTask(fun () => task.resolve(123))
+    return task.promise
+await foo()
+// Returns 123.
+```
+
+When the function is declared to return an `apromise`. Callers can omit the `await` keyword:
+```cscript
+fun foo() apromise:
+    task = @asyncTask()
+    @queueTask(fun () => task.resolve(123))
+    return task.promise
+1 + foo()
+// Returns 124. Equivalent to "1 + await foo()".
+```
+
 ### Coroutines
 TODO
 
@@ -207,7 +231,8 @@ TODO
 TODO
 
 ### Access Control
-Declarations are all public. Fields and declarations can have a private annotation but it isn't enforced and only serves to ignore the autocompletion in the code editor.
+Declarations are all public. Fields and declarations can have a `@private` annotation but it isn't enforced and only serves to ignore the autocompletion in the code editor.
+
 <details>
 <summary>Explain</summary>
 The author may not know all use cases of their library so this removes friction for users to access the library internals.
