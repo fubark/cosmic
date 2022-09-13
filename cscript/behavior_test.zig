@@ -455,6 +455,12 @@ test "Binary Expressions" {
     run.deinitValue(val);
 
     val = try run.evaluate(
+        \\1 + 2 + 3
+    );
+    try t.eq(val.getInt32(), 6);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
         \\3 - 1
     );
     try t.eq(val.getInt32(), 2);
@@ -470,6 +476,13 @@ test "Binary Expressions" {
         \\20 / 5
     );
     try t.eq(val.getInt32(), 4);
+    run.deinitValue(val);
+
+    // Modulus
+    val = try run.evaluate(
+        \\3 % 2
+    );
+    try t.eq(val.getInt32(), 1);
     run.deinitValue(val);
 
     // Right function call.
