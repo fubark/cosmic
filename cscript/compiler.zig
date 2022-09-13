@@ -122,18 +122,20 @@ pub const JsTargetCompiler = struct {
                 .output = "",
                 .err_msg = self.last_err,
                 .has_error = true,
+                .wrapped_in_generator = false,
             };
         };
 
         if (self.top_level_async) {
-            try self.out.insertSlice(self.alloc, 0, "(async function () {");
-            try self.out.appendSlice(self.alloc, "})();");
+            try self.out.insertSlice(self.alloc, 0, "(function* () {");
+            try self.out.appendSlice(self.alloc, "});");
         }
 
         return ResultView{
             .output = self.out.items,
             .err_msg = "",
             .has_error = false,
+            .wrapped_in_generator = self.top_level_async,
         };
     }
 
@@ -534,9 +536,10 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write("]");
             },
             .await_expr => {
-                _ = try self.writer.write("await ");
+                _ = try self.writer.write("(yield globalThis._internal.awaitYield(");
                 var expr = self.nodes[node.head.child_head];
                 try self.genExpression(expr);
+                _ = try self.writer.write("))");
             },
             .lambda_multi => {
                 const func = self.func_decls[node.head.func.decl_id];
@@ -756,6 +759,7 @@ pub const ResultView = struct {
     output: []const u8,
     err_msg: []const u8,
     has_error: bool,
+    wrapped_in_generator: bool,
 };
 
 const BlockState = struct {

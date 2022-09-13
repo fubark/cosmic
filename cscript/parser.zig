@@ -2033,6 +2033,32 @@ pub const ResultView = struct {
     pub fn dupe(self: ResultView, alloc: std.mem.Allocator) !Result {
         return try Result.init(alloc, self);
     }
+
+    pub fn pushNode(self: ResultView, alloc: std.mem.Allocator, node_t: NodeType, start: u32) NodeId {
+        return pushNodeToList(alloc, self.nodes, node_t, start);
+    }
+
+    pub fn assertOnlyOneStmt(self: ResultView, node_id: NodeId) ?NodeId {
+        var count: u32 = 0;
+        var stmt_id: NodeId = undefined;
+        var cur_id = node_id;
+        while (cur_id != NullId) {
+            const cur = self.nodes.items[cur_id];
+            if (cur.node_t == .at_stmt and cur.head.at_stmt.skip_compile) {
+                cur_id = cur.next;
+                continue;
+            }
+            count += 1;
+            stmt_id = cur_id;
+            if (count > 1) {
+                return null;
+            }
+            cur_id = cur.next;
+        }
+        if (count == 1) {
+            return stmt_id;
+        } else return null;
+    }
 };
 
 const FuncDeclId = u32;
