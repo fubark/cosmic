@@ -105,7 +105,7 @@ pub inline fn getUniformLocation(program: c.GLuint, name: [:0]const u8) c.GLint 
     } else if (IsWindows) {
         return winGetUniformLocation(program, name);
     } else {
-        return c.glGetUniformLocation(program, name);
+        return c.glGetUniformLocation(program, name.ptr);
     }
 }
 

@@ -91,7 +91,7 @@ const GlyphMapperIface = struct {
     const Self = @This();
 
     ptr: *anyopaque,
-    get_glyph_id_fn: fn (*anyopaque, cp: u21) FontError!?u16,
+    get_glyph_id_fn: std.meta.FnPtr(fn (*anyopaque, cp: u21) FontError!?u16),
 
     fn init(ptr: anytype) Self {
         const ImplPtr = @TypeOf(ptr);
@@ -337,7 +337,8 @@ pub const OpenTypeFont = struct {
     /// Format #5 has metrics data provided.
     pub fn parseGlyphBitmapData5(alloc: std.mem.Allocator, width: u8, height: u8, bearing_x: i8, bearing_y: i8, advance: u8, data: []const u8) !GlyphBitmap {
         const cdata = alloc.alloc(u8, width * height) catch @panic("error");
-        var reader = std.io.bitReader(.Big, std.io.fixedBufferStream(data).reader());
+        var stream = std.io.fixedBufferStream(data);
+        var reader = std.io.bitReader(.Big, stream.reader());
         var out_bits: usize = undefined;
         for (cdata) |_, i| {
             const val = try reader.readBits(u1, 1, &out_bits);

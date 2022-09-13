@@ -97,7 +97,7 @@ pub const FontCache = struct {
         self.bitmap_atlas.deinit();
 
         var iter = self.font_groups.iterator();
-        while (iter.next()) |*it| {
+        while (iter.nextPtr()) |it| {
             it.deinit();
         }
 
