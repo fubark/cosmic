@@ -535,7 +535,6 @@ pub const Grammar = struct {
 fn initTokenMatchOpWalker(op_ids: []TokenMatchOp) algo.Walker([]TokenMatchOp, *TokenMatchOp) {
     const S = struct {
         fn _walk(ctx: *algo.WalkerContext(*TokenMatchOp), ops: []TokenMatchOp, op: *TokenMatchOp) void {
-            _ = ctx;
             switch (op.*) {
                 .MatchText, .MatchUntilChar, .MatchExactChar, .MatchNotChar, .MatchRangeChar, .MatchAsciiLetter, .MatchDigit, .MatchRegexChar, .MatchCharSet, .MatchNotCharSet, .MatchRule => {
                     // Nop.

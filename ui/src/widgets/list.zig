@@ -62,7 +62,6 @@ pub const List = struct {
     }
 
     fn onKeyDown(self: *List, e: ui.KeyDownEvent) void {
-        _ = self;
         const ke = e.val;
         switch (ke.code) {
             .ArrowDown => {
