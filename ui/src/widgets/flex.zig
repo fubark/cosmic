@@ -149,7 +149,6 @@ pub const Column = struct {
     }
 
     pub fn render(self: *Column, ctx: *ui.RenderContext) void {
-        _ = self;
         _ = ctx;
         // const g = c.g;
         // const n = c.node;

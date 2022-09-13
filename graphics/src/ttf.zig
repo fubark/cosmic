@@ -874,7 +874,7 @@ test "Parse tamzen." {
     try t.eqSlice(u8, glyph.data, &.{0, 255, 255, 255, 255, 0, 0, 255, 255, 0, 0, 255, 0, 255, 255, 255});
 }
 
-const vera_ttf = @embedFile("../../assets/vera.ttf");
+const vera_ttf = @embedFile("assets/vera.ttf");
 
 test "Parse vera.ttf" {
     const font = try OpenTypeFont.init(t.alloc, vera_ttf, 0);

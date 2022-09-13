@@ -339,7 +339,6 @@ pub const TextArea = struct {
     }
 
     fn onKeyDown(self: *TextArea, e: ui.KeyDownEvent) void {
-        _ = self;
         const c = e.ctx.common;
         const val = e.val;
         const line = &self.lines.items[self.caret_line];

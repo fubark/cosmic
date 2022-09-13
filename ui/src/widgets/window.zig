@@ -38,7 +38,6 @@ pub const Window = struct {
     const TitleBarHeight = 30;
 
     pub fn init(self: *Window, ctx: *ui.InitContext) void {
-        _ = ctx;
         self.x = self.props.init_x;
         self.y = self.props.init_y;
         self.width = 300;
@@ -142,7 +141,6 @@ pub const Window = struct {
     }
 
     fn onHoverResizeBorder(self: *Window, e: ui.HoverChangeEvent) void {
-        _ = self;
         if (e.hovered) {
             const t = self.computeResizeType(e.x, e.y);
             updateCursor(t);

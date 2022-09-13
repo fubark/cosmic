@@ -347,7 +347,6 @@ pub const PopoverOverlay = struct {
     node: *ui.Node,
 
     pub fn init(self: *PopoverOverlay, c: *ui.InitContext) void {
-        _ = self;
         self.custom_post_render = null;
         self.custom_post_render_ctx = null;
         self.node = c.node;
