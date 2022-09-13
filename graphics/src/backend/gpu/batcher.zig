@@ -49,7 +49,7 @@ const ShaderType = enum(u4) {
 };
 
 const PreFlushTask = struct {
-    cb: fn (ctx: ?*anyopaque) void,
+    cb: std.meta.FnPtr(fn (ctx: ?*anyopaque) void),
     ctx: ?*anyopaque,
 };
 

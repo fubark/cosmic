@@ -82,7 +82,6 @@ pub const Graphics = struct {
     text_measures_buffer: std.ArrayList(*TextMeasure),
 
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
-        _ = alloc;
         self.* = .{
             .clear_color = Color.initFloat(0, 0, 0, 1.0),
             .text_measures_buffer = std.ArrayList(*TextMeasure).init(alloc),
@@ -100,7 +99,6 @@ pub const Graphics = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
         self.text_measures_buffer.deinit();
         self.text_buf.deinit();
     }
@@ -155,7 +153,6 @@ pub const Graphics = struct {
     }
 
     pub fn setLineWidth(self: *Self, width: f32) void {
-        _ = self;
         self.cur_line_width = width;
         jsSetLineWidth(width);
     }
@@ -239,7 +236,6 @@ pub const Graphics = struct {
     }
 
     pub fn fillPolygon(self: *Self, pts: []const Vec2) void {
-        _ = self;
         self.js_buf.clearOutput();
         for (pts) |pt| {
             self.js_buf.appendF32(pt.x);
@@ -249,7 +245,6 @@ pub const Graphics = struct {
     }
 
     pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
-        _ = self;
         self.js_buf.clearOutput();
         for (pts) |pt| {
             self.js_buf.appendF32(pt.x);
@@ -290,7 +285,6 @@ pub const Graphics = struct {
 
     // Iterator of TextMeasure data
     pub fn measureTexts(self: *Self, iter: anytype) void {
-        _ = self;
         var _iter = iter;
 
         // Write text ptrs to wasm output buffer.
@@ -397,7 +391,6 @@ pub const Graphics = struct {
     // NOTE: Does not support UserVMetrics.line_gap.
     // ascent/height are estimated since they do not come from the underlying font file but from dom measurement.
     pub fn getPrimaryFontVMetrics(self: *const Self, font_gid: FontGroupId, font_size: f32) UserVMetrics {
-        _ = self;
         self.js_buf.input_buf.resize(8) catch unreachable;
         jsGetPrimaryFontVMetrics(font_gid, font_size, self.js_buf.input_buf.items.ptr);
         const ascent = self.js_buf.readF32At(0);

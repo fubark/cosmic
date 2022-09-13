@@ -725,7 +725,6 @@ fn initGL_Context(win: *Window) !void {
         var minor: i32 = undefined;
         gl.getIntegerv(gl.GL_MAJOR_VERSION, &major);
         gl.getIntegerv(gl.GL_MINOR_VERSION, &minor);
-        _ = minor;
         if (major < 3) {
             log.err("OpenGL Version Unsupported: {s}", .{gl.glGetString(gl.GL_VERSION)});
             return error.OpenGLUnsupported;

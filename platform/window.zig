@@ -22,7 +22,7 @@ pub const Window = struct {
     },
 
     /// A hook for window resizes. 
-    on_resize: ?fn (ctx: ?*anyopaque, width: u32, height: u32) void,
+    on_resize: ?std.meta.FnPtr(fn (ctx: ?*anyopaque, width: u32, height: u32) void),
     on_resize_ctx: ?*anyopaque,
 
     const Self = @This();

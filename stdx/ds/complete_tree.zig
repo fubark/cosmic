@@ -45,7 +45,6 @@ pub fn CompleteTreeArray(comptime BF: u16, comptime T: type) type {
         }
 
         pub fn getParentNode(self: *Self, id: NodeId) ?T {
-            _ = self;
             const parent_id = self.getParent(id);
             return self.getNode(parent_id);
         }

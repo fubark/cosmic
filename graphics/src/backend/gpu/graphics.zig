@@ -68,7 +68,7 @@ pub const TextureId = image.TextureId;
 pub const shader = @import("shader.zig");
 const log = stdx.log.scoped(.gpu_graphics);
 
-const vera_ttf = @embedFile("../../../../assets/vera.ttf");
+const vera_ttf = @embedFile("../../assets/vera.ttf");
 
 const IsWasm = builtin.target.isWasm();
 const NullId = std.math.maxInt(u32);
@@ -2242,7 +2242,6 @@ pub const Graphics = struct {
     }
 
     pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
-        _ = self;
         _ = pts;
         self.batcher.beginTex(self.white_tex);
         // TODO: Implement this.

@@ -244,7 +244,6 @@ pub fn resolvePromise(id: PromiseId, value: anytype) void {
 }
 
 pub fn Promise(comptime T: type) type {
-    _ = T;
     return struct {
         const Self = @This();
 
