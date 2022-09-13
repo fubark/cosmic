@@ -328,7 +328,7 @@ pub const JsTargetCompiler = struct {
             .return_expr_stmt => {
                 _ = try self.writer.write("return ");
                 const expr = self.nodes[node.head.child_head];
-                try self.genExpression(expr);
+                try self.genFirstExpr(expr);
                 _ = try self.writer.write(";\n");
             },
             .add_assign_stmt => {
@@ -385,7 +385,7 @@ pub const JsTargetCompiler = struct {
             .expr_stmt => {
                 const expr = self.nodes[node.head.child_head];
                 try self.indent();
-                try self.genExpression(expr);
+                try self.genFirstExpr(expr);
                 _ = try self.writer.write(";\n");
             },
             .func_decl => {
@@ -480,6 +480,19 @@ pub const JsTargetCompiler = struct {
         try self.genStatements(first_stmt_id);
         self.cur_indent -= IndentWidth;
     }
+
+    fn genFirstExpr(self: *JsTargetCompiler, node: parser.Node) !void {
+        if (node.node_t == .ident) {
+            const token = self.tokens[node.start_token];
+            const name = self.src[token.start_pos..token.data.end_pos];
+            if (self.getScopedVarDesc(name) == null) {
+               try self.opts.write_global(self.opts.cb_ctx, self.writer, name);
+               return;
+            }
+        }
+        try self.genExpression(node);
+    }
+
 
     fn genExpression(self: *JsTargetCompiler, node: parser.Node) anyerror!void {
         // log.debug("gen expr {}", .{node.node_t});
@@ -594,7 +607,7 @@ pub const JsTargetCompiler = struct {
                     try self.genExpression(left);
                     try self.writer.writeByte(')');
                 } else {
-                    try self.genExpression(left);
+                    try self.genFirstExpr(left);
                 }
                 const op = @intToEnum(parser.BinaryExprOp, node.head.left_right.extra);
                 switch (op) {
@@ -640,12 +653,12 @@ pub const JsTargetCompiler = struct {
                     try self.genExpression(right);
                     try self.writer.writeByte(')');
                 } else {
-                    try self.genExpression(right);
+                    try self.genFirstExpr(right);
                 }
             },
             .access_expr => {
                 const left = self.nodes[node.head.left_right.left];
-                try self.genExpression(left);
+                try self.genFirstExpr(left);
 
                 const right = self.nodes[node.head.left_right.right];
                 if (right.node_t == .ident) {
@@ -775,7 +788,14 @@ const VarDesc = struct {
 };
 
 const CompileOptions = struct {
+    const S = struct {
+        fn defaultWriteGlobal(_: ?*anyopaque, writer: std.ArrayListUnmanaged(u8).Writer, name: []const u8) anyerror!void {
+            _ = try writer.write(name);
+        }
+    };
     gas_meter: GasMeterOption = .none,
+    write_global: fn (?*anyopaque, std.ArrayListUnmanaged(u8).Writer, []const u8) anyerror!void = S.defaultWriteGlobal,
+    cb_ctx: ?*anyopaque = null,
 };
 
 const GasMeterOption = enum(u2) {
