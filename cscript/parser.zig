@@ -98,8 +98,8 @@ pub const Parser = struct {
                 .err_msg = self.last_err,
                 .root_id = NullId,
                 .nodes = &self.nodes,
-                .func_decls = &.{},
-                .func_params = &.{},
+                .func_decls = &self.func_decls,
+                .func_params = self.func_params.items,
                 .tokens = &.{},
                 .src = "",
                 .name = self.name,
@@ -113,8 +113,8 @@ pub const Parser = struct {
                 .err_msg = self.last_err,
                 .root_id = NullId,
                 .nodes = &self.nodes,
-                .func_decls = &.{},
-                .func_params = &.{},
+                .func_decls = &self.func_decls,
+                .func_params = self.func_params.items,
                 .tokens = &.{},
                 .src = "",
                 .name = self.name,
@@ -128,7 +128,7 @@ pub const Parser = struct {
             .nodes = &self.nodes,
             .tokens = self.tokens.items,
             .src = self.src.items,
-            .func_decls = self.func_decls.items,
+            .func_decls = &self.func_decls,
             .func_params = self.func_params.items,
             .name = self.name,
             .deps = &self.deps,
@@ -560,58 +560,54 @@ pub const Parser = struct {
                 if (token.token_t == .ident) {
                     const name_token = self.tokens.items[self.next_pos];
                     const name = self.src.items[name_token.start_pos .. name_token.data.end_pos];
-                    if (std.mem.eql(u8, "name", name)) {
-                        var skip_compile = false;
+                    var skip_compile = false;
 
-                        const ident = self.pushNode(.ident, self.next_pos);
-                        self.advanceToken();
-                        const at_ident = self.pushNode(.at_ident, start);
-                        self.nodes.items[at_ident].head = .{
-                            .annotation = .{
-                                .child = ident,
-                            },
-                        };
+                    const ident = self.pushNode(.ident, self.next_pos);
+                    self.advanceToken();
+                    const at_ident = self.pushNode(.at_ident, start);
+                    self.nodes.items[at_ident].head = .{
+                        .annotation = .{
+                            .child = ident,
+                        },
+                    };
 
-                        const child = b: {
-                            // Annotation must begin the source.
-                            if (self.nodes.items.len == 3) {
-                                // Parse as call expr.
-                                const call_id = try self.parseAnyCallExpr(at_ident);
-                                const call_expr = self.nodes.items[call_id];
-                                if (call_expr.head.func_call.arg_head == NullId) {
-                                    return self.reportTokenError(error.SyntaxError, "Expected arg for @name.", token);
-                                }
-                                const arg = self.nodes.items[call_expr.head.func_call.arg_head];
-                                if (arg.node_t == .ident) {
-                                    const arg_token = self.tokens.items[arg.start_token];
-                                    self.name = self.src.items[arg_token.start_pos .. arg_token.data.end_pos];
-                                    skip_compile = true;
-                                    break :b call_id;
-                                } else {
-                                    return self.reportTokenError(error.SyntaxError, "Expected ident arg for @name.", token);
-                                }
+                    const child: NodeId = b: {
+                        // Parse as call expr.
+                        const call_id = try self.parseAnyCallExpr(at_ident);
+                        const call_expr = self.nodes.items[call_id];
+                        if (call_expr.head.func_call.arg_head == NullId) {
+                            return self.reportTokenError(error.SyntaxError, "Expected arg for @name.", token);
+                        }
+                        const arg = self.nodes.items[call_expr.head.func_call.arg_head];
+                        if (std.mem.eql(u8, "name", name)) {
+                            if (arg.node_t == .ident) {
+                                const arg_token = self.tokens.items[arg.start_token];
+                                self.name = self.src.items[arg_token.start_pos .. arg_token.data.end_pos];
+                                skip_compile = true;
                             } else {
-                                return self.reportTokenError(error.SyntaxError, "Expected @name to be the first statement.", token);
+                                return self.reportTokenError(error.SyntaxError, "Expected ident arg for @name.", token);
                             }
-                            break :b at_ident;
-                        };
+                        } else if (std.mem.eql(u8, "compileError", name)) {
+                            skip_compile = true;
+                        }
+                        break :b call_id;
+                    };
 
-                        const id = self.pushNode(.at_stmt, start);
-                        self.nodes.items[id].head = .{
-                            .at_stmt = .{
-                                .child = child,
-                                .skip_compile = skip_compile,
-                            },
-                        };
+                    const id = self.pushNode(.at_stmt, start);
+                    self.nodes.items[id].head = .{
+                        .at_stmt = .{
+                            .child = child,
+                            .skip_compile = skip_compile,
+                        },
+                    };
 
-                        token = self.peekToken();
-                        if (token.token_t == .new_line) {
-                            self.advanceToken();
-                            return id;
-                        } else if (token.token_t == .none) {
-                            return id;
-                        } else return self.reportTokenError(error.BadToken, "Expected end of line or file", token);
-                    }
+                    token = self.peekToken();
+                    if (token.token_t == .new_line) {
+                        self.advanceToken();
+                        return id;
+                    } else if (token.token_t == .none) {
+                        return id;
+                    } else return self.reportTokenError(error.BadToken, "Expected end of line or file", token);
                 }
 
                 // Reparse as expression.
@@ -1966,9 +1962,20 @@ pub const Result = struct {
         const nodes = try alloc.create(std.ArrayListUnmanaged(Node));
         nodes.* = arr;
 
-        const deps_map = try view.deps.clone(alloc);
+        const new_src = try alloc.dupe(u8, view.src);
+
         const deps = try alloc.create(std.StringHashMapUnmanaged(NodeId));
-        deps.* = deps_map;
+        deps.* = .{};
+        var iter = view.deps.iterator();
+        while (iter.next()) |entry| {
+            const dep = entry.key_ptr.*;
+            const offset = @ptrToInt(dep.ptr) - @ptrToInt(view.src.ptr);
+            try deps.put(alloc, new_src[offset..offset+dep.len], entry.value_ptr.*);
+        }
+
+        const func_decls_arr = try view.func_decls.clone(alloc);
+        const func_decls = try alloc.create(std.ArrayListUnmanaged(FunctionDeclaration));
+        func_decls.* = func_decls_arr;
 
         return Result{
             .inner = .{
@@ -1976,9 +1983,9 @@ pub const Result = struct {
                 .err_msg = try alloc.dupe(u8, view.err_msg),
                 .root_id = view.root_id,
                 .nodes = nodes,
-                .src = try alloc.dupe(u8, view.src),
+                .src = new_src,
                 .tokens = try alloc.dupe(Token, view.tokens),
-                .func_decls = try alloc.dupe(FunctionDeclaration, view.func_decls),
+                .func_decls = func_decls,
                 .func_params = try alloc.dupe(FunctionParam, view.func_params),
                 .name = try alloc.dupe(u8, view.name),
                 .deps = deps,
@@ -1992,7 +1999,8 @@ pub const Result = struct {
         alloc.destroy(self.inner.nodes);
         alloc.free(self.inner.tokens);
         alloc.free(self.inner.src);
-        alloc.free(self.inner.func_decls);
+        self.inner.func_decls.deinit(alloc);
+        alloc.destroy(self.inner.func_decls);
         alloc.free(self.inner.func_params);
         alloc.free(self.inner.name);
         self.inner.deps.deinit(alloc);
@@ -2000,7 +2008,7 @@ pub const Result = struct {
     }
 };
 
-/// Result data is owned by the Parser instance.
+/// Result data is not owned.
 pub const ResultView = struct {
     has_error: bool,
     err_msg: []const u8,
@@ -2010,7 +2018,7 @@ pub const ResultView = struct {
     nodes: *std.ArrayListUnmanaged(Node),
     tokens: []const Token,
     src: []const u8,
-    func_decls: []const FunctionDeclaration,
+    func_decls: *std.ArrayListUnmanaged(FunctionDeclaration),
     func_params: []const FunctionParam,
 
     name: []const u8,

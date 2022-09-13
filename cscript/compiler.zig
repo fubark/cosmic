@@ -72,7 +72,7 @@ pub const JsTargetCompiler = struct {
 
     pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) !ResultView {
         try self.ctypes.resize(self.alloc, LastPrimitiveId + 1);
-        self.func_decls = ast.func_decls;
+        self.func_decls = ast.func_decls.items;
         self.func_params = ast.func_params;
         self.nodes = ast.nodes.items;
         self.node_list = ast.nodes;
@@ -365,7 +365,20 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write(";\n");
             },
             .at_stmt => {
-                // Skip for now.
+                const child = self.nodes[node.head.at_stmt.child];
+                if (child.node_t == .call_expr) {
+                    const callee = self.nodes[child.head.func_call.callee];
+                    const token = self.tokens[callee.start_token+1];
+                    const name = self.src[token.start_pos..token.data.end_pos];
+                    if (std.mem.eql(u8, "compileError", name)) {
+                        return self.reportError(error.CompileError, "@compileError", .{}, node);
+                    }
+                }
+                if (!node.head.at_stmt.skip_compile) {
+                    try self.indent();
+                    try self.genFirstExpr(child);
+                    _ = try self.writer.write(";\n");
+                }
             },
             .expr_stmt => {
                 const expr = self.nodes[node.head.child_head];
