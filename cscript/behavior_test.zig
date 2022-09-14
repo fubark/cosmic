@@ -38,7 +38,7 @@ test "@name" {
     const compile_res = try run.compile(
         \\@name foo
     );
-    try t.eqStr(compile_res.output, "");
+    try t.eqStr(compile_res.output, "(function () {});");
 }
 
 test "implicit await" {
@@ -603,7 +603,7 @@ const Runner = struct {
             log.debug("Parse Error: {s}", .{ast_res.err_msg});
             return error.ParseError;
         }
-        return try self.compiler.compile(ast_res, .{});
+        return try self.compiler.compile(ast_res, .{ .wrap_in_func = true });
     }
 
     fn evaluate(self: *Runner, src: []const u8) !cs.JsValue {

@@ -97,13 +97,13 @@ pub const JsTargetCompiler = struct {
         // First perform analysis.
         self.pushBlock();
         try self.analyze(root);
+        // Analyze can transform the ast.
+        self.nodes = self.node_list.items;
 
         for (self.block_stack.items) |*block| {
             block.deinit(self.alloc);
         } 
         self.block_stack.clearRetainingCapacity();
-        // Analyze can transform the ast.
-        self.nodes = self.node_list.items;
 
         if (self.top_level_async) {
             // Last stmt is turned into a return statement.
@@ -128,6 +128,13 @@ pub const JsTargetCompiler = struct {
 
         if (self.top_level_async) {
             try self.out.insertSlice(self.alloc, 0, "(function* () {");
+            try self.out.appendSlice(self.alloc, "});");
+        } else if (self.opts.wrap_in_func) {
+            if (self.use_generators) {
+                try self.out.insertSlice(self.alloc, 0, "(function* () {");
+            } else {
+                try self.out.insertSlice(self.alloc, 0, "(function () {");
+            }
             try self.out.appendSlice(self.alloc, "});");
         }
 
@@ -178,7 +185,16 @@ pub const JsTargetCompiler = struct {
                     });
                 }
             },
-            else => return,
+            .return_stmt => {
+                return;
+            },
+            .return_expr_stmt => {
+                const expr = self.nodes[stmt.head.child_head];
+                try self.analyzeRootExpr(stmt.head.child_head, expr);
+            },
+            else => {
+                return;
+            },
         }
     }
 
@@ -215,10 +231,22 @@ pub const JsTargetCompiler = struct {
         }
     }
 
+    fn logNodeStart(self: *JsTargetCompiler, node_id: parser.NodeId) void {
+        const node = self.nodes[node_id];
+        const token = self.tokens[node.start_token];
+        const PrefixLen = 10;
+        if (token.start_pos + PrefixLen > self.src.len) {
+            log.debug("{s}", .{ self.src[token.start_pos..] });
+        } else {
+            log.debug("{s}", .{ self.src[token.start_pos..token.start_pos+PrefixLen] });
+        }
+    }
+
     fn analyzeRootExpr(self: *JsTargetCompiler, expr_id: parser.NodeId, expr: parser.Node) anyerror!void {
         switch (expr.node_t) {
             .call_expr => {
                 const ctype = self.getOrResolveType(expr.head.func_call.callee);
+
                 var wrap_await = false;
                 switch (ctype.ctype_t) {
                     .any => {
@@ -802,6 +830,7 @@ const CompileOptions = struct {
     gas_meter: GasMeterOption = .none,
     write_global: fn (?*anyopaque, std.ArrayListUnmanaged(u8).Writer, []const u8) anyerror!void = S.defaultWriteGlobal,
     cb_ctx: ?*anyopaque = null,
+    wrap_in_func: bool = false,
 };
 
 const GasMeterOption = enum(u2) {
