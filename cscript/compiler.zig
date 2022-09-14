@@ -506,6 +506,12 @@ pub const JsTargetCompiler = struct {
                 const token = self.tokens[ident.start_token];
                 _ = try self.writer.print("globalThis.{s}", .{self.src[token.start_pos..token.data.end_pos]});
             },
+            .true_literal => {
+                _ = try self.writer.write("true");
+            },
+            .false_literal => {
+                _ = try self.writer.write("false");
+            },
             .number => {
                 const token = self.tokens[node.start_token];
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);

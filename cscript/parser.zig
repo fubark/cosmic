@@ -16,6 +16,8 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "fun", .func },
     .{ "break", .break_k },
     .{ "await", .await_k },
+    .{ "true", .true_k },
+    .{ "false", .false_k },
 });
 
 const BlockState = struct {
@@ -107,7 +109,7 @@ pub const Parser = struct {
             };
         };
         const root_id = self.parseRoot() catch |err| {
-            log.debug("parse error: {}", .{err});
+            log.debug("parse error: {} {s}", .{err, self.last_err});
             return ResultView{
                 .has_error = true,
                 .err_msg = self.last_err,
@@ -1026,6 +1028,14 @@ pub const Parser = struct {
 
                 break :b id;
             },
+            .true_k => {
+                self.advanceToken();
+                return self.pushNode(.true_literal, start);
+            },
+            .false_k => {
+                self.advanceToken();
+                return self.pushNode(.false_literal, start);
+            },
             .number => b: {
                 self.advanceToken();
                 break :b self.pushNode(.number, start);
@@ -1849,6 +1859,8 @@ const TokenType = enum(u5) {
     else_k,
     for_k,
     await_k,
+    true_k,
+    false_k,
     func,
     /// Used to indicate no token.
     none,
@@ -1878,6 +1890,8 @@ const NodeType = enum(u5) {
     at_stmt,
     ident,
     at_ident,
+    true_literal,
+    false_literal,
     string,
     await_expr,
     access_expr,

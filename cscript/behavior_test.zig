@@ -8,6 +8,23 @@ const cs = @import("cscript.zig");
 const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
 
+test "boolean" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\true
+    );
+    try t.eq(val.getBool(), true);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\false
+    );
+    try t.eq(val.getBool(), false);
+    run.deinitValue(val);
+}
+
 test "@name" {
     const run = Runner.create();
     defer run.destroy();
