@@ -18,6 +18,8 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "await", .await_k },
     .{ "true", .true_k },
     .{ "false", .false_k },
+    .{ "or", .or_k },
+    .{ "and", .and_k },
 });
 
 const BlockState = struct {
@@ -1295,6 +1297,32 @@ pub const Parser = struct {
                     };
                     left_id = bin_expr;
                 },
+                .and_k => {
+                    self.advanceToken();
+                    const right_id = try self.parseRightExpression(.and_op);
+                    const bin_expr = self.pushNode(.bin_expr, start);
+                    self.nodes.items[bin_expr].head = .{
+                        .left_right = .{
+                            .left = left_id,
+                            .right = right_id,
+                            .extra = @enumToInt(BinaryExprOp.and_op),
+                        },
+                    };
+                    left_id = bin_expr;
+                },
+                .or_k => {
+                    self.advanceToken();
+                    const right_id = try self.parseRightExpression(.or_op);
+                    const bin_expr = self.pushNode(.bin_expr, start);
+                    self.nodes.items[bin_expr].head = .{
+                        .left_right = .{
+                            .left = left_id,
+                            .right = right_id,
+                            .extra = @enumToInt(BinaryExprOp.or_op),
+                        },
+                    };
+                    left_id = bin_expr;
+                },
                 .logic_op => {
                     // BinaryExpression.
                     const op_t = next.data.logic_op_t;
@@ -1861,6 +1889,8 @@ const TokenType = enum(u5) {
     await_k,
     true_k,
     false_k,
+    or_k,
+    and_k,
     func,
     /// Used to indicate no token.
     none,
@@ -1914,7 +1944,7 @@ const NodeType = enum(u5) {
     arr_literal,
 };
 
-pub const BinaryExprOp = enum(u4) {
+pub const BinaryExprOp = enum {
     plus,
     minus,
     star,
@@ -1926,6 +1956,8 @@ pub const BinaryExprOp = enum(u4) {
     greater,
     greater_equal,
     equal_equal,
+    and_op,
+    or_op,
     dummy,
 };
 

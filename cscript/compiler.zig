@@ -646,37 +646,43 @@ pub const JsTargetCompiler = struct {
                 const op = @intToEnum(parser.BinaryExprOp, node.head.left_right.extra);
                 switch (op) {
                     .plus => {
-                        try self.writer.writeByte('+');
+                        _ = try self.writer.write(" + ");
                     },
                     .minus => {
-                        try self.writer.writeByte('-');
+                        _ = try self.writer.write(" - ");
                     },
                     .equal_equal => {
-                        _ = try self.writer.write("==");
+                        _ = try self.writer.write(" == ");
                     },
                     .bang_equal => {
-                        _ = try self.writer.write("!=");
+                        _ = try self.writer.write(" != ");
                     },
                     .less => {
-                        try self.writer.writeByte('<');
+                        _ = try self.writer.write(" < ");
                     },
                     .less_equal => {
-                        _ = try self.writer.write("<=");
+                        _ = try self.writer.write(" <= ");
                     },
                     .greater => {
-                        try self.writer.writeByte('>');
+                        _ = try self.writer.write(" > ");
                     },
                     .greater_equal => {
-                        _ = try self.writer.write(">=");
+                        _ = try self.writer.write(" >= ");
                     },
                     .star => {
-                        _ = try self.writer.write("*");
+                        _ = try self.writer.write(" * ");
                     },
                     .slash => {
-                        _ = try self.writer.write("/");
+                        _ = try self.writer.write(" / ");
                     },
                     .percent => {
-                        _ = try self.writer.write("%");
+                        _ = try self.writer.write(" % ");
+                    },
+                    .and_op => {
+                        _ = try self.writer.write(" && ");
+                    },
+                    .or_op => {
+                        _ = try self.writer.write(" || ");
                     },
                     else => return self.reportError(error.Unsupported, "Unsupported binary op: {}", .{op}, node),
                 }

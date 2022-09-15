@@ -8,6 +8,35 @@ const cs = @import("cscript.zig");
 const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
 
+test "logic operators" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.evaluate(
+        \\false or false
+    );
+    try t.eq(val.getBool(), false);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\false or true
+    );
+    try t.eq(val.getBool(), true);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\false and true
+    );
+    try t.eq(val.getBool(), false);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\true and true
+    );
+    try t.eq(val.getBool(), true);
+    run.deinitValue(val);
+}
+
 test "boolean" {
     const run = Runner.create();
     defer run.destroy();
