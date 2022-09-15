@@ -710,6 +710,15 @@ pub const JsTargetCompiler = struct {
                     _ = try self.writer.writeByte(']');
                 }
             },
+            .arr_access_expr => {
+                const left = self.nodes[node.head.left_right.left];
+                try self.genFirstExpr(left);
+
+                const right = self.nodes[node.head.left_right.right];
+                _ = try self.writer.writeByte('[');
+                try self.genFirstExpr(right);
+                _ = try self.writer.writeByte(']');
+            },
             .call_expr => {
                 if (!node.head.func_call.has_named_arg) {
                     // No named args.

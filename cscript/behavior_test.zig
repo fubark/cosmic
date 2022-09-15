@@ -257,6 +257,21 @@ test "Strings" {
     t.alloc.free(str);
 }
 
+test "Lists" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Number entry.
+    var val = try run.evaluate(
+        \\block:
+        \\  a = []
+        \\  a[2] = 3
+        \\  a[2]
+    );
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+}
+
 test "Dictionairies" {
     const run = Runner.create();
     defer run.destroy();

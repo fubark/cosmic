@@ -1196,7 +1196,7 @@ pub const Parser = struct {
                         token = self.peekToken();
                         if (token.token_t == .right_bracket) {
                             self.advanceToken();
-                            const access_id = self.pushNode(.access_expr, start);
+                            const access_id = self.pushNode(.arr_access_expr, start);
                             self.nodes.items[access_id].head = .{
                                 .left_right = .{
                                     .left = left_id,
@@ -1270,11 +1270,15 @@ pub const Parser = struct {
                 .equal => {
                     // If left is an accessor expression or identifier, parse as assignment statement.
                     if (consider_assignment_stmt) {
-                        if (self.nodes.items[left_id].node_t == .ident) {
-                            out_is_assignment_stmt.* = true;
-                            return left_id;
-                        } else {
-                            return self.reportTokenError(error.SyntaxError, "Expected variable to left of assignment operator.", next);
+                        switch (self.nodes.items[left_id].node_t) {
+                            .arr_access_expr,
+                            .ident => {
+                                out_is_assignment_stmt.* = true;
+                                return left_id;
+                            },
+                            else => {
+                                return self.reportTokenError(error.SyntaxError, "Expected variable to left of assignment operator.", next);
+                            },
                         }
                     } else {
                         return self.reportTokenError(error.SyntaxError, "Assignment operator not allowed in expression.", next);
@@ -1909,7 +1913,7 @@ pub const Token = struct {
     },
 };
 
-const NodeType = enum(u5) {
+const NodeType = enum {
     root,
     expr_stmt,
     assign_stmt,
@@ -1925,6 +1929,7 @@ const NodeType = enum(u5) {
     string,
     await_expr,
     access_expr,
+    arr_access_expr,
     call_expr,
     named_arg,
     bin_expr,
