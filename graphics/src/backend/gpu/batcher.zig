@@ -625,7 +625,7 @@ pub const Batcher = struct {
 
                 // Update index buffer.
                 gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.inner.renderer.index_buf_id);
-                gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, num_indexes * 2), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
+                gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, num_indexes * @sizeOf(u32)), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
                 gl.drawElements(gl.GL_TRIANGLES, num_indexes, self.mesh.index_buffer_type, 0);
             },

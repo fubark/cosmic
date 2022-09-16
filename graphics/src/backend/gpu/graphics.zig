@@ -1289,9 +1289,9 @@ pub const Graphics = struct {
             const elems = tess2.tessGetElements(tess);
             i = 0;
             while (i < nelems) : (i += 1) {
-                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
-                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
-                self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+                self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3+2]);
+                self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3+1]);
+                self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3]);
                 // log.debug("idx {}", .{elems[i]});
             }
         }
@@ -1786,7 +1786,7 @@ pub const Graphics = struct {
         vert.setXY(pts[1].x, pts[1].y);
         self.batcher.mesh.pushVertex(vert);
 
-        var i: u16 = 2;
+        var i: u32 = 2;
         while (i < pts.len) : (i += 1) {
             vert.setXY(pts[i].x, pts[i].y);
             self.batcher.mesh.pushVertex(vert);
@@ -1839,9 +1839,9 @@ pub const Graphics = struct {
         const elems = tess2.tessGetElements(tess);
         i = 0;
         while (i < nelems) : (i += 1) {
-            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+2]));
-            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3+1]));
-            self.batcher.mesh.pushIndex(@intCast(u16, vert_offset_id + elems[i*3]));
+            self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3+2]);
+            self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3+1]);
+            self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3]);
         }
     }
 
@@ -1980,8 +1980,8 @@ pub const Graphics = struct {
             new_vert.setColor(Color.Red);
             new_vert.setXYZ(new_vert.pos_x + new_vert.normal.x * norm_len, new_vert.pos_y + new_vert.normal.y * norm_len, new_vert.pos_z + new_vert.normal.z * norm_len);
             self.batcher.mesh.pushVertex(new_vert);
-            self.batcher.mesh.pushIndex(vert_start + 2*@intCast(u16, i));
-            self.batcher.mesh.pushIndex(vert_start + 2*@intCast(u16, i) + 1);
+            self.batcher.mesh.pushIndex(vert_start + 2*@intCast(u32, i));
+            self.batcher.mesh.pushIndex(vert_start + 2*@intCast(u32, i) + 1);
         }
 
         self.batcher.beginMvp(cur_mvp);
