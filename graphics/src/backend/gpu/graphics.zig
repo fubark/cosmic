@@ -237,7 +237,7 @@ pub const Graphics = struct {
         // TODO: Embed a default bitmap font.
         // TODO: Embed a default ttf monospace font.
 
-        self.default_font_id = self.addFontTTF(vera_ttf);
+        self.default_font_id = try self.addFontTTF(vera_ttf);
         self.default_font_gid = self.font_cache.getOrLoadFontGroup(&.{self.default_font_id});
 
         self.main_ps = try alloc.create(PaintState);
@@ -289,12 +289,17 @@ pub const Graphics = struct {
         return self.font_cache.addFontOTB(data);
     }
 
-    pub fn addFontTTF(self: *Graphics, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Graphics, data: []const u8) !FontId {
         return self.font_cache.addFontTTF(data);
     }
 
-    pub fn addFallbackFont(self: *Graphics, font_id: FontId) void {
-        self.font_cache.addSystemFont(font_id) catch unreachable;
+    pub fn addFallbackFont(self: *Graphics, font_id: FontId) !void {
+        try self.ps.fallback_fonts.append(self.alloc, font_id);
+    }
+
+    pub fn setFallbackFonts(self: *Graphics, fonts: []const FontId) !void {
+        self.ps.fallback_fonts.clearRetainingCapacity();
+        try self.ps.fallback_fonts.appendSlice(self.alloc, fonts);
     }
 
     pub fn clipRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
@@ -2745,7 +2750,9 @@ pub const PaintState = struct {
     /// View transform can be changed by user transforms.
     view_xform: Transform,
 
-    /// Text rendering.
+    /// [Text rendering]
+    /// Fallback fonts. Used to lookup glyph after user fonts/fontgroups.
+    fallback_fonts: std.ArrayListUnmanaged(FontId),
     font_gid: FontGroupId,
     font_size: f32,
     text_align: TextAlign,
@@ -2771,6 +2778,7 @@ pub const PaintState = struct {
             .proj_xform = Transform.initIdentity(),
             .view_xform = Transform.initIdentity(),
 
+            .fallback_fonts = .{},
             .font_gid = font_gid,
             .font_size = 18,
             .text_align = .Left,
@@ -2791,6 +2799,7 @@ pub const PaintState = struct {
     }
 
     pub fn deinit(self: *PaintState, alloc: std.mem.Allocator) void {
+        self.fallback_fonts.deinit(alloc);
         self.state_stack.deinit(alloc);
     }
 };

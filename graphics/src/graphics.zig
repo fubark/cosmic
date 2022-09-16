@@ -796,9 +796,16 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn addFallbackFont(self: *Graphics, font_id: FontId) void {
+    pub fn addFallbackFont(self: *Graphics, font_id: FontId) !void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.addFallbackFont(&self.impl, font_id),
+            .OpenGL, .Vulkan => try gpu.Graphics.addFallbackFont(&self.impl, font_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn setFallbackFonts(self: *Graphics, fonts: []const FontId) !void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => try gpu.Graphics.setFallbackFonts(&self.impl, fonts),
             else => stdx.unsupported(),
         }
     }
@@ -812,9 +819,9 @@ pub const Graphics = struct {
     }
 
     /// Adds outline or color bitmap font from ttf/otf.
-    pub fn addFontTTF(self: *Graphics, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Graphics, data: []const u8) !FontId {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.addFontTTF(&self.impl, data),
+            .OpenGL, .Vulkan => try gpu.Graphics.addFontTTF(&self.impl, data),
             .WasmCanvas => stdx.panic("Unsupported for WasmCanvas. Use addTTF_FontPathForName instead."),
             else => stdx.unsupported(),
         }

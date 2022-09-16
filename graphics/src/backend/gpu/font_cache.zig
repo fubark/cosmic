@@ -62,9 +62,6 @@ pub const FontCache = struct {
     /// For bitmap font glyphs. Linear filtering disabled.
     bitmap_atlas: FontAtlas,
 
-    // System fallback fonts. Used when user fallback fonts was not enough.
-    system_fonts: std.ArrayList(FontId),
-
     pub fn init(self: *Self, alloc: std.mem.Allocator, gctx: *gpu.Graphics) void {
         self.* = .{
             .alloc = alloc,
@@ -76,7 +73,6 @@ pub const FontCache = struct {
             .render_font_map = std.AutoHashMap(RenderFontKey, RenderFontId).init(alloc),
             .font_groups = ds.PooledHandleList(FontGroupId, FontGroup).init(alloc),
             .fonts_by_lname = ds.OwnedKeyStringHashMap(FontId).init(alloc),
-            .system_fonts = std.ArrayList(FontId).init(alloc),
         };
         // For testing resizing:
         // const main_atlas_width = 128;
@@ -112,12 +108,7 @@ pub const FontCache = struct {
         self.render_font_mru.deinit();
         self.render_font_map.deinit();
         self.fonts_by_lname.deinit();
-        self.system_fonts.deinit();
         self.font_groups.deinit();
-    }
-
-    pub fn addSystemFont(self: *Self, id: FontId) !void {
-        try self.system_fonts.append(id);
     }
 
     pub fn getPrimaryFontVMetrics(self: *Self, font_gid: FontGroupId, font_size: f32) VMetrics {
@@ -156,7 +147,7 @@ pub const FontCache = struct {
         }
 
         // Find glyph in system fonts.
-        for (self.system_fonts.items) |font_id| {
+        for (g.ps.fallback_fonts.items) |font_id| {
             const render_font = self.getOrCreateRenderFont(font_id, render_font_size);
             const fnt = self.getFont(font_id);
             if (font_renderer.getOrLoadGlyph(g, fnt, render_font, cp)) |glyph| {
@@ -327,21 +318,21 @@ pub const FontCache = struct {
         return next_id;
     }
 
-    pub fn addFontTTF(self: *Self, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Self, data: []const u8) !FontId {
         const next_id = @intCast(u32, self.fonts.items.len);
 
         var font: Font = undefined;
-        font.initTTF(self.alloc, next_id, data);
+        try font.initTTF(self.alloc, next_id, data);
 
-        const lname = std.ascii.allocLowerString(self.alloc, font.name) catch unreachable;
+        const lname = try std.ascii.allocLowerString(self.alloc, font.name);
         defer self.alloc.free(lname);
 
-        self.fonts.append(font) catch unreachable;
-        const mru = self.render_font_mru.addOne() catch unreachable;
+        try self.fonts.append(font);
+        const mru = try self.render_font_mru.addOne();
         // Set to value to force cache miss.
         mru.font_size = NullFontSize;
 
-        self.fonts_by_lname.put(lname, next_id) catch unreachable;
+        try self.fonts_by_lname.put(lname, next_id);
         return next_id;
     }
 };

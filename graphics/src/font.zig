@@ -35,8 +35,6 @@ pub const BitmapFontScaler = struct {
 // Contains rendering metadata about one font face. 
 // Contains the backing bitmap font size to scale to user requested font size.
 pub const Font = struct {
-    const Self = @This();
-
     id: FontId,
     font_type: FontType,
     name: []const u8,
@@ -54,13 +52,13 @@ pub const Font = struct {
     bmfont_scaler: BitmapFontScaler,
     bmfont_strikes: []const BitmapFontStrike,
 
-    pub fn initTTF(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const u8) void {
+    pub fn initTTF(self: *Font, alloc: std.mem.Allocator, id: FontId, data: []const u8) !void {
         switch (graphics.FontRendererBackend) {
             .Freetype => {
                 // Dupe font data since we will be continually querying data from it.
-                const own_data = alloc.dupe(u8, data) catch @panic("error");
-                const ot_font = OpenTypeFont.init(alloc, own_data, 0) catch @panic("error");
-                const family_name = ot_font.allocFontFamilyName(alloc) orelse @panic("error");
+                const own_data = try alloc.dupe(u8, data);
+                const ot_font = try OpenTypeFont.init(alloc, own_data, 0);
+                const family_name = ot_font.allocFontFamilyName(alloc) orelse return error.MissingFontFamily;
                 self.* = .{
                     .id = id,
                     .font_type = .Outline,
@@ -75,16 +73,16 @@ pub const Font = struct {
             },
             .Stbtt => {
                 // Dupe font data since we will be continually querying data from it.
-                const own_data = alloc.dupe(u8, data) catch @panic("error");
+                const own_data = try alloc.dupe(u8, data);
 
-                const ot_font = OpenTypeFont.init(alloc, own_data, 0) catch @panic("error");
+                const ot_font = try OpenTypeFont.init(alloc, own_data, 0);
 
                 var stbtt_font: stbtt.fontinfo = undefined;
                 if (ot_font.hasGlyphOutlines()) {
-                    stbtt.InitFont(&stbtt_font, own_data, 0) catch @panic("failed to load font");
+                    try stbtt.InitFont(&stbtt_font, own_data, 0);
                 }
 
-                const family_name = ot_font.allocFontFamilyName(alloc) orelse @panic("error");
+                const family_name = ot_font.allocFontFamilyName(alloc) orelse error.MissingFontFamily;
 
                 self.* = .{
                     .id = id,
@@ -100,7 +98,7 @@ pub const Font = struct {
         }
     }
 
-    pub fn initOTB(self: *Self, alloc: std.mem.Allocator, id: FontId, data: []const graphics.BitmapFontData) void {
+    pub fn initOTB(self: *Font, alloc: std.mem.Allocator, id: FontId, data: []const graphics.BitmapFontData) void {
         const strikes = alloc.alloc(BitmapFontStrike, data.len) catch @panic("error");
         var last_size: u8 = 0;
         for (data) |it, i| {
@@ -160,7 +158,7 @@ pub const Font = struct {
         }
     }
 
-    pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: Font, alloc: std.mem.Allocator) void {
         switch (self.font_type) {
             .Outline => {
                 self.ot_font.deinit();
@@ -176,7 +174,7 @@ pub const Font = struct {
         alloc.free(self.name);
     }
 
-    pub fn getOtFontBySize(self: Self, font_size: u16) OpenTypeFont {
+    pub fn getOtFontBySize(self: Font, font_size: u16) OpenTypeFont {
         switch (self.font_type) {
             .Outline => {
                 return self.ot_font;
@@ -193,7 +191,7 @@ pub const Font = struct {
         }
     }
 
-    pub fn getBitmapFontBySize(self: Self, font_size: u16) BitmapFontStrike {
+    pub fn getBitmapFontBySize(self: Font, font_size: u16) BitmapFontStrike {
         if (font_size > self.bmfont_scaler.mapping.len) {
             const mapping = self.bmfont_scaler.mapping[self.bmfont_scaler.mapping.len-1];
             return self.bmfont_strikes[mapping.bmfont_idx];
@@ -203,7 +201,7 @@ pub const Font = struct {
         }
     }
 
-    pub fn getKernAdvance(self: Self, prev_glyph_id: u16, glyph_id: u16) i32 {
+    pub fn getKernAdvance(self: Font, prev_glyph_id: u16, glyph_id: u16) i32 {
         switch (graphics.FontRendererBackend) {
             .Stbtt => {
                 const res = stbtt.stbtt_GetGlyphKernAdvance(&self.impl, prev_glyph_id, glyph_id);
@@ -235,14 +233,12 @@ pub const BitmapFontStrike = struct {
     ot_font: OpenTypeFont,
     data: []const u8,
 
-    const Self = @This();
-
-    fn deinit(self: Self, alloc: std.mem.Allocator) void {
+    fn deinit(self: BitmapFontStrike, alloc: std.mem.Allocator) void {
         self.ot_font.deinit();
         alloc.free(self.data);
     }
 
-    pub fn getKernAdvance(self: Self, prev_glyph_id: u16, glyph_id: u16) i32 {
+    pub fn getKernAdvance(self: BitmapFontStrike, prev_glyph_id: u16, glyph_id: u16) i32 {
         switch (graphics.FontRendererBackend) {
             .Stbtt => return stbtt.stbtt_GetGlyphKernAdvance(&self.impl, prev_glyph_id, glyph_id),
             .Freetype => {
