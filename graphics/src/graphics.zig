@@ -101,7 +101,8 @@ pub const Graphics = struct {
     alloc: std.mem.Allocator,
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
-    text_buf: std.ArrayList(u8),
+    text_buf: std.ArrayListUnmanaged(u8),
+    vec2_buf: std.ArrayListUnmanaged(Vec2),
 
     pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gl.Renderer) !void {
         self.initCommon(alloc);
@@ -128,7 +129,8 @@ pub const Graphics = struct {
             .alloc = alloc,
             .path_parser = svg.PathParser.init(alloc),
             .svg_parser = svg.SvgParser.init(alloc),
-            .text_buf = std.ArrayList(u8).init(alloc),
+            .text_buf = .{},
+            .vec2_buf = .{},
             .impl = undefined,
             .new_impl = undefined,
         };
@@ -144,7 +146,8 @@ pub const Graphics = struct {
     pub fn deinit(self: *Graphics) void {
         self.path_parser.deinit();
         self.svg_parser.deinit();
-        self.text_buf.deinit();
+        self.text_buf.deinit(self.alloc);
+        self.vec2_buf.deinit(self.alloc);
         switch (Backend) {
             .OpenGL => {
                 self.impl.deinit();
@@ -518,6 +521,15 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn fillConvexPolygonF(self: *Graphics, pts: []const f32) void {
+        self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
+        var i: u32 = 0;
+        while (i < pts.len / 2) : (i += 1) {
+            self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
+        }
+        self.fillConvexPolygon(self.vec2_buf.items);
+    }
+
     pub fn fillConvexPolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillConvexPolygon(&self.impl, pts),
@@ -526,12 +538,30 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn fillPolygonF(self: *Graphics, pts: []const f32) void {
+        self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
+        var i: u32 = 0;
+        while (i < pts.len / 2) : (i += 1) {
+            self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
+        }
+        self.fillPolygon(self.vec2_buf.items);
+    }
+
     pub fn fillPolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillPolygon(&self.impl, pts),
             .WasmCanvas => canvas.Graphics.fillPolygon(&self.impl, pts),
             else => stdx.unsupported(),
         }
+    }
+
+    pub fn drawPolygonF(self: *Graphics, pts: []const f32) void {
+        self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
+        var i: u32 = 0;
+        while (i < pts.len / 2) : (i += 1) {
+            self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
+        }
+        self.drawPolygon(self.vec2_buf.items);
     }
 
     pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
@@ -912,7 +942,7 @@ pub const Graphics = struct {
 
     pub fn fillTextFmt(self: *Graphics, x: f32, y: f32, comptime format: []const u8, args: anytype) void {
         self.text_buf.clearRetainingCapacity();
-        std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
+        std.fmt.format(self.text_buf.writer(self.alloc), format, args) catch unreachable;
         self.fillText(x, y, self.text_buf.items);
     }
 
