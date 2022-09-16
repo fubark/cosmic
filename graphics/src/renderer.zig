@@ -21,6 +21,9 @@ pub const Renderer = struct {
         .OpenGL => struct {
             renderer: ggl.Renderer,
         },
+        .SlaveOpenGL => struct {
+            renderer: ggl.SlaveRenderer,
+        },
         else => void,
     },
 

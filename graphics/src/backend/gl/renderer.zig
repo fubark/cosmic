@@ -22,6 +22,15 @@ const MatBufferInitialSizeBytes = MatBufferInitialSize * @sizeOf(Mat4);
 const MaterialBufferInitialSize = 100;
 const MaterialBufferInitialSizeBytes = MaterialBufferInitialSize * @sizeOf(graphics.Material);
 
+pub const SlaveRenderer = struct {
+    dummy: bool,
+
+    pub fn init(self: *SlaveRenderer, alloc: std.mem.Allocator) !void {
+        _ = self;
+        _ = alloc;
+    }
+};
+
 /// Provides an API to make direct draw calls using OpenGL shaders.
 /// Makes no assumptions about how to group draw calls together.
 /// Manages common buffers used for shaders.
