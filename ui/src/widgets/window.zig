@@ -10,7 +10,7 @@ const log = stdx.log.scoped(.window);
 pub const Window = struct {
     props: struct {
         bgColor: Color = Color.DarkGray,
-        title: ?[]const u8,
+        title: []const u8 = "",
         init_x: f32,
         init_y: f32,
         child: ui.FrameId = ui.NullFrameId,

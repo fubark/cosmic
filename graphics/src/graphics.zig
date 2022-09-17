@@ -851,7 +851,7 @@ pub const Graphics = struct {
     /// Adds outline or color bitmap font from ttf/otf.
     pub fn addFontTTF(self: *Graphics, data: []const u8) !FontId {
         switch (Backend) {
-            .OpenGL, .Vulkan => try gpu.Graphics.addFontTTF(&self.impl, data),
+            .OpenGL, .Vulkan => return gpu.Graphics.addFontTTF(&self.impl, data),
             .WasmCanvas => stdx.panic("Unsupported for WasmCanvas. Use addTTF_FontPathForName instead."),
             else => stdx.unsupported(),
         }
