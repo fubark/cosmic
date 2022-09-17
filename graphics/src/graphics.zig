@@ -1048,7 +1048,7 @@ pub const Graphics = struct {
                 }
             }
         }
-        if (last_fit_end_idx < iter.state.end_idx) {
+        if (last_fit_end_idx <= iter.state.end_idx) {
             // Add last line.
             buf.lines.append(.{
                 .start_idx = last_fit_start_idx,
