@@ -50,9 +50,9 @@ fn strokePath(mesh: *Mesh, pts: []const Vec2, half_width: f32, color: Color) voi
         _ = mesh.pushVertex(vert);
 
         // Left side quad.
-        mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 4, start_idx + 3);
+        mesh.pushQuadIndexes(start_idx, start_idx + 3, start_idx + 4, start_idx + 1);
         // Right side quad.
-        mesh.pushQuadIndexes(start_idx+1, start_idx + 2, start_idx + 5, start_idx + 4);
+        mesh.pushQuadIndexes(start_idx+1, start_idx + 4, start_idx + 5, start_idx + 2);
         last_uvec = uvec;
     }
     {
