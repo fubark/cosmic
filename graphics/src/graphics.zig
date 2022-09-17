@@ -1180,6 +1180,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn getClipRect(self: *Graphics) stdx.math.geom.Rect {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.getClipRect(&self.impl),
+            else => stdx.unsupported(),
+        }
+    }
+
     pub fn popState(self: *Graphics) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.popState(&self.impl),

@@ -302,27 +302,17 @@ pub const Graphics = struct {
         try self.ps.fallback_fonts.appendSlice(self.alloc, fonts);
     }
 
+    pub fn getClipRect(self: *Graphics) geom.Rect {
+        return self.ps.clip_rect;
+    }
+
     pub fn clipRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
-        switch (Backend) {
-            .OpenGL => {
-                self.ps.clip_rect = .{
-                    .x = x,
-                    // clip-y starts at bottom.
-                    .y = @intToFloat(f32, self.buf_height) - (y + height),
-                    .width = width,
-                    .height = height,
-                };
-            },
-            .Vulkan => {
-                self.ps.clip_rect = .{
-                    .x = x * self.dpr,
-                    .y = y * self.dpr,
-                    .width = width * self.dpr,
-                    .height = height * self.dpr,
-                };
-            },
-            else => {},
-        }
+        self.ps.clip_rect = .{
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height,
+        };
         self.ps.using_scissors = true;
 
         // Execute current draw calls before we alter state.
@@ -334,18 +324,24 @@ pub const Graphics = struct {
     fn clipRectCmd(self: Graphics, rect: geom.Rect) void {
         switch (Backend) {
             .OpenGL => {
-                gl.scissor(@floatToInt(c_int, rect.x), @floatToInt(c_int, rect.y), @floatToInt(c_int, rect.width), @floatToInt(c_int, rect.height));
+                gl.scissor(
+                    @floatToInt(c_int, rect.x),
+                    // clip-y starts at bottom.
+                    @floatToInt(c_int, @intToFloat(f32, self.buf_height) - (rect.y + rect.height)),
+                    @floatToInt(c_int, rect.width),
+                    @floatToInt(c_int, rect.height)
+                );
                 gl.enable(gl.GL_SCISSOR_TEST);
             },
             .Vulkan => {
                 const vk_rect = vk.VkRect2D{
                     .offset = .{
-                        .x = @floatToInt(i32, rect.x),
-                        .y = @floatToInt(i32, rect.y),
+                        .x = @floatToInt(i32, rect.x * self.dpr),
+                        .y = @floatToInt(i32, rect.y * self.dpr),
                     },
                     .extent = .{
-                        .width = @floatToInt(u32, rect.width),
-                        .height = @floatToInt(u32, rect.height),
+                        .width = @floatToInt(u32, rect.width * self.dpr),
+                        .height = @floatToInt(u32, rect.height * self.dpr),
                     },
                 };
                 vk.cmdSetScissor(self.inner.cur_frame.main_cmd_buf, 0, 1, &vk_rect);
