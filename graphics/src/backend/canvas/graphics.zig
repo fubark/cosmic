@@ -54,7 +54,7 @@ extern "graphics" fn jsRotate(rad: f32) void;
 extern "graphics" fn jsScale(x: f32, y: f32) void;
 extern "graphics" fn jsResetTransform() void;
 extern "graphics" fn jsCreateImage(promise_id: u32, ptr: [*]const u8, len: usize) void;
-extern "graphics" fn jsDrawImageSized(image_id: u32, x: f32, y: f32, width: f32, height: f32) void;
+extern "graphics" fn jsDrawImageScaled(image_id: u32, x: f32, y: f32, width: f32, height: f32) void;
 extern "graphics" fn jsDrawImage(image_id: u32, x: f32, y: f32) void;
 
 // Incremental path ops.
@@ -570,9 +570,9 @@ pub const Graphics = struct {
         return p;
     }
 
-    pub fn drawImageSized(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawImageScaled(self: *Self, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         _ = self;
-        jsDrawImageSized(image_id, x, y, width, height);
+        jsDrawImageScaled(image_id, x, y, width, height);
     }
 
     pub fn drawImage(self: *Self, x: f32, y: f32, image_id: ImageId) void {

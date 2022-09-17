@@ -811,10 +811,10 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawImageSized(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
-            .WasmCanvas => return canvas.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id),
+            .WasmCanvas => return canvas.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id),
             else => stdx.unsupported(),
         }
     }
