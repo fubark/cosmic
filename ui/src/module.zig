@@ -1158,16 +1158,21 @@ pub const Module = struct {
         return new_node;
     }
 
+    pub fn dumpTreeById(self: Module, comptime lit: @Type(.EnumLiteral)) void {
+        if (self.common.getNodeByTag(lit)) |node| {
+            self.dumpTreeR(0, node);
+        }
+    }
+
     pub fn dumpTree(self: Module) void {
         if (self.root_node) |root| {
-            dumpTreeR(self, 0, root);
+            self.dumpTreeR(0, root);
         }
     }
 
     fn dumpTreeR(self: Module, depth: u32, node: *ui.Node) void {
-        var foo: [100]u8 = undefined;
-        std.mem.set(u8, foo[0..depth*2], ' ');
-        log.debug("{s}{s}", .{ foo[0..depth*2], node.vtable.name });
+        log.debug("{[0]s: <[1]}{[2]s}", .{ "", depth * 2, node.vtable.name });
+        log.debug("{[0]s: <[1]}{[2]}", .{ "", (depth + 1) * 2, node.getAbsBounds()});
         for (node.children.items) |child| {
             self.dumpTreeR(depth + 1, child);
         }
