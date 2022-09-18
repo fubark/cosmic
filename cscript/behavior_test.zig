@@ -270,6 +270,39 @@ test "Lists" {
     );
     try t.eq(val.getInt32(), 3);
     run.deinitValue(val);
+
+    // Start to end index slice.
+    val = try run.evaluate(
+        \\block:
+        \\  a = [1, 2, 3, 4, 5]
+        \\  a[1..4]
+    );
+    var val_slice = try run.valueToIntSlice(val);
+    try t.eqSlice(i32, val_slice, &.{ 2, 3, 4 });
+    run.deinitValue(val);
+    t.alloc.free(val_slice);
+
+    // Start index to end of list.
+    val = try run.evaluate(
+        \\block:
+        \\  a = [1, 2, 3, 4, 5]
+        \\  a[3..]
+    );
+    val_slice = try run.valueToIntSlice(val);
+    try t.eqSlice(i32, val_slice, &.{ 4, 5 });
+    run.deinitValue(val);
+    t.alloc.free(val_slice);
+
+    // Start of list to end index.
+    val = try run.evaluate(
+        \\block:
+        \\  a = [1, 2, 3, 4, 5]
+        \\  a[..3]
+    );
+    val_slice = try run.valueToIntSlice(val);
+    try t.eqSlice(i32, val_slice, &.{ 1, 2, 3 });
+    run.deinitValue(val);
+    t.alloc.free(val_slice);
 }
 
 test "Dictionairies" {
@@ -766,7 +799,11 @@ const Runner = struct {
     }
 
     pub fn valueToString(self: *Runner, val: cs.JsValue) ![]const u8 {
-        return try self.engine.valueToString(val);
+        return self.engine.valueToString(val);
+    }
+
+    pub fn valueToIntSlice(self: *Runner, val: cs.JsValue) ![]const i32 {
+        return self.engine.valueToIntSlice(val);
     }
 
     pub fn getExceptionString(self: *Runner, val: cs.JsValue) ![]const u8 {

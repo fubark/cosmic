@@ -810,6 +810,24 @@ pub const JsTargetCompiler = struct {
                     _ = try self.writer.writeByte(']');
                 }
             },
+            .arr_range_expr => {
+                const arr = self.nodes[node.head.arr_range_expr.arr];
+                try self.genFirstExpr(arr);
+
+                _ = try self.writer.write(".slice(");
+                if (node.head.arr_range_expr.left == NullId) {
+                    _ = try self.writer.write("0");
+                } else {
+                    const left = self.nodes[node.head.arr_range_expr.left];
+                    try self.genFirstExpr(left);
+                }
+                if (node.head.arr_range_expr.right != NullId) {
+                    _ = try self.writer.write(", ");
+                    const right = self.nodes[node.head.arr_range_expr.right];
+                    try self.genFirstExpr(right);
+                }
+                _ = try self.writer.write(")");
+            },
             .arr_access_expr => {
                 const left = self.nodes[node.head.left_right.left];
                 try self.genFirstExpr(left);

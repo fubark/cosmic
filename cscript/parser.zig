@@ -1262,24 +1262,90 @@ pub const Parser = struct {
                         // Consume left bracket.
                         self.advanceToken();
 
-                        var dummy = false;
-                        const expr_id = (try self.parseExpression(false, &dummy)) orelse {
-                            return self.reportTokenError(error.SyntaxError, "Expected expression.", self.peekToken());
-                        };
-
                         token = self.peekToken();
-                        if (token.token_t == .right_bracket) {
+                        if (token.token_t == .dot_dot) {
+                            // Start of list to end index slice.
                             self.advanceToken();
-                            const access_id = self.pushNode(.arr_access_expr, start);
-                            self.nodes.items[access_id].head = .{
-                                .left_right = .{
-                                    .left = left_id,
-                                    .right = expr_id,
-                                },
+                            var dummy = false;
+                            const right_range = (try self.parseExpression(false, &dummy)) orelse {
+                                return self.reportTokenError(error.SyntaxError, "Expected expression.", self.peekToken());
                             };
-                            left_id = access_id;
-                            start = self.next_pos;
-                        } else return self.reportTokenError(error.SyntaxError, "Expected right bracket.", token);
+
+                            token = self.peekToken();
+                            if (token.token_t == .right_bracket) {
+                                self.advanceToken();
+                                const res = self.pushNode(.arr_range_expr, start);
+                                self.nodes.items[res].head = .{
+                                    .arr_range_expr = .{
+                                        .arr = left_id,
+                                        .left = NullId,
+                                        .right = right_range,
+                                    },
+                                };
+                                left_id = res;
+                                start = self.next_pos;
+                            } else {
+                                return self.reportTokenError(error.SyntaxError, "Expected right bracket.", token);
+                            }
+                        } else {
+                            var dummy = false;
+                            const expr_id = (try self.parseExpression(false, &dummy)) orelse {
+                                return self.reportTokenError(error.SyntaxError, "Expected expression.", self.peekToken());
+                            };
+
+                            token = self.peekToken();
+                            if (token.token_t == .right_bracket) {
+                                self.advanceToken();
+                                const access_id = self.pushNode(.arr_access_expr, start);
+                                self.nodes.items[access_id].head = .{
+                                    .left_right = .{
+                                        .left = left_id,
+                                        .right = expr_id,
+                                    },
+                                };
+                                left_id = access_id;
+                                start = self.next_pos;
+                            } else if (token.token_t == .dot_dot) {
+                                self.advanceToken();
+                                token = self.peekToken();
+                                if (token.token_t == .right_bracket) {
+                                    // Start index to end of list slice.
+                                    self.advanceToken();
+                                    const res = self.pushNode(.arr_range_expr, start);
+                                    self.nodes.items[res].head = .{
+                                        .arr_range_expr = .{
+                                            .arr = left_id,
+                                            .left = expr_id,
+                                            .right = NullId,
+                                        },
+                                    };
+                                    left_id = res;
+                                    start = self.next_pos;
+                                } else {
+                                    const right_expr = (try self.parseExpression(false, &dummy)) orelse {
+                                        return self.reportTokenError(error.SyntaxError, "Expected expression.", self.peekToken());
+                                    };
+                                    token = self.peekToken();
+                                    if (token.token_t == .right_bracket) {
+                                        self.advanceToken();
+                                        const res = self.pushNode(.arr_range_expr, start);
+                                        self.nodes.items[res].head = .{
+                                            .arr_range_expr = .{
+                                                .arr = left_id,
+                                                .left = expr_id,
+                                                .right = right_expr,
+                                            },
+                                        };
+                                        left_id = res;
+                                        start = self.next_pos;
+                                    } else {
+                                        return self.reportTokenError(error.SyntaxError, "Expected right bracket.", token);
+                                    }
+                                }
+                            } else {
+                                return self.reportTokenError(error.SyntaxError, "Expected right bracket.", token);
+                            }
+                        }
                     } else return self.reportTokenError(error.SyntaxError, "Expected variable to left of access expression.", next);
                 },
                 .left_paren => {
@@ -2015,6 +2081,7 @@ const NodeType = enum {
     await_expr,
     access_expr,
     arr_access_expr,
+    arr_range_expr,
     call_expr,
     named_arg,
     bin_expr,
@@ -2099,6 +2166,11 @@ pub const Node = struct {
             ident: NodeId,
             step: NodeId,
             inc: bool,
+        },
+        arr_range_expr: struct {
+            arr: NodeId,
+            left: NodeId,
+            right: NodeId,
         },
     },
 };

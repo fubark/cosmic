@@ -102,6 +102,20 @@ pub const JsEngine = struct {
         }
     }
 
+    pub fn valueToIntSlice(self: *JsEngine, val: JsValue) ![]const i32 {
+        if (IsWasm) {
+            stdx.unsupported();
+        } else {
+            const len = self.getPropertyStr(val, "length").getInt32();
+            const buf = try self.alloc.alloc(i32, @intCast(usize, len));
+            var i: u32 = 0;
+            while (i < len) : (i += 1) {
+                buf[i] = self.getPropertyIndex(val, i).getInt32();
+            }
+            return buf;
+        }
+    }
+
     pub fn callMethod(self: *JsEngine, this: JsValue, prop: [:0]const u8, args: []const JsValue) JsValue {
         if (IsWasm) {
             stdx.unsupported();
@@ -119,6 +133,15 @@ pub const JsEngine = struct {
             stdx.unsupported();
         } else {
             const val = qjs.JS_Call(self.inner.ctx, func.inner, this.inner, @intCast(c_int, args.len), @intToPtr([*c]qjs.JSValue, @ptrToInt(args.ptr)));
+            return JsValue.initQJS(val);
+        }
+    }
+
+    pub fn getPropertyIndex(self: *JsEngine, obj: JsValue, idx: u32) JsValue {
+        if (IsWasm) {
+            stdx.unsupported();
+        } else {
+            const val = qjs.JS_GetPropertyUint32(self.inner.ctx, obj.inner, idx);
             return JsValue.initQJS(val);
         }
     }

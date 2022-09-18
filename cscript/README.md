@@ -54,10 +54,20 @@ two blobs missing from a screen
 hours of life lost`
 ```
 
-### Arrays
+### Lists
 ```cscript
-arr = [ 1, 2, 3 ]
-cs.log arr[0]
+list = [ 1, 2, 3 ]
+cs.log list[0]
+```
+
+Lists can be sliced with the range `..` clause:
+```cscript
+list = [ 1, 2, 3, 4, 5 ]
+list[0..0]  // []          Empty list.
+list[0..3]  // [ 1, 2, 3 ] From start to end index.
+list[3..]   // [ 4, 5 ]    From start index to end of list. 
+list[..3]   // [ 1, 2, 3 ] From start of list to end index.
+list[2..+2] // [ 3, 4 ]    From start index to start index + length.
 ```
 
 ### Dictionaries
