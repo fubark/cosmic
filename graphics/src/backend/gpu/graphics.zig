@@ -123,9 +123,6 @@ pub const Graphics = struct {
     dpr: f32,
     dpr_ceil: u8,
 
-    vec2_helper_buf: std.ArrayList(Vec2),
-    vec2_slice_helper_buf: std.ArrayList(stdx.IndexSlice(u32)),
-    qbez_helper_buf: std.ArrayList(SubQuadBez),
     tessellator: Tessellator,
 
     /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
@@ -214,9 +211,6 @@ pub const Graphics = struct {
             .image_store = image.ImageStore.init(alloc, self),
             .dpr = dpr,
             .dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
-            .vec2_helper_buf = std.ArrayList(Vec2).init(alloc),
-            .vec2_slice_helper_buf = std.ArrayList(stdx.IndexSlice(u32)).init(alloc),
-            .qbez_helper_buf = std.ArrayList(SubQuadBez).init(alloc),
             .tessellator = undefined,
             .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
         };
@@ -278,9 +272,6 @@ pub const Graphics = struct {
 
         self.image_store.deinit();
 
-        self.vec2_helper_buf.deinit();
-        self.vec2_slice_helper_buf.deinit();
-        self.qbez_helper_buf.deinit();
         self.tessellator.deinit();
         self.raster_glyph_buffer.deinit();
     }
@@ -1002,7 +993,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Graphics, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+    pub fn drawQuadraticBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const q_bez = QuadBez{
             .x0 = x0,
@@ -1012,8 +1003,8 @@ pub const Graphics = struct {
             .x1 = x1,
             .y1 = y1,
         };
-        self.vec2_helper_buf.clearRetainingCapacity();
-        stroke.strokeQuadBez(self.batcher.mesh, &self.vec2_helper_buf, q_bez, self.ps.line_width_half, self.ps.stroke_color);
+        vec2_buf.clearRetainingCapacity();
+        stroke.strokeQuadBez(self.batcher.mesh, self.alloc, vec2_buf, q_bez, self.ps.line_width_half, self.ps.stroke_color);
     }
 
     pub fn drawQuadraticBezierCurveLyon(self: *Graphics, x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
@@ -1027,7 +1018,7 @@ pub const Graphics = struct {
         self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawCubicBezierCurve(self: *Graphics, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+    pub fn drawCubicBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez), x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const c_bez = CubicBez{
             .x0 = x0,
@@ -1039,9 +1030,9 @@ pub const Graphics = struct {
             .x1 = x1,
             .y1 = y1,
         };
-        self.qbez_helper_buf.clearRetainingCapacity();
-        self.vec2_helper_buf.clearRetainingCapacity();
-        stroke.strokeCubicBez(self.batcher.mesh, &self.vec2_helper_buf, &self.qbez_helper_buf, c_bez, self.ps.line_width_half, self.ps.stroke_color);
+        qbez_buf.clearRetainingCapacity();
+        vec2_buf.clearRetainingCapacity();
+        stroke.strokeCubicBez(self.batcher.mesh, self.alloc, vec2_buf, qbez_buf, c_bez, self.ps.line_width_half, self.ps.stroke_color);
     }
 
     pub fn drawCubicBezierCurveLyon(self: *Graphics, x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
@@ -1074,12 +1065,6 @@ pub const Graphics = struct {
         vert.setXY(x4, y4);
         self.batcher.mesh.pushVertex(vert);
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
-    }
-
-    pub fn fillSvgPath(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
-        const t_ = trace(@src());
-        defer t_.end();
-        self.drawSvgPath(x, y, path, true);
     }
 
     pub fn fillSvgPathLyon(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
@@ -1295,284 +1280,6 @@ pub const Graphics = struct {
                 self.batcher.mesh.pushIndex(vert_offset_id + elems[i*3]);
                 // log.debug("idx {}", .{elems[i]});
             }
-        }
-    }
-
-    pub fn strokeSvgPath(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath) void {
-        self.drawSvgPath(x, y, path, false);
-    }
-
-    fn drawSvgPath(self: *Graphics, x: f32, y: f32, path: *const svg.SvgPath, fill: bool) void {
-        // log.debug("drawSvgPath {} {}", .{path.cmds.len, fill});
-
-        _ = x;
-        _ = y;
-
-        // Accumulate polygons.
-        self.vec2_helper_buf.clearRetainingCapacity();
-        self.vec2_slice_helper_buf.clearRetainingCapacity();
-        self.qbez_helper_buf.clearRetainingCapacity();
-
-        var last_cmd_was_curveto = false;
-        var last_control_pt = vec2(0, 0);
-        var cur_data_idx: u32 = 0;
-        var cur_pt = vec2(0, 0);
-        var cur_poly_start: u32 = 0;
-
-        for (path.cmds) |cmd| {
-            var cmd_is_curveto = false;
-            switch (cmd) {
-                .MoveTo => {
-                    if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(.{
-                            .start = cur_poly_start,
-                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
-                        }) catch fatal();
-                    } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
-                        // Only one unused point. Remove it.
-                        _ = self.vec2_helper_buf.pop();
-                    }
-                    const data = path.getData(.MoveTo, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.MoveTo)) / 4;
-                    cur_pt = .{
-                        .x = data.x,
-                        .y = data.y,
-                    };
-                    cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .MoveToRel => {
-                    if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-                        self.vec2_slice_helper_buf.append(.{
-                            .start = cur_poly_start,
-                            .end = @intCast(u32, self.vec2_helper_buf.items.len),
-                        }) catch fatal();
-                    } else if (self.vec2_helper_buf.items.len == cur_poly_start + 1) {
-                        // Only one unused point. Remove it.
-                        _ = self.vec2_helper_buf.pop();
-                    }
-                    const data = path.getData(.MoveToRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.MoveToRel)) / 4;
-                    cur_pt = .{
-                        .x = cur_pt.x + data.x,
-                        .y = cur_pt.y + data.y,
-                    };
-                    cur_poly_start = @intCast(u32, self.vec2_helper_buf.items.len);
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .CurveTo => {
-                    const data = path.getData(.CurveTo, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.CurveTo)) / 4;
-
-                    const prev_pt = cur_pt;
-                    cur_pt = .{
-                        .x = data.x,
-                        .y = data.y,
-                    };
-                    last_control_pt = .{
-                        .x = data.cb_x,
-                        .y = data.cb_y,
-                    };
-                    const c_bez = CubicBez{
-                        .x0 = prev_pt.x,
-                        .y0 = prev_pt.y,
-                        .cx0 = data.ca_x,
-                        .cy0 = data.ca_y,
-                        .cx1 = last_control_pt.x,
-                        .cy1 = last_control_pt.y,
-                        .x1 = cur_pt.x,
-                        .y1 = cur_pt.y,
-                    };
-                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
-                    cmd_is_curveto = true;
-                },
-                .CurveToRel => {
-                    const data = path.getData(.CurveToRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.CurveToRel)) / 4;
-
-                    last_control_pt = .{
-                        .x = cur_pt.x + data.cb_x,
-                        .y = cur_pt.y + data.cb_y,
-                    };
-                    const prev_pt = cur_pt;
-                    cur_pt = .{
-                        .x = cur_pt.x + data.x,
-                        .y = cur_pt.y + data.y,
-                    };
-                    const c_bez = CubicBez{
-                        .x0 = prev_pt.x,
-                        .y0 = prev_pt.y,
-                        .cx0 = prev_pt.x + data.ca_x,
-                        .cy0 = prev_pt.y + data.ca_y,
-                        .cx1 = last_control_pt.x,
-                        .cy1 = last_control_pt.y,
-                        .x1 = cur_pt.x,
-                        .y1 = cur_pt.y,
-                    };
-                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
-                    cmd_is_curveto = true;
-                },
-                .LineTo => {
-                    const data = path.getData(.LineTo, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.LineTo)) / 4;
-
-                    cur_pt = .{
-                        .x = data.x,
-                        .y = data.y,
-                    };
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .LineToRel => {
-                    const data = path.getData(.LineToRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.LineToRel)) / 4;
-
-                    cur_pt = .{
-                        .x = cur_pt.x + data.x,
-                        .y = cur_pt.y + data.y,
-                    };
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .EllipticArcRel => {
-                    const data = path.getData(.EllipticArcRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.EllipticArcRel)) / 4;
-                    // TODO.
-                    _ = data;
-                },
-                .SmoothCurveTo => {
-                    const data = path.getData(.SmoothCurveTo, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveTo)) / 4;
-
-                    var cx0: f32 = undefined;
-                    var cy0: f32 = undefined;
-                    if (last_cmd_was_curveto) {
-                        // Reflection of last control point over current pos.
-                        cx0 = cur_pt.x + (cur_pt.x - last_control_pt.x);
-                        cy0 = cur_pt.y + (cur_pt.y - last_control_pt.y);
-                    } else {
-                        cx0 = cur_pt.x;
-                        cy0 = cur_pt.y;
-                    }
-                    const prev_pt = cur_pt;
-                    cur_pt = .{
-                        .x = data.x,
-                        .y = data.y,
-                    };
-                    last_control_pt = .{
-                        .x = data.c2_x,
-                        .y = data.c2_y,
-                    };
-                    const c_bez = CubicBez{
-                        .x0 = prev_pt.x,
-                        .y0 = prev_pt.y,
-                        .cx0 = cx0,
-                        .cy0 = cy0,
-                        .cx1 = last_control_pt.x,
-                        .cy1 = last_control_pt.y,
-                        .x1 = cur_pt.x,
-                        .y1 = cur_pt.y,
-                    };
-                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
-                    cmd_is_curveto = true;
-                },
-                .SmoothCurveToRel => {
-                    const data = path.getData(.SmoothCurveToRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.SmoothCurveToRel)) / 4;
-
-                    var cx0: f32 = undefined;
-                    var cy0: f32 = undefined;
-                    if (last_cmd_was_curveto) {
-                        // Reflection of last control point over current pos.
-                        cx0 = cur_pt.x + (cur_pt.x - last_control_pt.x);
-                        cy0 = cur_pt.y + (cur_pt.y - last_control_pt.y);
-                    } else {
-                        cx0 = cur_pt.x;
-                        cy0 = cur_pt.y;
-                    }
-                    last_control_pt = .{
-                        .x = cur_pt.x + data.c2_x,
-                        .y = cur_pt.y + data.c2_y,
-                    };
-                    const prev_pt = cur_pt;
-                    cur_pt = .{
-                        .x = cur_pt.x + data.x,
-                        .y = cur_pt.y + data.y,
-                    };
-                    const c_bez = CubicBez{
-                        .x0 = prev_pt.x,
-                        .y0 = prev_pt.y,
-                        .cx0 = cx0,
-                        .cy0 = cy0,
-                        .cx1 = last_control_pt.x,
-                        .cy1 = last_control_pt.y,
-                        .x1 = cur_pt.x,
-                        .y1 = cur_pt.y,
-                    };
-                    c_bez.flatten(0.5, &self.vec2_helper_buf, &self.qbez_helper_buf);
-                    cmd_is_curveto = true;
-                },
-                .HorzLineToRel => {
-                    const data = path.getData(.HorzLineToRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.HorzLineToRel)) / 4;
-                    cur_pt.x += data.x;
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .HorzLineTo => {
-                    const data = path.getData(.HorzLineTo, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.HorzLineTo)) / 4;
-                    cur_pt.x = data.x;
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .VertLineToRel => {
-                    const data = path.getData(.VertLineToRel, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineToRel)) / 4;
-                    cur_pt.y += data.y;
-                    self.vec2_helper_buf.append(cur_pt) catch unreachable;
-                },
-                .VertLineTo => {
-                    const data = path.getData(.VertLineTo, cur_data_idx);
-                    cur_data_idx += @sizeOf(svg.PathCommandData(.VertLineTo)) / 4;
-                    cur_pt.y = data.y;
-                    self.vec2_helper_buf.append(cur_pt) catch fatal();
-                },
-                .ClosePath => {
-                    if (fill) {
-                        // For fills, this is a no-op.
-                    } else {
-                        // For strokes, this would form a seamless connection to the first point.
-                    }
-                },
-                else => {
-                    stdx.panicFmt("unsupported: {}", .{cmd});
-                },
-            }
-            last_cmd_was_curveto = cmd_is_curveto;
-        }
-
-        if (self.vec2_helper_buf.items.len > cur_poly_start + 1) {
-            // Push the current polygon.
-            self.vec2_slice_helper_buf.append(.{
-                .start = cur_poly_start,
-                .end = @intCast(u32, self.vec2_helper_buf.items.len),
-            }) catch fatal();
-        }
-        if (self.vec2_slice_helper_buf.items.len == 0) {
-            return;
-        }
-
-        if (fill) {
-            // dumpPolygons(self.alloc, self.vec2_slice_helper_buf.items);
-            self.tessellator.clearBuffers();
-            self.tessellator.triangulatePolygons2(self.vec2_helper_buf.items, self.vec2_slice_helper_buf.items);
-            self.setCurrentTexture(self.white_tex);
-            const out_verts = self.tessellator.out_verts.items;
-            const out_idxes = self.tessellator.out_idxes.items;
-            self.batcher.ensureUnusedBuffer(out_verts.len, out_idxes.len);
-            self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.ps.fill_color);
-        } else {
-            unreachable;
-        //     var data = lyon.buildStroke(b, self.ps.line_width);
-        //     self.setCurrentTexture(self.white_tex);
-        //     self.pushLyonVertexData(&data, self.ps.stroke_color);
         }
     }
 
@@ -1795,9 +1502,20 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillPolygon(self: *Graphics, pts: []const Vec2) void {
+    pub fn fillPolygon(self: *Graphics, pts: []const Vec2) !void {
         self.tessellator.clearBuffers();
-        self.tessellator.triangulatePolygon(pts);
+        try self.tessellator.triangulatePolygon(pts);
+        self.setCurrentTexture(self.white_tex);
+        const out_verts = self.tessellator.out_verts.items;
+        const out_idxes = self.tessellator.out_idxes.items;
+        self.batcher.ensureUnusedBuffer(out_verts.len, out_idxes.len);
+        self.batcher.pushVertIdxBatch(out_verts, out_idxes, self.ps.fill_color);
+    }
+
+    pub fn fillPolygons(self: *Graphics, pts: []const Vec2, polygons: []const stdx.IndexSlice(u32)) !void {
+        // dumpPolygons(self.alloc, self.vec2_slice_helper_buf.items);
+        self.tessellator.clearBuffers();
+        try self.tessellator.triangulatePolygons2(pts, polygons);
         self.setCurrentTexture(self.white_tex);
         const out_verts = self.tessellator.out_verts.items;
         const out_idxes = self.tessellator.out_idxes.items;

@@ -92,7 +92,10 @@ pub const ImageStore = struct {
     }
 
     pub fn createSvgImage(self: *ImageStore, data: svg.SvgRenderData, width: u32, height: u32) !graphics.Image {
-        const res = self.createImageFromBitmap(width, height, null, true);
+        const res = self.createImageFromBitmap(width, height, null, .{
+            .offscreen_rendering = true,
+            .linear_filter = true,
+        });
 
         // Determine the svg viewbox.
         if (data.width == 0 or data.height == 0) {
@@ -122,7 +125,7 @@ pub const ImageStore = struct {
 
         log.debug("svg bitmap {} {} {} {}", .{render_x, render_y, render_width, render_height});
         // Render to image.
-        self.gctx.bindImageBuffer(res.image_id);
+        self.gctx.bindOffscreenImage(res.image_id);
         self.gctx.setFillColor(Color.Transparent);
         self.gctx.fillRect(0, 0, target_width, target_height);
         self.gctx.translate(data.min_x, data.min_y);

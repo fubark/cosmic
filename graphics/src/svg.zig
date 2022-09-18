@@ -13,6 +13,10 @@ const DrawCommandList = draw_cmd.DrawCommandList;
 const DrawCommandPtr = draw_cmd.DrawCommandPtr;
 const log = stdx.log.scoped(.svg);
 
+const svg_path = @import("svg_path.zig");
+pub const flattenSvgPathFill = svg_path.flattenSvgPathFill;
+pub const flattenSvgPathStroke = svg_path.flattenSvgPathStroke;
+
 // Parse SVG file format and SVG paths into draw commands.
 
 pub const PathCommand = enum {
