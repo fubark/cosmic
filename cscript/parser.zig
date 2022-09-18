@@ -20,6 +20,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "false", .false_k },
     .{ "or", .or_k },
     .{ "and", .and_k },
+    .{ "as", .as },
 });
 
 const BlockState = struct {
@@ -41,6 +42,7 @@ pub const Parser = struct {
     tokens: std.ArrayListUnmanaged(Token),
     nodes: std.ArrayListUnmanaged(Node),
     last_err: []const u8,
+    last_err_pos: u32,
     block_stack: std.ArrayListUnmanaged(BlockState),
     cur_indent: u32,
     func_params: std.ArrayListUnmanaged(FunctionParam),
@@ -60,6 +62,7 @@ pub const Parser = struct {
             .tokens = .{},
             .nodes = .{},
             .last_err = "",
+            .last_err_pos = 0,
             .block_stack = .{},
             .cur_indent = 0,
             .func_params = .{},
@@ -105,13 +108,14 @@ pub const Parser = struct {
                 .func_decls = &self.func_decls,
                 .func_params = self.func_params.items,
                 .tokens = &.{},
-                .src = "",
+                .src = self.src.items,
                 .name = self.name,
                 .deps = &self.deps,
             };
         };
         const root_id = self.parseRoot() catch |err| {
             log.debug("parse error: {} {s}", .{err, self.last_err});
+            logSrcPos(self.src.items, self.last_err_pos, 20);
             return ResultView{
                 .has_error = true,
                 .err_msg = self.last_err,
@@ -120,7 +124,7 @@ pub const Parser = struct {
                 .func_decls = &self.func_decls,
                 .func_params = self.func_params.items,
                 .tokens = &.{},
-                .src = "",
+                .src = self.src.items,
                 .name = self.name,
                 .deps = &self.deps,
             };
@@ -485,9 +489,11 @@ pub const Parser = struct {
         } else {
             // Parse next token as expression.
             var dummy: bool = undefined;
+            const expr_pos = self.next_pos;
             const expr_id = (try self.parseExpression(false, &dummy)) orelse {
                 return self.reportTokenError(error.SyntaxError, "Expected condition expression.", token);
             };
+
             token = self.peekToken();
             if (token.token_t == .colon) {
                 self.advanceToken();
@@ -500,6 +506,73 @@ pub const Parser = struct {
                     },
                 };
                 return for_stmt;
+            } else if (token.token_t == .dot_dot) {
+                self.advanceToken();
+                const right_range_expr = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected right range expression.", token);
+                };
+                const range_clause = self.pushNode(.range_clause, expr_pos);
+                self.nodes.items[range_clause].head = .{
+                    .left_right = .{
+                        .left = expr_id,
+                        .right = right_range_expr,
+                    },
+                };
+
+                token = self.peekToken();
+                if (token.token_t == .colon) {
+                    self.advanceToken();
+
+                    const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+                    const for_stmt = self.pushNode(.for_range_stmt, start);
+                    self.nodes.items[for_stmt].head = .{
+                        .for_range_stmt = .{
+                            .range_clause = range_clause,
+                            .first_child = first_stmt,
+                            .as_clause = NullId,
+                        },
+                    };
+                    return for_stmt;
+                } else if (token.token_t == .as) {
+                    self.advanceToken();
+
+                    token = self.peekToken();
+                    const ident = (try self.parseExpression(false, &dummy)) orelse {
+                        return self.reportTokenError(error.SyntaxError, "Expected ident.", token);
+                    };
+                    if (self.nodes.items[ident].node_t == .ident) {
+                        token = self.peekToken();
+                        if (token.token_t == .colon) {
+                            self.advanceToken();
+                            const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+
+                            const as_clause = self.pushNode(.as_clause, start);
+                            self.nodes.items[as_clause].head = .{
+                                .as_clause = .{
+                                    .ident = ident,
+                                    .step = NullId,
+                                    .inc = true,
+                                }
+                            };
+
+                            const for_stmt = self.pushNode(.for_range_stmt, start);
+                            self.nodes.items[for_stmt].head = .{
+                                .for_range_stmt = .{
+                                    .range_clause = range_clause,
+                                    .first_child = first_stmt,
+                                    .as_clause = as_clause,
+                                },
+                            };
+                            return for_stmt;
+                        } else {
+                            return self.reportTokenError(error.SyntaxError, "Expected :.", token);
+                        }
+                    } else {
+                        return self.reportTokenError(error.SyntaxError, "Expected ident.", token);
+                    }
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected :.", token);
+                }
             } else {
                 return self.reportTokenError(error.SyntaxError, "Expected :.", token);
             }
@@ -671,6 +744,7 @@ pub const Parser = struct {
     fn reportTokenError(self: *Parser, err: anyerror, msg: []const u8, token: Token) anyerror {
         self.alloc.free(self.last_err);
         self.last_err = std.fmt.allocPrint(self.alloc, "{s}: {} at {}", .{msg, token.token_t, token.start_pos}) catch fatal();
+        self.last_err_pos = token.start_pos;
         return err;
     }
 
@@ -1216,6 +1290,7 @@ pub const Parser = struct {
                         left_id = call_id;
                     } else return self.reportTokenError(error.SyntaxError, "Expected variable to left of call expression.", next);
                 },
+                .dot_dot => break,
                 .right_bracket => break,
                 .right_paren => break,
                 .right_brace => break,
@@ -1226,6 +1301,7 @@ pub const Parser = struct {
                 .equal => break,
                 .operator => break,
                 .logic_op => break,
+                .as => break,
                 .ident,
                 .number,
                 .string => {
@@ -1252,9 +1328,7 @@ pub const Parser = struct {
             .none => return null,
             .right_paren => return null,
             .right_bracket => return null,
-            else => self.parseTermExpr() catch {
-                return self.reportTokenError(error.SyntaxError, "Unexpected left token in expression", token);
-            },
+            else => try self.parseTermExpr(),
         };
 
         while (true) {
@@ -1344,6 +1418,8 @@ pub const Parser = struct {
                     };
                     left_id = bin_expr;
                 },
+                .dot_dot,
+                .as,
                 .new_line,
                 .none => break,
                 else => return self.reportTokenError(error.UnknownToken, "Unknown token", next),
@@ -1484,7 +1560,14 @@ pub const Parser = struct {
                     '[' => self.pushToken(.left_bracket, start),
                     ']' => self.pushToken(.right_bracket, start),
                     ',' => self.pushToken(.comma, start),
-                    '.' => self.pushToken(.dot, start),
+                    '.' => {
+                        if (self.peekChar() == '.') {
+                            self.advanceChar();
+                            self.pushToken(.dot_dot, start);
+                        } else {
+                            self.pushToken(.dot, start);
+                        }
+                    },
                     ':' => self.pushToken(.colon, start),
                     '@' => self.pushToken(.at, start),
                     '-' => self.pushOpToken(.minus, start),
@@ -1864,7 +1947,7 @@ const LogicOpType = enum(u3) {
     equal_equal = 6,
 };
 
-const TokenType = enum(u5) {
+const TokenType = enum {
     ident,
     number,
     string,
@@ -1880,6 +1963,7 @@ const TokenType = enum(u5) {
     comma,
     colon,
     dot,
+    dot_dot,
     logic_op,
     equal,
     plus_equal,
@@ -1895,6 +1979,7 @@ const TokenType = enum(u5) {
     false_k,
     or_k,
     and_k,
+    as,
     func,
     /// Used to indicate no token.
     none,
@@ -1940,6 +2025,9 @@ const NodeType = enum {
     else_clause,
     for_inf_stmt,
     for_cond_stmt,
+    for_range_stmt,
+    range_clause,
+    as_clause,
     label_decl,
     func_decl,
     lambda_single, // Single line.
@@ -2001,6 +2089,16 @@ pub const Node = struct {
         func: struct {
             decl_id: FuncDeclId,
             body_head: NodeId,
+        },
+        for_range_stmt: struct {
+            range_clause: NodeId,
+            first_child: NodeId,
+            as_clause: NodeId,
+        },
+        as_clause: struct {
+            ident: NodeId,
+            step: NodeId,
+            inc: bool,
         },
     },
 };
@@ -2229,4 +2327,12 @@ test "Parse dependency variables" {
         \\foo()
     );
     try t.eq(res.deps.size, 0);
+}
+
+pub fn logSrcPos(src: []const u8, start: u32, len: u32) void {
+    if (start + len > src.len) {
+        log.debug("{s}", .{ src[start..] });
+    } else {
+        log.debug("{s}", .{ src[start..start+len] });
+    }
 }

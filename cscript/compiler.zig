@@ -233,13 +233,13 @@ pub const JsTargetCompiler = struct {
 
     fn logNodeStart(self: *JsTargetCompiler, node_id: parser.NodeId) void {
         const node = self.nodes[node_id];
-        const token = self.tokens[node.start_token];
+        self.logTokenStart(node.start_token);
+    }
+
+    fn logTokenStart(self: *JsTargetCompiler, token_id: u32) void {
+        const token = self.tokens[token_id];
         const PrefixLen = 10;
-        if (token.start_pos + PrefixLen > self.src.len) {
-            log.debug("{s}", .{ self.src[token.start_pos..] });
-        } else {
-            log.debug("{s}", .{ self.src[token.start_pos..token.start_pos+PrefixLen] });
-        }
+        parser.logSrcPos(self.src, token.start_pos, PrefixLen);
     }
 
     fn analyzeRootExpr(self: *JsTargetCompiler, expr_id: parser.NodeId, expr: parser.Node) anyerror!void {
@@ -285,6 +285,14 @@ pub const JsTargetCompiler = struct {
                 try self.analyzeRootExpr(expr.head.left_right.right, right);
             },
             else => return,
+        }
+    }
+
+    fn declareIfNeeded(self: *JsTargetCompiler, name: []const u8) !void {
+        if (!self.cur_block.vars.contains(name)) {
+            try self.indent();
+            _ = try self.writer.print("let {s};\n", .{name});
+            try self.cur_block.vars.put(self.alloc, name, .{ .ctype = AnyCtype });
         }
     }
 
@@ -340,6 +348,13 @@ pub const JsTargetCompiler = struct {
     
     inline fn indent(self: *JsTargetCompiler) !void {
         try self.writer.writeByteNTimes(' ', self.cur_indent);
+    }
+
+    fn isExprConst(self: *JsTargetCompiler, expr: parser.Node) bool {
+        _ = self;
+        if (expr.node_t == .number) {
+            return true;
+        } else return false;
     }
 
     fn genStatement(self: *JsTargetCompiler, node: parser.Node) !void {
@@ -466,6 +481,91 @@ pub const JsTargetCompiler = struct {
                         self.cur_indent -= IndentWidth;
                     } else return self.reportError(error.Unsupported, "Unsupported clause.", .{}, next);
                 }
+
+                try self.indent();
+                _ = try self.writer.write("}\n");
+            },
+            .for_range_stmt => {
+                var it_name: []const u8 = "i";
+                var step: ?parser.Node = null;
+                var step_const = true;
+                var inc = true;
+                if (node.head.for_range_stmt.as_clause != NullId) {
+                    const as_clause = self.nodes[node.head.for_range_stmt.as_clause];
+                    const ident = self.nodes[as_clause.head.as_clause.ident];
+                    const ident_token = self.tokens[ident.start_token];
+                    it_name = self.src[ident_token.start_pos..ident_token.data.end_pos];
+                    inc = as_clause.head.as_clause.inc;
+                    if (as_clause.head.as_clause.step != NullId) {
+                        step = self.nodes[as_clause.head.as_clause.step];
+                        step_const = self.isExprConst(step.?);
+                    }
+                }
+
+                const range_clause = self.nodes[node.head.for_range_stmt.range_clause];
+                const left_range = self.nodes[range_clause.head.left_right.left];
+                const right_range = self.nodes[range_clause.head.left_right.right];
+                const right_range_const = self.isExprConst(right_range);
+
+                try self.declareIfNeeded(it_name);
+                try self.indent();
+                _ = try self.writer.write("for (");
+                if (!right_range_const) {
+                    try self.indent();
+                    _ = try self.writer.write("const end = ");
+                    try self.genExpression(right_range);
+                    _ = try self.writer.write(",");
+                }
+                if (!step_const and step != null) {
+                    try self.indent();
+                    _ = try self.writer.write("const step = ");
+                    try self.genExpression(step.?);
+                    _ = try self.writer.write(",");
+                }
+                _ = try self.writer.print("{s}=", .{it_name});
+                try self.genExpression(left_range);
+                if (inc) {
+                    if (!right_range_const) {
+                        _ = try self.writer.print("; {s} < end", .{it_name});
+
+                    } else {
+                        _ = try self.writer.print("; {s} < ", .{it_name});
+                        try self.genExpression(right_range);
+                    }
+                } else {
+                    if (!right_range_const) {
+                        _ = try self.writer.print("; {s} > end", .{it_name});
+                    } else {
+                        _ = try self.writer.print("; {s} > ", .{it_name});
+                        try self.genExpression(right_range);
+                    }
+                }
+                if (inc) {
+                    if (!step_const) {
+                        _ = try self.writer.print("; {s} += step", .{it_name});
+                    } else {
+                        _ = try self.writer.print("; {s} += ", .{it_name});
+                        if (step) |step_n| {
+                            try self.genExpression(step_n);
+                        } else {
+                            _ = try self.writer.write("1");
+                        }
+                    }
+                } else {
+                    if (!step_const) {
+                        _ = try self.writer.print("; {s} -= step", .{it_name});
+                    } else {
+                        _ = try self.writer.print("; {s} -= ", .{it_name});
+                        if (step) |step_n| {
+                            try self.genExpression(step_n);
+                        } else {
+                            _ = try self.writer.write("1");
+                        }
+                    }
+                }
+                _ = try self.writer.write(") {\n");
+
+                try self.genForBody(node.head.for_range_stmt.first_child);
 
                 try self.indent();
                 _ = try self.writer.write("}\n");

@@ -415,6 +415,30 @@ test "for statement" {
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
+
+    // `for` with range
+    val = try run.evaluate(
+        \\block:
+        \\  iters = 0
+        \\  for 0..10 as i:
+        \\     iters += 1
+        \\  iters
+    );
+    try t.eq(val.getInt32(), 10);
+    run.deinitValue(val);
+
+    // two `for` with range don't interfere with each other
+    val = try run.evaluate(
+        \\block:
+        \\  iters = 0
+        \\  for 0..10 as i:
+        \\     iters += 1
+        \\  for 0..10 as i:
+        \\     iters += 1
+        \\  iters
+    );
+    try t.eq(val.getInt32(), 20);
+    run.deinitValue(val);
 }
 
 test "function declaration" {

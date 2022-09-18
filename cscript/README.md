@@ -117,14 +117,17 @@ for running: // Keep looping until `running` is false.
 ```
 `for` loops can iterate over a range that starts at a number (inclusive) to a target number (exclusive). Note that by default the looping counter is incremented by one:
 ```cscript
-for 0..100 of i:
+for 0..100 as i:
     cs.log i    // 0, 1, 2, ... , 99
 
-for 0..100, 10 of i:
+for 0..100 as i += 10:
     cs.log i    // 0, 10, 20, ... , 90
 
-for 100..0, -1 of i:
+for 100..0 as i -= 1:
     cs.log i    // 100, 99, 98, ... , 1
+
+for 100..=0 as i -= 1:
+    cs.log i    // 100, 99, 98, ... , 0
 ```
 TODO: Iterating arrays.
 
