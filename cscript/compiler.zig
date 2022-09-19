@@ -15,6 +15,8 @@ const LastPrimitiveId = 1;
 
 pub const JsTargetCompiler = struct {
     alloc: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    arena_alloc: std.mem.Allocator,
     out: std.ArrayListUnmanaged(u8),
     last_err: []const u8,
 
@@ -38,9 +40,13 @@ pub const JsTargetCompiler = struct {
     cur_indent: u32,
     cur_block: *BlockState,
 
-    pub fn init(alloc: std.mem.Allocator) JsTargetCompiler {
-        const new = JsTargetCompiler{
+    u8_buf: std.ArrayListUnmanaged(u8),
+
+    pub fn init(self: *JsTargetCompiler, alloc: std.mem.Allocator) void {
+        self.* = .{
             .alloc = alloc,
+            .arena = std.heap.ArenaAllocator.init(alloc),
+            .arena_alloc = undefined,
             .out = .{},
             .func_decls = undefined,
             .func_params = undefined,
@@ -58,8 +64,9 @@ pub const JsTargetCompiler = struct {
             .use_generators = undefined,
             .top_level_async = undefined,
             .ctypes = .{},
+            .u8_buf = .{},
         };
-        return new;
+        self.arena_alloc = self.arena.allocator();
     }
 
     pub fn deinit(self: *JsTargetCompiler) void {
@@ -68,9 +75,16 @@ pub const JsTargetCompiler = struct {
         self.alloc.free(self.last_err);
         self.buf.deinit(self.alloc);
         self.ctypes.deinit(self.alloc);
+        self.u8_buf.deinit(self.alloc);
+        self.arena.deinit();
     }
 
     pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) !ResultView {
+        defer {
+            // Clear arena for next compile.
+            self.arena.deinit();
+            self.arena.state = .{};
+        }
         try self.ctypes.resize(self.alloc, LastPrimitiveId + 1);
         self.func_decls = ast.func_decls.items;
         self.func_params = ast.func_params;
@@ -288,7 +302,30 @@ pub const JsTargetCompiler = struct {
         }
     }
 
-    fn declareIfNeeded(self: *JsTargetCompiler, name: []const u8) !void {
+    fn getNextPrefixedVar(self: *JsTargetCompiler, alloc: std.mem.Allocator, prefix: []const u8) ![]const u8 {
+        if (self.getScopedVarDesc(prefix) == null) {
+            return alloc.dupe(u8, prefix);
+        }
+        var i: u32 = 1;
+        self.u8_buf.clearRetainingCapacity();
+        try std.fmt.format(self.u8_buf.writer(self.alloc), "{s}{}", .{prefix, i});
+        while (self.getScopedVarDesc(self.u8_buf.items) != null) {
+            i += 1;
+            self.u8_buf.clearRetainingCapacity();
+            try std.fmt.format(self.u8_buf.writer(self.alloc), "{s}{}", .{prefix, i});
+        }
+        return alloc.dupe(u8, self.u8_buf.items);
+    }
+
+    fn declareConstVar(self: *JsTargetCompiler, name: []const u8, val: parser.Node) !void {
+        try self.indent();
+        _ = try self.writer.print("const {s} = ", .{name});
+        try self.genExpression(val);
+        _ = try self.writer.write(";\n");
+        try self.cur_block.vars.put(self.alloc, name, .{ .ctype = AnyCtype });
+    }
+
+    fn declareVarIfNeeded(self: *JsTargetCompiler, name: []const u8) !void {
         if (!self.cur_block.vars.contains(name)) {
             try self.indent();
             _ = try self.writer.print("let {s};\n", .{name});
@@ -507,26 +544,24 @@ pub const JsTargetCompiler = struct {
                 const right_range = self.nodes[range_clause.head.left_right.right];
                 const right_range_const = self.isExprConst(right_range);
 
-                try self.declareIfNeeded(it_name);
+                var end_var: []const u8 = undefined;
+                if (!right_range_const) {
+                    end_var = try self.getNextPrefixedVar(self.arena_alloc, "__end");
+                    try self.declareConstVar(end_var, right_range);
+                }
+                var step_var: []const u8 = undefined;
+                if (!step_const and step != null) {
+                    step_var = try self.getNextPrefixedVar(self.arena_alloc, "__step");
+                    try self.declareConstVar(step_var, step.?);
+                }
+                try self.declareVarIfNeeded(it_name);
                 try self.indent();
                 _ = try self.writer.write("for (");
-                if (!right_range_const) {
-                    try self.indent();
-                    _ = try self.writer.write("const end = ");
-                    try self.genExpression(right_range);
-                    _ = try self.writer.write(",");
-                }
-                if (!step_const and step != null) {
-                    try self.indent();
-                    _ = try self.writer.write("const step = ");
-                    try self.genExpression(step.?);
-                    _ = try self.writer.write(",");
-                }
                 _ = try self.writer.print("{s}=", .{it_name});
                 try self.genExpression(left_range);
                 if (inc) {
                     if (!right_range_const) {
-                        _ = try self.writer.print("; {s} < end", .{it_name});
+                        _ = try self.writer.print("; {s} < {s}", .{it_name, end_var});
 
                     } else {
                         _ = try self.writer.print("; {s} < ", .{it_name});
@@ -534,7 +569,7 @@ pub const JsTargetCompiler = struct {
                     }
                 } else {
                     if (!right_range_const) {
-                        _ = try self.writer.print("; {s} > end", .{it_name});
+                        _ = try self.writer.print("; {s} > {s}", .{it_name, end_var});
                     } else {
                         _ = try self.writer.print("; {s} > ", .{it_name});
                         try self.genExpression(right_range);
@@ -542,7 +577,7 @@ pub const JsTargetCompiler = struct {
                 }
                 if (inc) {
                     if (!step_const) {
-                        _ = try self.writer.print("; {s} += step", .{it_name});
+                        _ = try self.writer.print("; {s} += {s}", .{it_name, step_var});
                     } else {
                         _ = try self.writer.print("; {s} += ", .{it_name});
                         if (step) |step_n| {
@@ -553,7 +588,7 @@ pub const JsTargetCompiler = struct {
                     }
                 } else {
                     if (!step_const) {
-                        _ = try self.writer.print("; {s} -= step", .{it_name});
+                        _ = try self.writer.print("; {s} -= {s}", .{it_name, step_var});
                     } else {
                         _ = try self.writer.print("; {s} -= ", .{it_name});
                         if (step) |step_n| {

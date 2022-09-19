@@ -472,6 +472,20 @@ test "for statement" {
     );
     try t.eq(val.getInt32(), 20);
     run.deinitValue(val);
+
+    // two `for` with non const max value don't interfere with each other
+    val = try run.evaluate(
+        \\block:
+        \\  foo = 10
+        \\  iters = 0
+        \\  for 0..foo as i:
+        \\     iters += 1
+        \\  for 0..foo as i:
+        \\     iters += 1
+        \\  iters
+    );
+    try t.eq(val.getInt32(), 20);
+    run.deinitValue(val);
 }
 
 test "function declaration" {
@@ -631,7 +645,7 @@ const Runner = struct {
         var new = t.alloc.create(Runner) catch fatal();
         new.* = .{
             .parser = cs.Parser.init(t.alloc),
-            .compiler = cs.JsTargetCompiler.init(t.alloc),
+            .compiler = undefined,
             .engine = cs.JsEngine.init(t.alloc),
             .promise = undefined,
             .tasks = std.ArrayList(qjs.JSValue).init(t.alloc),
@@ -639,6 +653,7 @@ const Runner = struct {
             .evalGeneratorSrcFunc = undefined,
             .eval_promise_res = undefined,
         };
+        new.compiler.init(t.alloc);
         const engine = &new.engine;
         const ctx = new.engine.inner.ctx;
         qjs.JS_SetContextOpaque(ctx, new);
