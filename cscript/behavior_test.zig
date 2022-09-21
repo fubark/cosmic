@@ -131,6 +131,37 @@ test "Indentation." {
     );
     try t.eq(val.getInt32(), 123);
     run.deinitValue(val);
+
+    // New block requires at least one statement.
+    const parse_res = try run.parse(
+        \\if true:
+        \\return 123 
+    );
+    try t.eq(parse_res.has_error, true);
+    try t.expect(std.mem.indexOf(u8, parse_res.err_msg, "Block requires at least one statement. Use the `pass` statement as a placeholder.") != null);
+
+    // Continue from parent indentation.
+    val = try run.evaluate(
+        \\fun foo():
+        \\  if false:
+        \\    pass
+        \\  return 123 
+        \\foo()
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
+
+    // Continue from grand parent indentation.
+    val = try run.evaluate(
+        \\fun foo():
+        \\  if false:
+        \\    if false:
+        \\      pass
+        \\  return 123 
+        \\foo()
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
 }
 
 test "Numbers." {

@@ -534,8 +534,11 @@ pub const Parser = struct {
                 .child_head = first_stmt,
             };
             self.nodes.items[if_stmt].head.left_right.extra = else_clause;
+            return if_stmt;
+        } else {
+            self.next_pos = save;
+            return if_stmt;
         }
-        return if_stmt;
     }
 
     fn parseForStatement(self: *Parser) !NodeId {
@@ -1748,7 +1751,6 @@ pub const Parser = struct {
 
     fn tokenize(self: *Parser) !void {
         self.tokens.clearRetainingCapacity();
-        self.last_err = "";
         self.next_pos = 0;
 
         while (!self.isAtEndChar()) {
