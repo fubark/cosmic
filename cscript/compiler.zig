@@ -973,20 +973,16 @@ pub const JsTargetCompiler = struct {
             },
             .if_expr => {
                 _ = try self.writer.write("if (");
-                const cond = self.nodes[node.head.left_right.left];
+                const cond = self.nodes[node.head.if_expr.cond];
                 try self.genExpression(cond);
                 _ = try self.writer.write(") { ");
-                const body = self.nodes[node.head.left_right.right];
+                const body = self.nodes[node.head.if_expr.body_expr];
                 try self.genExpression(body);
-                if (node.head.left_right.extra != NullId) {
-                    const next = self.nodes[node.head.left_right.extra];
-                    if (next.node_t == .else_clause) {
-                        _ = try self.writer.write(" } else { ");
-                        const else_body = self.nodes[next.head.child_head];
-                        try self.genExpression(else_body);
-                    } else {
-                        return self.reportError(error.Unsupported, "Unsupported node", .{}, next);
-                    }
+                if (node.head.if_expr.else_clause != NullId) {
+                    const else_clause = self.nodes[node.head.if_expr.else_clause];
+                    _ = try self.writer.write(" } else { ");
+                    const else_body = self.nodes[else_clause.head.child_head];
+                    try self.genExpression(else_body);
                 }
                 _ = try self.writer.write(" }");
             },

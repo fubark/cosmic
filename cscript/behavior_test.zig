@@ -397,8 +397,27 @@ test "if expression" {
     const run = Runner.create();
     defer run.destroy();
 
-    // Same line, single expression.
-    // TODO: Implement if expr in one line.
+    var val = try run.evaluate(
+        \\block:
+        \\  foo = true
+        \\  if foo then 123 else 456
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
+    val = try run.evaluate(
+        \\block:
+        \\  foo = false
+        \\  if foo then 123 else 456
+    );
+    try t.eq(val.getInt32(), 456);
+    run.deinitValue(val);
+}
+
+test "if statement" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // If/else.
     var val = try run.evaluate(
         \\block:
         \\  foo = true

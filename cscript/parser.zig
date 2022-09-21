@@ -11,6 +11,7 @@ const IndexSlice = stdx.IndexSlice(u32);
 const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "return", .return_k },
     .{ "if", .if_k },
+    .{ "then", .then },
     .{ "else", .else_k },
     .{ "for", .for_k },
     .{ "fun", .func },
@@ -464,18 +465,25 @@ pub const Parser = struct {
         // Assumes first token is the `if` keyword.
         self.advanceToken();
 
-        const if_stmt = self.pushNode(.if_stmt, start);
-
         var dummy = false;
         const if_cond = (try self.parseExpression(false, &dummy)) orelse {
             return self.reportTokenError(error.SyntaxError, "Expected if condition.", self.peekToken());
         };
 
         var token = self.peekToken();
-        if (token.token_t != .colon) {
+        if (token.token_t == .then) {
+            const if_expr = try self.parseIfThenExpr(if_cond, start);
+            const expr_stmt = self.pushNode(.expr_stmt, start);
+            self.nodes.items[expr_stmt].head = .{
+                .child_head = if_expr,
+            };
+            return expr_stmt;
+        } else if (token.token_t != .colon) {
             return self.reportTokenError(error.SyntaxError, "Expected colon after if condition.", token);
         }
         self.advanceToken();
+
+        const if_stmt = self.pushNode(.if_stmt, start);
 
         // TODO: Parse statements on the same line.
 
@@ -1210,6 +1218,41 @@ pub const Parser = struct {
         return false;
     }
 
+    fn parseIfThenExpr(self: *Parser, if_cond: NodeId, start: u32) !NodeId {
+        // Assume first token is `then`
+        self.advanceToken();
+
+        const if_expr = self.pushNode(.if_expr, start);
+
+        var dummy: bool = undefined;
+        const if_body = (try self.parseExpression(false, &dummy)) orelse {
+            return self.reportTokenError(error.SyntaxError, "Expected if body.", self.peekToken());
+        };
+        self.nodes.items[if_expr].head = .{
+            .if_expr = .{
+                .cond = if_cond,
+                .body_expr = if_body,
+                .else_clause = NullId,
+            },
+        };
+
+        const token = self.peekToken();
+        if (token.token_t == .else_k) {
+            const else_clause = self.pushNode(.else_clause, self.next_pos);
+            self.advanceToken();
+
+            const else_body = (try self.parseExpression(false, &dummy)) orelse {
+                return self.reportTokenError(error.SyntaxError, "Expected else body.", self.peekToken());
+            };
+            self.nodes.items[else_clause].head = .{
+                .child_head = else_body,
+            };
+
+            self.nodes.items[if_expr].head.if_expr.else_clause = else_clause;
+        }
+        return if_expr;
+    }
+
     fn parseTermExpr(self: *Parser) anyerror!NodeId {
         var start = self.next_pos;
         var token = self.peekToken();
@@ -1275,43 +1318,18 @@ pub const Parser = struct {
                 return self.parseLambdaFunction();
             },
             .if_k => {
-                const if_expr = self.pushNode(.if_expr, start);
                 self.advanceToken();
                 var dummy = false;
                 const if_cond = (try self.parseExpression(false, &dummy)) orelse {
                     return self.reportTokenError(error.SyntaxError, "Expected if condition.", self.peekToken());
                 };
 
-                var token2 = self.peekToken();
-                if (token2.token_t != .colon) {
-                    return self.reportTokenError(error.SyntaxError, "Expected colon after if condition.", token2);
+                token = self.peekToken();
+                if (token.token_t == .then) {
+                    return try self.parseIfThenExpr(if_cond, start);
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected then keyword.", token);
                 }
-                self.advanceToken();
-
-                const if_body = (try self.parseExpression(false, &dummy)) orelse {
-                    return self.reportTokenError(error.SyntaxError, "Expected if body.", self.peekToken());
-                };
-                self.nodes.items[if_expr].head = .{
-                    .left_right = .{
-                        .left = if_cond,
-                        .right = if_body,
-                    },
-                };
-
-                if (self.peekToken().token_t == .else_k) {
-                    const else_clause = self.pushNode(.else_clause, self.next_pos);
-                    self.advanceToken();
-
-                    const else_body = (try self.parseExpression(false, &dummy)) orelse {
-                        return self.reportTokenError(error.SyntaxError, "Expected else body.", self.peekToken());
-                    };
-                    self.nodes.items[else_clause].head = .{
-                        .child_head = else_body,
-                    };
-
-                    self.nodes.items[if_expr].head.left_right.extra = else_clause;
-                }
-                return if_expr;
             },
             .left_paren => b: {
                 _ = self.consumeToken();
@@ -1479,17 +1497,18 @@ pub const Parser = struct {
                         left_id = call_id;
                     } else return self.reportTokenError(error.SyntaxError, "Expected variable to left of call expression.", next);
                 },
-                .dot_dot => break,
-                .right_bracket => break,
-                .right_paren => break,
-                .right_brace => break,
-                .else_k => break,
-                .comma => break,
-                .colon => break,
+                .dot_dot,
+                .right_bracket,
+                .right_paren,
+                .right_brace,
+                .else_k,
+                .comma,
+                .colon,
                 .plus_equal,
-                .equal => break,
-                .operator => break,
-                .logic_op => break,
+                .equal,
+                .operator,
+                .logic_op,
+                .then,
                 .as => break,
                 .ident,
                 .number,
@@ -1523,12 +1542,6 @@ pub const Parser = struct {
         while (true) {
             const next = self.peekToken();
             switch (next.token_t) {
-                .right_bracket => break,
-                .right_paren => break,
-                .right_brace => break,
-                .else_k => break,
-                .comma => break,
-                .colon => break,
                 .plus_equal,
                 .equal => {
                     // If left is an accessor expression or identifier, parse as assignment statement.
@@ -1607,6 +1620,13 @@ pub const Parser = struct {
                     };
                     left_id = bin_expr;
                 },
+                .right_bracket,
+                .right_paren,
+                .right_brace,
+                .else_k,
+                .then,
+                .comma,
+                .colon,
                 .dot_dot,
                 .as,
                 .new_line,
@@ -2161,6 +2181,7 @@ const TokenType = enum {
     return_k,
     break_k,
     if_k,
+    then,
     else_k,
     for_k,
     await_k,
@@ -2311,6 +2332,11 @@ pub const Node = struct {
             arr: NodeId,
             left: NodeId,
             right: NodeId,
+        },
+        if_expr: struct {
+            cond: NodeId,
+            body_expr: NodeId,
+            else_clause: NodeId,
         },
     },
 };
