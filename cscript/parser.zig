@@ -621,6 +621,37 @@ pub const Parser = struct {
                                 },
                             };
                             return for_stmt;
+                        } else if (token.token_t == .plus_equal) {
+                            self.advanceToken();
+                            const step_expr = (try self.parseExpression(false, &dummy)) orelse {
+                                return self.reportTokenError(error.SyntaxError, "Expected step expr.", token);
+                            };
+                            token = self.peekToken();
+                            if (token.token_t == .colon) {
+                                self.advanceToken();
+                                const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+
+                                const as_clause = self.pushNode(.as_clause, start);
+                                self.nodes.items[as_clause].head = .{
+                                    .as_clause = .{
+                                        .ident = ident,
+                                        .step = step_expr,
+                                        .inc = true,
+                                    }
+                                };
+
+                                const for_stmt = self.pushNode(.for_range_stmt, start);
+                                self.nodes.items[for_stmt].head = .{
+                                    .for_range_stmt = .{
+                                        .range_clause = range_clause,
+                                        .first_child = first_stmt,
+                                        .as_clause = as_clause,
+                                    },
+                                };
+                                return for_stmt;
+                            } else {
+                                return self.reportTokenError(error.SyntaxError, "Expected :.", token);
+                            }
                         } else {
                             return self.reportTokenError(error.SyntaxError, "Expected :.", token);
                         }
@@ -1478,7 +1509,7 @@ pub const Parser = struct {
                             },
                         }
                     } else {
-                        return self.reportTokenError(error.SyntaxError, "Assignment operator not allowed in expression.", next);
+                        break;
                     }
                 },
                 .operator => {

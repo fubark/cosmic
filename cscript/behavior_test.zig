@@ -421,7 +421,7 @@ test "if expression" {
     run.deinitValue(val);
 }
 
-test "for statement" {
+test "Infinite for loop." {
     const run = Runner.create();
     defer run.destroy();
 
@@ -437,9 +437,14 @@ test "for statement" {
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
+}
+
+test "Conditional for loop." {
+    const run = Runner.create();
+    defer run.destroy();
 
     // `for` with condition expression.
-    val = try run.evaluate(
+    var val = try run.evaluate(
         \\block:
         \\  i = 0
         \\  for i != 10:
@@ -448,9 +453,14 @@ test "for statement" {
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
+}
 
-    // `for` with range
-    val = try run.evaluate(
+test "For loop over range." {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Basic.
+    var val = try run.evaluate(
         \\block:
         \\  iters = 0
         \\  for 0..10 as i:
@@ -485,6 +495,31 @@ test "for statement" {
         \\  iters
     );
     try t.eq(val.getInt32(), 20);
+    run.deinitValue(val);
+
+    // Increment by step.
+    val = try run.evaluate(
+        \\block:
+        \\  iters = 0
+        \\  for 0..10 as i += 3:
+        \\     iters += 1
+        \\  iters
+    );
+    try t.eq(val.getInt32(), 4);
+    run.deinitValue(val);
+
+    // Increment by non const step value. Two loops after another.
+    val = try run.evaluate(
+        \\block:
+        \\  iters = 0
+        \\  step = 3
+        \\  for 0..10 as i += step:
+        \\     iters += 1
+        \\  for 0..10 as i += step:
+        \\     iters += 1
+        \\  iters
+    );
+    try t.eq(val.getInt32(), 8);
     run.deinitValue(val);
 }
 
