@@ -11,18 +11,19 @@ const IndexSlice = stdx.IndexSlice(u32);
 const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "return", .return_k },
     .{ "if", .if_k },
-    .{ "then", .then },
+    .{ "then", .then_k },
+    .{ "elif", .elif_k },
     .{ "else", .else_k },
     .{ "for", .for_k },
-    .{ "fun", .func },
+    .{ "fun", .fun_k },
     .{ "break", .break_k },
     .{ "await", .await_k },
     .{ "true", .true_k },
     .{ "false", .false_k },
     .{ "or", .or_k },
     .{ "and", .and_k },
-    .{ "as", .as },
-    .{ "pass", .pass },
+    .{ "as", .as_k },
+    .{ "pass", .pass_k },
 });
 
 const BlockState = struct {
@@ -463,6 +464,85 @@ pub const Parser = struct {
         }
     }
 
+    fn parseIfStmtElseClause(self: *Parser) anyerror!NodeId {
+        const save = self.next_pos;
+        const indent = self.consumeIndentBeforeStmt();
+        if (indent != self.cur_indent) {
+            self.next_pos = save;
+            return NullId;
+        }
+
+        var token = self.peekToken();
+        if (token.token_t == .else_k) {
+            const else_clause = self.pushNode(.else_clause, self.next_pos);
+            self.advanceToken();
+
+            token = self.peekToken();
+            if (token.token_t != .colon) {
+                return self.reportTokenError(error.SyntaxError, "Expected colon after else.", token);
+            }
+            self.advanceToken();
+
+            // TODO: Parse statements on the same line.
+
+            token = self.peekToken();
+            if (token.token_t != .new_line) {
+                return self.reportTokenError(error.SyntaxError, "Expected new line.", token);
+            }
+            self.advanceToken();
+
+            const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+            self.nodes.items[else_clause].head = .{
+                .else_clause = .{
+                    .body_head = first_stmt,
+                    .cond = NullId,
+                    .else_clause = NullId,
+                },
+            };
+            return else_clause;
+        } else if (token.token_t == .elif_k) {
+            const else_clause = self.pushNode(.else_clause, self.next_pos);
+            self.advanceToken();
+
+            var dummy = false;
+            const cond = (try self.parseExpression(false, &dummy)) orelse {
+                return self.reportTokenError(error.SyntaxError, "Expected else if condition.", self.peekToken());
+            };
+
+            token = self.peekToken();
+            if (token.token_t == .colon) {
+                self.advanceToken();
+                token = self.peekToken();
+                if (token.token_t != .new_line) {
+                    return self.reportTokenError(error.SyntaxError, "Expected new line.", token);
+                }
+                self.advanceToken();
+
+                const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+                self.nodes.items[else_clause].head = .{
+                    .else_clause = .{
+                        .body_head = first_stmt,
+                        .cond = cond,
+                        .else_clause = NullId,
+                    },
+                };
+
+                const nested_else = try self.parseIfStmtElseClause();
+                if (nested_else != NullId) {
+                    self.nodes.items[else_clause].head.else_clause.else_clause = nested_else;
+                    return else_clause;
+                } else {
+                    return else_clause;
+                }
+            } else {
+                return self.reportTokenError(error.SyntaxError, "Expected colon after else if condition.", token);
+            }
+        } else {
+            self.next_pos = save;
+            return NullId;
+        }
+    }
+
     fn parseIfStatement(self: *Parser) !NodeId {
         const start = self.next_pos;
         // Assumes first token is the `if` keyword.
@@ -474,7 +554,7 @@ pub const Parser = struct {
         };
 
         var token = self.peekToken();
-        if (token.token_t == .then) {
+        if (token.token_t == .then_k) {
             const if_expr = try self.parseIfThenExpr(if_cond, start);
             const expr_stmt = self.pushNode(.expr_stmt, start);
             self.nodes.items[expr_stmt].head = .{
@@ -504,39 +584,11 @@ pub const Parser = struct {
             },
         };
 
-        const save = self.next_pos;
-        const indent = self.consumeIndentBeforeStmt();
-        if (indent != self.cur_indent) {
-            self.next_pos = save;
-            return if_stmt;
-        }
-
-        if (self.peekToken().token_t == .else_k) {
-            const else_clause = self.pushNode(.else_clause, self.next_pos);
-            self.advanceToken();
-
-            token = self.peekToken();
-            if (token.token_t != .colon) {
-                return self.reportTokenError(error.SyntaxError, "Expected colon after else.", token);
-            }
-            self.advanceToken();
-
-            // TODO: Parse statements on the same line.
-
-            token = self.peekToken();
-            if (token.token_t != .new_line) {
-                return self.reportTokenError(error.SyntaxError, "Expected new line.", token);
-            }
-            self.advanceToken();
-
-            first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
-            self.nodes.items[else_clause].head = .{
-                .child_head = first_stmt,
-            };
+        const else_clause = try self.parseIfStmtElseClause();
+        if (else_clause != NullId) {
             self.nodes.items[if_stmt].head.left_right.extra = else_clause;
             return if_stmt;
         } else {
-            self.next_pos = save;
             return if_stmt;
         }
     }
@@ -604,7 +656,7 @@ pub const Parser = struct {
                         },
                     };
                     return for_stmt;
-                } else if (token.token_t == .as) {
+                } else if (token.token_t == .as_k) {
                     self.advanceToken();
 
                     token = self.peekToken();
@@ -675,7 +727,7 @@ pub const Parser = struct {
                 } else {
                     return self.reportTokenError(error.SyntaxError, "Expected :.", token);
                 }
-            } else if (token.token_t == .as) {
+            } else if (token.token_t == .as_k) {
                 self.advanceToken();
                 token = self.peekToken();
                 const ident = (try self.parseExpression(false, &dummy)) orelse {
@@ -830,7 +882,7 @@ pub const Parser = struct {
                     return id;
                 }
             },
-            .func => {
+            .fun_k => {
                 return try self.parseFunctionDeclaration();
             },
             .if_k => {
@@ -839,7 +891,7 @@ pub const Parser = struct {
             .for_k => {
                 return try self.parseForStatement();
             },
-            .pass => {
+            .pass_k => {
                 const id = self.pushNode(.pass_stmt, self.next_pos);
                 self.advanceToken();
                 token = self.peekToken();
@@ -1334,7 +1386,7 @@ pub const Parser = struct {
                 };
                 return expr_id;
             },
-            .func => {
+            .fun_k => {
                 // Lambda function.
                 return self.parseLambdaFunction();
             },
@@ -1346,7 +1398,7 @@ pub const Parser = struct {
                 };
 
                 token = self.peekToken();
-                if (token.token_t == .then) {
+                if (token.token_t == .then_k) {
                     return try self.parseIfThenExpr(if_cond, start);
                 } else {
                     return self.reportTokenError(error.SyntaxError, "Expected then keyword.", token);
@@ -1529,8 +1581,8 @@ pub const Parser = struct {
                 .equal,
                 .operator,
                 .logic_op,
-                .then,
-                .as => break,
+                .then_k,
+                .as_k => break,
                 .ident,
                 .number,
                 .string => {
@@ -1645,11 +1697,11 @@ pub const Parser = struct {
                 .right_paren,
                 .right_brace,
                 .else_k,
-                .then,
+                .then_k,
                 .comma,
                 .colon,
                 .dot_dot,
-                .as,
+                .as_k,
                 .new_line,
                 .none => break,
                 else => return self.reportTokenError(error.UnknownToken, "Unknown token", next),
@@ -2201,7 +2253,8 @@ const TokenType = enum {
     return_k,
     break_k,
     if_k,
-    then,
+    then_k,
+    elif_k,
     else_k,
     for_k,
     await_k,
@@ -2209,9 +2262,9 @@ const TokenType = enum {
     false_k,
     or_k,
     and_k,
-    as,
-    pass,
-    func,
+    as_k,
+    pass_k,
+    fun_k,
     /// Used to indicate no token.
     none,
 };
@@ -2358,6 +2411,12 @@ pub const Node = struct {
         if_expr: struct {
             cond: NodeId,
             body_expr: NodeId,
+            else_clause: NodeId,
+        },
+        else_clause: struct {
+            body_head: NodeId,
+            // for elif only.
+            cond: NodeId,
             else_clause: NodeId,
         },
     },

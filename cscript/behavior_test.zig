@@ -469,6 +469,19 @@ test "if statement" {
     );
     try t.eq(val.getInt32(), 456);
     run.deinitValue(val);
+
+    // elif.
+    val = try run.evaluate(
+        \\block:
+        \\  if false:
+        \\    456
+        \\  elif true:
+        \\    123
+        \\  else:
+        \\    456
+    );
+    try t.eq(val.getInt32(), 123);
+    run.deinitValue(val);
 }
 
 test "Infinite for loop." {

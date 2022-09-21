@@ -527,16 +527,30 @@ pub const JsTargetCompiler = struct {
                 try self.genStatements(node.head.left_right.right);
                 self.cur_indent -= IndentWidth;
 
-                if (node.head.left_right.extra != NullId) {
-                    const next = self.nodes[node.head.left_right.extra];
-                    if (next.node_t == .else_clause) {
+                var else_clause_id = node.head.left_right.extra;
+                while (else_clause_id != NullId) {
+                    const else_clause = self.nodes[else_clause_id];
+                    if (else_clause.head.else_clause.cond == NullId) {
                         try self.indent();
                         _ = try self.writer.write("} else {\n");
 
                         self.cur_indent += IndentWidth;
-                        try self.genStatements(next.head.child_head);
+                        try self.genStatements(else_clause.head.else_clause.body_head);
                         self.cur_indent -= IndentWidth;
-                    } else return self.reportError(error.Unsupported, "Unsupported clause.", .{}, next);
+                        break;
+                    } else {
+                        try self.indent();
+                        _ = try self.writer.write("} else if (");
+                        const else_cond = self.nodes[else_clause.head.else_clause.cond];
+                        try self.genExpression(else_cond);
+                        _ = try self.writer.write(") {\n");
+
+                        self.cur_indent += IndentWidth;
+                        try self.genStatements(else_clause.head.else_clause.body_head);
+                        self.cur_indent -= IndentWidth;
+
+                        else_clause_id = else_clause.head.else_clause.else_clause;
+                    }
                 }
 
                 try self.indent();
