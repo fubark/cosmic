@@ -520,6 +520,46 @@ test "function declaration" {
     run.deinitValue(val);
 }
 
+test "Lambdas" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Lambda with no params.
+    var val = try run.evaluate(
+        \\foo = fun () => 2 + 2
+        \\foo()
+    );
+    try t.eq(val.getInt32(), 4);
+    run.deinitValue(val);
+
+    // Lambda with one param.
+    val = try run.evaluate(
+        \\foo = fun (bar) => bar + 2
+        \\foo(1)
+    );
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+
+    // Lambda with multiple param.
+    val = try run.evaluate(
+        \\foo = fun (bar, inc) => bar + inc
+        \\foo(20, 10)
+    );
+    try t.eq(val.getInt32(), 30);
+    run.deinitValue(val);
+
+    // Lambda assign declaration.
+    t.setLogLevel(.debug);
+    val = try run.evaluate(
+        \\foo = {}
+        \\fun foo.bar():
+        \\  return 2
+        \\foo.bar()
+    );
+    try t.eq(val.getInt32(), 2);
+    run.deinitValue(val);
+}
+
 test "Function named parameters call." {
     const run = Runner.create();
     defer run.destroy();

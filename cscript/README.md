@@ -106,10 +106,10 @@ elif a == 20:
 else:
     cs.log 'neither 10 nor 20'
 ```
-A single line `if` expression also needs the `then` keyword:
+A single line `if` expression also needs the `then` keyword. `elif` is not allowed in single line `if` expressions.:
 ```cscript
 a = 10
-str = if a == 10 then 'red' elif a == 20 then 'green' else 'blue'
+str = if a == 10 then 'red' else 'blue'
 ```
 
 ### Labels
@@ -155,7 +155,9 @@ match val:
 ```
 
 ### Functions
-Functions are declared with the `fun` keyword:
+
+#### Declaring functions.
+Functions are declared with the `fun` keyword. Functions declared in the top level scope are eligible for hot swap during development.
 ```cscript
 using cs.math
 fun dist(x0, y0, x1, y1):
@@ -163,6 +165,15 @@ fun dist(x0, y0, x1, y1):
     dy = y0-y1
     return sqrt dx*dx+dy*dy
 ```
+Functions can return multiple values:
+```cscript
+using cs.math
+fun compute(rad):
+    return cos(rad), sin(rad)
+x, y = compute(pi)
+```
+
+#### Calling functions.
 There are two methods to call functions. The concise method is to use parentheses:
 ```cscript
 d = dist(100, 100, 200, 200)
@@ -181,13 +192,6 @@ You can call functions with named parameters.
 ```cscript
 d = dist(x0: 10, x1: 20, y0: 30, y1: 40)
 ```
-Functions can return multiple values:
-```cscript
-using cs.math
-fun compute(rad):
-    return cos(rad), sin(rad)
-x, y = compute(pi)
-```
 
 ### Lambdas
 ```cscript
@@ -199,6 +203,18 @@ canvas.onUpdate(
     fun (delta_ms):
         print delta_ms
 )
+```
+Lambdas can also be declared and assigned to a nested property of an existing variable. A declaration at the top level scope also makes the lambda eligible for hot swap during development.
+```cscript
+dict = {}
+fun dict.foo():
+    return 123
+dict.foo()
+
+// Equivalent to:
+dict = {}
+dict.foo = func () => 123
+dict.foo()
 ```
 
 ### Closures

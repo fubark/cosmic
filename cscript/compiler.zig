@@ -468,6 +468,23 @@ pub const JsTargetCompiler = struct {
                 try self.genFirstExpr(expr);
                 _ = try self.writer.write(";\n");
             },
+            .lambda_assign_decl => {
+                try self.indent();
+                const assign_expr = self.nodes[node.head.lambda_assign_decl.assign_expr];
+                try self.genExpression(assign_expr);
+
+                const func = self.func_decls[node.head.lambda_assign_decl.decl_id];
+                _ = try self.writer.write(" = function ");
+                try self.genFunctionParams(func.params);
+                _ = try self.writer.write(" {\n");
+
+                self.cur_indent += IndentWidth;
+                try self.genStatements(node.head.lambda_assign_decl.body_head);
+                self.cur_indent -= IndentWidth;
+
+                try self.indent();
+                _ = try self.writer.write("};\n");
+            },
             .func_decl => {
                 const func = self.func_decls[node.head.func.decl_id];
 

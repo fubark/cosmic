@@ -346,6 +346,25 @@ pub const Parser = struct {
         return IndexSlice.init(param_start, @intCast(u32, self.func_params.items.len));
     }
 
+    fn parseFunctionReturn(self: *Parser) !?IndexSlice {
+        var token = self.peekToken();
+        if (token.token_t == .colon) {
+            self.advanceToken();
+            return null;
+        } else if (token.token_t == .ident) {
+            const return_type = IndexSlice.init(token.start_pos, token.data.end_pos);
+            self.advanceToken();
+            token = self.peekToken();
+            if (token.token_t != .colon) {
+                return self.reportTokenError(error.SyntaxError, "Expected colon.", token);
+            }
+            self.advanceToken();
+            return return_type;
+        } else {
+            return self.reportTokenError(error.SyntaxError, "Expected colon or type.", token);
+        }
+    }
+
     fn parseFunctionDeclaration(self: *Parser) !NodeId {
         const start = self.next_pos;
         // Assumes first token is the `func` keyword.
@@ -359,47 +378,85 @@ pub const Parser = struct {
 
         // Parse function name.
         var token = self.peekToken();
+        const left_pos = self.next_pos;
         if (token.token_t == .ident) {
             decl.name = IndexSlice.init(token.start_pos, token.data.end_pos);
+            self.advanceToken();
         } else return self.reportTokenError(error.SyntaxError, "Expected function name identifier.", token);
-        self.advanceToken();
-
-        decl.params = try self.parseFunctionParams();
 
         token = self.peekToken();
-        if (token.token_t == .colon) {
+        if (token.token_t == .dot) {
+            // Parse lambda assign decl.
+            var left = self.pushNode(.ident, left_pos);
             self.advanceToken();
-        } else if (token.token_t == .ident) {
-            decl.return_type = IndexSlice.init(token.start_pos, token.data.end_pos);
-            self.advanceToken();
-            token = self.peekToken();
-            if (token.token_t != .colon) {
-                return self.reportTokenError(error.SyntaxError, "Expected colon.", token);
+            while (true) {
+                token = self.peekToken();
+                if (token.token_t == .ident) {
+                    const ident = self.pushNode(.ident, self.next_pos);
+                    const expr = self.pushNode(.access_expr, left_pos);
+                    self.nodes.items[expr].head = .{
+                        .left_right = .{
+                            .left = left,
+                            .right = ident,
+                        },
+                    };
+                    left = expr;
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected ident.", token);
+                }
+
+                self.advanceToken();
+                token = self.peekToken();
+                if (token.token_t == .left_paren) {
+                    break;
+                } else if (token.token_t == .dot) {
+                    continue;
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected open paren.", token);
+                }
             }
-            self.advanceToken();
+
+            decl.params = try self.parseFunctionParams();
+            decl.return_type = try self.parseFunctionReturn();
+            const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+
+            const decl_id = @intCast(u32, self.func_decls.items.len);
+            try self.func_decls.append(self.alloc, decl);
+
+            const id = self.pushNode(.lambda_assign_decl, start);
+            self.nodes.items[id].head = .{
+                .lambda_assign_decl = .{
+                    .decl_id = decl_id,
+                    .body_head = first_stmt,
+                    .assign_expr = left,
+                },
+            };
+            return id;
+        } else if (token.token_t == .left_paren) {
+            decl.params = try self.parseFunctionParams();
+            decl.return_type = try self.parseFunctionReturn();
+
+            // Parse body.
+            const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+            
+            const decl_id = @intCast(u32, self.func_decls.items.len);
+            try self.func_decls.append(self.alloc, decl);
+
+            const id = self.pushNode(.func_decl, start);
+            self.nodes.items[id].head = .{
+                .func = .{
+                    .decl_id = decl_id,
+                    .body_head = first_stmt,
+                },
+            };
+
+            const name = self.src.items[decl.name.start..decl.name.end];
+            const block = &self.block_stack.items[self.block_stack.items.len-1];
+            try block.vars.put(self.alloc, name, {});
+            return id;
         } else {
-            return self.reportTokenError(error.SyntaxError, "Expected colon or type.", token);
+            return self.reportTokenError(error.SyntaxError, "Expected left paren.", token);
         }
-
-        // Parse body.
-        const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
-        
-        const decl_id = @intCast(u32, self.func_decls.items.len);
-        try self.func_decls.append(self.alloc, decl);
-
-        const id = self.pushNode(.func_decl, start);
-        self.nodes.items[id].head = .{
-            .func = .{
-                .decl_id = decl_id,
-                .body_head = first_stmt,
-            },
-        };
-
-        const name = self.src.items[decl.name.start..decl.name.end];
-        const block = &self.block_stack.items[self.block_stack.items.len-1];
-        try block.vars.put(self.alloc, name, {});
-
-        return id;
     }
 
     fn parseIfStatement(self: *Parser) !NodeId {
@@ -2097,6 +2154,7 @@ const NodeType = enum {
     as_clause,
     label_decl,
     func_decl,
+    lambda_assign_decl,
     lambda_single, // Single line.
     lambda_multi,  // Multi line.
     dict_literal,
@@ -2129,7 +2187,7 @@ pub const Node = struct {
     node_t: NodeType,
     start_token: u32,
     next: NodeId,
-    /// Fixed size.
+    /// Fixed size. TODO: Rename to `data`.
     head: union {
         left_right: struct {
             left: NodeId,
@@ -2156,6 +2214,11 @@ pub const Node = struct {
         func: struct {
             decl_id: FuncDeclId,
             body_head: NodeId,
+        },
+        lambda_assign_decl: struct {
+            decl_id: FuncDeclId,
+            body_head: NodeId,
+            assign_expr: NodeId,
         },
         for_range_stmt: struct {
             range_clause: NodeId,
