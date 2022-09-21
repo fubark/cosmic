@@ -22,6 +22,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "or", .or_k },
     .{ "and", .and_k },
     .{ "as", .as },
+    .{ "pass", .pass },
 });
 
 const BlockState = struct {
@@ -235,12 +236,14 @@ pub const Parser = struct {
         if (indent <= start_indent) {
             // End of body. Rewind and return.
             self.next_pos = start;
-            return NullId;
+            return self.reportTokenError(error.SyntaxError, "Block requires at least one statement. Use the `pass` statement as a placeholder.", self.peekToken());
         } else {
             body_indent = indent;
             self.cur_indent = body_indent;
         }
-        var first_stmt = (try self.parseStatement()) orelse return NullId;
+        var first_stmt = (try self.parseStatement()) orelse {
+            return self.reportTokenError(error.SyntaxError, "Block requires at least one statement. Use the `pass` statement as a placeholder.", self.peekToken());
+        };
         var last_stmt = first_stmt;
 
         // Parse the rest of the body statements and enforce the body indentation.
@@ -832,6 +835,21 @@ pub const Parser = struct {
             },
             .for_k => {
                 return try self.parseForStatement();
+            },
+            .pass => {
+                const id = self.pushNode(.pass_stmt, self.next_pos);
+                self.advanceToken();
+                token = self.peekToken();
+                switch (token.token_t) {
+                    .none => return id,
+                    .new_line => {
+                        self.advanceToken();
+                        return id;
+                    },
+                    else => {
+                        return self.reportTokenError(error.SyntaxError, "Expected end of statement.", token);
+                    },
+                }
             },
             .break_k => {
                 const id = self.pushNode(.break_stmt, self.next_pos);
@@ -2190,6 +2208,7 @@ const TokenType = enum {
     or_k,
     and_k,
     as,
+    pass,
     func,
     /// Used to indicate no token.
     none,
@@ -2213,6 +2232,7 @@ const NodeType = enum {
     expr_stmt,
     assign_stmt,
     add_assign_stmt,
+    pass_stmt,
     break_stmt,
     return_stmt,
     return_expr_stmt,
@@ -2558,10 +2578,9 @@ test "Parse dependency variables" {
     try t.eq(res.deps.contains("foo"), true);
 
     // Function call after declaration.
-    t.setLogLevel(.debug);
     res = try parser.parseNoErr(
         \\fun foo():
-        \\  // nop
+        \\  pass
         \\foo()
     );
     try t.eq(res.deps.size, 0);

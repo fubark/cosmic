@@ -119,11 +119,11 @@ TODO
 Loops and iterations start with the `for` keyword. An infinite loop continues to run the code in the block until a `break` or `return` is reached. When the `for` clause contains a condition, the loop continues to run until the condition is evaluated to false.
 ```cscript
 for: // Infinite loop.
-    nop
+    pass
 
 running = true
 for running: // Keep looping until `running` is false.
-    nop
+    pass
 ```
 `for` loops can iterate over a range that starts at a number (inclusive) to a target number (exclusive). Note that by default the looping counter is incremented by one:
 ```cscript

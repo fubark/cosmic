@@ -401,6 +401,9 @@ pub const JsTargetCompiler = struct {
                 try self.indent();
                 _ = try self.writer.write("break;\n");
             },
+            .pass_stmt => {
+                return;
+            },
             .return_stmt => {
                 try self.indent();
                 _ = try self.writer.write("return;\n");
