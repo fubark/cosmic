@@ -22,6 +22,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "false", .false_k },
     .{ "or", .or_k },
     .{ "and", .and_k },
+    .{ "not", .not_k },
     .{ "as", .as_k },
     .{ "pass", .pass_k },
 });
@@ -1430,6 +1431,18 @@ pub const Parser = struct {
                 const arr_id = try self.parseArrayLiteral();
                 break :b arr_id;
             },
+            .not_k => {
+                self.advanceToken();
+                const expr = self.pushNode(.unary_expr, start);
+                const child = try self.parseTermExpr();
+                self.nodes.items[expr].head = .{
+                    .unary = .{
+                        .child = child,
+                        .op = .not,
+                    },
+                };
+                return expr;
+            },
             .operator => {
                 if (token.data.operator_t == .minus) {
                     self.advanceToken();
@@ -2262,6 +2275,7 @@ const TokenType = enum {
     false_k,
     or_k,
     and_k,
+    not_k,
     as_k,
     pass_k,
     fun_k,
@@ -2345,6 +2359,7 @@ pub const BinaryExprOp = enum {
 
 const UnaryOp = enum {
     minus,
+    not,
 };
 
 pub const Node = struct {

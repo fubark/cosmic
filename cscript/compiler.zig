@@ -817,6 +817,10 @@ pub const JsTargetCompiler = struct {
                         try self.writer.writeByte('-');
                         try self.genExpression(child);
                     },
+                    .not => {
+                        try self.writer.writeByte('!');
+                        try self.genExpression(child);
+                    },
                     // else => return self.reportError(error.Unsupported, "Unsupported unary op: {}", .{op}, node),
                 }
             },

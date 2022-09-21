@@ -35,6 +35,18 @@ test "logic operators" {
     );
     try t.eq(val.getBool(), true);
     run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\not false
+    );
+    try t.eq(val.getBool(), true);
+    run.deinitValue(val);
+
+    val = try run.evaluate(
+        \\not true
+    );
+    try t.eq(val.getBool(), false);
+    run.deinitValue(val);
 }
 
 test "boolean" {
