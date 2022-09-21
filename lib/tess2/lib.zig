@@ -12,7 +12,7 @@ pub const dummy_pkg = std.build.Pkg{
 
 pub fn addPackage(step: *std.build.LibExeObjStep, link_tess2: bool) void {
     if (link_tess2) {
-        step.addIncludeDir(srcPath() ++ "/vendor");
+        step.addIncludePath(srcPath() ++ "/vendor");
         step.addPackage(pkg);
     } else {
         step.addPackage(dummy_pkg);
@@ -43,7 +43,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
         lib.addCSourceFile(path, c_flags);
     }
 
-    lib.addIncludeDir(srcPath() ++ "/vendor/Include");
+    lib.addIncludePath(srcPath() ++ "/vendor/Include");
     lib.linkLibC();
     step.linkLibrary(lib);
 }

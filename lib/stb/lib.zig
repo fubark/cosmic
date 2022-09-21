@@ -17,19 +17,19 @@ pub const stb_perlin_pkg = std.build.Pkg{
 
 pub fn addStbPerlinPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(stb_perlin_pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor");
+    step.addIncludePath(srcPath() ++ "/vendor");
     step.linkLibC();
 }
 
 pub fn addStbttPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbtt_pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor");
+    step.addIncludePath(srcPath() ++ "/vendor");
     step.linkLibC();
 }
 
 pub fn addStbiPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(stbi_pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor");
+    step.addIncludePath(srcPath() ++ "/vendor");
 }
 
 pub fn buildAndLinkStbtt(step: *std.build.LibExeObjStep) void {
@@ -37,7 +37,7 @@ pub fn buildAndLinkStbtt(step: *std.build.LibExeObjStep) void {
     const lib = b.addStaticLibrary("stbtt", null);
     lib.setTarget(step.target);
     lib.setBuildMode(step.build_mode);
-    lib.addIncludeDir(srcPath() ++ "/vendor");
+    lib.addIncludePath(srcPath() ++ "/vendor");
     lib.linkLibC();
 
     const c_flags = &[_][]const u8{ "-DSTB_TRUETYPE_IMPLEMENTATION" };
@@ -50,7 +50,7 @@ pub fn buildAndLinkStbi(step: *std.build.LibExeObjStep) void {
     const lib = b.addStaticLibrary("stbi", null);
     lib.setTarget(step.target);
     lib.setBuildMode(step.build_mode);
-    lib.addIncludeDir(srcPath() ++ "/vendor");
+    lib.addIncludePath(srcPath() ++ "/vendor");
     lib.linkLibC();
 
     const c_flags = &[_][]const u8{ "-DSTB_IMAGE_WRITE_IMPLEMENTATION" };
@@ -67,7 +67,7 @@ pub fn buildAndLinkStbPerlin(step: *std.build.LibExeObjStep) void {
     const lib = b.addStaticLibrary("stb_perlin", null);
     lib.setTarget(step.target);
     lib.setBuildMode(step.build_mode);
-    lib.addIncludeDir(srcPath() ++ "/vendor");
+    lib.addIncludePath(srcPath() ++ "/vendor");
     lib.linkLibC();
 
     const c_flags = &[_][]const u8{ "-DSTB_PERLIN_IMPLEMENTATION" };

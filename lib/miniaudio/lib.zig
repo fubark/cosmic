@@ -8,7 +8,7 @@ pub const pkg = std.build.Pkg{
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
-    step.addIncludeDir(srcPath() ++ "/src");
+    step.addIncludePath(srcPath() ++ "/src");
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
@@ -20,7 +20,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     if (builtin.os.tag == .macos and step.target.getOsTag() == .macos) {
         if (!step.target.isNative()) {
             lib.addFrameworkDir("/System/Library/Frameworks");
-            lib.addSystemIncludeDir("/usr/include");
+            lib.addSystemIncludePath("/usr/include");
             lib.setLibCFile(std.build.FileSource{ .path = srcPath() ++ "/../macos.libc" });
         }
         lib.linkFramework("CoreAudio");

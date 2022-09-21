@@ -11,7 +11,7 @@ pub const pkg = std.build.Pkg{
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor");
+    step.addIncludePath(srcPath() ++ "/vendor");
     step.linkLibC();
 }
 
@@ -23,7 +23,7 @@ pub fn link(step: *std.build.LibExeObjStep) void {
 
             // TODO: See what this path returns $(xcrun --sdk macosx --show-sdk-path)/System/Library/Frameworks/OpenGL.framework/Headers
             // https://github.com/ziglang/zig/issues/2208
-            step.addLibPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
+            step.addLibraryPath("/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries");
             step.linkSystemLibrary("GL");
         },
         .windows =>{
@@ -33,7 +33,7 @@ pub fn link(step: *std.build.LibExeObjStep) void {
         .linux => {
             // Unable to find libraries if linux is provided in triple.
             // https://github.com/ziglang/zig/issues/8103
-            step.addLibPath("/usr/lib/x86_64-linux-gnu");
+            step.addLibraryPath("/usr/lib/x86_64-linux-gnu");
             step.linkSystemLibrary("GL");
         },
         else => {

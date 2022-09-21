@@ -14,7 +14,7 @@ pub const dummy_pkg = std.build.Pkg{
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep, link_lyon: bool) void {
-    step.addIncludeDir(srcPath());
+    step.addIncludePath(srcPath());
     if (link_lyon) {
         step.addPackage(pkg);
     } else {
@@ -96,7 +96,7 @@ pub fn link(step: *std.build.LibExeObjStep) void {
         step.linkSystemLibrary("bcrypt");
         step.linkSystemLibrary("userenv");
     } else {
-        step.addLibPath(srcPath() ++ "target/release");
+        step.addLibraryPath(srcPath() ++ "target/release");
         step.linkSystemLibrary("clyon");
     }
 }

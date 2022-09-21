@@ -12,7 +12,7 @@ pub fn buildAndLinkWinPosix(step: *std.build.LibExeObjStep) void {
     lib.setTarget(step.target);
     lib.setBuildMode(step.build_mode);
     lib.linkLibC();
-    lib.addIncludeDir(srcPath() ++ "/win_posix/include");
+    lib.addIncludePath(srcPath() ++ "/win_posix/include");
 
     const c_files: []const []const u8 = &.{
         "wincompat.c",
@@ -33,7 +33,7 @@ pub fn buildAndLinkWinPthreads(step: *std.build.LibExeObjStep) void {
     lib.setTarget(step.target);
     lib.setBuildMode(step.build_mode);
     lib.linkLibC();
-    lib.addIncludeDir(srcPath() ++ "/winpthreads/include");
+    lib.addIncludePath(srcPath() ++ "/winpthreads/include");
 
     const c_files: []const []const u8 = &.{
         "mutex.c",

@@ -12,7 +12,7 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
     var new_pkg = pkg;
     new_pkg.dependencies = &.{ sdl.pkg };
     step.addPackage(new_pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor/include");
+    step.addIncludePath(srcPath() ++ "/vendor/include");
     step.linkLibC();
 }
 
@@ -22,7 +22,7 @@ pub fn link(step: *std.build.LibExeObjStep) void {
         .windows => {},
         .macos => {},
         .linux => {
-            step.addLibPath("/usr/lib/x86_64-linux-gnu");
+            step.addLibraryPath("/usr/lib/x86_64-linux-gnu");
             step.linkSystemLibrary("vulkan");
         },
         else => {
