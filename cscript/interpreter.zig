@@ -6,11 +6,14 @@ const qjs = @import("qjs");
 
 const log = stdx.log.scoped(.interpreter);
 
+extern "app" fn jsEval(id: usize, ptr: [*]const u8, len: usize) usize;
 extern "app" fn jsGetValueType(id: usize) usize;
 extern "app" fn jsGetValueString(val_id: usize, ptr: [*]const u8, len: usize) usize;
 extern "app" fn jsGetInt32(id: usize) i32;
+extern "app" fn jsGetFloat64(id: usize) f64;
 extern "app" fn jsDeleteValue(id: usize) void;
 extern "app" fn jsGetProperty(id: usize, prop_ptr: [*]const u8, prop_len: usize) usize;
+extern "app" fn jsGetGlobalValue(ptr: [*]const u8, len: usize) usize;
 
 pub const JsEngine = struct {
     alloc: std.mem.Allocator,
@@ -24,7 +27,10 @@ pub const JsEngine = struct {
     pub fn init(alloc: std.mem.Allocator) JsEngine {
         if (IsWasm) {
             return .{
-                .buf = .{},
+                .alloc = alloc,
+                .inner = .{
+                    .buf = .{},
+                },
             };
         } else {
             const rt = qjs.JS_NewRuntime().?;
@@ -67,7 +73,8 @@ pub const JsEngine = struct {
 
     pub fn eval(self: JsEngine, src: [:0]const u8) JsValue {
         if (IsWasm) {
-            stdx.unsupported();
+            const val_id = jsEval(0, src.ptr, src.len);
+            return JsValue.initWebJS(val_id);
         } else {
             // Even though JS_Eval takes src length, it still needs to be null terminated.
             const val = qjs.JS_Eval(self.inner.ctx, src.ptr, src.len, "eval", qjs.JS_EVAL_TYPE_GLOBAL);
@@ -87,14 +94,14 @@ pub const JsEngine = struct {
 
     pub fn valueToString(self: *JsEngine, val: JsValue) ![]const u8 {
         if (IsWasm) {
-            self.buf.clearRetainingCapacity();
-            var len = jsGetValueString(val.inner.id, self.buf.items.ptr, self.js_rt.buf.capacity);
-            if (len > self.js_rt.buf.capacity) {
-                try self.js_rt.buf.ensureTotalCapacity(self.alloc, len);
-                len = jsGetValueString(val.inner.id, self.buf.items.ptr, self.js_rt.buf.capacity);
+            self.inner.buf.clearRetainingCapacity();
+            var len = jsGetValueString(val.inner.id, self.inner.buf.items.ptr, self.inner.buf.capacity);
+            if (len > self.inner.buf.capacity) {
+                try self.inner.buf.ensureTotalCapacity(self.alloc, len);
+                len = jsGetValueString(val.inner.id, self.inner.buf.items.ptr, self.inner.buf.capacity);
             }
-            self.buf.items.len = len;
-            return try self.alloc.dupe(u8, self.buf.items[0..len]);
+            self.inner.buf.items.len = len;
+            return try self.alloc.dupe(u8, self.inner.buf.items[0..len]);
         } else {
             const str = qjs.JS_ToCString(self.inner.ctx, val.inner);
             defer qjs.JS_FreeCString(self.inner.ctx, str);
@@ -170,6 +177,15 @@ pub const JsEngine = struct {
         }
     }
 
+    pub fn getGlobalVar(self: JsEngine, name: [:0]const u8) JsValue {
+        _ = self;
+        if (IsWasm) {
+            return JsValue.initWebJS(jsGetGlobalValue(name.ptr, name.len));
+        } else {
+            stdx.unsupported();
+        }
+    }
+
     pub fn getGlobal(self: JsEngine) JsValue {
         if (IsWasm) {
             stdx.unsupported();
@@ -183,6 +199,14 @@ pub const JsValue = struct {
     inner: if (IsWasm) WebJsValue else qjs.JSValue,
 
     const NanBoxing = @sizeOf(?*anyopaque) == 4;
+
+    pub fn initWebJS(id: u32) JsValue {
+        return .{
+            .inner = .{
+                .id = id,
+            },
+        };
+    }
 
     pub fn initQJS(val: qjs.JSValue) JsValue {
         return .{
@@ -221,7 +245,11 @@ pub const JsValue = struct {
     }
 
     pub fn getFloat64(self: JsValue) f64 {
-        return QJS.getFloat64(self.inner);
+        if (IsWasm) {
+            return jsGetFloat64(self.inner.id);
+        } else {
+            return QJS.getFloat64(self.inner);
+        }
     }
 };
 

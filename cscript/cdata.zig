@@ -395,7 +395,6 @@ const TestMapItem = struct {
 };
 
 test "encode" {
-    t.setLogLevel(.debug);
     var root = TestRoot{
         .name = "project",
         .list = &.{
