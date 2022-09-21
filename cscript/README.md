@@ -139,9 +139,39 @@ for 100..0 as i -= 1:
 for 100..=0 as i -= 1:
     cs.log i    // 100, 99, 98, ... , 0
 ```
-TODO: Iterating arrays.
+Iterating lists.
+```cscript
+list = [1, 2, 3, 4, 5]
 
-TODO: Iterating dictionaries.
+// Iterate on values.
+for list as n:
+    cs.log n
+
+// Iterate on values and indexes.
+for list as n, i:
+    cs.log n, i 
+
+// Iterate on just indexes.
+for list as _, i:
+    cs.log i 
+```
+Iterating dictionaries.
+```cscript
+dict = { a: 123, b: 234 }
+
+// Iterate on values.
+for dict as v:
+    cs.log v
+
+// Iterate on values and keys.
+for dict as v, k:
+    cs.log v, k
+
+// Iterate on just keys.
+for dict as _, k:
+    cs.log k
+```
+
 ### Matching
 ```cscript
 val = 1000

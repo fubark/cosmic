@@ -585,7 +585,7 @@ pub const Parser = struct {
                     self.nodes.items[for_stmt].head = .{
                         .for_range_stmt = .{
                             .range_clause = range_clause,
-                            .first_child = first_stmt,
+                            .body_head = first_stmt,
                             .as_clause = NullId,
                         },
                     };
@@ -603,9 +603,9 @@ pub const Parser = struct {
                             self.advanceToken();
                             const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
 
-                            const as_clause = self.pushNode(.as_clause, start);
+                            const as_clause = self.pushNode(.as_range_clause, start);
                             self.nodes.items[as_clause].head = .{
-                                .as_clause = .{
+                                .as_range_clause = .{
                                     .ident = ident,
                                     .step = NullId,
                                     .inc = true,
@@ -616,7 +616,7 @@ pub const Parser = struct {
                             self.nodes.items[for_stmt].head = .{
                                 .for_range_stmt = .{
                                     .range_clause = range_clause,
-                                    .first_child = first_stmt,
+                                    .body_head = first_stmt,
                                     .as_clause = as_clause,
                                 },
                             };
@@ -631,9 +631,9 @@ pub const Parser = struct {
                                 self.advanceToken();
                                 const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
 
-                                const as_clause = self.pushNode(.as_clause, start);
+                                const as_clause = self.pushNode(.as_range_clause, start);
                                 self.nodes.items[as_clause].head = .{
-                                    .as_clause = .{
+                                    .as_range_clause = .{
                                         .ident = ident,
                                         .step = step_expr,
                                         .inc = true,
@@ -644,7 +644,7 @@ pub const Parser = struct {
                                 self.nodes.items[for_stmt].head = .{
                                     .for_range_stmt = .{
                                         .range_clause = range_clause,
-                                        .first_child = first_stmt,
+                                        .body_head = first_stmt,
                                         .as_clause = as_clause,
                                     },
                                 };
@@ -660,6 +660,41 @@ pub const Parser = struct {
                     }
                 } else {
                     return self.reportTokenError(error.SyntaxError, "Expected :.", token);
+                }
+            } else if (token.token_t == .as) {
+                self.advanceToken();
+                token = self.peekToken();
+                const ident = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected ident.", token);
+                };
+                if (self.nodes.items[ident].node_t == .ident) {
+                    token = self.peekToken();
+                    if (token.token_t == .colon) {
+                        self.advanceToken();
+                        const body_head = try self.parseIndentedBodyStatements(self.cur_indent);
+
+                        const as_clause = self.pushNode(.as_iter_clause, start);
+                        self.nodes.items[as_clause].head = .{
+                            .as_iter_clause = .{
+                                .value = ident,
+                                .key = NullId,
+                            }
+                        };
+
+                        const for_stmt = self.pushNode(.for_iter_stmt, start);
+                        self.nodes.items[for_stmt].head = .{
+                            .for_iter_stmt = .{
+                                .iterable = expr_id,
+                                .body_head = body_head,
+                                .as_clause = as_clause,
+                            },
+                        };
+                        return for_stmt;
+                    } else {
+                        return self.reportTokenError(error.SyntaxError, "Expected :.", token);
+                    }
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected ident.", token);
                 }
             } else {
                 return self.reportTokenError(error.SyntaxError, "Expected :.", token);
@@ -2181,8 +2216,10 @@ const NodeType = enum {
     for_inf_stmt,
     for_cond_stmt,
     for_range_stmt,
+    for_iter_stmt,
     range_clause,
-    as_clause,
+    as_range_clause,
+    as_iter_clause,
     label_decl,
     func_decl,
     lambda_assign_decl,
@@ -2253,13 +2290,22 @@ pub const Node = struct {
         },
         for_range_stmt: struct {
             range_clause: NodeId,
-            first_child: NodeId,
+            body_head: NodeId,
             as_clause: NodeId,
         },
-        as_clause: struct {
+        for_iter_stmt: struct {
+            iterable: NodeId,
+            body_head: NodeId,
+            as_clause: NodeId,
+        },
+        as_range_clause: struct {
             ident: NodeId,
             step: NodeId,
             inc: bool,
+        },
+        as_iter_clause: struct {
+            value: NodeId,
+            key: NodeId,
         },
         arr_range_expr: struct {
             arr: NodeId,

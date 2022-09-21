@@ -455,6 +455,23 @@ test "Conditional for loop." {
     run.deinitValue(val);
 }
 
+test "For loop over list." {
+    const run = Runner.create();
+    defer run.destroy();
+
+    // Basic.
+    var val = try run.evaluate(
+        \\block:
+        \\  list = [1, 2, 3]
+        \\  sum = 0
+        \\  for list as it:
+        \\     sum += it
+        \\  sum
+    );
+    try t.eq(val.getInt32(), 6);
+    run.deinitValue(val);
+}
+
 test "For loop over range." {
     const run = Runner.create();
     defer run.destroy();
@@ -584,7 +601,6 @@ test "Lambdas" {
     run.deinitValue(val);
 
     // Lambda assign declaration.
-    t.setLogLevel(.debug);
     val = try run.evaluate(
         \\foo = {}
         \\fun foo.bar():

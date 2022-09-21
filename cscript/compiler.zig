@@ -539,6 +539,23 @@ pub const JsTargetCompiler = struct {
                 try self.indent();
                 _ = try self.writer.write("}\n");
             },
+            .for_iter_stmt => {
+                try self.indent();
+                const iterable = self.nodes[node.head.for_iter_stmt.iterable];
+                try self.genExpression(iterable);
+                const as_clause = self.nodes[node.head.for_iter_stmt.as_clause];
+                const ident = self.nodes[as_clause.head.as_iter_clause.value];
+                const ident_token = self.tokens[ident.start_token];
+                const val_name = self.src[ident_token.start_pos..ident_token.data.end_pos];
+                _ = try self.writer.print(".iterValues({s} => {{\n", .{val_name});
+
+                self.cur_indent += IndentWidth;
+                try self.genStatements(node.head.for_iter_stmt.body_head);
+                self.cur_indent -= IndentWidth;
+
+                try self.indent();
+                _ = try self.writer.write("});\n");
+            },
             .for_range_stmt => {
                 var it_name: []const u8 = "i";
                 var step: ?parser.Node = null;
@@ -546,12 +563,12 @@ pub const JsTargetCompiler = struct {
                 var inc = true;
                 if (node.head.for_range_stmt.as_clause != NullId) {
                     const as_clause = self.nodes[node.head.for_range_stmt.as_clause];
-                    const ident = self.nodes[as_clause.head.as_clause.ident];
+                    const ident = self.nodes[as_clause.head.as_range_clause.ident];
                     const ident_token = self.tokens[ident.start_token];
                     it_name = self.src[ident_token.start_pos..ident_token.data.end_pos];
-                    inc = as_clause.head.as_clause.inc;
-                    if (as_clause.head.as_clause.step != NullId) {
-                        step = self.nodes[as_clause.head.as_clause.step];
+                    inc = as_clause.head.as_range_clause.inc;
+                    if (as_clause.head.as_range_clause.step != NullId) {
+                        step = self.nodes[as_clause.head.as_range_clause.step];
                         step_const = self.isExprConst(step.?);
                     }
                 }
@@ -617,7 +634,7 @@ pub const JsTargetCompiler = struct {
                 }
                 _ = try self.writer.write(") {\n");
 
-                try self.genForBody(node.head.for_range_stmt.first_child);
+                try self.genForBody(node.head.for_range_stmt.body_head);
 
                 try self.indent();
                 _ = try self.writer.write("}\n");

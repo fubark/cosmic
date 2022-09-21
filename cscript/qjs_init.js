@@ -1,3 +1,15 @@
+Object.prototype.iterValues = function(cb) {
+    for (let val of Object.values(this)) {
+        cb(val)
+    }
+}
+
+Array.prototype.iterValues = function(cb) {
+    for (let val of this) {
+        cb(val)
+    }
+}
+
 globalThis._internal = {
     callNamed: function(fn, args, namedArgs) {
         if (!fn.args) {
