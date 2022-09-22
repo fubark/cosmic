@@ -12,7 +12,6 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "return", .return_k },
     .{ "if", .if_k },
     .{ "then", .then_k },
-    .{ "elif", .elif_k },
     .{ "else", .else_k },
     .{ "for", .for_k },
     .{ "fun", .fun_k },
@@ -479,40 +478,12 @@ pub const Parser = struct {
             self.advanceToken();
 
             token = self.peekToken();
-            if (token.token_t != .colon) {
-                return self.reportTokenError(error.SyntaxError, "Expected colon after else.", token);
-            }
-            self.advanceToken();
-
-            // TODO: Parse statements on the same line.
-
-            token = self.peekToken();
-            if (token.token_t != .new_line) {
-                return self.reportTokenError(error.SyntaxError, "Expected new line.", token);
-            }
-            self.advanceToken();
-
-            const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
-            self.nodes.items[else_clause].head = .{
-                .else_clause = .{
-                    .body_head = first_stmt,
-                    .cond = NullId,
-                    .else_clause = NullId,
-                },
-            };
-            return else_clause;
-        } else if (token.token_t == .elif_k) {
-            const else_clause = self.pushNode(.else_clause, self.next_pos);
-            self.advanceToken();
-
-            var dummy = false;
-            const cond = (try self.parseExpression(false, &dummy)) orelse {
-                return self.reportTokenError(error.SyntaxError, "Expected else if condition.", self.peekToken());
-            };
-
-            token = self.peekToken();
             if (token.token_t == .colon) {
+                // else block.
                 self.advanceToken();
+
+                // TODO: Parse statements on the same line.
+
                 token = self.peekToken();
                 if (token.token_t != .new_line) {
                     return self.reportTokenError(error.SyntaxError, "Expected new line.", token);
@@ -523,20 +494,45 @@ pub const Parser = struct {
                 self.nodes.items[else_clause].head = .{
                     .else_clause = .{
                         .body_head = first_stmt,
-                        .cond = cond,
+                        .cond = NullId,
                         .else_clause = NullId,
                     },
                 };
-
-                const nested_else = try self.parseIfStmtElseClause();
-                if (nested_else != NullId) {
-                    self.nodes.items[else_clause].head.else_clause.else_clause = nested_else;
-                    return else_clause;
-                } else {
-                    return else_clause;
-                }
+                return else_clause;
             } else {
-                return self.reportTokenError(error.SyntaxError, "Expected colon after else if condition.", token);
+                // else if block.
+                var dummy = false;
+                const cond = (try self.parseExpression(false, &dummy)) orelse {
+                    return self.reportTokenError(error.SyntaxError, "Expected else if condition.", self.peekToken());
+                };
+                token = self.peekToken();
+                if (token.token_t == .colon) {
+                    self.advanceToken();
+                    token = self.peekToken();
+                    if (token.token_t != .new_line) {
+                        return self.reportTokenError(error.SyntaxError, "Expected new line.", token);
+                    }
+                    self.advanceToken();
+
+                    const first_stmt = try self.parseIndentedBodyStatements(self.cur_indent);
+                    self.nodes.items[else_clause].head = .{
+                        .else_clause = .{
+                            .body_head = first_stmt,
+                            .cond = cond,
+                            .else_clause = NullId,
+                        },
+                    };
+
+                    const nested_else = try self.parseIfStmtElseClause();
+                    if (nested_else != NullId) {
+                        self.nodes.items[else_clause].head.else_clause.else_clause = nested_else;
+                        return else_clause;
+                    } else {
+                        return else_clause;
+                    }
+                } else {
+                    return self.reportTokenError(error.SyntaxError, "Expected colon after else if condition.", token);
+                }
             }
         } else {
             self.next_pos = save;
@@ -2267,7 +2263,6 @@ const TokenType = enum {
     break_k,
     if_k,
     then_k,
-    elif_k,
     else_k,
     for_k,
     await_k,
@@ -2430,7 +2425,7 @@ pub const Node = struct {
         },
         else_clause: struct {
             body_head: NodeId,
-            // for elif only.
+            // for else ifs only.
             cond: NodeId,
             else_clause: NodeId,
         },

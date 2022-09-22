@@ -482,12 +482,12 @@ test "if statement" {
     try t.eq(val.getInt32(), 456);
     run.deinitValue(val);
 
-    // elif.
+    // else if condition.
     val = try run.evaluate(
         \\block:
         \\  if false:
         \\    456
-        \\  elif true:
+        \\  else true:
         \\    123
         \\  else:
         \\    456

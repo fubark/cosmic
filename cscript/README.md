@@ -96,17 +96,17 @@ colors = {}:
 ```
 
 ### Branching
-Use `if`, `elif`, `else` to branch the execution of your code depending on conditions:
+Use `if` and `else` to branch the execution of your code depending on conditions:
 ```cscript
 a = 10
 if a == 10:
     cs.log 'a is 10'
-elif a == 20:
+else a == 20:
     cs.log 'a is 20'
 else:
     cs.log 'neither 10 nor 20'
 ```
-A single line `if` expression also needs the `then` keyword. `elif` is not allowed in single line `if` expressions.:
+A single line `if` expression also needs the `then` keyword. `else` condition is not allowed in single line `if` expressions.:
 ```cscript
 a = 10
 str = if a == 10 then 'red' else 'blue'
