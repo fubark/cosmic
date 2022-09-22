@@ -119,7 +119,7 @@ pub const JsTargetCompiler = struct {
         } 
         self.block_stack.clearRetainingCapacity();
 
-        if (self.top_level_async) {
+        if (self.top_level_async or self.opts.wrap_in_func) {
             // Last stmt is turned into a return statement.
             var prev: parser.NodeId = undefined;
             const last = parser.getLastStmt(self.nodes, root.head.child_head, &prev);
@@ -156,7 +156,7 @@ pub const JsTargetCompiler = struct {
             .output = self.out.items,
             .err_msg = "",
             .has_error = false,
-            .wrapped_in_generator = self.top_level_async,
+            .wrapped_in_generator = self.top_level_async or (self.use_generators and self.opts.wrap_in_func),
         };
     }
 
@@ -492,7 +492,11 @@ pub const JsTargetCompiler = struct {
                 const func = self.func_decls[node.head.func.decl_id];
 
                 try self.indent();
-                _ = try self.writer.write("function ");
+                if (self.use_generators) {
+                    _ = try self.writer.write("function* ");
+                } else {
+                    _ = try self.writer.write("function ");
+                }
                 _ = try self.writer.write(self.src[func.name.start..func.name.end]);
 
                 try self.genFunctionParams(func.params);
@@ -564,7 +568,11 @@ pub const JsTargetCompiler = struct {
                 const ident = self.nodes[as_clause.head.as_iter_clause.value];
                 const ident_token = self.tokens[ident.start_token];
                 const val_name = self.src[ident_token.start_pos..ident_token.data.end_pos];
-                _ = try self.writer.print(".iterValues({s} => {{\n", .{val_name});
+                if (self.use_generators) {
+                    _ = try self.writer.print(".genIterValues(function*({s}) {{\n", .{val_name});
+                } else {
+                    _ = try self.writer.print(".iterValues({s} => {{\n", .{val_name});
+                }
 
                 self.cur_indent += IndentWidth;
                 try self.genStatements(node.head.for_iter_stmt.body_head);
@@ -686,9 +694,9 @@ pub const JsTargetCompiler = struct {
         if (self.opts.gas_meter != .none) {
             try self.indent();
             if (self.opts.gas_meter == .error_interrupt) {
-                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) throw new Error('Interrupted');\n");
+                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) throw globalThis._internal.interruptSym;\n");
             } else if (self.opts.gas_meter == .yield_interrupt) {
-                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) yield new Error('Interrupted');\n");
+                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) yield globalThis._internal.interruptSym;\n");
             }
         }
         try self.genStatements(first_stmt_id);
@@ -700,8 +708,8 @@ pub const JsTargetCompiler = struct {
             const token = self.tokens[node.start_token];
             const name = self.src[token.start_pos..token.data.end_pos];
             if (self.getScopedVarDesc(name) == null) {
-               try self.opts.write_global(self.opts.cb_ctx, self.writer, name);
-               return;
+                try self.opts.write_global(self.opts.cb_ctx, self.writer, name);
+                return;
             }
         }
         try self.genExpression(node);
@@ -759,7 +767,7 @@ pub const JsTargetCompiler = struct {
                 var expr_id = node.head.child_head;
                 while (expr_id != NullId) {
                     var expr = self.nodes[expr_id];
-                    try self.genExpression(expr);
+                    try self.genFirstExpr(expr);
                     expr_id = expr.next;
                     if (expr_id != NullId) {
                         _ = try self.writer.write(",");
@@ -928,29 +936,57 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.writeByte(']');
             },
             .call_expr => {
+                const callee = self.nodes[node.head.func_call.callee];
                 if (!node.head.func_call.has_named_arg) {
-                    // No named args.
-                    const left = self.nodes[node.head.func_call.callee];
-                    try self.genExpression(left);
-                    _ = try self.writer.write("(");
-                    var arg_id = node.head.func_call.arg_head;
-                    if (arg_id != NullId) {
-                        var arg = self.nodes[arg_id];
-                        try self.genExpression(arg);
-                        arg_id = arg.next;
-                        while (arg_id != NullId) {
-                            arg = self.nodes[arg_id];
+                    if (self.use_generators) {
+                        // Wrap in paren for precedence in binary expr.
+                        _ = try self.writer.write("(yield* ");
+                        _ = try self.writer.write(self.opts.yieldCallFunc);
+                        _ = try self.writer.write("(");
+                        try self.genFirstExpr(callee);
+                        if (callee.node_t == .access_expr) {
                             _ = try self.writer.write(", ");
-                            try self.genExpression(arg);
-                            arg_id = arg.next;
+                            const this = self.nodes[callee.head.left_right.left];
+                            try self.genFirstExpr(this);
+                        } else {
+                            _ = try self.writer.write(", void 0");
                         }
+                        var arg_id = node.head.func_call.arg_head;
+                        if (arg_id != NullId) {
+                            _ = try self.writer.write(", ");
+                            var arg = self.nodes[arg_id];
+                            try self.genFirstExpr(arg);
+                            arg_id = arg.next;
+                            while (arg_id != NullId) {
+                                arg = self.nodes[arg_id];
+                                _ = try self.writer.write(", ");
+                                try self.genFirstExpr(arg);
+                                arg_id = arg.next;
+                            }
+                        }
+                        _ = try self.writer.write("))");
+                    } else {
+                        // No named args.
+                        try self.genExpression(callee);
+                        _ = try self.writer.write("(");
+                        var arg_id = node.head.func_call.arg_head;
+                        if (arg_id != NullId) {
+                            var arg = self.nodes[arg_id];
+                            try self.genFirstExpr(arg);
+                            arg_id = arg.next;
+                            while (arg_id != NullId) {
+                                arg = self.nodes[arg_id];
+                                _ = try self.writer.write(", ");
+                                try self.genFirstExpr(arg);
+                                arg_id = arg.next;
+                            }
+                        }
+                        _ = try self.writer.write(")");
                     }
-                    _ = try self.writer.write(")");
                 } else {
                     // Named args.
                     _ = try self.writer.write("_internal.callNamed(");
-                    const left = self.nodes[node.head.func_call.callee];
-                    try self.genExpression(left);
+                    try self.genExpression(callee);
                     _ = try self.writer.write(", [");
 
                     var arg_id = node.head.func_call.arg_head;
@@ -1050,6 +1086,8 @@ const CompileOptions = struct {
     write_global: fn (?*anyopaque, std.ArrayListUnmanaged(u8).Writer, []const u8) anyerror!void = S.defaultWriteGlobal,
     cb_ctx: ?*anyopaque = null,
     wrap_in_func: bool = false,
+
+    yieldCallFunc: []const u8 = "globalThis._internal.yieldCall",
 };
 
 const GasMeterOption = enum(u2) {

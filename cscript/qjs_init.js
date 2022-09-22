@@ -63,7 +63,26 @@ internal.runTasks = function() {
     }
 }
 
-class AwaitYield {}
+internal.awaitSym = Symbol('await')
+internal.interruptSym = Symbol('interrupt')
+
+internal.yieldCall = function(fn, thisArg, ...args) {
+    const res = fn.call(thisArg, ...args)
+    if (fn.constructor.name != 'GeneratorFunction') {
+        // Return iterator with one result.
+        return {
+            [Symbol.iterator]: function() {
+                return {
+                    next() {
+                        return { value: res, done: true }
+                    }
+                }
+            }
+        }
+    } else {
+        return res
+    }
+}
 
 internal.awaitYield = function(val) {
     if (typeof val == 'object' && val.then) {
@@ -76,7 +95,7 @@ internal.awaitYield = function(val) {
         internal.last_await_value = val
         internal.await_ready = true
     }
-    return new AwaitYield()
+    return internal.awaitSym
 }
 
 globalThis.asyncTask = function() {
@@ -100,7 +119,7 @@ internal.evalGeneratorSrc = function(src) {
         if (res.done) {
             return res.value
         }
-        if (res.value instanceof AwaitYield) {
+        if (res.value === internal.awaitSym) {
             internal.runEventLoop()
             while (!internal.await_ready) {
                 if (internal.tasks.length == 0) {

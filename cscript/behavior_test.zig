@@ -8,41 +8,54 @@ const cs = @import("cscript.zig");
 const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
 
+test "Binary expr with generator function call." {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.eval2(
+        \\func foo():
+        \\  return 1
+        \\foo() + 2
+    , true);
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+}
+
 test "logic operators" {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\false or false
     );
     try t.eq(val.getBool(), false);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\false or true
     );
     try t.eq(val.getBool(), true);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\false and true
     );
     try t.eq(val.getBool(), false);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\true and true
     );
     try t.eq(val.getBool(), true);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\not false
     );
     try t.eq(val.getBool(), true);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\not true
     );
     try t.eq(val.getBool(), false);
@@ -53,13 +66,13 @@ test "boolean" {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\true
     );
     try t.eq(val.getBool(), true);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\false
     );
     try t.eq(val.getBool(), false);
@@ -86,7 +99,7 @@ test "implicit await" {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\func foo() apromise:
         \\  task = @asyncTask()
         \\  @queueTask(func () => task.resolve(123))
@@ -101,7 +114,7 @@ test "await" {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\func foo():
         \\  task = @asyncTask()
         \\  @queueTask(func () => task.resolve(123))
@@ -112,7 +125,7 @@ test "await" {
     run.deinitValue(val);
 
     // await on value.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo():
         \\  return 234
         \\await foo()
@@ -126,7 +139,7 @@ test "Indentation." {
     defer run.destroy();
 
     // Detect end of block.
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\func foo():
         \\  return 123
         \\foo()
@@ -135,7 +148,7 @@ test "Indentation." {
     run.deinitValue(val);
 
     // Comment before end of block.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo():
         \\  return 123
         \\  // Comment.
@@ -153,7 +166,7 @@ test "Indentation." {
     try t.expect(std.mem.indexOf(u8, parse_res.err_msg, "Block requires at least one statement. Use the `pass` statement as a placeholder.") != null);
 
     // Continue from parent indentation.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo():
         \\  if false:
         \\    pass
@@ -164,7 +177,7 @@ test "Indentation." {
     run.deinitValue(val);
 
     // Continue from grand parent indentation.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo():
         \\  if false:
         \\    if false:
@@ -180,13 +193,13 @@ test "Numbers." {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\1
     );
     try t.eq(val.getInt32(), 1);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\-1
     );
     try t.eq(val.getInt32(), -1);
@@ -198,21 +211,21 @@ test "Parentheses" {
     defer run.destroy();
 
     // Parentheses at left of binary expression.
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\(2 + 3) * 4
     );
     try t.eq(val.getInt32(), 20);
     run.deinitValue(val);
 
     // Parentheses at right of binary expression.
-    val = try run.evaluate(
+    val = try run.eval(
         \\2 * (3 + 4)
     );
     try t.eq(val.getInt32(), 14);
     run.deinitValue(val);
 
     // Nested parentheses.
-    val = try run.evaluate(
+    val = try run.eval(
         \\2 + ((3 + 4) / 7)
     );
     try t.eq(val.getInt32(), 3);
@@ -224,7 +237,7 @@ test "Operator precedence." {
     defer run.destroy();
 
     // Multiplication before addition.
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\2 + 3 * 4
     );
     try t.eq(val.getInt32(), 14);
@@ -236,7 +249,7 @@ test "Comments" {
     defer run.destroy();
 
     // Single line comment.
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\// 1
         \\2
     );
@@ -244,7 +257,7 @@ test "Comments" {
     run.deinitValue(val);
 
     // Multiple single line comments.
-    val = try run.evaluate(
+    val = try run.eval(
         \\// 1
         \\// 2
         \\// 3
@@ -259,41 +272,37 @@ test "Strings" {
     defer run.destroy();
 
     // Single quotes.
-    var val = try run.evaluate(
-        \\block:
-        \\  str = 'abc'
-        \\  str
+    var val = try run.eval(
+        \\str = 'abc'
+        \\str
     );
     var str = try run.valueToString(val);
     try t.eqStr(str, "abc");
     t.alloc.free(str);
 
     // Unicode.
-    val = try run.evaluate(
-        \\block:
-        \\  str = 'abc🦊xyz🐶'
-        \\  str
+    val = try run.eval(
+        \\str = 'abc🦊xyz🐶'
+        \\str
     );
     str = try run.valueToString(val);
     try t.eqStr(str, "abc🦊xyz🐶");
     t.alloc.free(str);
 
     // Escape single quote.
-    val = try run.evaluate(
-        \\block:
-        \\  str = 'ab\'c'
-        \\  str
+    val = try run.eval(
+        \\str = 'ab\'c'
+        \\str
     );
     str = try run.valueToString(val);
     try t.eqStr(str, "ab'c");
     t.alloc.free(str);
 
     // Multi-line backtick literal.
-    val = try run.evaluate(
-        \\block:
-        \\  str = `abc
+    val = try run.eval(
+        \\str = `abc
         \\abc`
-        \\  str
+        \\str
     );
     str = try run.valueToString(val);
     try t.eqStr(str, "abc\nabc");
@@ -305,20 +314,18 @@ test "Lists" {
     defer run.destroy();
 
     // Number entry.
-    var val = try run.evaluate(
-        \\block:
-        \\  a = []
-        \\  a[2] = 3
-        \\  a[2]
+    var val = try run.eval(
+        \\a = []
+        \\a[2] = 3
+        \\a[2]
     );
     try t.eq(val.getInt32(), 3);
     run.deinitValue(val);
 
     // Start to end index slice.
-    val = try run.evaluate(
-        \\block:
-        \\  a = [1, 2, 3, 4, 5]
-        \\  a[1..4]
+    val = try run.eval(
+        \\a = [1, 2, 3, 4, 5]
+        \\a[1..4]
     );
     var val_slice = try run.valueToIntSlice(val);
     try t.eqSlice(i32, val_slice, &.{ 2, 3, 4 });
@@ -326,10 +333,9 @@ test "Lists" {
     t.alloc.free(val_slice);
 
     // Start index to end of list.
-    val = try run.evaluate(
-        \\block:
-        \\  a = [1, 2, 3, 4, 5]
-        \\  a[3..]
+    val = try run.eval(
+        \\a = [1, 2, 3, 4, 5]
+        \\a[3..]
     );
     val_slice = try run.valueToIntSlice(val);
     try t.eqSlice(i32, val_slice, &.{ 4, 5 });
@@ -337,10 +343,9 @@ test "Lists" {
     t.alloc.free(val_slice);
 
     // Start of list to end index.
-    val = try run.evaluate(
-        \\block:
-        \\  a = [1, 2, 3, 4, 5]
-        \\  a[..3]
+    val = try run.eval(
+        \\a = [1, 2, 3, 4, 5]
+        \\a[..3]
     );
     val_slice = try run.valueToIntSlice(val);
     try t.eqSlice(i32, val_slice, &.{ 1, 2, 3 });
@@ -348,28 +353,26 @@ test "Lists" {
     t.alloc.free(val_slice);
 }
 
-test "Dictionairies" {
+test "Dictionaries" {
     const run = Runner.create();
     defer run.destroy();
 
     // Number entry.
-    var val = try run.evaluate(
-        \\block:
-        \\  a = {
-        \\    b: 32
-        \\  }
-        \\  a.b
+    var val = try run.eval(
+        \\a = {
+        \\  b: 32
+        \\}
+        \\a.b
     );
     try t.eq(val.getInt32(), 32);
     run.deinitValue(val);
 
     // String entry.
-    val = try run.evaluate(
-        \\block:
-        \\  a = {
-        \\    b: 'hello'
-        \\  }
-        \\  a.b
+    val = try run.eval(
+        \\a = {
+        \\  b: 'hello'
+        \\}
+        \\a.b
     );
     const str = try run.valueToString(val);
     defer t.alloc.free(str);
@@ -377,26 +380,24 @@ test "Dictionairies" {
     run.deinitValue(val);
 
     // Nested list.
-    val = try run.evaluate(
-        \\block:
-        \\  a = {
-        \\    b: [ 1, 2 ]
-        \\  }
-        \\  a.b[1]
+    val = try run.eval(
+        \\a = {
+        \\  b: [ 1, 2 ]
+        \\}
+        \\a.b[1]
     );
     try t.eq(val.getInt32(), 2);
     run.deinitValue(val);
 
     // Nested list with items separated by new line.
-    val = try run.evaluate(
-        \\block:
-        \\  a = {
-        \\    b: [
-        \\      1
-        \\      2
-        \\    ]
-        \\  }
-        \\  a.b[1]
+    val = try run.eval(
+        \\a = {
+        \\  b: [
+        \\    1
+        \\    2
+        \\  ]
+        \\}
+        \\a.b[1]
     );
     try t.eq(val.getInt32(), 2);
     run.deinitValue(val);
@@ -407,30 +408,27 @@ test "variables" {
     defer run.destroy();
 
     // Variable declaration.
-    var val = try run.evaluate(
-        \\block:
-        \\  a = 1
-        \\  a
+    var val = try run.eval(
+        \\a = 1
+        \\a
     );
     try t.eq(val.getInt32(), 1);
     run.deinitValue(val);
 
     // Overwrite existing var.
-    val = try run.evaluate(
-        \\block:
-        \\  a = 1
-        \\  a = 2
-        \\  a
+    val = try run.eval(
+        \\a = 1
+        \\a = 2
+        \\a
     );
     try t.eq(val.getInt32(), 2);
     run.deinitValue(val);
 
     // Use existing var.
-    val = try run.evaluate(
-        \\block:
-        \\  a = 1
-        \\  b = a + 2
-        \\  b
+    val = try run.eval(
+        \\a = 1
+        \\b = a + 2
+        \\b
     );
     try t.eq(val.getInt32(), 3);
     run.deinitValue(val);
@@ -440,17 +438,15 @@ test "if expression" {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
-        \\block:
-        \\  foo = true
-        \\  if foo then 123 else 456
+    var val = try run.eval(
+        \\foo = true
+        \\if foo then 123 else 456
     );
     try t.eq(val.getInt32(), 123);
     run.deinitValue(val);
-    val = try run.evaluate(
-        \\block:
-        \\  foo = false
-        \\  if foo then 123 else 456
+    val = try run.eval(
+        \\foo = false
+        \\if foo then 123 else 456
     );
     try t.eq(val.getInt32(), 456);
     run.deinitValue(val);
@@ -461,36 +457,33 @@ test "if statement" {
     defer run.destroy();
 
     // If/else.
-    var val = try run.evaluate(
-        \\block:
-        \\  foo = true
-        \\  if foo:
-        \\    123
-        \\  else:
-        \\    456
+    var val = try run.eval(
+        \\foo = true
+        \\if foo:
+        \\  return 123
+        \\else:
+        \\  return 456
     );
     try t.eq(val.getInt32(), 123);
     run.deinitValue(val);
-    val = try run.evaluate(
-        \\block:
-        \\  foo = false
-        \\  if foo:
-        \\    123
-        \\  else:
-        \\    456
+    val = try run.eval(
+        \\foo = false
+        \\if foo:
+        \\  return 123
+        \\else:
+        \\  return 456
     );
     try t.eq(val.getInt32(), 456);
     run.deinitValue(val);
 
     // else if condition.
-    val = try run.evaluate(
-        \\block:
-        \\  if false:
-        \\    456
-        \\  else true:
-        \\    123
-        \\  else:
-        \\    456
+    val = try run.eval(
+        \\if false:
+        \\  return 456
+        \\else true:
+        \\  return 123
+        \\else:
+        \\  return 456
     );
     try t.eq(val.getInt32(), 123);
     run.deinitValue(val);
@@ -501,14 +494,13 @@ test "Infinite for loop." {
     defer run.destroy();
 
     // Infinite loop clause.
-    var val = try run.evaluate(
-        \\block:
-        \\  i = 0
-        \\  for:
-        \\    i += 1
-        \\    if i == 10:
-        \\      break
-        \\  i
+    var val = try run.eval(
+        \\i = 0
+        \\for:
+        \\  i += 1
+        \\  if i == 10:
+        \\    break
+        \\i
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
@@ -519,12 +511,11 @@ test "Conditional for loop." {
     defer run.destroy();
 
     // `for` with condition expression.
-    var val = try run.evaluate(
-        \\block:
-        \\  i = 0
-        \\  for i != 10:
-        \\    i += 1
-        \\  i
+    var val = try run.eval(
+        \\i = 0
+        \\for i != 10:
+        \\  i += 1
+        \\i
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
@@ -535,13 +526,12 @@ test "For loop over list." {
     defer run.destroy();
 
     // Basic.
-    var val = try run.evaluate(
-        \\block:
-        \\  list = [1, 2, 3]
-        \\  sum = 0
-        \\  for list as it:
-        \\     sum += it
-        \\  sum
+    var val = try run.eval(
+        \\list = [1, 2, 3]
+        \\sum = 0
+        \\for list as it:
+        \\   sum += it
+        \\sum
     );
     try t.eq(val.getInt32(), 6);
     run.deinitValue(val);
@@ -552,64 +542,59 @@ test "For loop over range." {
     defer run.destroy();
 
     // Basic.
-    var val = try run.evaluate(
-        \\block:
-        \\  iters = 0
-        \\  for 0..10 as i:
-        \\     iters += 1
-        \\  iters
+    var val = try run.eval(
+        \\iters = 0
+        \\for 0..10 as i:
+        \\   iters += 1
+        \\iters
     );
     try t.eq(val.getInt32(), 10);
     run.deinitValue(val);
 
     // two `for` with range don't interfere with each other
-    val = try run.evaluate(
-        \\block:
-        \\  iters = 0
-        \\  for 0..10 as i:
-        \\     iters += 1
-        \\  for 0..10 as i:
-        \\     iters += 1
-        \\  iters
+    val = try run.eval(
+        \\iters = 0
+        \\for 0..10 as i:
+        \\   iters += 1
+        \\for 0..10 as i:
+        \\   iters += 1
+        \\iters
     );
     try t.eq(val.getInt32(), 20);
     run.deinitValue(val);
 
     // two `for` with non const max value don't interfere with each other
-    val = try run.evaluate(
-        \\block:
-        \\  foo = 10
-        \\  iters = 0
-        \\  for 0..foo as i:
-        \\     iters += 1
-        \\  for 0..foo as i:
-        \\     iters += 1
-        \\  iters
+    val = try run.eval(
+        \\foo = 10
+        \\iters = 0
+        \\for 0..foo as i:
+        \\   iters += 1
+        \\for 0..foo as i:
+        \\   iters += 1
+        \\iters
     );
     try t.eq(val.getInt32(), 20);
     run.deinitValue(val);
 
     // Increment by step.
-    val = try run.evaluate(
-        \\block:
-        \\  iters = 0
-        \\  for 0..10 as i += 3:
-        \\     iters += 1
-        \\  iters
+    val = try run.eval(
+        \\iters = 0
+        \\for 0..10 as i += 3:
+        \\   iters += 1
+        \\iters
     );
     try t.eq(val.getInt32(), 4);
     run.deinitValue(val);
 
     // Increment by non const step value. Two loops after another.
-    val = try run.evaluate(
-        \\block:
-        \\  iters = 0
-        \\  step = 3
-        \\  for 0..10 as i += step:
-        \\     iters += 1
-        \\  for 0..10 as i += step:
-        \\     iters += 1
-        \\  iters
+    val = try run.eval(
+        \\iters = 0
+        \\step = 3
+        \\for 0..10 as i += step:
+        \\   iters += 1
+        \\for 0..10 as i += step:
+        \\   iters += 1
+        \\iters
     );
     try t.eq(val.getInt32(), 8);
     run.deinitValue(val);
@@ -620,7 +605,7 @@ test "function declaration" {
     defer run.destroy();
 
     // Function with no params.
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\func foo():
         \\    return 2 + 2
         \\foo()
@@ -629,7 +614,7 @@ test "function declaration" {
     run.deinitValue(val);
 
     // Function with one param.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo(bar):
         \\    return bar + 2
         \\foo(1)
@@ -638,7 +623,7 @@ test "function declaration" {
     run.deinitValue(val);
 
     // Function with multiple param.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo(bar, inc):
         \\    return bar + inc
         \\foo(20, 10)
@@ -652,7 +637,7 @@ test "Lambdas" {
     defer run.destroy();
 
     // Lambda with no params.
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\foo = func () => 2 + 2
         \\foo()
     );
@@ -660,7 +645,7 @@ test "Lambdas" {
     run.deinitValue(val);
 
     // Lambda with one param.
-    val = try run.evaluate(
+    val = try run.eval(
         \\foo = func (bar) => bar + 2
         \\foo(1)
     );
@@ -668,7 +653,7 @@ test "Lambdas" {
     run.deinitValue(val);
 
     // Lambda with multiple param.
-    val = try run.evaluate(
+    val = try run.eval(
         \\foo = func (bar, inc) => bar + inc
         \\foo(20, 10)
     );
@@ -676,7 +661,7 @@ test "Lambdas" {
     run.deinitValue(val);
 
     // Lambda assign declaration.
-    val = try run.evaluate(
+    val = try run.eval(
         \\foo = {}
         \\func foo.bar():
         \\  return 2
@@ -690,7 +675,7 @@ test "Function named parameters call." {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\func foo(a, b):
         \\  return a - b
         \\foo(a: 3, b: 1)
@@ -698,7 +683,7 @@ test "Function named parameters call." {
     try t.eq(val.getInt32(), 2);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo(a, b):
         \\  return a - b
         \\foo(a: 1, b: 3)
@@ -707,7 +692,7 @@ test "Function named parameters call." {
     run.deinitValue(val);
 
     // New line as arg separation.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo(a, b):
         \\  return a - b
         \\foo(
@@ -724,19 +709,17 @@ test "access expression" {
     defer run.destroy();
 
     // One level of access from parent.
-    var val = try run.evaluate(
-        \\block:
-        \\  dict = { a: func () => 5 }
-        \\  dict.a()
+    var val = try run.eval(
+        \\dict = { a: func () => 5 }
+        \\dict.a()
     );
     try t.eq(val.getInt32(), 5);
     run.deinitValue(val);
 
     // Multiple levels of access from parent.
-    val = try run.evaluate(
-        \\block:
-        \\  dict = { a: { b: func () => 5 } }
-        \\  dict.a.b()
+    val = try run.eval(
+        \\dict = { a: { b: func () => 5 } }
+        \\dict.a.b()
     );
     try t.eq(val.getInt32(), 5);
     run.deinitValue(val);
@@ -746,45 +729,45 @@ test "Binary Expressions" {
     const run = Runner.create();
     defer run.destroy();
 
-    var val = try run.evaluate(
+    var val = try run.eval(
         \\1 + 2
     );
     try t.eq(val.getInt32(), 3);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\1 + 2 + 3
     );
     try t.eq(val.getInt32(), 6);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\3 - 1
     );
     try t.eq(val.getInt32(), 2);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\3 * 4
     );
     try t.eq(val.getInt32(), 12);
     run.deinitValue(val);
 
-    val = try run.evaluate(
+    val = try run.eval(
         \\20 / 5
     );
     try t.eq(val.getInt32(), 4);
     run.deinitValue(val);
 
     // Modulus
-    val = try run.evaluate(
+    val = try run.eval(
         \\3 % 2
     );
     try t.eq(val.getInt32(), 1);
     run.deinitValue(val);
 
     // Right function call.
-    val = try run.evaluate(
+    val = try run.eval(
         \\func foo():
         \\  return 123
         \\1 + foo()
@@ -806,6 +789,8 @@ const Runner = struct {
 
     tasks: std.ArrayList(qjs.JSValue),
     eval_promise_res: ?qjs.JSValue,
+
+    const Undefined = cs.JsValue.initQJS(qjs.Undefined);
 
     fn create() *Runner {
         var new = t.alloc.create(Runner) catch fatal();
@@ -888,14 +873,17 @@ const Runner = struct {
         return try self.compiler.compile(ast_res, .{ .wrap_in_func = true });
     }
 
-    fn evaluate(self: *Runner, src: []const u8) !cs.JsValue {
+    fn eval2(self: *Runner, src: []const u8, embed_interrupts: bool) !cs.JsValue {
         const ast_res = try self.parser.parse(src);
         if (ast_res.has_error) {
             log.debug("Parse Error: {s}", .{ast_res.err_msg});
             return error.ParseError;
         }
 
-        const res = try self.compiler.compile(ast_res, .{});
+        const res = try self.compiler.compile(ast_res, .{
+            .gas_meter = if (embed_interrupts) .yield_interrupt else .none,
+            .wrap_in_func = true,
+        });
         if (res.has_error) {
             log.debug("Compile Error: {s}", .{res.err_msg});
             return error.CompileError;
@@ -923,7 +911,11 @@ const Runner = struct {
             return val;
         }
 
-        const val = self.engine.eval(csrc);
+        // Wrapped in function.
+        const func = self.engine.eval(csrc);
+        defer self.engine.deinitValue(func);
+
+        const val = self.engine.call(func, Undefined, &.{});
         const tag = self.engine.getValueTag(val);
         if (tag == .exception) {
             const str = try self.getExceptionString(val);
@@ -973,6 +965,10 @@ const Runner = struct {
             }
         }
         return val;
+    }
+
+    fn eval(self: *Runner, src: []const u8) !cs.JsValue {
+        return self.eval2(src, false);
     }
 
     fn deinitValue(self: *Runner, val: cs.JsValue) void {
