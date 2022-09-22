@@ -14,7 +14,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "then", .then_k },
     .{ "else", .else_k },
     .{ "for", .for_k },
-    .{ "fun", .fun_k },
+    .{ "func", .func_k },
     .{ "break", .break_k },
     .{ "await", .await_k },
     .{ "true", .true_k },
@@ -879,7 +879,7 @@ pub const Parser = struct {
                     return id;
                 }
             },
-            .fun_k => {
+            .func_k => {
                 return try self.parseFunctionDeclaration();
             },
             .if_k => {
@@ -1383,7 +1383,7 @@ pub const Parser = struct {
                 };
                 return expr_id;
             },
-            .fun_k => {
+            .func_k => {
                 // Lambda function.
                 return self.parseLambdaFunction();
             },
@@ -2273,7 +2273,7 @@ const TokenType = enum {
     not_k,
     as_k,
     pass_k,
-    fun_k,
+    func_k,
     /// Used to indicate no token.
     none,
 };
@@ -2650,7 +2650,7 @@ test "Parse dependency variables" {
 
     // Function call after declaration.
     res = try parser.parseNoErr(
-        \\fun foo():
+        \\func foo():
         \\  pass
         \\foo()
     );

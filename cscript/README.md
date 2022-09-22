@@ -72,7 +72,7 @@ list[2..+2] // [ 3, 4 ]    From start index to start index + length.
 
 ### Dictionaries
 ```cscript
-dict = { a: 123, b: fun () => 5 }
+dict = { a: 123, b: func () => 5 }
 cs.log dict.a
 cs.log dict['a']
 
@@ -187,10 +187,10 @@ match val:
 ### Functions
 
 #### Declaring functions.
-Functions are declared with the `fun` keyword. Functions declared in the top level scope are eligible for hot swap during development.
+Functions are declared with the `func` keyword. Functions declared in the top level scope are eligible for hot swap during development.
 ```cscript
 using cs.math
-fun dist(x0, y0, x1, y1):
+func dist(x0, y0, x1, y1):
     dx = x0-x1
     dy = y0-y1
     return sqrt dx*dx+dy*dy
@@ -198,7 +198,7 @@ fun dist(x0, y0, x1, y1):
 Functions can return multiple values:
 ```cscript
 using cs.math
-fun compute(rad):
+func compute(rad):
     return cos(rad), sin(rad)
 x, y = compute(pi)
 ```
@@ -212,7 +212,7 @@ The shorthand method omits parentheses and commas. Args are separated by whitesp
 ```cscript
 d = dist 100 100 200 200 // Calls the function `dist`.
 
-fun random():            // Function with no parameters.
+func random():            // Function with no parameters.
     return 4
 
 r = random               // Returns the function itself as a value. Does not call the function `random`.
@@ -226,18 +226,18 @@ d = dist(x0: 10, x1: 20, y0: 30, y1: 40)
 ### Lambdas
 ```cscript
 // Single line lambda.
-canvas.onUpdate(fun (delta_ms) => print delta_ms)
+canvas.onUpdate(func (delta_ms) => print delta_ms)
 
 // Multi line lambda.
 canvas.onUpdate(
-    fun (delta_ms):
+    func (delta_ms):
         print delta_ms
 )
 ```
 Lambdas can also be declared and assigned to a nested property of an existing variable. A declaration at the top level scope also makes the lambda eligible for hot swap during development.
 ```cscript
 dict = {}
-fun dict.foo():
+func dict.foo():
     return 123
 dict.foo()
 
@@ -256,9 +256,9 @@ TODO
 ### Async
 An async task can be created using `@asyncTask()`. Code can suspend on an `apromise` and wait for the value to resolve with `await`.
 ```cscript
-fun foo():
+func foo():
     task = @asyncTask()
-    @queueTask(fun () => task.resolve(123))
+    @queueTask(func () => task.resolve(123))
     return task.promise
 await foo()
 // Returns 123.
@@ -266,9 +266,9 @@ await foo()
 
 When the function is declared to return an `apromise`. Callers can omit the `await` keyword:
 ```cscript
-fun foo() apromise:
+func foo() apromise:
     task = @asyncTask()
-    @queueTask(fun () => task.resolve(123))
+    @queueTask(func () => task.resolve(123))
     return task.promise
 1 + foo()
 // Returns 124. Equivalent to "1 + await foo()".
@@ -301,7 +301,7 @@ The author may not know all use cases of their library so this removes friction 
 Custom logic for operators can be declared in a `language` definition.
 ```cscript
 language math:
-    fun +(left, right):
+    func +(left, right):
         return Vec2{ x: left.x + right.x, y: left.y + right.y }
 
 vec3 = math# vec1 + vec2

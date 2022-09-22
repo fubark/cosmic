@@ -87,9 +87,9 @@ test "implicit await" {
     defer run.destroy();
 
     var val = try run.evaluate(
-        \\fun foo() apromise:
+        \\func foo() apromise:
         \\  task = @asyncTask()
-        \\  @queueTask(fun () => task.resolve(123))
+        \\  @queueTask(func () => task.resolve(123))
         \\  return task.promise
         \\1 + foo()
     );
@@ -102,9 +102,9 @@ test "await" {
     defer run.destroy();
 
     var val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  task = @asyncTask()
-        \\  @queueTask(fun () => task.resolve(123))
+        \\  @queueTask(func () => task.resolve(123))
         \\  return task.promise
         \\await foo()
     );
@@ -113,7 +113,7 @@ test "await" {
 
     // await on value.
     val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  return 234
         \\await foo()
     );
@@ -127,7 +127,7 @@ test "Indentation." {
 
     // Detect end of block.
     var val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  return 123
         \\foo()
     );
@@ -136,7 +136,7 @@ test "Indentation." {
 
     // Comment before end of block.
     val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  return 123
         \\  // Comment.
         \\foo()
@@ -154,7 +154,7 @@ test "Indentation." {
 
     // Continue from parent indentation.
     val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  if false:
         \\    pass
         \\  return 123 
@@ -165,7 +165,7 @@ test "Indentation." {
 
     // Continue from grand parent indentation.
     val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  if false:
         \\    if false:
         \\      pass
@@ -621,7 +621,7 @@ test "function declaration" {
 
     // Function with no params.
     var val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\    return 2 + 2
         \\foo()
     );
@@ -630,7 +630,7 @@ test "function declaration" {
 
     // Function with one param.
     val = try run.evaluate(
-        \\fun foo(bar):
+        \\func foo(bar):
         \\    return bar + 2
         \\foo(1)
     );
@@ -639,7 +639,7 @@ test "function declaration" {
 
     // Function with multiple param.
     val = try run.evaluate(
-        \\fun foo(bar, inc):
+        \\func foo(bar, inc):
         \\    return bar + inc
         \\foo(20, 10)
     );
@@ -653,7 +653,7 @@ test "Lambdas" {
 
     // Lambda with no params.
     var val = try run.evaluate(
-        \\foo = fun () => 2 + 2
+        \\foo = func () => 2 + 2
         \\foo()
     );
     try t.eq(val.getInt32(), 4);
@@ -661,7 +661,7 @@ test "Lambdas" {
 
     // Lambda with one param.
     val = try run.evaluate(
-        \\foo = fun (bar) => bar + 2
+        \\foo = func (bar) => bar + 2
         \\foo(1)
     );
     try t.eq(val.getInt32(), 3);
@@ -669,7 +669,7 @@ test "Lambdas" {
 
     // Lambda with multiple param.
     val = try run.evaluate(
-        \\foo = fun (bar, inc) => bar + inc
+        \\foo = func (bar, inc) => bar + inc
         \\foo(20, 10)
     );
     try t.eq(val.getInt32(), 30);
@@ -678,7 +678,7 @@ test "Lambdas" {
     // Lambda assign declaration.
     val = try run.evaluate(
         \\foo = {}
-        \\fun foo.bar():
+        \\func foo.bar():
         \\  return 2
         \\foo.bar()
     );
@@ -691,7 +691,7 @@ test "Function named parameters call." {
     defer run.destroy();
 
     var val = try run.evaluate(
-        \\fun foo(a, b):
+        \\func foo(a, b):
         \\  return a - b
         \\foo(a: 3, b: 1)
     );
@@ -699,7 +699,7 @@ test "Function named parameters call." {
     run.deinitValue(val);
 
     val = try run.evaluate(
-        \\fun foo(a, b):
+        \\func foo(a, b):
         \\  return a - b
         \\foo(a: 1, b: 3)
     );
@@ -708,7 +708,7 @@ test "Function named parameters call." {
 
     // New line as arg separation.
     val = try run.evaluate(
-        \\fun foo(a, b):
+        \\func foo(a, b):
         \\  return a - b
         \\foo(
         \\  a: 3
@@ -726,7 +726,7 @@ test "access expression" {
     // One level of access from parent.
     var val = try run.evaluate(
         \\block:
-        \\  dict = { a: fun () => 5 }
+        \\  dict = { a: func () => 5 }
         \\  dict.a()
     );
     try t.eq(val.getInt32(), 5);
@@ -735,7 +735,7 @@ test "access expression" {
     // Multiple levels of access from parent.
     val = try run.evaluate(
         \\block:
-        \\  dict = { a: { b: fun () => 5 } }
+        \\  dict = { a: { b: func () => 5 } }
         \\  dict.a.b()
     );
     try t.eq(val.getInt32(), 5);
@@ -785,7 +785,7 @@ test "Binary Expressions" {
 
     // Right function call.
     val = try run.evaluate(
-        \\fun foo():
+        \\func foo():
         \\  return 123
         \\1 + foo()
     );
