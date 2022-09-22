@@ -1029,19 +1029,19 @@ pub const JsTargetCompiler = struct {
                 }
             },
             .if_expr => {
-                _ = try self.writer.write("if (");
                 const cond = self.nodes[node.head.if_expr.cond];
                 try self.genExpression(cond);
-                _ = try self.writer.write(") { ");
+                _ = try self.writer.write(" ? ");
                 const body = self.nodes[node.head.if_expr.body_expr];
                 try self.genExpression(body);
+                _ = try self.writer.write(" : ");
                 if (node.head.if_expr.else_clause != NullId) {
                     const else_clause = self.nodes[node.head.if_expr.else_clause];
-                    _ = try self.writer.write(" } else { ");
                     const else_body = self.nodes[else_clause.head.child_head];
                     try self.genExpression(else_body);
+                } else {
+                    _ = try self.writer.write("undefined");
                 }
-                _ = try self.writer.write(" }");
             },
             else => return self.reportError(error.Unsupported, "Unsupported node", .{}, node),
         }
