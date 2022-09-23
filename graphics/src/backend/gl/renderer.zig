@@ -49,7 +49,8 @@ pub const Renderer = struct {
     /// Pipelines.
     pipelines: Pipelines,
 
-    /// State.
+    /// [State]
+    scissor_test: bool,
     depth_test: bool,
     binded_draw_framebuffer: gl.GLuint,
 
@@ -62,6 +63,7 @@ pub const Renderer = struct {
             .materials_buf = undefined,
             .mats_buf = undefined,
             .depth_test = undefined,
+            .scissor_test = undefined,
             .mesh = undefined,
             .pipelines = undefined,
             .image_store = undefined,
@@ -102,6 +104,9 @@ pub const Renderer = struct {
         // Disable depth test by default.
         gl.disable(gl.GL_DEPTH_TEST);
         self.depth_test = false;
+
+        gl.disable(gl.GL_SCISSOR_TEST);
+        self.scissor_test = false;
 
         gl.disable(gl.GL_POLYGON_OFFSET_FILL);
     }
@@ -196,6 +201,18 @@ pub const Renderer = struct {
             gl.disable(gl.GL_DEPTH_TEST);
         }
         self.depth_test = depth_test;
+    }
+
+    pub fn setScissorTest(self: *Renderer, scissor_test: bool) void {
+        if (self.scissor_test == scissor_test) {
+            return;
+        }
+        if (scissor_test) {
+            gl.enable(gl.GL_SCISSOR_TEST);
+        } else {
+            gl.disable(gl.GL_SCISSOR_TEST);
+        }
+        self.scissor_test = scissor_test;
     }
 };
 

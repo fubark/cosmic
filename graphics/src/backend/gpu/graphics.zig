@@ -102,6 +102,10 @@ pub const Graphics = struct {
     /// The current paint state.
     ps: *PaintState,
 
+    /// Logical window dimensions.
+    width: u32,
+    height: u32,
+
     /// The binded framebuffer dimensions.
     buf_width: u32,
     buf_height: u32,
@@ -200,6 +204,8 @@ pub const Graphics = struct {
             .inner = undefined,
             .batcher = undefined,
             .font_cache = undefined,
+            .width = undefined,
+            .height = undefined,
             .buf_width = undefined,
             .buf_height = undefined,
             .default_font_id = undefined,
@@ -304,7 +310,6 @@ pub const Graphics = struct {
             .width = width,
             .height = height,
         };
-        self.ps.using_scissors = true;
 
         // Execute current draw calls before we alter state.
         self.endCmd();
@@ -318,11 +323,11 @@ pub const Graphics = struct {
                 gl.scissor(
                     @floatToInt(c_int, rect.x),
                     // clip-y starts at bottom.
-                    @floatToInt(c_int, @intToFloat(f32, self.buf_height) - (rect.y + rect.height)),
+                    @floatToInt(c_int, @intToFloat(f32, self.height) - (rect.y + rect.height)),
                     @floatToInt(c_int, rect.width),
                     @floatToInt(c_int, rect.height)
                 );
-                gl.enable(gl.GL_SCISSOR_TEST);
+                self.inner.renderer.setScissorTest(true);
             },
             .Vulkan => {
                 const vk_rect = vk.VkRect2D{
@@ -350,7 +355,7 @@ pub const Graphics = struct {
     pub fn pushState(self: *Graphics) void {
         self.ps.state_stack.append(self.alloc, .{
             .clip_rect = self.ps.clip_rect,
-            .use_scissors = self.ps.using_scissors,
+            .use_scissors = if (Backend == .OpenGL) self.inner.renderer.scissor_test else self.ps.using_scissors,
             .blend_mode = self.ps.blend_mode,
             .view_xform = self.ps.view_xform,
         }) catch fatal();
@@ -363,21 +368,27 @@ pub const Graphics = struct {
         self.endCmd();
 
         const state = self.ps.state_stack.pop();
-        if (state.use_scissors) {
-            const r = state.clip_rect;
-            self.clipRect(r.x, r.y, r.width, r.height);
-        } else {
-            self.ps.using_scissors = false;
-            switch (Backend) {
-                .OpenGL => {
-                    gl.disable(gl.GL_SCISSOR_TEST);
-                },
-                .Vulkan => {
+        switch (Backend) {
+            .OpenGL => {
+                if (state.use_scissors) {
                     const r = state.clip_rect;
                     self.clipRect(r.x, r.y, r.width, r.height);
-                },
-                else => {},
-            }
+                } else {
+                    self.inner.renderer.setScissorTest(false);
+                    self.ps.clip_rect = geom.Rect{ .x = 0, .y = 0, .width = @intToFloat(f32, self.width), .height = @intToFloat(f32, self.height) };
+                }
+            },
+            .Vulkan => {
+                if (state.use_scissors) {
+                    const r = state.clip_rect;
+                    self.clipRect(r.x, r.y, r.width, r.height);
+                } else {
+                    self.ps.using_scissors = false;
+                    const r = state.clip_rect;
+                    self.clipRect(r.x, r.y, r.width, r.height);
+                }
+            },
+            else => {},
         }
         if (state.blend_mode != self.ps.blend_mode) {
             self.setBlendMode(state.blend_mode);
@@ -2127,10 +2138,12 @@ pub const Graphics = struct {
     }
 
     /// Like beginFrame but only adjusts the viewport and binds the fbo.
-    pub fn bindFramebuffer(self: *Graphics, buf_width: u32, buf_height: u32, fbo: gl.GLuint) void {
+    pub fn bindFramebuffer(self: *Graphics, width: u32, height: u32, buf_width: u32, buf_height: u32, fbo: gl.GLuint) void {
         self.endCmd();
         self.inner.renderer.bindDrawFramebuffer(fbo);
         gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
+        self.width = width;
+        self.height = height;
         self.buf_width = buf_width;
         self.buf_height = buf_height;
     }
@@ -2150,6 +2163,8 @@ pub const Graphics = struct {
         self.ps.view_xform = Transform.initIdentity();
         self.buf_width = @intCast(u32, img.width);
         self.buf_height = @intCast(u32, img.height);
+        self.width = self.buf_width;
+        self.height = self.buf_height;
         const mvp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
         self.batcher.beginMvp(mvp);
     }
@@ -2193,9 +2208,11 @@ pub const Graphics = struct {
 
     /// Begin frame sets up the context before any other draw call.
     /// This should be agnostic to the view port dimensions so this context can be reused by different windows.
-    pub fn beginFrame(self: *Graphics, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
+    pub fn beginFrame(self: *Graphics, width: u32, height: u32, buf_width: u32, buf_height: u32, custom_fbo: gl.GLuint) void {
         // log.debug("beginFrame", .{});
 
+        self.width = width;
+        self.height = height;
         self.buf_width = buf_width;
         self.buf_height = buf_height;
 
@@ -2211,8 +2228,7 @@ pub const Graphics = struct {
             .width = @intToFloat(f32, buf_width),
             .height = @intToFloat(f32, buf_height),
         };
-        self.ps.using_scissors = false;
-        gl.disable(gl.GL_SCISSOR_TEST);
+        self.inner.renderer.setScissorTest(false);
 
         if (custom_fbo == 0) {
             // This clears the main framebuffer that is swapped to window.
@@ -2484,7 +2500,6 @@ pub const PaintState = struct {
     state_stack: std.ArrayListUnmanaged(DrawState),
 
     clip_rect: geom.Rect,
-    using_scissors: bool,
     blend_mode: BlendMode,
 
     pub fn init(font_gid: FontGroupId) PaintState {
@@ -2506,7 +2521,6 @@ pub const PaintState = struct {
             .state_stack = .{},
 
             .clip_rect = undefined,
-            .using_scissors = undefined,
             .blend_mode = ._undefined,
             .clear_color = undefined,
         };
