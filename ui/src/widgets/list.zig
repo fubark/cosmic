@@ -49,7 +49,7 @@ pub const List = struct {
     pub fn init(self: *List, c: *ui.InitContext) void {
         self.selected_idx = NullId;
         c.setMouseDownHandler(c.node, onMouseDown);
-        c.addKeyDownHandler(self, onKeyDown);
+        c.setKeyDownHandler(self, onKeyDown);
     }
 
     pub fn build(self: *List, c: *ui.BuildContext) ui.FrameId {

@@ -248,6 +248,8 @@ const EventType = enum(u3) {
     global_mouseup,
     global_mousemove,
     hoverchange,
+    keyup,
+    keydown,
 };
 
 const EventHandlerRef = struct {
@@ -635,11 +637,9 @@ pub const Module = struct {
     pub fn processKeyDownEvent(self: *Module, e: platform.KeyDownEvent) void {
         // Only the focused widget receives input.
         if (self.common.focused_widget) |focused_widget| {
-            var cur = focused_widget.key_down_list;
-            while (cur != NullId) {
-                const sub = self.common.key_down_event_subs.getNoCheck(cur);
+            if (focused_widget.hasHandler(ui.EventHandlerMasks.keydown)) {
+                const sub = self.common.node_keydown_map.get(focused_widget).?;
                 sub.handleEvent(&self.event_ctx, e);
-                cur = self.common.key_down_event_subs.getNextNoCheck(cur);
             }
         }
     }
@@ -647,11 +647,9 @@ pub const Module = struct {
     pub fn processKeyUpEvent(self: *Module, e: platform.KeyUpEvent) void {
         // Only the focused widget receives input.
         if (self.common.focused_widget) |focused_widget| {
-            var cur = focused_widget.key_up_list;
-            while (cur != NullId) {
-                const sub = self.common.key_up_event_subs.getNoCheck(cur);
+            if (focused_widget.hasHandler(ui.EventHandlerMasks.keyup)) {
+                const sub = self.common.node_keyup_map.get(focused_widget).?;
                 sub.handleEvent(&self.event_ctx, e);
-                cur = self.common.key_up_event_subs.getNextNoCheck(cur);
             }
         }
     }
@@ -991,42 +989,27 @@ pub const Module = struct {
         const widget_vtable = node.vtable;
 
         // Make sure event handlers are removed.
-        var cur_id = node.key_up_list;
-        while (cur_id != NullId) {
-            const sub = self.common.key_up_event_subs.getNoCheck(cur_id);
-            sub.deinit(self.alloc);
-            self.common.key_up_event_subs.removeAssumeNoPrev(cur_id) catch unreachable;
-            cur_id = self.common.key_up_event_subs.getNextNoCheck(cur_id);
+        if (node.hasHandler(ui.EventHandlerMasks.keyup)) {
+            self.common.ctx.clearKeyUpHandler(node);
         }
-
-        cur_id = node.key_down_list;
-        while (cur_id != NullId) {
-            const sub = self.common.key_down_event_subs.getNoCheck(cur_id);
-            sub.deinit(self.alloc);
-            self.common.key_down_event_subs.removeAssumeNoPrev(cur_id) catch unreachable;
-            cur_id = self.common.key_down_event_subs.getNextNoCheck(cur_id);
+        if (node.hasHandler(ui.EventHandlerMasks.keydown)) {
+            self.common.ctx.clearKeyDownHandler(node);
         }
-
         if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
             self.common.ctx.clearEnterMouseDownHandler(node);
         }
-
         if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
             self.common.ctx.clearMouseDownHandler(node);
         }
-
         if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
             self.common.ctx.clearMouseUpHandler(node);
         }
-
         if (node.hasHandler(ui.EventHandlerMasks.global_mouseup)) {
             self.common.ctx.clearGlobalMouseUpHandler(node);
         }
-
         if (node.hasHandler(ui.EventHandlerMasks.global_mousemove)) {
             self.common.ctx.clearGlobalMouseMoveHandler(node);
         }
-
         if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
             self.common.ctx.clearHoverChangeHandler(node);
         }
@@ -1395,12 +1378,12 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.addMouseScrollHandler(self.node, ctx, cb);
         }
 
-        pub inline fn addKeyDownHandler(self: *Context, ctx: anytype, cb: events.KeyDownHandler(@TypeOf(ctx))) void {
-            self.common.addKeyDownHandler(self.node, ctx, cb);
+        pub inline fn setKeyDownHandler(self: *Context, ctx: anytype, cb: events.KeyDownHandler(@TypeOf(ctx))) void {
+            self.common.setKeyDownHandler(self.node, ctx, cb);
         }
 
-        pub inline fn addKeyUpHandler(self: *Context, ctx: anytype, cb: events.KeyUpHandler(@TypeOf(ctx))) void {
-            self.common.addKeyUpHandler(self.node, ctx, cb);
+        pub inline fn setKeyUpHandler(self: *Context, ctx: anytype, cb: events.KeyUpHandler(@TypeOf(ctx))) void {
+            self.common.setKeyUpHandler(self.node, ctx, cb);
         }
 
         pub inline fn setGlobalMouseMoveHandler(self: *Context, ctx: anytype, cb: events.MouseMoveHandler(@TypeOf(ctx))) void {
@@ -1444,7 +1427,7 @@ pub fn MixinContextNodeReadOps(comptime Context: type) type {
 pub fn MixinContextInputOps(comptime Context: type) type {
     return struct {
 
-        pub inline fn removeKeyUpHandler(self: *Context, comptime Ctx: type, func: events.KeyUpHandler(Ctx)) void {
+        pub inline fn clearKeyUpHandler(self: *Context, comptime Ctx: type, func: events.KeyUpHandler(Ctx)) void {
             self.common.removeKeyUpHandler(Ctx, func);
         }
     };
@@ -1928,60 +1911,61 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn addKeyUpHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, cb: events.KeyUpHandler(@TypeOf(ctx))) void {
+    pub fn setKeyUpHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, cb: events.KeyUpHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), fn (ui.KeyUpEvent) void).init(self.alloc, ctx, cb).iface();
         const sub = Subscriber(platform.KeyUpEvent){
             .closure = closure,
             .node = node,
         };
-        if (self.common.key_up_event_subs.getLast(node.key_up_list)) |last_id| {
-            _ = self.common.key_up_event_subs.insertAfter(last_id, sub) catch unreachable;
+        const res = self.common.node_keyup_map.getOrPut(self.alloc, node) catch fatal();
+        if (res.found_existing) {
+            res.value_ptr.deinit(self.alloc);
+            res.value_ptr.* = sub;
         } else {
-            node.key_up_list = self.common.key_up_event_subs.add(sub) catch unreachable;
+            res.value_ptr.* = sub;
+            node.setHandlerMask(ui.EventHandlerMasks.keyup);
         }
     }
 
-    /// Remove a handler from a node based on the function ptr.
-    pub fn removeKeyUpHandler(self: *CommonContext, node: *ui.Node, func: *const anyopaque) void {
-        var cur = node.key_up_list;
-        var prev = NullId;
-        while (cur != NullId) {
-            const sub = self.common.key_up_event_subs.getNoCheck(cur);
-            if (sub.closure.iface.getUserFunctionPtr() == func) {
-                sub.deinit();
-                self.common.key_up_event_subs.removeAfter(prev);
-                // Continue scanning for duplicates.
+    pub fn clearKeyUpHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_keyup_map.getPtr(node)) |sub| {
+            if (!sub.to_remove) {
+                sub.to_remove = true;
+                node.clearHandlerMask(ui.EventHandlerMasks.keyup);
+                self.common.to_remove_handlers.append(self.alloc, .{
+                    .event_t = .keyup,
+                    .node = node,
+                }) catch fatal();
             }
-            prev = cur;
-            cur = self.common.key_up_event_subs.getNextNoCheck(cur) catch unreachable;
         }
     }
 
-    pub fn addKeyDownHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, cb: events.KeyDownHandler(@TypeOf(ctx))) void {
+    pub fn setKeyDownHandler(self: *CommonContext, node: *ui.Node, ctx: anytype, cb: events.KeyDownHandler(@TypeOf(ctx))) void {
         const closure = Closure(@TypeOf(ctx), fn (ui.KeyDownEvent) void).init(self.alloc, ctx, cb).iface();
         const sub = Subscriber(platform.KeyDownEvent){
             .closure = closure,
             .node = node,
         };
-        if (self.common.key_down_event_subs.getLast(node.key_down_list)) |last_id| {
-            _ = self.common.key_down_event_subs.insertAfter(last_id, sub) catch unreachable;
+        const res = self.common.node_keydown_map.getOrPut(self.alloc, node) catch fatal();
+        if (res.found_existing) {
+            res.value_ptr.deinit(self.alloc);
+            res.value_ptr.* = sub;
         } else {
-            node.key_down_list = self.common.key_down_event_subs.add(sub) catch unreachable;
+            res.value_ptr.* = sub;
+            node.setHandlerMask(ui.EventHandlerMasks.keydown);
         }
     }
 
-    pub fn removeKeyDownHandler(self: *CommonContext, node: *ui.Node, comptime Context: type, func: events.KeyDownHandler(Context)) void {
-        var cur = node.key_down_list;
-        var prev = NullId;
-        while (cur != NullId) {
-            const sub = self.common.key_down_event_subs.getNoCheck(cur);
-            if (sub.closure.iface.getUserFunctionPtr() == @ptrCast(*const anyopaque, func)) {
-                sub.deinit();
-                self.common.key_down_event_subs.removeAfter(prev);
-                // Continue scanning for duplicates.
+    pub fn clearKeyDownHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_keydown_map.getPtr(node)) |sub| {
+            if (!sub.to_remove) {
+                sub.to_remove = true;
+                node.clearHandlerMask(ui.EventHandlerMasks.keydown);
+                self.common.to_remove_handlers.append(self.alloc, .{
+                    .event_t = .keydown,
+                    .node = node,
+                }) catch fatal();
             }
-            prev = cur;
-            cur = self.common.key_down_event_subs.getNextNoCheck(cur) catch unreachable;
         }
     }
 
@@ -2016,10 +2000,9 @@ pub const ModuleCommon = struct {
     text_measures: stdx.ds.PooledHandleList(TextMeasureId, TextMeasure),
     interval_sessions: stdx.ds.PooledHandleList(u32, IntervalSession),
 
-    // TODO: Use one buffer for all the handlers.
     /// Keyboard handlers.
-    key_up_event_subs: stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)),
-    key_down_event_subs: stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)),
+    node_keyup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.KeyUpEvent)),
+    node_keydown_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.KeyDownEvent)),
 
     /// Mouse handlers.
     global_mouse_up_list: std.ArrayListUnmanaged(*ui.Node),
@@ -2094,8 +2077,8 @@ pub const ModuleCommon = struct {
             .default_font_gid = g.getDefaultFontGroupId(),
             .interval_sessions = stdx.ds.PooledHandleList(u32, IntervalSession).init(alloc),
 
-            .key_up_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyUpEvent)).init(alloc),
-            .key_down_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.KeyDownEvent)).init(alloc),
+            .node_keyup_map = .{},
+            .node_keydown_map = .{},
             .node_enter_mousedown_map = .{},
             .node_mousedown_map = .{},
             .node_mouseup_map = .{},
@@ -2150,22 +2133,6 @@ pub const ModuleCommon = struct {
         }
 
         {
-            var iter = self.key_up_event_subs.iterator();
-            while (iter.next()) |it| {
-                it.data.deinit(self.alloc);
-            }
-            self.key_up_event_subs.deinit();
-        }
-
-        {
-            var iter = self.key_down_event_subs.iterator();
-            while (iter.next()) |it| {
-                it.data.deinit(self.alloc);
-            }
-            self.key_down_event_subs.deinit();
-        }
-
-        {
             var iter = self.mouse_scroll_event_subs.iterator();
             while (iter.next()) |it| {
                 it.data.deinit(self.alloc);
@@ -2182,6 +2149,8 @@ pub const ModuleCommon = struct {
         self.node_hoverchange_map.deinit(self.alloc);
         self.hovered_nodes.deinit(self.alloc);
 
+        self.node_keydown_map.deinit(self.alloc);
+        self.node_keyup_map.deinit(self.alloc);
         self.node_global_mousemove_map.deinit(self.alloc);
         self.global_mouse_move_list.deinit(self.alloc);
         self.node_global_mouseup_map.deinit(self.alloc);
@@ -2218,6 +2187,16 @@ pub const ModuleCommon = struct {
                             break;
                         }
                     }
+                },
+                .keydown => {
+                    const sub = self.node_keydown_map.get(ref.node).?;
+                    sub.deinit(self.alloc);
+                    _ = self.node_keydown_map.remove(ref.node);
+                },
+                .keyup => {
+                    const sub = self.node_keyup_map.get(ref.node).?;
+                    sub.deinit(self.alloc);
+                    _ = self.node_keyup_map.remove(ref.node);
                 },
                 .enter_mousedown => {
                     const sub = self.node_enter_mousedown_map.get(ref.node).?;
@@ -2636,8 +2615,8 @@ test "BuildContext.range" {
 test "Widget instance lifecycle." {
     const A = struct {
         pub fn init(_: *@This(), c: *InitContext) void {
-            c.addKeyUpHandler({}, onKeyUp);
-            c.addKeyDownHandler({}, onKeyDown);
+            c.setKeyUpHandler({}, onKeyUp);
+            c.setKeyDownHandler({}, onKeyDown);
             c.setMouseDownHandler({}, onMouseDown);
             c.setEnterMouseDownHandler({}, onEnterMouseDown);
             c.setMouseUpHandler({}, onMouseUp);
@@ -2682,14 +2661,12 @@ test "Widget instance lifecycle." {
     try t.eq(root.?.vtable, GenWidgetVTable(A));
     try t.eq(mod.common.focused_widget.?, root.?);
 
-    try t.eq(mod.common.key_up_event_subs.size(), 1);
-    const keyup_sub = mod.common.key_up_event_subs.iterFirstValueNoCheck();
-    try t.eq(keyup_sub.node, root.?);
+    try t.eq(mod.common.node_keyup_map.size, 1);
+    const keyup_sub = mod.common.node_keyup_map.get(root.?).?;
     try t.eq(keyup_sub.closure.user_fn, A.onKeyUp);
 
-    try t.eq(mod.common.key_down_event_subs.size(), 1);
-    const keydown_sub = mod.common.key_down_event_subs.iterFirstValueNoCheck();
-    try t.eq(keydown_sub.node, root.?);
+    try t.eq(mod.common.node_keydown_map.size, 1);
+    const keydown_sub = mod.common.node_keydown_map.get(root.?).?;
     try t.eq(keydown_sub.closure.user_fn, A.onKeyDown);
 
     try t.eq(mod.common.node_mousedown_map.size, 1);
@@ -2722,8 +2699,8 @@ test "Widget instance lifecycle." {
     root = tmod.getNodeByTag(.root);
     try t.eq(root, null);
     try t.eq(mod.common.focused_widget, null);
-    try t.eq(mod.common.key_up_event_subs.size(), 0);
-    try t.eq(mod.common.key_down_event_subs.size(), 0);
+    try t.eq(mod.common.node_keyup_map.size, 0);
+    try t.eq(mod.common.node_keydown_map.size, 0);
     try t.eq(mod.common.node_mousedown_map.size, 0);
     try t.eq(mod.common.node_enter_mousedown_map.size, 0);
     try t.eq(mod.common.node_mouseup_map.size, 0);

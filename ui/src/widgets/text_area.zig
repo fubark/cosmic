@@ -19,7 +19,7 @@ const log = stdx.log.scoped(.text_area);
 // TODO: Expose properties that could be useful for a TextEditor.
 pub const TextArea = struct {
     props: struct {
-        init_val: []const u8,
+        initValue: []const u8,
         fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
         fontSize: f32 = 18,
         width: f32 = 400,
@@ -61,8 +61,8 @@ pub const TextArea = struct {
         self.alloc = c.alloc;
         self.setFontSize(self.props.fontSize);
 
-        self.setText(props.init_val);
-        c.addKeyDownHandler(self, onKeyDown);
+        self.setText(props.initValue);
+        c.setKeyDownHandler(self, onKeyDown);
     }
 
     pub fn deinit(self: *TextArea, _: std.mem.Allocator) void {

@@ -43,7 +43,7 @@ pub const TextField = struct {
     pub fn init(self: *TextField, c: *ui.InitContext) void {
         self.buf = stdx.textbuf.TextBuffer.init(c.alloc, "") catch @panic("error");
         self.last_buf_hash = undefined;
-        c.addKeyDownHandler(self, onKeyDown);
+        c.setKeyDownHandler(self, onKeyDown);
         c.setMouseDownHandler(self, onMouseDown);
         self.ctx = c.common;
         self.node = c.node;
@@ -86,7 +86,7 @@ pub const TextField = struct {
 
     /// Request focus on the TextField.
     pub fn requestFocus(self: *TextField) void {
-        self.ctx.requestFocus(self.node, onBlur);
+        self.ctx.requestFocus(self.node, .{ .onBlur = onBlur });
         const inner = self.inner.getWidget();
         inner.setFocused();
         std.crypto.hash.Md5.hash(self.buf.buf.items, &self.last_buf_hash, .{});
