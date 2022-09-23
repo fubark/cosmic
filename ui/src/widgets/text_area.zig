@@ -24,8 +24,8 @@ pub const TextArea = struct {
         fontSize: f32 = 18,
         width: f32 = 400,
         height: f32 = 300,
-        text_color: Color = Color.Black,
-        bg_color: Color = Color.White,
+        textColor: Color = Color.Black,
+        bgColor: Color = Color.White,
         onBlur: stdx.Function(fn () void) = .{},
     },
 
@@ -75,7 +75,7 @@ pub const TextArea = struct {
     pub fn build(self: *TextArea, c: *ui.BuildContext) ui.FrameId {
         return u.ScrollView(.{
             .bind = &self.scroll_view,
-            .bg_color = self.props.bg_color,
+            .bg_color = self.props.bgColor,
             .onContentMouseDown = c.funcExt(self, onMouseDown) },
             c.build(TextAreaInner, .{
                 .bind = &self.inner,
@@ -574,7 +574,7 @@ pub const TextAreaInner = struct {
         const line_height = @intToFloat(f32, editor.font_line_height);
 
         g.setFontGroup(editor.font_gid, editor.font_size);
-        g.setFillColor(self.editor.props.text_color);
+        g.setFillColor(self.editor.props.textColor);
         // TODO: Use binary search when word wrap is enabled and we can't determine the first visible line with O(1)
         const scroll_view = editor.scroll_view.getWidget();
         const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(scroll_view.scroll_y / line_height)));
@@ -590,7 +590,7 @@ pub const TextAreaInner = struct {
         if (self.focused) {
             // Draw caret.
             if (self.caret_anim_show_toggle) {
-                g.setFillColor(self.editor.props.text_color);
+                g.setFillColor(self.editor.props.textColor);
                 // log.warn("width {d:2}", .{width});
                 const height = self.editor.font_vmetrics.height;
                 g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);

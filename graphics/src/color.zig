@@ -60,6 +60,10 @@ pub const Color = extern union {
         return init(@floatToInt(u8, r * 255), @floatToInt(u8, g * 255), @floatToInt(u8, b * 255), @floatToInt(u8, a * 255));
     }
 
+    pub inline fn isTransparent(self: Color) bool {
+        return self.channels.a == 0;
+    }
+
     pub fn withAlpha(self: Color, a: u8) Color {
         return init(self.channels.r, self.channels.g, self.channels.b, a);
     }

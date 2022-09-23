@@ -21,6 +21,8 @@ pub const ScrollView = struct {
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
         bg_color: Color = Color.Transparent,
+        gutterColor: Color = Color.Transparent,
+        thumbColor: Color = Color.Gray,
         border_color: Color = Color.DarkGray,
         show_hscroll: ScrollBarVisibility = .auto,
         show_vscroll: ScrollBarVisibility = .auto,
@@ -289,19 +291,23 @@ pub const ScrollView = struct {
 
         // Draw bottom right corner.
         if (self.has_vbar and self.has_hbar) {
-            g.setFillColor(Color.LightGray);
-            g.fillRect(bounds.max_x - BarSize, bounds.max_y - BarSize, BarSize, BarSize);
+            if (!self.props.gutterColor.isTransparent()) {
+                g.setFillColor(Color.LightGray);
+                g.fillRect(bounds.max_x - BarSize, bounds.max_y - BarSize, BarSize, BarSize);
+            }
         }
 
         if (self.has_vbar) {
             const bar_bounds = self.getVBarBounds(bounds);
 
             // Draw vertical scrollbar.
-            g.setFillColor(Color.LightGray);
-            g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
+            if (!self.props.gutterColor.isTransparent()) {
+                g.setFillColor(self.props.gutterColor);
+                g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
+            }
 
             // Draw thumb.
-            g.setFillColor(Color.Gray);
+            g.setFillColor(self.props.thumbColor);
             g.fillRect(bar_bounds.x, bar_bounds.thumb_y, bar_bounds.width, bar_bounds.thumb_height);
         }
 
@@ -309,11 +315,13 @@ pub const ScrollView = struct {
             const bar_bounds = self.getHBarBounds(bounds);
 
             // Draw horizontal scrollbar.
-            g.setFillColor(Color.LightGray);
-            g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
+            if (!self.props.gutterColor.isTransparent()) {
+                g.setFillColor(self.props.gutterColor);
+                g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
+            }
 
             // Draw thumb.
-            g.setFillColor(Color.Gray);
+            g.setFillColor(self.props.thumbColor);
             g.fillRect(bar_bounds.thumb_x, bar_bounds.y, bar_bounds.thumb_width, bar_bounds.height);
         }
     }
