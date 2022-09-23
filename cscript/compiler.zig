@@ -734,6 +734,9 @@ pub const JsTargetCompiler = struct {
             .false_literal => {
                 _ = try self.writer.write("false");
             },
+            .none => {
+                _ = try self.writer.write("null");
+            },
             .number => {
                 const token = self.tokens[node.start_token];
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);

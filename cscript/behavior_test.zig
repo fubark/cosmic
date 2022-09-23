@@ -8,6 +8,18 @@ const cs = @import("cscript.zig");
 const QJS = cs.QJS;
 const log = stdx.log.scoped(.behavior_test);
 
+test "Optionals" {
+    const run = Runner.create();
+    defer run.destroy();
+
+    var val = try run.eval(
+        \\foo = none
+        \\foo
+    );
+    try t.eq(val.isNull(), true);
+    run.deinitValue(val);
+}
+
 test "Binary expr with generator function call." {
     const run = Runner.create();
     defer run.destroy();

@@ -24,6 +24,7 @@ const keywords = std.ComptimeStringMap(TokenType, .{
     .{ "not", .not_k },
     .{ "as", .as_k },
     .{ "pass", .pass_k },
+    .{ "none", .none_k },
 });
 
 const BlockState = struct {
@@ -1348,6 +1349,10 @@ pub const Parser = struct {
                 self.advanceToken();
                 return self.pushNode(.false_literal, start);
             },
+            .none_k => {
+                self.advanceToken();
+                return self.pushNode(.none, start);
+            },
             .number => b: {
                 self.advanceToken();
                 break :b self.pushNode(.number, start);
@@ -2281,6 +2286,7 @@ const TokenType = enum {
     not_k,
     as_k,
     pass_k,
+    none_k,
     func_k,
     /// Used to indicate no token.
     none,
@@ -2313,6 +2319,7 @@ const NodeType = enum {
     at_ident,
     true_literal,
     false_literal,
+    none,
     string,
     await_expr,
     access_expr,
