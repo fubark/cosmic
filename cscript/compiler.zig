@@ -870,6 +870,9 @@ pub const JsTargetCompiler = struct {
                     .star => {
                         _ = try self.writer.write(" * ");
                     },
+                    .star_star => {
+                        _ = try self.writer.write(" ** ");
+                    },
                     .slash => {
                         _ = try self.writer.write(" / ");
                     },

@@ -759,6 +759,13 @@ test "Binary Expressions" {
     try t.eq(val.getInt32(), 4);
     run.deinitValue(val);
 
+    // Power
+    val = try run.eval(
+        \\2 ** 5
+    );
+    try t.eq(val.getInt32(), 32);
+    run.deinitValue(val);
+
     // Modulus
     val = try run.eval(
         \\3 % 2

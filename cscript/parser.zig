@@ -1870,7 +1870,14 @@ pub const Parser = struct {
                             self.pushOpToken(.plus, start);
                         }
                     },
-                    '*' => self.pushOpToken(.star, start),
+                    '*' => {
+                        if (self.peekChar() == '*') {
+                            self.advanceChar();
+                            self.pushOpToken(.star_star, start);
+                        } else {
+                            self.pushOpToken(.star, start);
+                        }
+                    },
                     '/' => {
                         if (self.peekChar() == '/') {
                             // Single line comment. Ignore chars until eol.
@@ -2223,6 +2230,7 @@ pub const OperatorType = enum(u3) {
     plus,
     minus,
     star,
+    star_star,
     slash,
     percent,
 };
@@ -2339,6 +2347,7 @@ pub const BinaryExprOp = enum {
     plus,
     minus,
     star,
+    star_star,
     slash,
     percent,
     bang_equal,
@@ -2556,6 +2565,7 @@ fn toBinExprOp(op: OperatorType) BinaryExprOp {
         .plus => .plus,
         .minus => .minus,
         .star => .star,
+        .star_star => .star_star,
         .slash => .slash,
         .percent => .percent,
     };
