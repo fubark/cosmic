@@ -990,18 +990,14 @@ pub const Graphics = struct {
 
     pub fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
         self.batcher.beginTex(self.white_tex);
-        if (x1 == x2) {
-            self.fillRectBoundsColor(x1 - self.ps.line_width_half, y1, x1 + self.ps.line_width_half, y2, self.ps.stroke_color);
-        } else {
-            const normal = vec2(y2 - y1, x2 - x1).toLength(self.ps.line_width_half);
-            self.fillQuad(
-                x1 - normal.x, y1 + normal.y,
-                x1 + normal.x, y1 - normal.y,
-                x2 + normal.x, y2 - normal.y,
-                x2 - normal.x, y2 + normal.y,
-                self.ps.stroke_color,
-            );
-        }
+        const normal = vec2(y2 - y1, x2 - x1).toLength(self.ps.line_width_half);
+        self.fillQuad(
+            x1 - normal.x, y1 + normal.y,
+            x1 + normal.x, y1 - normal.y,
+            x2 + normal.x, y2 - normal.y,
+            x2 - normal.x, y2 + normal.y,
+            self.ps.stroke_color,
+        );
     }
 
     pub fn drawQuadraticBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
