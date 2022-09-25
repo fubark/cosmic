@@ -5,7 +5,7 @@ const t = stdx.testing;
 
 const log = stdx.log.scoped(.heap);
 
-const IsWasm = builtin.target.cpu.arch == .wasm32;
+const IsWasm = builtin.target.isWasm();
 
 const MeasureMemory = false;
 var gpa: ?std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = MeasureMemory }) = null;

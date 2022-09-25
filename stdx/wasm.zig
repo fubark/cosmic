@@ -9,7 +9,10 @@ const log = stdx.log.scoped(.wasm);
 /// A global buffer for wasm that can be used for:
 /// Writing to js: In some cases in order to share the same abstraction as desktop code, a growing buffer is useful without needing an allocator. eg. logging.
 /// Reading from js: If js needs to return dynamic data, it would need to write to memory which wasm knows about.
-pub var js_buffer: WasmJsBuffer = undefined;
+/// Using js_buffer_inner directly in std.mem.copy results in llvm error.
+/// TODO: Check if new compiler fixes this and then rename js_buffer_inner to js_buffer.
+var js_buffer_inner: WasmJsBuffer = undefined;
+pub var js_buffer: *WasmJsBuffer = undefined;
 
 pub var galloc: std.mem.Allocator = undefined;
 var atexits: std.ArrayList(AtExitCallback) = undefined;
@@ -23,7 +26,8 @@ pub fn init(alloc: std.mem.Allocator) void {
     @import("log_wasm.zig").init(alloc);
     galloc = alloc;
     atexits = std.ArrayList(AtExitCallback).init(alloc);
-    js_buffer = WasmJsBuffer.init(alloc);
+    js_buffer_inner = WasmJsBuffer.init(alloc);
+    js_buffer = &js_buffer_inner;
     js_buffer.ensureNotEmpty();
     promises = ds.PooledHandleList(PromiseId, PromiseInternal).init(alloc);
     promise_child_deps = ds.CompactManySinglyLinkedList(PromiseId, PromiseDepId, PromiseId).init(alloc);
@@ -183,7 +187,7 @@ export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
 
     if (p.dynamic_size) {
         // We have to allocate heap memory for variable sized values.
-        const copy = stdx.heap.getDefaultAllocator().alloc(u8, data_size) catch unreachable;
+        const copy = galloc.alloc(u8, data_size) catch unreachable;
         js_buffer.input_buf.resize(js_buffer.alloc, data_size) catch unreachable;
         std.mem.copy(u8, copy, js_buffer.input_buf.items[0..data_size]);
         if (p.then_copy_to) |dst| {

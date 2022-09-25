@@ -19,7 +19,7 @@ pub fn main() !void {
     app.runEventLoop(update);
 }
 
-fn update(delta_ms: f32) void {
+fn update(delta_ms: f32) anyerror!void {
     _ = delta_ms;
     const gctx = app.gctx;
     gctx.setFillColor(Color.Red);
