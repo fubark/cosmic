@@ -1003,7 +1003,7 @@ pub const Graphics = struct {
 
     pub fn fillTextExt(self: *Graphics, x: f32, y: f32, comptime format: []const u8, args: anytype, opts: TextOptions) void {
         self.u8_buf.clearRetainingCapacity();
-        std.fmt.format(self.u8_buf.writer(), format, args) catch unreachable;
+        std.fmt.format(self.u8_buf.writer(self.alloc), format, args) catch unreachable;
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillTextExt(&self.impl, x, y, self.u8_buf.items, opts),
             else => stdx.unsupported(),

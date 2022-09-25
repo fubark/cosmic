@@ -58,14 +58,14 @@ pub const App = struct {
         }
     }
 
-    pub fn runEventLoop(app: *App, comptime update: fn (delta_ms: f32) void) void {
+    pub fn runEventLoop(app: *App, comptime update: fn (delta_ms: f32) anyerror!void) void {
         while (!app.quit) {
             app.dispatcher.processEvents();
 
             app.renderer.beginFrame(app.cam);
             app.fps_limiter.beginFrame();
             const delta_ms = app.fps_limiter.getLastFrameDeltaMs();
-            update(delta_ms);
+            update(delta_ms) catch stdx.fatal();
             app.renderer.endFrame();
 
             const delay = app.fps_limiter.endFrame();
@@ -83,7 +83,7 @@ pub const App = struct {
     }
 };
 
-pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime update: fn (delta_ms: f32) void) [*]const u8 {
+pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime update: fn (delta_ms: f32) anyerror!void) [*]const u8 {
     // Update the input buffer view.
     stdx.wasm.js_buffer.input_buf.items.len = input_buffer_len;
 
@@ -93,7 +93,7 @@ pub fn wasmUpdate(cur_time_ms: f64, input_buffer_len: u32, app: *App, comptime u
     app.dispatcher.processEvents();
     app.renderer.beginFrame(app.cam);
 
-    update(@floatCast(f32, delta_ms));
+    update(@floatCast(f32, delta_ms)) catch stdx.fatal();
 
     app.renderer.endFrame();
     return stdx.wasm.js_buffer.writeResult();

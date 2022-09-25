@@ -128,6 +128,7 @@ pub const Graphics = struct {
     dpr_ceil: u8,
 
     tessellator: Tessellator,
+    debugTessellator: if (builtin.mode == .Debug) Tessellator else void,
 
     /// Temporary buffer used to rasterize a glyph by a backend (eg. stbtt).
     raster_glyph_buffer: std.ArrayList(u8),
@@ -218,12 +219,16 @@ pub const Graphics = struct {
             .dpr = dpr,
             .dpr_ceil = @floatToInt(u8, std.math.ceil(dpr)),
             .tessellator = undefined,
+            .debugTessellator = undefined,
             .raster_glyph_buffer = std.ArrayList(u8).init(alloc),
         };
     }
 
     fn initCommon(self: *Graphics, alloc: std.mem.Allocator) !void {
         self.tessellator.init(alloc);
+        if (builtin.mode == .Debug) {
+            self.debugTessellator.init(alloc);
+        }
 
         // Generate basic solid color texture.
         var buf: [16]u32 = undefined;
@@ -279,6 +284,9 @@ pub const Graphics = struct {
         self.image_store.deinit();
 
         self.tessellator.deinit();
+        if (builtin.mode == .Debug) {
+            self.debugTessellator.deinit();
+        }
         self.raster_glyph_buffer.deinit();
     }
 

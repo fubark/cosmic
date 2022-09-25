@@ -264,10 +264,10 @@ test "Quadratic bezier flatten." {
         .x1 = 200,
         .y1 = 200,
     };
-    var buf = std.ArrayList(Vec2).init(t.alloc);
-    defer buf.deinit();
+    var buf: std.ArrayListUnmanaged(Vec2) = .{};
+    defer buf.deinit(t.alloc);
 
-    qbez.flatten(0.5, &buf);
+    qbez.flatten(0.5, t.alloc, &buf);
 
     const exp: []const Vec2 = &.{
         vec2(0, 0),
@@ -304,13 +304,13 @@ test "Cubic bezier flatten." {
         .x1 = 600,
         .y1 = 50,
     };
-    var buf = std.ArrayList(Vec2).init(t.alloc);
-    defer buf.deinit();
+    var buf: std.ArrayListUnmanaged(Vec2) = .{};
+    defer buf.deinit(t.alloc);
 
-    var qbez_buf = std.ArrayList(SubQuadBez).init(t.alloc);
-    defer qbez_buf.deinit();
+    var qbez_buf: std.ArrayListUnmanaged(SubQuadBez) = .{};
+    defer qbez_buf.deinit(t.alloc);
 
-    cbez.flatten(0.5, &buf, &qbez_buf);
+    cbez.flatten(0.5, t.alloc, &buf, &qbez_buf);
 
     const exp: []const Vec2 = &.{
         vec2(200, 450),
