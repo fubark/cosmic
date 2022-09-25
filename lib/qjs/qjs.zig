@@ -11,3 +11,10 @@ pub const Undefined = c.JSValue{
         .int32 = 0,
     },
 };
+
+pub const Null = c.JSValue{
+    .tag = c.JS_TAG_NULL,
+    .u = .{
+        .int32 = 0,
+    },
+};

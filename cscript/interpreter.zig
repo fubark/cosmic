@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const qjs = @import("qjs");
@@ -14,15 +15,26 @@ extern "app" fn jsGetFloat64(id: usize) f64;
 extern "app" fn jsDeleteValue(id: usize) void;
 extern "app" fn jsGetProperty(id: usize, prop_ptr: [*]const u8, prop_len: usize) usize;
 extern "app" fn jsGetGlobalValue(ptr: [*]const u8, len: usize) usize;
+extern "app" fn jsCall(func: usize, this: usize, args_ptr: [*]const u32, args_len: usize) usize;
+extern "app" fn jsCallGen(func: usize, this: usize, args_ptr: [*]const u32, args_len: usize) usize;
 
 pub const JsEngine = struct {
     alloc: std.mem.Allocator,
     inner: if (IsWasm) struct {
         buf: std.ArrayListUnmanaged(u8),
+        u32_buf: std.ArrayListUnmanaged(u32),
     } else struct {
         rt: *qjs.JSRuntime,
         ctx: *qjs.JSContext,
     },
+
+    pub const Undefined: JsValue = if (IsWasm) 
+        JsValue.initWebJS(1)
+    else JsValue.initQJS(qjs.Undefined);
+
+    pub const Null: JsValue = if (IsWasm) 
+        JsValue.initWebJS(2)
+    else JsValue.initQJS(qjs.Null);
 
     pub fn init(alloc: std.mem.Allocator) JsEngine {
         if (IsWasm) {
@@ -30,6 +42,7 @@ pub const JsEngine = struct {
                 .alloc = alloc,
                 .inner = .{
                     .buf = .{},
+                    .u32_buf = .{},
                 },
             };
         } else {
@@ -47,6 +60,7 @@ pub const JsEngine = struct {
     pub fn deinit(self: JsEngine) void {
         if (IsWasm) {
             self.buf.deinit(self.alloc);
+            self.u32_buf.deinit(self.alloc);
         } else {
             qjs.JS_FreeContext(self.inner.ctx);
             qjs.JS_FreeRuntime(self.inner.rt);
@@ -65,7 +79,9 @@ pub const JsEngine = struct {
 
     pub fn deinitValue(self: JsEngine, val: JsValue) void {
         if (IsWasm) {
-            jsDeleteValue(val.inner.id);
+            if (val.inner.id > 4) {
+                jsDeleteValue(val.inner.id);
+            }
         } else {
             qjs.JS_FreeValue(self.inner.ctx, val.inner);
         }
@@ -135,9 +151,33 @@ pub const JsEngine = struct {
         }
     }
 
+    pub fn callGen(self: *JsEngine, func: JsValue, this: JsValue, args: []const JsValue) JsValue {
+        if (IsWasm) {
+            self.inner.u32_buf.resize(self.alloc, args.len) catch fatal();
+            if (args.len > 0) {
+                var i: u32 = 0;
+                while (i < args.len) : (i += 1) {
+                    self.inner.u32_buf.items[i] = args[i].inner.id;
+                }
+            }
+            const id = jsCallGen(func.inner.id, this.inner.id, self.inner.u32_buf.items.ptr, self.inner.u32_buf.items.len);
+            return JsValue.initWebJS(id);
+        } else {
+            stdx.unsupported();
+        }
+    }
+
     pub fn call(self: *JsEngine, func: JsValue, this: JsValue, args: []const JsValue) JsValue {
         if (IsWasm) {
-            stdx.unsupported();
+            self.inner.u32_buf.resize(self.alloc, args.len) catch fatal();
+            if (args.len > 0) {
+                var i: u32 = 0;
+                while (i < args.len) : (i += 1) {
+                    self.inner.u32_buf.items[i] = args[i].inner.id;
+                }
+            }
+            const id = jsCall(func.inner.id, this.inner.id, self.inner.u32_buf.items.ptr, self.inner.u32_buf.items.len);
+            return JsValue.initWebJS(id);
         } else {
             const val = qjs.JS_Call(self.inner.ctx, func.inner, this.inner, @intCast(c_int, args.len), @intToPtr([*c]qjs.JSValue, @ptrToInt(args.ptr)));
             return JsValue.initQJS(val);
@@ -232,6 +272,14 @@ pub const JsValue = struct {
         }
     }
 
+    pub fn isNull(self: JsValue) bool {
+        if (IsWasm) {
+            stdx.unsupported();
+        } else {
+            return QJS.getQjsTag(self.inner) == qjs.JS_TAG_NULL;
+        }
+    }
+
     pub fn getBool(self: JsValue) bool {
         return QJS.getBool(self.inner);
     }
@@ -299,6 +347,7 @@ pub const QJS = struct {
                     return .object;
                 }
             },
+            qjs.JS_TAG_NULL => .jsnull,
             qjs.JS_TAG_UNDEFINED => .undef,
             qjs.JS_TAG_INT => .int32,
             else => {
@@ -327,4 +376,5 @@ pub const JsValueType = enum(u4) {
     function = 6,
     boolean = 7,
     symbol = 8,
+    jsnull = 9,
 };
