@@ -131,7 +131,7 @@ fn update(delta_ms: f32) anyerror!void {
     g.translate(0, 570);
     g.setFillColor(Color.White);
     g.fillRect(0, 0, 400, 140);
-    g.drawSvgContent(zig_logo_svg) catch unreachable;
+    try g.drawSvgContent(zig_logo_svg, .{});
     g.resetTransform();
 
     // Rasterize big svg.
@@ -202,7 +202,7 @@ fn rasterizeTigerHead(tiger_head_svg: []const u8) void {
     gctx.setFillColor(Color.Transparent);
     gctx.fillRect(0, 0, 600, 600);
     gctx.translate(200, 200);
-    gctx.drawSvgContent(tiger_head_svg) catch unreachable;
+    gctx.drawSvgContent(tiger_head_svg, .{}) catch unreachable;
     gctx.endCmd();
 }
 
