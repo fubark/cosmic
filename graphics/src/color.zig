@@ -19,6 +19,9 @@ pub const Color = extern union {
     pub const StdCyan = init(0, 255, 255, 255);
     pub const StdBlue = init(0, 0, 255, 255);
     pub const StdMagenta = init(255, 0, 255, 255);
+    pub const StdBlack = init(0, 0, 0, 255);
+    pub const StdGray = init(128, 128, 128, 255);
+    pub const StdWhite = init(255, 255, 255, 255);
 
     // Prettier default colors from raylib + extras.
     pub const LightGray = init(200, 200, 200, 255);

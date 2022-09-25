@@ -24,6 +24,7 @@ pub const svg = @import("svg.zig");
 const SvgPath = svg.SvgPath;
 const draw_cmd = @import("draw_cmd.zig");
 pub const DrawCommandList = draw_cmd.DrawCommandList;
+pub const dumpDrawCommandList = draw_cmd.dump;
 const _ttf = @import("ttf.zig");
 const _color = @import("color.zig");
 pub const Color = _color.Color;
@@ -579,16 +580,16 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !svg.SvgRenderData {
-        return try self.svg_parser.parseAlloc(alloc, str);
+    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8, opts: svg.SvgOptions) !svg.SvgRenderData {
+        return try self.svg_parser.parseAlloc(alloc, str, opts);
     }
 
     // This is not the recommended way to draw svg content but is available for convenience.
     // For small/medium svg content, first parse the svg into a DrawCommandList and reuse that.
     // For large svg content, render into an image and then draw the image.
     // TODO: allow x, y offset
-    pub fn drawSvgContent(self: *Graphics, str: []const u8) !void {
-        const data = try self.svg_parser.parse(str);
+    pub fn drawSvgContent(self: *Graphics, str: []const u8, opts: svg.SvgOptions) !void {
+        const data = try self.svg_parser.parse(str, opts);
         try self.drawCommandList(data.cmds);
     }
 
