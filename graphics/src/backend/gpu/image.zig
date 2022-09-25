@@ -131,7 +131,8 @@ pub const ImageStore = struct {
         self.gctx.translate(data.min_x, data.min_y);
         const scale = render_width / data.width;
         self.gctx.scale(scale, scale);
-        self.gctx.drawCommandList(data.cmds);
+
+        try self.gctx.drawCommandList(data.cmds);
         self.gctx.endCmd();
 
         return graphics.Image{

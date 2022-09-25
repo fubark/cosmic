@@ -805,10 +805,10 @@ pub const Graphics = struct {
     }
 
     /// Creates an image from svg content. The svg will be rendered to fit the provided image size.
-    pub fn createSvgImage(self: *Graphics, data: []const u8, width: u32, height: u32) !Image {
+    pub fn createSvgImage(self: *Graphics, data: []const u8, width: u32, height: u32, opts: svg.SvgOptions) !Image {
         switch (Backend) {
             .OpenGL, .Vulkan => {
-                const res = try self.compileSvgContent(self.alloc, data);
+                const res = try self.compileSvgContent(self.alloc, data, opts);
                 defer res.deinit();
                 return gpu.ImageStore.createSvgImage(&self.impl.image_store, res, width, height);
             },
