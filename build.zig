@@ -95,7 +95,7 @@ pub fn build(b: *Builder) !void {
         } else {
             // Targeting mac but not native. eg. targeting macos with a minimum version.
             // Set sysroot with sdk path and use these setups as needed for libs:
-            // lib.addFrameworkDir("/System/Library/Frameworks");
+            // lib.addFrameworkPath("/System/Library/Frameworks");
             // lib.addSystemIncludePath("/usr/include");
             // Don't use zig's libc, since it might not be up to date with the latest SDK which we need for frameworks.
             // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));

@@ -326,7 +326,7 @@ pub fn create(
         if (target.isNativeOs()) {
             lib.linkFramework("CoreFoundation");
         } else {
-            lib.addFrameworkDir("/System/Library/Frameworks");
+            lib.addFrameworkPath("/System/Library/Frameworks");
             lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
         }
     }
@@ -348,7 +348,7 @@ pub fn linkDeps(step: *std.build.LibExeObjStep) void {
     if (builtin.os.tag == .macos and step.target.getOsTag() == .macos) {
         // "sdl2_config --static-libs" tells us what we need
         if (!step.target.isNativeOs()) {
-            step.addFrameworkDir("/System/Library/Frameworks");
+            step.addFrameworkPath("/System/Library/Frameworks");
             step.addLibraryPath("/usr/lib"); // To find libiconv.
         }
         step.linkFramework("Cocoa");

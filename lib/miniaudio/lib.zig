@@ -19,7 +19,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
 
     if (builtin.os.tag == .macos and step.target.getOsTag() == .macos) {
         if (!step.target.isNative()) {
-            lib.addFrameworkDir("/System/Library/Frameworks");
+            lib.addFrameworkPath("/System/Library/Frameworks");
             lib.addSystemIncludePath("/usr/include");
             lib.setLibCFile(std.build.FileSource{ .path = srcPath() ++ "/../macos.libc" });
         }

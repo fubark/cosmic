@@ -258,7 +258,7 @@ pub fn create(
     if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
         if (!target.isNativeOs()) {
             lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            lib.addFrameworkDir("/System/Library/Frameworks");
+            lib.addFrameworkPath("/System/Library/Frameworks");
         } 
         lib.linkFramework("SystemConfiguration");
     }

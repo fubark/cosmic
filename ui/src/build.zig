@@ -293,7 +293,7 @@ pub const BuildContext = struct {
         }
 
         comptime {
-            // var res: []const std.builtin.TypeInfo.StructField = &.{};
+            // var res: []const std.builtin.Type.StructField = &.{};
             inline for (std.meta.fields(BuildProps)) |f| {
                 // Skip special fields.
                 if (stdx.string.eq("id", f.name)) {
@@ -309,7 +309,7 @@ pub const BuildContext = struct {
                 } else if (!HasProps) {
                     @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);
                 } else if (@hasField(ui.WidgetProps(Widget), f.name)) {
-                    // res = res ++ &[_]std.builtin.TypeInfo.StructField{f};
+                    // res = res ++ &[_]std.builtin.Type.StructField{f};
                 } else {
                     @compileError(f.name ++ " isn't declared in " ++ @typeName(Widget) ++ ".Props");
                 }
