@@ -861,16 +861,30 @@ pub const Graphics = struct {
 
     pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id),
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id, Color.White),
             .WasmCanvas => return canvas.Graphics.drawImage(&self.impl, x, y, image_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawImageTinted(self: *Graphics, x: f32, y: f32, image_id: ImageId, color: Color) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id, color),
             else => stdx.unsupported(),
         }
     }
 
     pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id),
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id, Color.White),
             .WasmCanvas => return canvas.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawImageScaledTinted(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId, color: Color) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id, color),
             else => stdx.unsupported(),
         }
     }

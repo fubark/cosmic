@@ -2029,13 +2029,13 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId, tint: Color) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(Color.White);
+        vert.setColor(tint);
 
         const start_idx = self.batcher.mesh.getNextIndexId();
 
@@ -2085,13 +2085,13 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId) void {
+    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId, tint: Color) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
 
         var vert: TexShaderVertex = undefined;
-        vert.setColor(Color.White);
+        vert.setColor(tint);
 
         const start_idx = self.batcher.mesh.getNextIndexId();
 
