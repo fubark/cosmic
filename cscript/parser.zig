@@ -2595,6 +2595,8 @@ fn toBinExprOpFromLogicOp(op: LogicOpType) !BinaryExprOp {
 
 pub fn getBinOpPrecedence(op: BinaryExprOp) u8 {
     switch (op) {
+        .slash,
+        .star_star,
         .star => {
             return 2;
         },

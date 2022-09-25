@@ -254,6 +254,20 @@ test "Operator precedence." {
     );
     try t.eq(val.getInt32(), 14);
     run.deinitValue(val);
+
+    // Division before addition.
+    val = try run.eval(
+        \\2 + 4 / 4
+    );
+    try t.eq(val.getInt32(), 3);
+    run.deinitValue(val);
+
+    // Power before addition.
+    val = try run.eval(
+        \\2 + 3 ** 2
+    );
+    try t.eq(val.getInt32(), 11);
+    run.deinitValue(val);
 }
 
 test "Comments" {

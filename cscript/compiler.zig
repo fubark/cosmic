@@ -562,6 +562,9 @@ pub const JsTargetCompiler = struct {
             },
             .for_iter_stmt => {
                 try self.indent();
+                if (self.use_generators) {
+                    _ = try self.writer.write("yield* ");
+                }
                 const iterable = self.nodes[node.head.for_iter_stmt.iterable];
                 try self.genExpression(iterable);
                 const as_clause = self.nodes[node.head.for_iter_stmt.as_clause];
