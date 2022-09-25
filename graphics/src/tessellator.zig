@@ -82,8 +82,8 @@ pub const Tessellator = struct {
         self.out_idxes.clearRetainingCapacity();
     }
 
-    pub fn triangulatePolygon(self: *Tessellator, polygon: []const Vec2) void {
-        self.triangulatePolygons(&.{polygon});
+    pub fn triangulatePolygon(self: *Tessellator, polygon: []const Vec2) !void {
+        try self.triangulatePolygons(&.{polygon});
     }
 
     /// Perform a plane sweep to triangulate a complex polygon in one pass.
@@ -93,38 +93,58 @@ pub const Tessellator = struct {
     /// This is ported from the JS implementation (tessellator.js) where it is easier to prototype.
     /// Since the number of verts and indexes is not known beforehand, the output is an ArrayList.
     /// TODO: See if inline callbacks would be faster to directly push data to the batcher buffer.
-    pub fn triangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) void {
+    pub fn triangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) !void {
         // Construct the initial events by traversing the polygon.
         for (polygons) |polygon| {
-            self.initEvents(polygon);
+            try self.initEvents(polygon, false);
         }
-        self.startProcessEvents();
+        self.startProcessEvents() catch |err| {
+            for (polygons) |polygon| {
+                dumpPolygon(polygon);
+            }
+            return err;
+        };
     }
 
     /// Uses index slice as polygons.
-    pub fn triangulatePolygons2(self: *Tessellator, pts: []const Vec2, polygons: []const stdx.IndexSlice(u32)) void {
+    pub fn triangulatePolygons2(self: *Tessellator, pts: []const Vec2, polygons: []const stdx.IndexSlice(u32)) !void {
         for (polygons) |slice| {
             const polygon = pts[slice.start..slice.end];
-            self.initEvents(polygon);
+            try self.initEvents(polygon, false);
         }
-        self.startProcessEvents();
+        self.startProcessEvents() catch |err| {
+            for (polygons) |slice| {
+                dumpPolygon(pts[slice.start..slice.end]);
+            }
+            return err;
+        };
     }
 
-    fn startProcessEvents(self: *Tessellator) void {
+    fn startProcessEvents(self: *Tessellator) !void {
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
         self.cur_out_vert_idx = std.math.maxInt(u16);
 
         // Process events.
         while (self.event_q.removeOrNull()) |e_id| {
-            self.processEvent(e_id);
+            try self.processEvent(e_id, false);
         }
     }
 
     /// Initializes the events only.
-    pub fn debugTriangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) void {
+    pub fn debugTriangulatePolygons(self: *Tessellator, polygons: []const []const Vec2) !void {
         for (polygons) |polygon| {
-            self.initEvents(polygon);
+            try self.initEvents(polygon, true);
+        }
+        self.cur_x = std.math.f32_min;
+        self.cur_y = std.math.f32_min;
+        self.cur_out_vert_idx = std.math.maxInt(u16);
+    }
+
+    pub fn debugTriangulatePolygons2(self: *Tessellator, pts: []const Vec2, polygons: []const stdx.IndexSlice(u32)) !void {
+        for (polygons) |slice| {
+            const polygon = pts[slice.start..slice.end];
+            try self.initEvents(polygon, true);
         }
         self.cur_x = std.math.f32_min;
         self.cur_y = std.math.f32_min;
@@ -132,23 +152,33 @@ pub const Tessellator = struct {
     }
 
     /// Process the next event. This can be used with debugTriangulatePolygons.
-    pub fn debugProcessNext(self: *Tessellator, alloc: std.mem.Allocator) ?DebugTriangulateStepResult {
+    pub fn debugProcessNext(self: *Tessellator, alloc: std.mem.Allocator) !?DebugTriangulateStepResult {
         const e_id = self.event_q.removeOrNull() orelse return null;
-        self.processEvent(e_id);
-
+        self.processEvent(e_id, true) catch {
+            return DebugTriangulateStepResult{
+                .has_error = true,
+                .event = self.events.items[e_id],
+                .sweep_edges = self.sweep_edges.allocValuesInOrder(alloc),
+                .out_verts = try alloc.dupe(Vec2, self.out_verts.items),
+                .out_idxes = try alloc.dupe(u16, self.out_idxes.items),
+                .verts = try alloc.dupe(InternalVertex, self.verts.items),
+                .deferred_verts = try alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items),
+            };
+        };
 
         return DebugTriangulateStepResult{
-            .has_result = true,
+            .has_error = false,
             .event = self.events.items[e_id],
             .sweep_edges = self.sweep_edges.allocValuesInOrder(alloc),
-            .out_verts = alloc.dupe(Vec2, self.out_verts.items) catch unreachable,
-            .out_idxes = alloc.dupe(u16, self.out_idxes.items) catch unreachable,
-            .verts = alloc.dupe(InternalVertex, self.verts.items) catch unreachable,
-            .deferred_verts = alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items) catch unreachable,
+            .out_verts = try alloc.dupe(Vec2, self.out_verts.items),
+            .out_idxes = try alloc.dupe(u16, self.out_idxes.items),
+            .verts = try alloc.dupe(InternalVertex, self.verts.items),
+            .deferred_verts = try alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items),
         };
     }
 
-    fn processEvent(self: *Tessellator, e_id: u32) void {
+    fn processEvent(self: *Tessellator, e_id: u32, comptime Debug: bool) !void {
+        _ = Debug;
         const t_ = trace(@src());
         defer t_.end();
         const sweep_edges = &self.sweep_edges;
@@ -225,7 +255,7 @@ pub const Tessellator = struct {
                         new.cur_side = bad_right.cur_side;
 
                         // Also run triangulate on polygon (b) for the new vertex since the end event was already run for polygon (a).
-                        self.triangulateLeftStep(new, self.verts.items[e.vert_idx]);
+                        self.triangulateLeftStep(new, e.vert_idx, self.verts.items[e.vert_idx]);
 
                         left.bad_up_cusp_uniq_idx = NullId;
                         sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
@@ -264,7 +294,8 @@ pub const Tessellator = struct {
                         //     \     /\     /
                         //      \   /  \   /
 
-                        // The bad cusp is linked to the lowest visible vertex seen from the left edge. If vertex (a) exists that would be connected to the cusp.
+                        // The bad cusp is linked to the lowest visible right vertex seen from the left edge.
+                        // If vertex (a) exists that would be connected to the cusp.
                         // If it didn't exist the next lowest would be (b) a bad up cusp.
 
                         const left_left_id = sweep_edges.getPrev(mb_left_id.?).?;
@@ -272,12 +303,12 @@ pub const Tessellator = struct {
                         log("handle bad down cusp {}", .{left_left.lowest_right_vert_idx});
                         if (left_left.lowest_right_vert_idx == NullId) {
                             log("expected lowest right vert", .{});
-                            unreachable;
+                            return error.InvalidState;
                         }
 
                         const low_poly_edge = sweep_edges.getPtrNoCheck(left_left.lowest_right_vert_sweep_edge_id);
                         if (left_left_id == left_left.lowest_right_vert_sweep_edge_id) {
-                            // Lowest right point does NOT have a right side monotone polygon.
+                            // Lowest right point has a monotone subpolygon to the right.
 
                             if (left_left.lowest_right_vert_idx == left_left.vert_idx) {
                                 // Pass on the vertex queue.
@@ -287,35 +318,35 @@ pub const Tessellator = struct {
                                 low_poly_edge.deferred_queue = NullId;
                                 low_poly_edge.deferred_queue_size = 0;
 
-                                self.triangulateLeftStep(new, vert);
+                                self.triangulateLeftStep(new, e.vert_idx, vert);
 
                                 // Cut off the existing left monotone polygon. 
                                 left_left.deferred_queue = NullId;
                                 left_left.deferred_queue_size = 0;
                                 left_left.cur_side = .Right;
-                                left_left.enqueueDeferred(self.verts.items[left_left.lowest_right_vert_idx], self);
+                                left_left.enqueueDeferred(left_left.lowest_right_vert_idx, self.verts.items[left_left.lowest_right_vert_idx], self);
                                 if (vert.out_idx != self.verts.items[left_left.lowest_right_vert_idx].out_idx) {
-                                    left_left.enqueueDeferred(vert, self);
+                                    left_left.enqueueDeferred(e.vert_idx, vert, self);
                                 }
                                 left_left.lowest_right_vert_idx = e.vert_idx;
                             } else {
                                 // Initialize a new right side monotone polygon.
-                                new.enqueueDeferred(self.verts.items[left_left.lowest_right_vert_idx], self);
-                                new.enqueueDeferred(vert, self);
+                                new.enqueueDeferred(left_left.lowest_right_vert_idx, self.verts.items[left_left.lowest_right_vert_idx], self);
+                                new.enqueueDeferred(e.vert_idx, vert, self);
                                 new.cur_side = .Left;
 
                                 // Triangulate on the monotone polygon to the left of the lowest right point.
-                                self.triangulateRightStep(left_left, vert);
+                                self.triangulateRightStep(left_left, e.vert_idx, vert);
 
                                 left_left.lowest_right_vert_idx = e.vert_idx;
                             }
                         } else {
-                            // Lowest right point does have a right side monotone polygon.
+                            // Lowest right point has a monotone subpolygon to the left and right.
 
                             // Most likely a bad up cusp as well, so reset it since connecting to the lowest right fixes it.
                             left_left.bad_up_cusp_uniq_idx = NullId;
 
-                            self.triangulateLeftStep(low_poly_edge, vert);
+                            self.triangulateLeftStep(low_poly_edge, e.vert_idx, vert);
 
                             // Pass on the vertex queue.
                             new.deferred_queue = low_poly_edge.deferred_queue;
@@ -325,7 +356,7 @@ pub const Tessellator = struct {
                             low_poly_edge.deferred_queue_size = 0;
 
                             // Triangulate on the monotone polygon to the left of the lowest right point.
-                            self.triangulateRightStep(left_left, vert);
+                            self.triangulateRightStep(left_left, e.vert_idx, vert);
 
                             left_left.lowest_right_vert_idx = e.vert_idx;
                             left_left.lowest_right_vert_sweep_edge_id = left_left_id;
@@ -342,7 +373,7 @@ pub const Tessellator = struct {
 
                 // Initialize the deferred queue.
                 if (new.deferred_queue == NullId) {
-                    new.enqueueDeferred(vert, self);
+                    new.enqueueDeferred(e.vert_idx, vert, self);
                     new.cur_side = .Left;
 
                     log("initialize queue", .{});
@@ -388,9 +419,7 @@ pub const Tessellator = struct {
                 return;
             }
 
-            const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse {
-                stdx.panic("expected active edge");
-            };
+            const active_id = findSweepEdgeForEndEvent(sweep_edges, e) orelse return error.MissingActiveEdge;
             const active = sweep_edges.getPtrNoCheck(active_id);
             log("active {} {}", .{active.vert_idx, active.to_vert_idx});
 
@@ -410,7 +439,7 @@ pub const Tessellator = struct {
                     if (left.bad_up_cusp_uniq_idx != NullId) {
                         const bad_right = sweep_edges.getPtrNoCheck(left.bad_up_cusp_right_sweep_edge_id);
                         // Close off monotone polygon to the right of the bad up cusp.
-                        self.triangulateLeftStep(bad_right, vert);
+                        self.triangulateLeftStep(bad_right, e.vert_idx, vert);
                         sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
                         left.bad_up_cusp_uniq_idx = NullId; 
                         left.lowest_right_vert_idx = e.vert_idx;
@@ -436,8 +465,8 @@ pub const Tessellator = struct {
                     if (left.bad_up_cusp_uniq_idx != NullId) {
                         const bad_right = sweep_edges.getPtrNoCheck(left.bad_up_cusp_right_sweep_edge_id);
                         // Close off monotone polygon to the right of the bad up cusp.
-                        self.triangulateRightStep(bad_right, vert);
-                        left.lowest_right_vert_idx = vert.idx;
+                        self.triangulateRightStep(bad_right, e.vert_idx, vert);
+                        left.lowest_right_vert_idx = e.vert_idx;
                         left.lowest_right_vert_sweep_edge_id = left_id;
                         sweep_edges.removeDetached(left.bad_up_cusp_right_sweep_edge_id);
                         left.bad_up_cusp_uniq_idx = NullId;
@@ -448,7 +477,7 @@ pub const Tessellator = struct {
                         }
                     }
                     // Left belongs to the same monotone polygon.
-                    self.triangulateRightStep(left, vert);
+                    self.triangulateRightStep(left, e.vert_idx, vert);
 
                     // Edge is only removed by the next connecting edge.
                     active.end_event_vert_uniq_idx = vert.out_idx;
@@ -463,7 +492,7 @@ pub const Tessellator = struct {
                 if (active.bad_up_cusp_uniq_idx != NullId) {
                     const bad_right = sweep_edges.getPtrNoCheck(active.bad_up_cusp_right_sweep_edge_id);
                     // Close off monotone polygon in between this active edge and the bad up cusp.
-                    self.triangulateLeftStep(active, vert);
+                    self.triangulateLeftStep(active, e.vert_idx, vert);
                     if (active.deferred_queue_size >= 3) {
                         log("{any}", .{self.out_idxes.items});
                         active.dumpQueue(self);
@@ -474,12 +503,12 @@ pub const Tessellator = struct {
                     sweep_edges.removeDetached(active.bad_up_cusp_right_sweep_edge_id);
                     active.bad_up_cusp_uniq_idx = NullId;
                     // Extend the monotone polygon to the right of the bad up cusp to this vertex.
-                    self.triangulateLeftStep(bad_right, vert);
+                    self.triangulateLeftStep(bad_right, e.vert_idx, vert);
                     active.deferred_queue = bad_right.deferred_queue;
                     active.deferred_queue_size = bad_right.deferred_queue_size;
                 } else {
                     active.dumpQueue(self);
-                    self.triangulateLeftStep(active, vert);
+                    self.triangulateLeftStep(active, e.vert_idx, vert);
                     active.dumpQueue(self);
                 }
 
@@ -523,53 +552,61 @@ pub const Tessellator = struct {
     }
 
     /// Parses the polygon pts and adds the initial events into the priority queue.
-    fn initEvents(self: *Tessellator, polygon: []const Vec2) void {
+    fn initEvents(self: *Tessellator, polygon: []const Vec2, comptime Debug: bool) !void {
+        _ = Debug;
         const t_ = trace(@src());
         defer t_.end();
 
+        // Allocate enough space for verts.
+        try self.verts.ensureUnusedCapacity(polygon.len);
+
         // Find the starting point that is not equal to the last vertex point.
         // Since we are adding events to a priority queue, we need to make sure each add is final.
-        var start_idx: u16 = 0;
+        const offset_idx = @intCast(u16, self.verts.items.len);
+        var i: u16 = 0;
         const last_pt = polygon[polygon.len-1];
-        while (start_idx < polygon.len) : (start_idx += 1) {
-            const pt = polygon[start_idx];
+        while (i < polygon.len) : (i += 1) {
+            const pt = polygon[i];
 
             // Add internal vertex even though we are skipping events for it to keep the idxes consistent with the input.
+            const v_idx = @intCast(u16, self.verts.items.len);
             const v = InternalVertex{
                 .pos = pt,
-                .idx = start_idx,
+                .src_idx = i,
             };
-            self.verts.append(v) catch unreachable;
+            self.verts.appendAssumeCapacity(v);
 
             if (@fabs(last_pt.x - pt.x) > 1e-4 or @fabs(last_pt.y - pt.y) > 1e-4) {
                 break;
             } else {
-                self.verts.items[self.verts.items.len-1].idx = NullId;
+                self.verts.items[v_idx].src_idx = NullId;
             }
         }
+        const first_vidx = offset_idx + i;
 
         // Didn't find start point. All points in the polygon are the same.
-        if (start_idx == self.verts.items.len) {
+        if (first_vidx == self.verts.items.len) {
             return;
         }
 
-        var last_v = self.verts.items[start_idx]; // out of bounds
-        var last_v_idx = start_idx;
+        var last_v = self.verts.items[first_vidx]; // out of bounds
+        var last_v_idx = first_vidx;
 
-        var i: u16 = start_idx + 1;
+        i += 1;
         while (i < polygon.len) : (i += 1) {
             const v_idx = @intCast(u16, self.verts.items.len);
             const v = InternalVertex{
                 .pos = polygon[i],
-                .idx = i,
+                .src_idx = i,
             };
-            self.verts.append(v) catch unreachable;
+            self.verts.appendAssumeCapacity(v);
 
             if (@fabs(last_v.pos.x - v.pos.x) < 1e-4 and @fabs(last_v.pos.y - v.pos.y) < 1e-4) {
                 // Don't connect two vertices that are on top of each other.
                 // Allowing this would require edge cases during event processing to make sure things don't break.
                 // Push the vertex in anyway so there is consistency with the input.
-                self.verts.items[self.verts.items.len-1].idx = NullId;
+                self.verts.items[self.verts.items.len-1].src_idx = NullId;
+
                 continue;
             }
 
@@ -578,12 +615,12 @@ pub const Tessellator = struct {
             var event1: Event = undefined;
             var event2: Event = undefined;
             if (Event.isStartEvent(last_v_idx, prev_edge, self.verts.items)) {
-                event1 = Event.init(last_v, prev_edge, .Start);
-                event2 = Event.init(v, prev_edge, .End);
+                event1 = Event.init(last_v_idx, last_v, prev_edge, .Start);
+                event2 = Event.init(v_idx, v, prev_edge, .End);
                 event1.end_event_idx = event1_idx + 1;
             } else {
-                event1 = Event.init(last_v, prev_edge, .End);
-                event2 = Event.init(v, prev_edge, .Start);
+                event1 = Event.init(last_v_idx, last_v, prev_edge, .End);
+                event2 = Event.init(v_idx, v, prev_edge, .Start);
                 event2.end_event_idx = event1_idx;
             }
             self.events.append(event1) catch unreachable;
@@ -594,17 +631,17 @@ pub const Tessellator = struct {
             last_v_idx = v_idx;
         }
         // Link last pt to start pt.
-        const edge = Edge.init(last_v_idx, last_v, start_idx, self.verts.items[start_idx]);
+        const edge = Edge.init(last_v_idx, last_v, first_vidx, self.verts.items[first_vidx]);
         const event1_idx = @intCast(u32, self.events.items.len);
         var event1: Event = undefined;
         var event2: Event = undefined;
         if (Event.isStartEvent(last_v_idx, edge, self.verts.items)) {
-            event1 = Event.init(last_v, edge, .Start);
-            event2 = Event.init(self.verts.items[start_idx], edge, .End);
+            event1 = Event.init(last_v_idx, last_v, edge, .Start);
+            event2 = Event.init(first_vidx, self.verts.items[first_vidx], edge, .End);
             event1.end_event_idx = event1_idx + 1;
         } else {
-            event1 = Event.init(last_v, edge, .End);
-            event2 = Event.init(self.verts.items[start_idx], edge, .Start);
+            event1 = Event.init(last_v_idx, last_v, edge, .End);
+            event2 = Event.init(first_vidx, self.verts.items[first_vidx], edge, .Start);
             event2.end_event_idx = event1_idx;
         }
         self.events.append(event1) catch unreachable;
@@ -613,7 +650,7 @@ pub const Tessellator = struct {
         self.event_q.add(event1_idx + 1) catch unreachable;
     }
 
-    fn triangulateLeftStep(self: *Tessellator, left: *SweepEdge, vert: InternalVertex) void {
+    fn triangulateLeftStep(self: *Tessellator, left: *SweepEdge, vert_idx: u16, vert: InternalVertex) void {
         if (left.cur_side == .Left) {
             log("same left side", .{});
             left.dumpQueue(self);
@@ -644,14 +681,14 @@ pub const Tessellator = struct {
                     cur_id = self.deferred_verts.getNextNoCheck(cur_id);
                 }
                 if (i > 0) {
-                    const d_vert = self.deferred_verts.insertBeforeHeadNoCheck(last_id, DeferredVertexNode.init(vert)) catch unreachable;
+                    const d_vert = self.deferred_verts.insertBeforeHeadNoCheck(last_id, DeferredVertexNode.init(vert_idx, vert)) catch unreachable;
                     left.deferred_queue = d_vert;
                     left.deferred_queue_size = left.deferred_queue_size - i + 1;
                 } else {
-                    left.enqueueDeferred(vert, self);
+                    left.enqueueDeferred(vert_idx, vert, self);
                 }
             } else {
-                left.enqueueDeferred(vert, self);
+                left.enqueueDeferred(vert_idx, vert, self);
             }
         } else {
             log("changed to left side", .{});
@@ -673,13 +710,13 @@ pub const Tessellator = struct {
             left.dumpQueue(self);
             self.deferred_verts.getNodePtrNoCheck(left.deferred_queue).next = NullId;
             left.deferred_queue_size = 1;
-            left.enqueueDeferred(vert, self);
+            left.enqueueDeferred(vert_idx, vert, self);
             left.cur_side = .Left;
             left.dumpQueue(self);
         }
     }
 
-    fn triangulateRightStep(self: *Tessellator, left: *SweepEdge, vert: InternalVertex) void {
+    fn triangulateRightStep(self: *Tessellator, left: *SweepEdge, vert_idx: u16, vert: InternalVertex) void {
         if (left.cur_side == .Right) {
             log("right side", .{});
             // Same side.
@@ -707,14 +744,14 @@ pub const Tessellator = struct {
                     cur_id = self.deferred_verts.getNextNoCheck(cur_id);
                 }
                 if (i > 0) {
-                    const d_vert = self.deferred_verts.insertBeforeHeadNoCheck(last_id, DeferredVertexNode.init(vert)) catch unreachable;
+                    const d_vert = self.deferred_verts.insertBeforeHeadNoCheck(last_id, DeferredVertexNode.init(vert_idx, vert)) catch unreachable;
                     left.deferred_queue = d_vert;
                     left.deferred_queue_size = left.deferred_queue_size - i + 1;
                 } else {
-                    left.enqueueDeferred(vert, self);
+                    left.enqueueDeferred(vert_idx, vert, self);
                 }
             } else {
-                left.enqueueDeferred(vert, self);
+                left.enqueueDeferred(vert_idx, vert, self);
             }
         } else {
             log("changed to right side", .{});
@@ -733,7 +770,7 @@ pub const Tessellator = struct {
             }
             self.deferred_verts.getNodePtrNoCheck(left.deferred_queue).next = NullId;
             left.deferred_queue_size = 1;
-            left.enqueueDeferred(vert, self);
+            left.enqueueDeferred(vert_idx, vert, self);
             left.cur_side = .Right;
             left.dumpQueue(self);
         }
@@ -756,7 +793,8 @@ pub const Tessellator = struct {
         const intersect_idx = @intCast(u16, self.verts.items.len);
         const intersect_v = InternalVertex{
             .pos = vec2(intersect.x, intersect.y),
-            .idx = intersect_idx,
+            // Generated pt. Doesn't map back to a source pt.
+            .src_idx = NullId,
         };
         self.verts.append(intersect_v) catch unreachable;
 
@@ -790,7 +828,7 @@ pub const Tessellator = struct {
 
             // Insert new sweep_edge_a end event.
             const evt_idx = @intCast(u32, self.events.items.len);
-            var new_evt = Event.init(intersect_v, first_edge, .End);
+            var new_evt = Event.init(intersect_idx, intersect_v, first_edge, .End);
             self.events.append(new_evt) catch unreachable;
             self.event_q.add(evt_idx) catch unreachable;
 
@@ -798,12 +836,12 @@ pub const Tessellator = struct {
             var event1: Event = undefined;
             var event2: Event = undefined;
             if (Event.isStartEvent(intersect_idx, second_edge, self.verts.items)) {
-                event1 = Event.init(intersect_v, second_edge, .Start);
-                event2 = Event.init(self.verts.items[a_orig_to_vert], second_edge, .End);
+                event1 = Event.init(intersect_idx, intersect_v, second_edge, .Start);
+                event2 = Event.init(a_orig_to_vert, self.verts.items[a_orig_to_vert], second_edge, .End);
                 event1.end_event_idx = evt_idx + 2;
             } else {
-                event1 = Event.init(intersect_v, second_edge, .End);
-                event2 = Event.init(self.verts.items[a_orig_to_vert], second_edge, .Start);
+                event1 = Event.init(intersect_idx, intersect_v, second_edge, .End);
+                event2 = Event.init(a_orig_to_vert, self.verts.items[a_orig_to_vert], second_edge, .Start);
                 event2.end_event_idx = evt_idx + 1;
             }
             self.events.append(event1) catch unreachable;
@@ -841,7 +879,7 @@ pub const Tessellator = struct {
 
             // Insert new sweep_edge_b end event.
             const evt_idx = @intCast(u32, self.events.items.len);
-            var new_evt = Event.init(intersect_v, first_edge, .End);
+            var new_evt = Event.init(intersect_idx, intersect_v, first_edge, .End);
             self.events.append(new_evt) catch unreachable;
             self.event_q.add(evt_idx) catch unreachable;
 
@@ -849,12 +887,12 @@ pub const Tessellator = struct {
             var event1: Event = undefined;
             var event2: Event = undefined;
             if (Event.isStartEvent(intersect_idx, second_edge, self.verts.items)) {
-                event1 = Event.init(intersect_v, second_edge, .Start);
-                event2 = Event.init(self.verts.items[b_orig_to_vert], second_edge, .End);
+                event1 = Event.init(intersect_idx, intersect_v, second_edge, .Start);
+                event2 = Event.init(b_orig_to_vert, self.verts.items[b_orig_to_vert], second_edge, .End);
                 event1.end_event_idx = evt_idx + 2;
             } else {
-                event1 = Event.init(intersect_v, second_edge, .End);
-                event2 = Event.init(self.verts.items[b_orig_to_vert], second_edge, .Start);
+                event1 = Event.init(intersect_idx, intersect_v, second_edge, .End);
+                event2 = Event.init(b_orig_to_vert, self.verts.items[b_orig_to_vert], second_edge, .Start);
                 event2.end_event_idx = evt_idx + 1;
             }
             self.events.append(event1) catch unreachable;
@@ -1046,12 +1084,12 @@ const EventTag = enum(u1) {
 /// Each event is centered on a vertex and has an outgoing or incoming edge.
 /// If the edge is above the vertex, it's considered a End event.
 /// If the edge is below the vertex, it's considered a Start event.
-/// Events are sorted by y asc and the x asc.
+/// Events are sorted by y asc and then x asc.
 /// To order events on the same vertex, the event with an active edge has priority.
 /// If both events have active edges (both End events), the one that has a greater x-slope comes first. This means an active edge to the left comes first.
 /// This helps end processing since the left edge still exists and contains state information about that fill region.
 /// If both events have non active edges (both Start events), the one that has a lesser x-slope comes first.
-const Event = struct {
+pub const Event = struct {
     /// The idx of the internal vertex that this event fires on.
     vert_idx: u16,
 
@@ -1072,9 +1110,9 @@ const Event = struct {
     /// this flag is used to invalid an existing end event.
     invalidated: bool,
 
-    fn init(vert: InternalVertex, edge: Edge, tag: EventTag) Event {
+    fn init(vert_idx: u16, vert: InternalVertex, edge: Edge, tag: EventTag) Event {
         var new = Event{
-            .vert_idx = vert.idx,
+            .vert_idx = vert_idx,
             .vert_x = vert.pos.x,
             .vert_y = vert.pos.y,
             .edge = edge,
@@ -1083,7 +1121,7 @@ const Event = struct {
             .end_event_idx = std.math.maxInt(u32),
             .invalidated = false,
         };
-        if (edge.start_idx == vert.idx) {
+        if (edge.start_idx == vert_idx) {
             new.to_vert_idx = edge.end_idx;
         } else {
             new.to_vert_idx = edge.start_idx;
@@ -1168,8 +1206,8 @@ pub const SweepEdge = struct {
         };
     }
 
-    fn enqueueDeferred(self: *SweepEdge, vert: InternalVertex, tess: *Tessellator) void {
-        const node = DeferredVertexNode.init(vert);
+    fn enqueueDeferred(self: *SweepEdge, vert_idx: u16, vert: InternalVertex, tess: *Tessellator) void {
+        const node = DeferredVertexNode.init(vert_idx, vert);
         self.deferred_queue = tess.deferred_verts.insertBeforeHeadNoCheck(self.deferred_queue, node) catch unreachable;
         self.deferred_queue_size += 1;
     }
@@ -1219,9 +1257,9 @@ pub const DeferredVertexNode = struct {
     vert_x: f32,
     vert_y: f32,
 
-    fn init(vert: InternalVertex) DeferredVertexNode {
+    fn init(vert_idx: u16, vert: InternalVertex) DeferredVertexNode {
         return .{
-            .vert_idx = vert.idx,
+            .vert_idx = vert_idx,
             .vert_out_idx = vert.out_idx,
             .vert_x = vert.pos.x,
             .vert_y = vert.pos.y,
@@ -1274,9 +1312,9 @@ pub const Edge = struct {
 /// Internal verts. During triangulation, these are using for event computations so there can be duplicates points.
 pub const InternalVertex = struct {
     pos: Vec2,
-    /// This is the index of the vertex from the given polygon.
-    idx: u16,
-    /// The vertex index of the resulting buffer. Set during process event.
+    /// This is the index of the vertex from the source polygon.
+    src_idx: u16,
+    /// The vertex index of the resulting buffer. Set during processEvent.
     out_idx: u16 = undefined,
 };
 
@@ -1356,7 +1394,7 @@ fn testCountMulti(polygons: []const []const f32, exp_tri_count: u32) !void {
     var tessellator: Tessellator = undefined;
     tessellator.init(t.alloc);
     defer tessellator.deinit();
-    tessellator.triangulatePolygons2(pts.items, polygons_buf.items);
+    try tessellator.triangulatePolygons2(pts.items, polygons_buf.items);
     try t.eq(tessellator.out_idxes.items.len/3, exp_tri_count);
 }
 
@@ -1372,7 +1410,7 @@ fn testCount(polygon: []const f32, exp_tri_count: u32) !void {
     var tessellator: Tessellator = undefined;
     tessellator.init(t.alloc);
     defer tessellator.deinit();
-    tessellator.triangulatePolygon(polygon_buf.items);
+    try tessellator.triangulatePolygon(polygon_buf.items);
     try t.eq(tessellator.out_idxes.items.len/3, exp_tri_count);
 }
 
@@ -1386,7 +1424,7 @@ fn testSimple(polygon: []const f32, exp_verts: []const f32, exp_idxes: []const u
     var tessellator: Tessellator = undefined;
     tessellator.init(t.alloc);
     defer tessellator.deinit();
-    tessellator.triangulatePolygon(polygon_buf.items);
+    try tessellator.triangulatePolygon(polygon_buf.items);
 
     var exp_verts_buf = std.ArrayList(Vec2).init(t.alloc);
     defer exp_verts_buf.deinit();
@@ -1827,6 +1865,13 @@ test "Rectangle with bottom-left wedge." {
     });
 }
 
+test "Svg icon with multiple polygons." {
+    try testCountMulti(&.{
+        &.{12,22,12,22,6.956562042236328,20.643600463867188,3.3563971519470215,17.043434143066406,2,12,2,12,3.3563973903656006,6.956563949584961,6.956563949584961,3.3563976287841797,12,2,12,2,17.043434143066406,3.3563969135284424,20.643600463867188,6.95656156539917,22,12,22,12,20.643600463867188,17.04343605041504,17.043437957763672,20.643604278564453,12,22},
+        &.{12,10.586000442504883,14.82800006866455,7.75700044631958,16.243000030517578,9.172000885009766,13.413999557495117,12,16.243000030517578,14.82800006866455,14.82800006866455,16.243000030517578,12,13.413999557495117,9.17199993133545,16.243000030517578,7.756999969482422,14.82800006866455,10.586000442504883,12,7.756999969482422,9.17199993133545,9.17199993133545,7.756999969482422,12,10.586000442504883},
+    }, 24);
+}
+
 test "Tiger big part." {
     try testCount(&.{
         -129.83, 103.06,-129.83, 103.06,-128.36, 113.62,-126.60, 118.80,-126.60, 118.80,-127.33, 125.99,-125.81, 135.32,-121.40, 144.40,-121.40, 144.40,-121.18, 151.03,-120.20, 154.80,-120.20, 154.80,-115.56, 161.53,-111.40, 164.00,-111.40, 164.00,-99.95, 166.93,-88.93, 169.12,-88.93, 169.12,-82.12, 176.08,-77.01, 183.74,-74.79, 190.23,-75.00, 196.00,-75.00, 196.00,-76.74, 210.10,-79.00, 214.00,-79.00, 214.00,-73.96, 210.34,-73.22, 211.25,-77.00, 219.60,-81.40, 238.40,-81.40, 238.40,-67.64, 228.08,-66.39, 228.12,-71.40, 235.20,-81.40, 261.20,-81.40, 261.20,-67.93, 249.24,-67.39, 249.03,-69.00, 251.20,-72.20, 260.00,-72.20, 260.00,-53.39, 249.64,-48.97, 248.73,-49.31, 250.85,-59.80, 262.40,-59.80, 262.40,-52.31, 260.54,-47.40, 261.60,-47.40, 261.60,-41.92, 261.27,-41.40, 262.00,-41.40, 262.00,-49.70, 267.43,-57.61, 274.87,-62.93, 282.61,-65.80, 290.80,-65.80, 290.80,-61.30, 286.73,-59.99, 287.03,-60.60, 291.60,-60.20, 303.20,-60.20, 303.20,-58.30, 297.14,-57.37, 298.26,-56.60, 319.20,-56.60, 319.20,-48.49, 312.82,-45.76, 312.03,-45.35, 313.82,-49.00, 322.00,-49.00, 338.80,-49.00, 338.80,-40.26, 330.76,-38.63, 330.61,-40.20, 335.20,-40.20, 335.20,-36.26, 332.85,-34.22, 332.98,-33.27, 335.13,-34.20, 341.60,-34.20, 341.60,-33.94, 345.73,-33.17, 345.79,-30.60, 340.80,-30.60, 340.80,-22.95, 328.26,-20.19, 325.79,-19.29, 327.04,-20.60, 336.40,-20.60, 336.40,-20.14, 345.51,-19.15, 346.31,-16.60, 340.80,-16.60, 340.80,-15.40, 346.50,-12.14, 353.01,-7.00, 358.40,-7.00, 358.40,-6.27, 339.53,-4.46, 332.02,-2.77, 330.70,-0.27, 332.77,4.60, 343.60,8.60, 360.00,8.60, 360.00,10.64, 351.18,11.00, 345.60,19.00, 353.60,19.00, 353.60,28.79, 341.06,31.17, 340.03,31.00, 344.00,31.00, 344.00,25.45, 358.75,25.00, 364.80,25.00, 364.80,43.00, 328.40,43.00, 328.40,43.39, 345.38,44.82, 349.24,46.77, 347.92,51.80, 334.80,51.80, 334.80,54.49, 342.22,55.39, 347.96,54.60, 351.20,54.60, 351.20,60.76, 343.58,61.80, 340.00,61.80, 340.00,64.54, 337.57,66.77, 338.71,69.20, 345.40,69.20, 345.40,71.39, 352.02,72.60, 351.60,72.60, 351.60,75.37, 362.09,76.42, 362.30,77.80, 352.80,77.80, 352.80,77.75, 344.98,75.91, 335.70,72.20, 327.60,72.20, 327.60,72.12, 324.56,70.20, 320.40,70.20, 320.40,75.70, 327.30,77.91, 328.09,78.69, 325.45,76.60, 313.20,76.60, 313.20,89.00, 321.20,89.00, 321.20,82.70, 308.82,81.23, 303.45,81.82, 302.23,84.20, 302.80,84.20, 302.80,83.54, 299.86,84.53, 298.67,87.95, 299.28,97.00, 304.40,97.00, 304.40,91.03, 297.34,90.41, 295.37,91.64, 294.95,98.60, 298.00,98.60, 298.00,101.93, 300.03,102.23, 299.50,99.00, 294.40,99.00, 294.40,94.40, 288.21,95.27, 288.03,106.60, 296.40,106.60, 296.40,116.61, 311.24,119.00, 315.60,119.00, 315.60,108.86, 290.10,104.60, 283.60,104.60, 283.60,108.02, 275.28,114.09, 267.22,121.76, 261.79,130.82, 259.23,141.00, 259.30,154.20, 262.80,154.20, 262.80,157.75, 268.68,160.36, 270.08,162.73, 268.60,165.40, 261.60,165.40, 261.60,170.08, 261.04,176.25, 263.49,182.75, 270.16,189.40, 282.80,189.40, 282.80,192.36, 270.67,192.60, 266.40,192.60, 266.40,198.19, 266.89,198.60, 266.40,198.60, 266.40,210.19, 269.77,213.00, 270.00,213.00, 270.00,217.51, 273.62,219.47, 274.23,220.20, 273.20,220.20, 273.20,225.75, 274.22,227.51, 273.79,227.40, 272.40,227.40, 272.40,234.76, 286.58,236.60, 291.60,239.00, 277.60,241.00, 280.40,241.00, 280.40,242.01, 273.69,241.80, 271.60,241.80, 271.60,242.83, 271.72,249.79, 275.48,257.44, 282.09,263.14, 289.99,266.60, 299.20,268.60, 307.60,268.60, 307.60,272.87, 294.06,273.00, 288.80,273.00, 288.80,277.01, 290.73,278.60, 294.00,278.60, 294.00,280.13, 278.97,279.59, 269.28,277.80, 264.80,277.80, 264.80,281.47, 265.30,283.40, 267.60,283.40, 260.40,283.40, 260.40,289.30, 260.14,290.60, 258.80,290.60, 258.80,293.21, 257.36,295.38, 257.54,297.00, 259.60,297.00, 259.60,293.38, 246.31,293.06, 239.85,294.31, 238.04,296.82, 238.39,303.00, 243.60,303.00, 243.60,306.29, 246.69,307.45, 245.38,306.60, 235.60,306.60, 235.60,302.46, 219.68,301.73, 215.52,303.80, 214.80,303.80, 214.80,303.85, 211.76,302.60, 209.60,302.60, 209.60,301.93, 208.90,303.80, 209.60,303.80, 209.60,305.11, 209.64,305.81, 206.07,303.40, 191.60,303.40, 191.60,304.82, 190.48,304.47, 183.66,297.80, 164.00,297.80, 164.00,298.73, 160.69,296.60, 153.20,296.60, 153.20,303.95, 156.14,307.40, 156.00,307.40, 156.00,307.15, 155.40,303.80, 150.40,303.80, 150.40,295.80, 126.68,293.83, 115.79,294.65, 112.78,296.76, 112.66,302.60, 117.60,302.60, 117.60,307.07, 121.27,309.11, 121.32,309.97, 118.48,308.05, 108.35,308.05, 108.35,300.79, 86.65,299.72, 80.04,-129.83, 103.06,
@@ -1860,7 +1905,7 @@ test "Tiger big part #2." {
 }
 
 pub const DebugTriangulateStepResult = struct {
-    has_result: bool,
+    has_error: bool,
     sweep_edges: []const SweepEdge,
     event: Event,
     out_verts: []const Vec2,
