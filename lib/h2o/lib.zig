@@ -19,14 +19,14 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
     var new_pkg = pkg;
     new_pkg.dependencies = &.{ uv.pkg, ssl.pkg };
     step.addPackage(new_pkg);
-    step.addIncludeDir(srcPath() ++ "/");
-    step.addIncludeDir(srcPath() ++ "/vendor/include");
-    step.addIncludeDir(srcPath() ++ "/vendor/deps/picotls/include");
-    step.addIncludeDir(srcPath() ++ "/vendor/deps/quicly/include");
-    step.addIncludeDir(srcPath() ++ "/../openssl/vendor/include");
+    step.addIncludePath(srcPath() ++ "/");
+    step.addIncludePath(srcPath() ++ "/vendor/include");
+    step.addIncludePath(srcPath() ++ "/vendor/deps/picotls/include");
+    step.addIncludePath(srcPath() ++ "/vendor/deps/quicly/include");
+    step.addIncludePath(srcPath() ++ "/../openssl/vendor/include");
     if (step.target.getOsTag() == .windows) {
-        step.addIncludeDir(srcPath() ++ "/../mingw/win_posix/include");
-        step.addIncludeDir(srcPath() ++ "/../mingw/winpthreads/include");
+        step.addIncludePath(srcPath() ++ "/../mingw/win_posix/include");
+        step.addIncludePath(srcPath() ++ "/../mingw/winpthreads/include");
     }
 }
 
@@ -225,46 +225,46 @@ pub fn create(
             // Force using native headers or it won't find netinet/udp.h
             lib.linkFramework("CoreServices");
         } else {
-            lib.addSystemIncludeDir("/usr/include");
+            lib.addSystemIncludePath("/usr/include");
         }
     } 
 
     lib.linkLibC();
 
     // Load user_config.h here. include/h2o.h was patched to include user_config.h
-    lib.addIncludeDir(srcPath());
+    lib.addIncludePath(srcPath());
 
     for (opts.openssl_includes) |path| {
-        lib.addIncludeDir(path);
+        lib.addIncludePath(path);
     }
     for (opts.libuv_includes) |path| {
-        lib.addIncludeDir(path);
+        lib.addIncludePath(path);
     }
-    lib.addIncludeDir(fromRoot(b, "vendor/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/include"));
     for (opts.zlib_includes) |path| {
-        lib.addIncludeDir(path);
+        lib.addIncludePath(path);
     }
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/quicly/include"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/picohttpparser"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/picotls/include"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/klib"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/cloexec"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/brotli/c/include"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/yoml"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/hiredis"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/golombset"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/libgkc"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/libyrmcds"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/picotls/deps/cifra/src/ext"));
-    lib.addIncludeDir(fromRoot(b, "vendor/deps/picotls/deps/cifra/src"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/quicly/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/picohttpparser"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/picotls/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/klib"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/cloexec"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/brotli/c/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/yoml"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/hiredis"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/golombset"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/libgkc"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/libyrmcds"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/picotls/deps/cifra/src/ext"));
+    lib.addIncludePath(fromRoot(b, "vendor/deps/picotls/deps/cifra/src"));
 
     if (target.getOsTag() == .windows and target.getAbi() == .gnu) {
         // Since H2O source relies on posix only, provide an interface to windows API.
-        lib.addSystemIncludeDir("./lib/mingw/win_posix/include");
+        lib.addSystemIncludePath("./lib/mingw/win_posix/include");
         if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
-            lib.addSystemIncludeDir("./lib/mingw/win_posix/include-posix");
+            lib.addSystemIncludePath("./lib/mingw/win_posix/include-posix");
         }
-        lib.addSystemIncludeDir("./lib/mingw/winpthreads/include");
+        lib.addSystemIncludePath("./lib/mingw/winpthreads/include");
     } 
 
     return lib;

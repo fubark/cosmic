@@ -12,8 +12,8 @@ pub const Options = struct {
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor/include");
-    step.addIncludeDir(srcPath() ++ "/");
+    step.addIncludePath(srcPath() ++ "/vendor/include");
+    step.addIncludePath(srcPath() ++ "/");
 }
 
 pub fn create(
@@ -136,8 +136,8 @@ pub fn create(
     lib.disable_sanitize_c = true;
 
     lib.linkLibC();
-    lib.addIncludeDir(fromRoot(b, "vendor/include"));
-    lib.addIncludeDir(fromRoot(b, "vendor/src"));
+    lib.addIncludePath(fromRoot(b, "vendor/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/src"));
     if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
         if (target.isNativeOs()) {
             // Force using native headers or it'll compile with ___darwin_check_fd_set_overflow calls

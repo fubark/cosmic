@@ -10,9 +10,11 @@ const log = stdx.log.scoped(.window);
 pub const Window = struct {
     props: struct {
         bgColor: Color = Color.DarkGray,
-        title: ?[]const u8,
-        init_x: f32,
-        init_y: f32,
+        title: []const u8 = "",
+        initX: f32 = 0,
+        initY: f32 = 0,
+        initWidth: f32 = 300,
+        initHeight: f32 = 200,
         child: ui.FrameId = ui.NullFrameId,
         onClose: ?stdx.Function(fn (ui.WidgetRef(Window)) void) = null,
     },
@@ -38,10 +40,10 @@ pub const Window = struct {
     const TitleBarHeight = 30;
 
     pub fn init(self: *Window, ctx: *ui.InitContext) void {
-        self.x = self.props.init_x;
-        self.y = self.props.init_y;
-        self.width = 300;
-        self.height = 200;
+        self.x = self.props.initX;
+        self.y = self.props.initY;
+        self.width = self.props.initWidth;
+        self.height = self.props.initHeight;
 
         ctx.setMouseDownHandler(self, onMouseDown);
     }

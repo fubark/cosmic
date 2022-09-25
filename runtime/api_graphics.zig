@@ -465,8 +465,8 @@ pub const cs_graphics = struct {
         /// @param width
         /// @param height
         /// @param image
-        pub fn imageSized(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
-            g.drawImageSized(x, y, width, height, image.id);
+        pub fn imageScaled(g: *Graphics, x: f32, y: f32, width: f32, height: f32, image: graphics.Image) void {
+            g.drawImageScaled(x, y, width, height, image.id);
         }
     };
 

@@ -16,7 +16,7 @@ pub const TextButton = struct {
         border_size: f32 = 1,
         border_color: Color = Color.Gray,
         corner_radius: f32 = 0,
-        text: ?[]const u8,
+        text: []const u8 = "",
     },
 
     pub fn build(self: *TextButton, _: *ui.BuildContext) ui.FrameId {

@@ -47,7 +47,7 @@ pub fn create(
     // lib.disable_sanitize_c = true;
 
     lib.linkLibC();
-    lib.addIncludeDir(fromRoot(b, "vendor/lib/includes"));
+    lib.addIncludePath(fromRoot(b, "vendor/lib/includes"));
 
     return lib;
 }

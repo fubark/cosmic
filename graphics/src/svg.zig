@@ -13,7 +13,30 @@ const DrawCommandList = draw_cmd.DrawCommandList;
 const DrawCommandPtr = draw_cmd.DrawCommandPtr;
 const log = stdx.log.scoped(.svg);
 
+const svg_path = @import("svg_path.zig");
+pub const flattenSvgPathFill = svg_path.flattenSvgPathFill;
+pub const flattenSvgPathStroke = svg_path.flattenSvgPathStroke;
+
 // Parse SVG file format and SVG paths into draw commands.
+
+const colors = std.ComptimeStringMap(Color, .{
+    .{ "black", Color.StdBlack },
+    .{ "blue", Color.StdBlue },
+    .{ "brown", Color.init(165, 42, 42, 255) },
+    .{ "cyan", Color.StdCyan },
+    .{ "gray", Color.StdGray },
+    .{ "green", Color.init(0, 128, 0, 255) },
+    .{ "grey", Color.StdGray },
+    .{ "lime", Color.init(0, 255, 0, 255) },
+    .{ "magenta", Color.StdMagenta },
+    .{ "navy", Color.init(0, 0, 128, 255) },
+    .{ "orange", Color.init(255, 165, 0, 255) },
+    .{ "pink", Color.init(255, 192, 203, 255) },
+    .{ "purple", Color.init(128, 0, 128, 255) },
+    .{ "red", Color.StdRed },
+    .{ "white", Color.StdWhite },
+    .{ "yellow", Color.StdYellow },
+});
 
 pub const PathCommand = enum {
     MoveTo,
@@ -606,12 +629,63 @@ test "PathParser.parse CR/LF" {
     defer res.deinit();
 }
 
+test "PathParser.parse with continuation of the same command type." {
+    const path = "M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm0-9.414l2.828-2.829 1.415 1.415L13.414 12l2.829 2.828-1.415 1.415L12 13.414l-2.828 2.829-1.415-1.415L10.586 12 7.757 9.172l1.415-1.415L12 10.586z";
+    const res = try parseSvgPath(t.alloc, path);
+    defer res.deinit();
+    try t.eq(res.cmds.len, 24);
+}
+
+test "SvgParser.parse path with fill=none." {
+    var parser = SvgParser.init(t.alloc);
+    defer parser.deinit();
+
+    const svg =
+        \\<svg xmlns="http://www.w3.org/2000/svg">
+        \\  <g>
+        \\    <path fill="none" d="M0 0h24v24H0z"/>
+        \\  </g>
+        \\</svg>
+        ;
+
+    const res = try parser.parse(svg, .{});
+    const list = res.cmds;
+    try t.eq(list.cmds.len, 0);
+}
+
+test "SvgParser.parse path with fill attribute." {
+    var parser = SvgParser.init(t.alloc);
+    defer parser.deinit();
+
+    const svg =
+        \\<svg xmlns="http://www.w3.org/2000/svg">
+        \\  <g>
+        \\    <path fill="blue" d="M0 0h24v24H0z"/>
+        \\    <path d="M0 0h24v24H0z"/>
+        \\  </g>
+        \\</svg>
+        ;
+
+    const res = try parser.parse(svg, .{});
+    const list = res.cmds;
+    try t.eq(list.cmds.len, 4);
+    try t.eq(list.cmds[0].tag, .FillColor);
+    var cmd = list.getCommand(.FillColor, list.cmds[0]);
+    try t.eq(graphics.Color.fromU32(cmd.rgba).channels, Color.StdBlue.channels);
+    try t.eq(list.cmds[1].tag, .FillPath);
+    // Check that the color leaves scope and defaults to black.
+    try t.eq(list.cmds[2].tag, .FillColor);
+    cmd = list.getCommand(.FillColor, list.cmds[2]);
+    try t.eq(graphics.Color.fromU32(cmd.rgba).channels, Color.Black.channels);
+    try t.eq(list.cmds[3].tag, .FillPath);
+}
+
 test "SvgParser.parse CR/LF" {
     var parser = SvgParser.init(t.alloc);
     defer parser.deinit();
 
     const svg = "<svg><polygon points=\"10,10\r\n10,10\"/></svg>";
-    _ = try parser.parse(svg);
+    _ = try parser.parse(svg, .{});
 }
 
 test "SvgParser.parse viewbox" {
@@ -626,18 +700,11 @@ test "SvgParser.parse viewbox" {
         \\</svg>
         ;
 
-    const res = try parser.parse(svg);
+    const res = try parser.parse(svg, .{});
     try t.eq(res.min_x, 1);
     try t.eq(res.min_y, 2);
     try t.eq(res.width, 24);
     try t.eq(res.height, 25);
-}
-
-test "PathParser.parse with continuation of the same command type." {
-    const path = "M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm0-9.414l2.828-2.829 1.415 1.415L13.414 12l2.829 2.828-1.415 1.415L12 13.414l-2.828 2.829-1.415-1.415L10.586 12 7.757 9.172l1.415-1.415L12 10.586z";
-    const res = try parseSvgPath(t.alloc, path);
-    defer res.deinit();
-    try t.eq(res.cmds.len, 24);
 }
 
 const SvgElement = enum {
@@ -739,8 +806,8 @@ pub const SvgParser = struct {
         self.last_err = std.fmt.allocPrint(self.alloc, format, args) catch fatal();
     }
 
-    pub fn parseAlloc(self: *SvgParser, alloc: std.mem.Allocator, src: []const u8) !SvgRenderData {
-        const res = try self.parse(src);
+    pub fn parseAlloc(self: *SvgParser, alloc: std.mem.Allocator, src: []const u8, opts: SvgOptions) !SvgRenderData {
+        const res = try self.parse(src, opts);
         const cmds = res.cmds;
         const new_cmd_data = alloc.alloc(f32, cmds.cmd_data.len) catch unreachable;
         std.mem.copy(f32, new_cmd_data, cmds.cmd_data);
@@ -765,7 +832,7 @@ pub const SvgParser = struct {
         };
     }
 
-    pub fn parse(self: *SvgParser, src: []const u8) !SvgRenderData {
+    pub fn parse(self: *SvgParser, src: []const u8, opts: SvgOptions) !SvgRenderData {
         self.src = src;
         self.next_ch_idx = 0;
 
@@ -777,7 +844,7 @@ pub const SvgParser = struct {
 
         // Root state.
         try self.state_stack.append(.{
-            .fill = Color.Black,
+            .fill = opts.default_fill_color,
             .stroke = null,
             .transform = null,
         });
@@ -809,38 +876,53 @@ pub const SvgParser = struct {
 
     fn parsePath(self: *SvgParser) !void {
         // log.debug("parse path", .{});
+        var mb_fill: ?Color = undefined;
+        var declared_fill = false;
+        var mb_d: ?[]const u8 = null;
         while (try self.parseAttribute()) |attr| {
             if (stdx.string.eq(attr.key, "d")) {
                 if (attr.value) |value| {
-                    const sub_cmd_start = self.sub_cmds.items.len;
-                    const data_start = self.extra_data.items.len;
-                    const res = try self.path_parser.parseAppend(&self.sub_cmds, &self.extra_data, value);
-                    // log.debug("path: {}cmds {s}", .{res.cmds.len, value});
-
-                    const state = self.getCurrentState();
-
-                    // Fill path.
-                    if (state.fill != null) {
-                        if (self.cur_fill == null or state.fill.?.value != self.cur_fill.?.value) {
-                            const ptr = self.cmd_data.append(draw_cmd.FillColorCommand{
-                                .rgba = state.fill.?.toU32(),
-                            }) catch unreachable;
-                            self.cmds.append(.{ .tag = .FillColor, .id = ptr.id }) catch unreachable;
-                        }
-                        self.cur_fill = state.fill.?;
-
-                        const ptr = self.cmd_data.append(draw_cmd.FillPathCommand{
-                            .num_cmds = @intCast(u32, res.cmds.len),
-                            .start_path_cmd_id = @intCast(u32, sub_cmd_start),
-                            .start_data_id = @intCast(u32, data_start),
-                        }) catch unreachable;
-                        self.cmds.append(.{ .tag = .FillPath, .id = ptr.id }) catch unreachable;
-                    }
+                    mb_d = value;
+                }
+            } else if (stdx.string.eq(attr.key, "fill")) {
+                if (attr.value) |value| {
+                    mb_fill = self.parseFill(value);
+                    declared_fill = true;
                 }
             }
         }
         try self.consume('/');
         try self.consume('>');
+
+        if (mb_d) |d| {
+            if (!declared_fill) {
+                const state = self.getCurrentState();
+                mb_fill = state.fill;
+            }
+
+            // Fill path.
+            if (mb_fill) |fill| {
+                const sub_cmd_start = self.sub_cmds.items.len;
+                const data_start = self.extra_data.items.len;
+                const res = try self.path_parser.parseAppend(&self.sub_cmds, &self.extra_data, d);
+                // log.debug("path: {}cmds {s}", .{res.cmds.len, value});
+
+                if (self.cur_fill == null or fill.value != self.cur_fill.?.value) {
+                    const ptr = try self.cmd_data.append(draw_cmd.FillColorCommand{
+                        .rgba = fill.toU32(),
+                    });
+                    try self.cmds.append(.{ .tag = .FillColor, .id = ptr.id });
+                }
+                self.cur_fill = fill;
+
+                const ptr = try self.cmd_data.append(draw_cmd.FillPathCommand{
+                    .num_cmds = @intCast(u32, res.cmds.len),
+                    .start_path_cmd_id = @intCast(u32, sub_cmd_start),
+                    .start_data_id = @intCast(u32, data_start),
+                });
+                try self.cmds.append(.{ .tag = .FillPath, .id = ptr.id });
+            }
+        }
     }
 
     fn getCurrentState(self: *SvgParser) SvgDrawState {
@@ -1025,6 +1107,22 @@ pub const SvgParser = struct {
         try self.parseChildrenAndCloseTag();
     }
 
+    fn parseFill(self: *SvgParser, value: []const u8) ?Color {
+        _ = self;
+        if (stdx.string.eq(value, "none")) {
+            return null;
+        } else {
+            if (value[0] == '#') {
+                return Color.parse(value) catch Color.StdBlack;
+            }
+            if (colors.get(value)) |color| {
+                return color;
+            } else {
+                return Color.parse(value) catch Color.StdBlack;
+            }
+        }
+    }
+
     // Parses until end element '>' is consumed.
     fn parseGroup(self: *SvgParser) !void {
         // log.debug("parse group", .{});
@@ -1038,12 +1136,7 @@ pub const SvgParser = struct {
             const lower = stdx.string.toLower(attr.key, self.str_buf.items);
             if (string.eq(lower, "fill")) {
                 if (attr.value) |value| {
-                    if (stdx.string.eq(value, "none")) {
-                        fill = null;
-                    } else {
-                        const c = try Color.parse(value);
-                        fill = c;
-                    }
+                    fill = self.parseFill(value);
                     declared_fill = true;
                 }
             } else if (string.eq(lower, "transform")) {
@@ -1321,4 +1414,8 @@ pub const SvgRenderData = struct {
     pub fn deinit(self: SvgRenderData) void {
         self.cmds.deinit();
     }
+};
+
+pub const SvgOptions = struct {
+    default_fill_color: Color = Color.Black,
 };

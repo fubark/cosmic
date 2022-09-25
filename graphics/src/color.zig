@@ -19,6 +19,9 @@ pub const Color = extern union {
     pub const StdCyan = init(0, 255, 255, 255);
     pub const StdBlue = init(0, 0, 255, 255);
     pub const StdMagenta = init(255, 0, 255, 255);
+    pub const StdBlack = init(0, 0, 0, 255);
+    pub const StdGray = init(128, 128, 128, 255);
+    pub const StdWhite = init(255, 255, 255, 255);
 
     // Prettier default colors from raylib + extras.
     pub const LightGray = init(200, 200, 200, 255);
@@ -58,6 +61,10 @@ pub const Color = extern union {
     pub fn initFloat(r: f32, g: f32, b: f32, a: f32) Color {
         @setRuntimeSafety(false);
         return init(@floatToInt(u8, r * 255), @floatToInt(u8, g * 255), @floatToInt(u8, b * 255), @floatToInt(u8, a * 255));
+    }
+
+    pub inline fn isTransparent(self: Color) bool {
+        return self.channels.a == 0;
     }
 
     pub fn withAlpha(self: Color, a: u8) Color {

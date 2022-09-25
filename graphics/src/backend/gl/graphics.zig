@@ -11,6 +11,7 @@ const Color = graphics.Color;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
 pub const Shader = @import("shader.zig").Shader;
 pub const Renderer = @import("renderer.zig").Renderer;
+pub const SlaveRenderer = @import("renderer.zig").SlaveRenderer;
 const TexShaderVertex = gpu.TexShaderVertex;
 const log = stdx.log.scoped(.gl_graphics);
 

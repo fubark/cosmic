@@ -13,10 +13,10 @@ pub const pkg = std.build.Pkg{
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
-    step.addIncludeDir(srcPath() ++ "/include");
-    step.addIncludeDir(srcPath() ++ "/vendor/include");
+    step.addIncludePath(srcPath() ++ "/include");
+    step.addIncludePath(srcPath() ++ "/vendor/include");
     if (step.target.getCpuArch().isWasm()) {
-        step.addIncludeDir(srcPath() ++ "/../wasm/include");
+        step.addIncludePath(srcPath() ++ "/../wasm/include");
     }
     step.linkLibC();
 }
@@ -29,10 +29,10 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     const lib = b.addStaticLibrary("freetype2", null);
     lib.setTarget(target);
     lib.setBuildMode(build_mode);
-    lib.addIncludeDir(srcPath() ++ "/include");
-    lib.addIncludeDir(srcPath() ++ "/vendor/include");
+    lib.addIncludePath(srcPath() ++ "/include");
+    lib.addIncludePath(srcPath() ++ "/vendor/include");
     if (target.getCpuArch().isWasm()) {
-        lib.addIncludeDir(srcPath() ++ "/../wasm/include");
+        lib.addIncludePath(srcPath() ++ "/../wasm/include");
     }
     lib.linkLibC();
 

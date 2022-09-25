@@ -17,28 +17,26 @@ const Vec4 = math.Vec4;
 pub const Transform = struct {
     mat: Mat4,
 
-    const Self = @This();
-
-    pub fn initZero() Self {
+    pub fn initZero() Transform {
         return .{
             .mat = std.mem.zeroes(Mat4),
         };
     }
 
-    pub fn initIdentity() Self {
+    pub fn initIdentity() Transform {
         return .{
             .mat = identity(),
         };
     }
 
-    pub fn initRowMajor(mat: Mat4) Self {
+    pub fn initRowMajor(mat: Mat4) Transform {
         return .{
             .mat = mat,
         };
     }
 
     /// To RHS.
-    pub fn initQuaternion(q: Quaternion) Self {
+    pub fn initQuaternion(q: Quaternion) Transform {
         const x2 = q.vec.x*q.vec.x;
         const y2 = q.vec.y*q.vec.y;
         const z2 = q.vec.z*q.vec.z;
@@ -58,17 +56,17 @@ pub const Transform = struct {
         };
     }
 
-    pub fn getAppliedTransform(self: Transform, transform: Transform) Self {
+    pub fn getAppliedTransform(self: Transform, transform: Transform) Transform {
         return .{
             .mat = math.mul4x4_4x4(transform.mat, self.mat),
         };
     }
 
-    pub fn applyTransform(self: *Self, transform: Transform) void {
+    pub fn applyTransform(self: *Transform, transform: Transform) void {
         self.mat = math.mul4x4_4x4(transform.mat, self.mat);
     }
 
-    pub fn invert(self: *Self) bool {
+    pub fn invert(self: *Transform) bool {
         var res: Mat4 = undefined;
         if (!math.invert4x4(self.mat, &res)) {
             return false;
@@ -77,84 +75,84 @@ pub const Transform = struct {
         return true;
     }
 
-    pub fn scale(self: *Self, x: f32, y: f32) void {
+    pub fn scale(self: *Transform, x: f32, y: f32) void {
         self.mat = math.mul4x4_4x4(getScaling(x, y), self.mat);
     }
 
-    pub fn scale3D(self: *Self, x: f32, y: f32, z: f32) void {
+    pub fn scale3D(self: *Transform, x: f32, y: f32, z: f32) void {
         self.mat = math.mul4x4_4x4(getScaling3D(x, y, z), self.mat);
     }
 
-    pub fn translate(self: *Self, x: f32, y: f32) void {
+    pub fn translate(self: *Transform, x: f32, y: f32) void {
         self.mat = math.mul4x4_4x4(getTranslation(x, y), self.mat);
     }
 
-    pub fn translate3D(self: *Self, x: f32, y: f32, z: f32) void {
+    pub fn translate3D(self: *Transform, x: f32, y: f32, z: f32) void {
         self.mat = math.mul4x4_4x4(getTranslation3D(x, y, z), self.mat);
     }
 
-    pub fn translateVec3D(self: *Self, vec: Vec3) void {
+    pub fn translateVec3D(self: *Transform, vec: Vec3) void {
         self.mat = math.mul4x4_4x4(getTranslation3D(vec.x, vec.y, vec.z), self.mat);
     }
 
-    pub fn rotate3D(self: *Self, xvec: Vec3, yvec: Vec3, zvec: Vec3) void {
+    pub fn rotate3D(self: *Transform, xvec: Vec3, yvec: Vec3, zvec: Vec3) void {
         self.mat = math.mul4x4_4x4(getRotation3D(xvec, yvec, zvec), self.mat);
     }
 
-    pub fn rotateX(self: *Self, rad: f32) void {
+    pub fn rotateX(self: *Transform, rad: f32) void {
         self.mat = math.mul4x4_4x4(getRotationX(rad), self.mat);
     }
 
-    pub fn rotateY(self: *Self, rad: f32) void {
+    pub fn rotateY(self: *Transform, rad: f32) void {
         self.mat = math.mul4x4_4x4(getRotationY(rad), self.mat);
     }
 
-    pub fn rotateZ(self: *Self, rad: f32) void {
+    pub fn rotateZ(self: *Transform, rad: f32) void {
         self.mat = math.mul4x4_4x4(getRotationZ(rad), self.mat);
     }
 
-    pub fn rotateQuat(self: *Self, quat: Quaternion) void {
+    pub fn rotateQuat(self: *Transform, quat: Quaternion) void {
         const xform = Transform.initQuaternion(quat);
         self.mat = math.mul4x4_4x4(xform.mat, self.mat);
     }
 
-    pub fn reset(self: *Self) void {
+    pub fn reset(self: *Transform) void {
         self.mat = identity();
     }
 
-    pub fn interpolatePt(self: Self, vec: Vec2) Vec2 {
+    pub fn interpolatePt(self: Transform, vec: Vec2) Vec2 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{vec.x, vec.y, 0, 1 });
         return Vec2.init(res[0], res[1]);
     }
 
-    pub fn interpolate4(self: Self, x: f32, y: f32, z: f32, w: f32) Vec4 {
+    pub fn interpolate4(self: Transform, x: f32, y: f32, z: f32, w: f32) Vec4 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{x, y, z, w });
         return Vec4{ .x = res[0], .y = res[1], .z = res[2], .w = res[3] };
     }
 
     /// Convenience for perspective divide. Performs interpolate and divides result by the last component.
-    pub fn interpolate4div(self: Self, x: f32, y: f32, z: f32, w: f32) Vec4 {
+    pub fn interpolate4div(self: Transform, x: f32, y: f32, z: f32, w: f32) Vec4 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{x, y, z, w });
         return Vec4{ .x = res[0] / res[3], .y = res[1] / res[3], .z = res[2] / res[3], .w = res[3] / res[3] };
     }
 
-    pub fn interpolate3(self: Self, x: f32, y: f32, z: f32) Vec3 {
+    pub fn interpolate3(self: Transform, x: f32, y: f32, z: f32) Vec3 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{x, y, z, 1 });
         return Vec3{ .x = res[0], .y = res[1], .z = res[2] };
     }
 
-    pub fn interpolateVec3(self: Self, vec: Vec3) Vec3 {
+    pub fn interpolateVec3(self: Transform, vec: Vec3) Vec3 {
         const res = math.mul4x4_4x1(self.mat, [4]f32{vec.x, vec.y, vec.z, 1 });
         return Vec3{ .x = res[0], .y = res[1], .z = res[2] };
     }
 
-    pub fn interpolateVec4(self: Self, vec: Vec4) Vec4 {
+    pub fn interpolateVec4(self: Transform, vec: Vec4) Vec4 {
         const res = math.mul4x4_4x1(self.mat, .{ vec.x, vec.y, vec.z, vec.w });
         return .{ .x = res[0], .y = res[1], .z = res[2], .w = res[3] };
     }
 
     /// Useful for getting the normal matrix when the scale is known to be uniform.
-    pub fn toRotationUniformScaleMat(self: Self) stdx.math.Mat3 {
+    pub fn toRotationUniformScaleMat(self: Transform) stdx.math.Mat3 {
         return .{
             self.mat[0], self.mat[1], self.mat[2],
             self.mat[4], self.mat[5], self.mat[6],
@@ -162,7 +160,7 @@ pub const Transform = struct {
         };
     }
 
-    pub fn toRotationMat(self: Self) stdx.math.Mat3 {
+    pub fn toRotationMat(self: Transform) stdx.math.Mat3 {
         const mat = self.toRotationUniformScaleMat();
         var inverted: stdx.math.Mat3 = undefined;
         _ = stdx.math.invert3x3(mat, &inverted);

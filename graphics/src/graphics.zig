@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const unsupported = stdx.unsupported;
+const trace = stdx.debug.tracy.trace;
 const math = stdx.math;
 const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
@@ -23,6 +24,7 @@ pub const svg = @import("svg.zig");
 const SvgPath = svg.SvgPath;
 const draw_cmd = @import("draw_cmd.zig");
 pub const DrawCommandList = draw_cmd.DrawCommandList;
+pub const dumpDrawCommandList = draw_cmd.dump;
 const _ttf = @import("ttf.zig");
 const _color = @import("color.zig");
 pub const Color = _color.Color;
@@ -101,7 +103,10 @@ pub const Graphics = struct {
     alloc: std.mem.Allocator,
     path_parser: svg.PathParser,
     svg_parser: svg.SvgParser,
-    text_buf: std.ArrayList(u8),
+    u8_buf: std.ArrayListUnmanaged(u8),
+    vec2_buf: std.ArrayListUnmanaged(Vec2),
+    vec2_slice_buf: std.ArrayListUnmanaged(stdx.IndexSlice(u32)),
+    qbez_buf: std.ArrayListUnmanaged(curve.SubQuadBez),
 
     pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gl.Renderer) !void {
         self.initCommon(alloc);
@@ -128,7 +133,10 @@ pub const Graphics = struct {
             .alloc = alloc,
             .path_parser = svg.PathParser.init(alloc),
             .svg_parser = svg.SvgParser.init(alloc),
-            .text_buf = std.ArrayList(u8).init(alloc),
+            .u8_buf = .{},
+            .vec2_buf = .{},
+            .vec2_slice_buf = .{},
+            .qbez_buf = .{},
             .impl = undefined,
             .new_impl = undefined,
         };
@@ -144,7 +152,10 @@ pub const Graphics = struct {
     pub fn deinit(self: *Graphics) void {
         self.path_parser.deinit();
         self.svg_parser.deinit();
-        self.text_buf.deinit();
+        self.u8_buf.deinit(self.alloc);
+        self.vec2_buf.deinit(self.alloc);
+        self.vec2_slice_buf.deinit(self.alloc);
+        self.qbez_buf.deinit(self.alloc);
         switch (Backend) {
             .OpenGL => {
                 self.impl.deinit();
@@ -487,7 +498,7 @@ pub const Graphics = struct {
 
     pub fn drawCubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
+            .OpenGL, .Vulkan => gpu.Graphics.drawCubicBezierCurve(&self.impl, &self.vec2_buf, &self.qbez_buf, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
             .WasmCanvas => canvas.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
             else => stdx.unsupported(),
         }
@@ -495,7 +506,7 @@ pub const Graphics = struct {
 
     pub fn drawQuadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
+            .OpenGL, .Vulkan => gpu.Graphics.drawQuadraticBezierCurve(&self.impl, &self.vec2_buf, x1, y1, cx, cy, x2, y2),
             .WasmCanvas => canvas.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
             else => stdx.unsupported(),
         }
@@ -518,6 +529,15 @@ pub const Graphics = struct {
         }
     }
 
+    pub fn fillConvexPolygonF(self: *Graphics, pts: []const f32) void {
+        self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
+        var i: u32 = 0;
+        while (i < pts.len / 2) : (i += 1) {
+            self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
+        }
+        self.fillConvexPolygon(self.vec2_buf.items);
+    }
+
     pub fn fillConvexPolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.fillConvexPolygon(&self.impl, pts),
@@ -526,12 +546,30 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn fillPolygon(self: *Graphics, pts: []const Vec2) void {
+    pub fn fillPolygonF(self: *Graphics, pts: []const f32) !void {
+        self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
+        var i: u32 = 0;
+        while (i < pts.len / 2) : (i += 1) {
+            self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
+        }
+        try self.fillPolygon(self.vec2_buf.items);
+    }
+
+    pub fn fillPolygon(self: *Graphics, pts: []const Vec2) !void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillPolygon(&self.impl, pts),
+            .OpenGL, .Vulkan => try gpu.Graphics.fillPolygon(&self.impl, pts),
             .WasmCanvas => canvas.Graphics.fillPolygon(&self.impl, pts),
             else => stdx.unsupported(),
         }
+    }
+
+    pub fn drawPolygonF(self: *Graphics, pts: []const f32) void {
+        self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
+        var i: u32 = 0;
+        while (i < pts.len / 2) : (i += 1) {
+            self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
+        }
+        self.drawPolygon(self.vec2_buf.items);
     }
 
     pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
@@ -542,47 +580,95 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8) !svg.SvgRenderData {
-        return try self.svg_parser.parseAlloc(alloc, str);
+    pub fn compileSvgContent(self: *Graphics, alloc: std.mem.Allocator, str: []const u8, opts: svg.SvgOptions) !svg.SvgRenderData {
+        return try self.svg_parser.parseAlloc(alloc, str, opts);
     }
 
     // This is not the recommended way to draw svg content but is available for convenience.
     // For small/medium svg content, first parse the svg into a DrawCommandList and reuse that.
     // For large svg content, render into an image and then draw the image.
     // TODO: allow x, y offset
-    pub fn drawSvgContent(self: *Graphics, str: []const u8) !void {
-        const data = try self.svg_parser.parse(str);
-        self.drawCommandList(data.cmds);
+    pub fn drawSvgContent(self: *Graphics, str: []const u8, opts: svg.SvgOptions) !void {
+        const data = try self.svg_parser.parse(str, opts);
+        try self.drawCommandList(data.cmds);
+    }
+
+    pub fn flattenSvgPathFillContent(self: *Graphics, str: []const u8) !FlattenResultView {
+        const path = try self.path_parser.parse(str);
+        self.vec2_buf.clearRetainingCapacity();
+        self.vec2_slice_buf.clearRetainingCapacity();
+        self.qbez_buf.clearRetainingCapacity();
+        try svg.flattenSvgPathFill(self.alloc, .{
+            .vec2 = &self.vec2_buf,
+            .vec2_slice = &self.vec2_slice_buf,
+            .qbez = &self.qbez_buf,
+        }, path);
+        return FlattenResultView{
+            .pts = self.vec2_buf.items,
+            .polygons = self.vec2_slice_buf.items,
+        };
     }
 
     // This will be slower since it will parse the text every time.
     pub fn fillSvgPathContent(self: *Graphics, x: f32, y: f32, str: []const u8) !void {
         const path = try self.path_parser.parse(str);
-        self.fillSvgPath(x, y, &path);
+        try self.fillSvgPath(x, y, path);
     }
 
     pub fn drawSvgPathContent(self: *Graphics, x: f32, y: f32, str: []const u8) !void {
         const path = try self.path_parser.parse(str);
-        self.drawSvgPath(x, y, &path);
+        try self.drawSvgPath(x, y, path);
     }
 
-    pub fn fillSvgPath(self: *Graphics, x: f32, y: f32, path: *const SvgPath) void {
+    pub fn fillSvgPath(self: *Graphics, x: f32, y: f32, path: SvgPath) !void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillSvgPath(&self.impl, x, y, path),
+            .OpenGL, .Vulkan => {
+                const t_ = trace(@src());
+                defer t_.end();
+
+                self.vec2_buf.clearRetainingCapacity();
+                self.vec2_slice_buf.clearRetainingCapacity();
+                self.qbez_buf.clearRetainingCapacity();
+                try svg.flattenSvgPathFill(self.alloc, .{
+                    .vec2 = &self.vec2_buf,
+                    .vec2_slice = &self.vec2_slice_buf,
+                    .qbez = &self.qbez_buf,
+                }, path);
+                if (self.vec2_slice_buf.items.len == 0) {
+                    return;
+                }
+                try gpu.Graphics.fillPolygons(&self.impl, self.vec2_buf.items, self.vec2_slice_buf.items);
+            },
             .WasmCanvas => canvas.Graphics.fillSvgPath(&self.impl, x, y, path),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawSvgPath(self: *Graphics, x: f32, y: f32, path: *const SvgPath) void {
+    pub fn drawSvgPath(self: *Graphics, x: f32, y: f32, path: SvgPath) !void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.strokeSvgPath(&self.impl, x, y, path),
+            .OpenGL, .Vulkan => {
+                const t_ = trace(@src());
+                defer t_.end();
+
+                self.vec2_buf.clearRetainingCapacity();
+                self.vec2_slice_buf.clearRetainingCapacity();
+                self.qbez_buf.clearRetainingCapacity();
+                try svg.flattenSvgPathStroke(self.alloc, .{
+                    .vec2 = &self.vec2_buf,
+                    .vec2_slice = &self.vec2_slice_buf,
+                    .qbez = &self.qbez_buf,
+                }, path);
+                if (self.vec2_slice_buf.items.len == 0) {
+                    return;
+                }
+                try gpu.Graphics.fillPolygons(&self.impl, self.vec2_buf.items, self.vec2_slice_buf.items);
+            },
             .WasmCanvas => canvas.Graphics.strokeSvgPath(&self.impl, x, y, path),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawCommandList(self: *Graphics, _list: DrawCommandList) void {
+    pub fn drawCommandList(self: *Graphics, _list: DrawCommandList) !void {
         var list = _list;
         for (list.cmds) |ptr| {
             switch (ptr.tag) {
@@ -593,12 +679,12 @@ pub const Graphics = struct {
                 .FillPolygon => {
                     const cmd = list.getCommand(.FillPolygon, ptr);
                     const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
-                    self.fillPolygon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
+                    try self.fillPolygon(@ptrCast([*]const Vec2, slice.ptr)[0..cmd.num_vertices]);
                 },
                 .FillPath => {
                     const cmd = list.getCommand(.FillPath, ptr);
                     var end = cmd.start_path_cmd_id + cmd.num_cmds;
-                    self.fillSvgPath(0, 0, &SvgPath{
+                    try self.fillSvgPath(0, 0, .{
                         .alloc = null,
                         .data = list.extra_data[cmd.start_data_id..],
                         .cmds = std.mem.bytesAsSlice(svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
@@ -719,10 +805,10 @@ pub const Graphics = struct {
     }
 
     /// Creates an image from svg content. The svg will be rendered to fit the provided image size.
-    pub fn createSvgImage(self: *Graphics, data: []const u8, width: u32, height: u32) !Image {
+    pub fn createSvgImage(self: *Graphics, data: []const u8, width: u32, height: u32, opts: svg.SvgOptions) !Image {
         switch (Backend) {
             .OpenGL, .Vulkan => {
-                const res = try self.compileSvgContent(self.alloc, data);
+                const res = try self.compileSvgContent(self.alloc, data, opts);
                 defer res.deinit();
                 return gpu.ImageStore.createSvgImage(&self.impl.image_store, res, width, height);
             },
@@ -775,16 +861,30 @@ pub const Graphics = struct {
 
     pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id),
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id, Color.White),
             .WasmCanvas => return canvas.Graphics.drawImage(&self.impl, x, y, image_id),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawImageSized(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawImageTinted(self: *Graphics, x: f32, y: f32, image_id: ImageId, color: Color) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => return gpu.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
-            .WasmCanvas => return canvas.Graphics.drawImageSized(&self.impl, x, y, width, height, image_id),
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImage(&self.impl, x, y, image_id, color),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id, Color.White),
+            .WasmCanvas => return canvas.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn drawImageScaledTinted(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId, color: Color) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.drawImageScaled(&self.impl, x, y, width, height, image_id, color),
             else => stdx.unsupported(),
         }
     }
@@ -796,9 +896,16 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn addFallbackFont(self: *Graphics, font_id: FontId) void {
+    pub fn addFallbackFont(self: *Graphics, font_id: FontId) !void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.addFallbackFont(&self.impl, font_id),
+            .OpenGL, .Vulkan => try gpu.Graphics.addFallbackFont(&self.impl, font_id),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn setFallbackFonts(self: *Graphics, fonts: []const FontId) !void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => try gpu.Graphics.setFallbackFonts(&self.impl, fonts),
             else => stdx.unsupported(),
         }
     }
@@ -812,7 +919,7 @@ pub const Graphics = struct {
     }
 
     /// Adds outline or color bitmap font from ttf/otf.
-    pub fn addFontTTF(self: *Graphics, data: []const u8) FontId {
+    pub fn addFontTTF(self: *Graphics, data: []const u8) !FontId {
         switch (Backend) {
             .OpenGL, .Vulkan => return gpu.Graphics.addFontTTF(&self.impl, data),
             .WasmCanvas => stdx.panic("Unsupported for WasmCanvas. Use addTTF_FontPathForName instead."),
@@ -904,16 +1011,16 @@ pub const Graphics = struct {
     }
 
     pub fn fillTextFmt(self: *Graphics, x: f32, y: f32, comptime format: []const u8, args: anytype) void {
-        self.text_buf.clearRetainingCapacity();
-        std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
-        self.fillText(x, y, self.text_buf.items);
+        self.u8_buf.clearRetainingCapacity();
+        std.fmt.format(self.u8_buf.writer(self.alloc), format, args) catch unreachable;
+        self.fillText(x, y, self.u8_buf.items);
     }
 
     pub fn fillTextExt(self: *Graphics, x: f32, y: f32, comptime format: []const u8, args: anytype, opts: TextOptions) void {
-        self.text_buf.clearRetainingCapacity();
-        std.fmt.format(self.text_buf.writer(), format, args) catch unreachable;
+        self.u8_buf.clearRetainingCapacity();
+        std.fmt.format(self.u8_buf.writer(self.alloc), format, args) catch unreachable;
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.fillTextExt(&self.impl, x, y, self.text_buf.items, opts),
+            .OpenGL, .Vulkan => gpu.Graphics.fillTextExt(&self.impl, x, y, self.u8_buf.items, opts),
             else => stdx.unsupported(),
         }
     }
@@ -1011,7 +1118,7 @@ pub const Graphics = struct {
                 }
             }
         }
-        if (last_fit_end_idx < iter.state.end_idx) {
+        if (last_fit_end_idx <= iter.state.end_idx) {
             // Add last line.
             buf.lines.append(.{
                 .start_idx = last_fit_start_idx,
@@ -1139,6 +1246,13 @@ pub const Graphics = struct {
     pub fn clipRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
         switch (Backend) {
             .OpenGL, .Vulkan => gpu.Graphics.clipRect(&self.impl, x0, y0, x1 - x0, y1 - y0),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn getClipRect(self: *Graphics) stdx.math.geom.Rect {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.getClipRect(&self.impl),
             else => stdx.unsupported(),
         }
     }
@@ -2337,4 +2451,9 @@ pub const CreateImageOptions = struct {
 
     /// Whether image samplers will use linear filtering.
     linear_filter: bool = true,
+};
+
+const FlattenResultView = struct {
+    pts: []const Vec2,
+    polygons: []const stdx.IndexSlice(u32),
 };

@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const build_options = @import("build_options");
 const Vec2 = stdx.math.Vec2;
 const vec2 = Vec2.init;
@@ -30,7 +31,7 @@ pub fn main() !void {
 }
 
 // Main loop shared by desktop and web.
-fn update(delta_ms: f32) void {
+fn update(delta_ms: f32) anyerror!void {
     if (IsWasm) {
         // Wait for assets to load in the browser before getting to main loop.
         if (loaded_assets < 5) {
@@ -110,7 +111,7 @@ fn update(delta_ms: f32) void {
         vec2(1090, 40),
     };
     g.setFillColor(Color.DarkGray);
-    g.fillPolygon(&polygon);
+    try g.fillPolygon(&polygon);
     g.setStrokeColor(Color.Yellow);
     g.setLineWidth(3);
     g.drawPolygon(&polygon);
@@ -130,7 +131,7 @@ fn update(delta_ms: f32) void {
     g.translate(0, 570);
     g.setFillColor(Color.White);
     g.fillRect(0, 0, 400, 140);
-    g.drawSvgContent(zig_logo_svg) catch unreachable;
+    try g.drawSvgContent(zig_logo_svg, .{});
     g.resetTransform();
 
     // Rasterize big svg.
@@ -150,7 +151,7 @@ fn update(delta_ms: f32) void {
     g.drawCubicBezierCurve(0, 0, 200, 0, 0, 200, 200, 200);
 
     // Images.
-    g.drawImageSized(450, 290, @intToFloat(f32, game_char_image.width) / 3, @intToFloat(f32, game_char_image.height) / 3, game_char_image.id);
+    g.drawImageScaled(450, 290, @intToFloat(f32, game_char_image.width) / 3, @intToFloat(f32, game_char_image.height) / 3, game_char_image.id);
 
     g.setFillColor(Color.Blue.lighter());
     const fps = 1000 / delta_ms;
@@ -165,7 +166,7 @@ fn initAssets(alloc: std.mem.Allocator) !void {
 
     font_id = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
     const emoji_font = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
-    gctx.addFallbackFont(emoji_font);
+    try gctx.addFallbackFont(emoji_font);
 
     const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
     defer alloc.free(game_char_data);
@@ -201,7 +202,7 @@ fn rasterizeTigerHead(tiger_head_svg: []const u8) void {
     gctx.setFillColor(Color.Transparent);
     gctx.fillRect(0, 0, 600, 600);
     gctx.translate(200, 200);
-    gctx.drawSvgContent(tiger_head_svg) catch unreachable;
+    gctx.drawSvgContent(tiger_head_svg, .{}) catch unreachable;
     gctx.endCmd();
 }
 
@@ -222,20 +223,20 @@ pub usingnamespace if (IsWasm) struct {
         const S = struct {
             fn onFetchResult(_: ?*anyopaque, e: platform.FetchResultEvent) void {
                 if (e.fetch_id == zig_logo_id) {
-                    zig_logo_svg = galloc.dupe(u8, e.buf) catch unreachable;
+                    zig_logo_svg = galloc.dupe(u8, e.buf) catch fatal();
                     loaded_assets += 1;
                 } else if (e.fetch_id == game_char_id) {
-                    game_char_image = app.gctx.createImage(e.buf) catch unreachable;
+                    game_char_image = app.gctx.createImage(e.buf) catch fatal();
                     loaded_assets += 1;
                 } else if (e.fetch_id == nunito_font_id) {
-                    font_id = app.gctx.addFontTTF(e.buf);
+                    font_id = app.gctx.addFontTTF(e.buf) catch fatal();
                     loaded_assets += 1;
                 } else if (e.fetch_id == tiger_head_id) {
                     rasterizeTigerHead(e.buf);
                     loaded_assets += 1;
                 } else if (e.fetch_id == noto_emoji_id) {
-                    const emoji_font = app.gctx.addFontTTF(e.buf);
-                    app.gctx.addFallbackFont(emoji_font);
+                    const emoji_font = app.gctx.addFontTTF(e.buf) catch fatal();
+                    app.gctx.addFallbackFont(emoji_font) catch fatal();
                     loaded_assets += 1;
                 }
             }

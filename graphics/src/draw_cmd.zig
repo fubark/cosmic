@@ -1,4 +1,7 @@
 const std = @import("std");
+const stdx = @import("stdx");
+const graphics = @import("graphics.zig");
+const log = stdx.log.scoped(.draw_cmd);
 
 // Draw calls serialized into data.
 // This is useful for parsing svg files into draw calls.
@@ -30,6 +33,49 @@ pub const DrawCommandList = struct {
         return self.extra_data[start_id .. start_id + len];
     }
 };
+
+pub fn dump(list: DrawCommandList) void {
+    log.debug("DrawCommandList: {} cmds", .{list.cmds.len});
+    for (list.cmds) |ptr| {
+        switch (ptr.tag) {
+            .FillColor => {
+                const cmd = list.getCommand(.FillColor, ptr);
+                const color = graphics.Color.fromU32(cmd.rgba);
+                log.debug("fillColor {}, {}, {}, {}", .{color.channels.r, color.channels.g, color.channels.b, color.channels.a});
+            },
+            .FillPolygon => {
+                const cmd = list.getCommand(.FillPolygon, ptr);
+                const slice = list.getExtraData(cmd.start_vertex_id, cmd.num_vertices * 2);
+                const poly = @ptrCast([*]const stdx.math.Vec2, slice.ptr)[0..cmd.num_vertices];
+                log.debug("fillPolygon {any}", .{poly});
+            },
+            .FillPath => {
+                const cmd = list.getCommand(.FillPath, ptr);
+                var end = cmd.start_path_cmd_id + cmd.num_cmds;
+                log.debug("fillSvgPath", .{});
+                dumpSvgPath(.{
+                    .alloc = null,
+                    .data = list.extra_data[cmd.start_data_id..],
+                    .cmds = std.mem.bytesAsSlice(graphics.svg.PathCommand, list.sub_cmds)[cmd.start_path_cmd_id..end],
+                });
+            },
+            .FillRect => {
+                const cmd = list.getCommand(.FillRect, ptr);
+                log.debug("fillRect {} {} {} {}", .{cmd.x, cmd.y, cmd.width, cmd.height});
+            },
+        }
+    }
+}
+
+pub fn dumpSvgPath(path: graphics.svg.SvgPath) void {
+    for (path.cmds) |cmd| {
+        switch (cmd) {
+            else => {
+                log.debug("{}", .{cmd});
+            },
+        }
+    }
+}
 
 fn DrawCommandData(comptime Tag: DrawCommand) type {
     return switch (Tag) {

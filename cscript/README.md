@@ -54,15 +54,25 @@ two blobs missing from a screen
 hours of life lost`
 ```
 
-### Arrays
+### Lists
 ```cscript
-arr = [ 1, 2, 3 ]
-cs.log arr[0]
+list = [ 1, 2, 3 ]
+cs.log list[0]
+```
+
+Lists can be sliced with the range `..` clause:
+```cscript
+list = [ 1, 2, 3, 4, 5 ]
+list[0..0]  // []          Empty list.
+list[0..3]  // [ 1, 2, 3 ] From start to end index.
+list[3..]   // [ 4, 5 ]    From start index to end of list. 
+list[..3]   // [ 1, 2, 3 ] From start of list to end index.
+list[2..+2] // [ 3, 4 ]    From start index to start index + length.
 ```
 
 ### Dictionaries
 ```cscript
-dict = { a: 123, b: fun () => 5 }
+dict = { a: 123, b: func () => 5 }
 cs.log dict.a
 cs.log dict['a']
 
@@ -86,20 +96,20 @@ colors = {}:
 ```
 
 ### Branching
-Use `if`, `elif`, `else` to branch the execution of your code depending on conditions:
+Use `if` and `else` to branch the execution of your code depending on conditions:
 ```cscript
 a = 10
 if a == 10:
     cs.log 'a is 10'
-elif a == 20:
+else a == 20:
     cs.log 'a is 20'
 else:
     cs.log 'neither 10 nor 20'
 ```
-A single line `if` expression also needs the `then` keyword:
+A single line `if` expression also needs the `then` keyword. `else` condition is not allowed in single line `if` expressions.:
 ```cscript
 a = 10
-str = if a == 10 then 'red' elif a == 20 then 'green' else 'blue'
+str = if a == 10 then 'red' else 'blue'
 ```
 
 ### Labels
@@ -109,26 +119,59 @@ TODO
 Loops and iterations start with the `for` keyword. An infinite loop continues to run the code in the block until a `break` or `return` is reached. When the `for` clause contains a condition, the loop continues to run until the condition is evaluated to false.
 ```cscript
 for: // Infinite loop.
-    nop
+    pass
 
 running = true
 for running: // Keep looping until `running` is false.
-    nop
+    pass
 ```
 `for` loops can iterate over a range that starts at a number (inclusive) to a target number (exclusive). Note that by default the looping counter is incremented by one:
 ```cscript
-for 0..100 of i:
+for 0..100 as i:
     cs.log i    // 0, 1, 2, ... , 99
 
-for 0..100, 10 of i:
+for 0..100 as i += 10:
     cs.log i    // 0, 10, 20, ... , 90
 
-for 100..0, -1 of i:
+for 100..0 as i -= 1:
     cs.log i    // 100, 99, 98, ... , 1
-```
-TODO: Iterating arrays.
 
-TODO: Iterating dictionaries.
+for 100..=0 as i -= 1:
+    cs.log i    // 100, 99, 98, ... , 0
+```
+Iterating lists.
+```cscript
+list = [1, 2, 3, 4, 5]
+
+// Iterate on values.
+for list as n:
+    cs.log n
+
+// Iterate on values and indexes.
+for list as n, i:
+    cs.log n, i 
+
+// Iterate on just indexes.
+for list as _, i:
+    cs.log i 
+```
+Iterating dictionaries.
+```cscript
+dict = { a: 123, b: 234 }
+
+// Iterate on values.
+for dict as v:
+    cs.log v
+
+// Iterate on values and keys.
+for dict as v, k:
+    cs.log v, k
+
+// Iterate on just keys.
+for dict as _, k:
+    cs.log k
+```
+
 ### Matching
 ```cscript
 val = 1000
@@ -142,14 +185,25 @@ match val:
 ```
 
 ### Functions
-Functions are declared with the `fun` keyword:
+
+#### Declaring functions.
+Functions are declared with the `func` keyword. Functions declared in the top level scope are eligible for hot swap during development.
 ```cscript
 using cs.math
-fun dist(x0, y0, x1, y1):
+func dist(x0, y0, x1, y1):
     dx = x0-x1
     dy = y0-y1
     return sqrt dx*dx+dy*dy
 ```
+Functions can return multiple values:
+```cscript
+using cs.math
+func compute(rad):
+    return cos(rad), sin(rad)
+x, y = compute(pi)
+```
+
+#### Calling functions.
 There are two methods to call functions. The concise method is to use parentheses:
 ```cscript
 d = dist(100, 100, 200, 200)
@@ -158,7 +212,7 @@ The shorthand method omits parentheses and commas. Args are separated by whitesp
 ```cscript
 d = dist 100 100 200 200 // Calls the function `dist`.
 
-fun random():            // Function with no parameters.
+func random():            // Function with no parameters.
     return 4
 
 r = random               // Returns the function itself as a value. Does not call the function `random`.
@@ -168,24 +222,29 @@ You can call functions with named parameters.
 ```cscript
 d = dist(x0: 10, x1: 20, y0: 30, y1: 40)
 ```
-Functions can return multiple values:
-```cscript
-using cs.math
-fun compute(rad):
-    return cos(rad), sin(rad)
-x, y = compute(pi)
-```
 
 ### Lambdas
 ```cscript
 // Single line lambda.
-canvas.onUpdate(fun (delta_ms) => print delta_ms)
+canvas.onUpdate(func (delta_ms) => print delta_ms)
 
 // Multi line lambda.
 canvas.onUpdate(
-    fun (delta_ms):
+    func (delta_ms):
         print delta_ms
 )
+```
+Lambdas can also be declared and assigned to a nested property of an existing variable. A declaration at the top level scope also makes the lambda eligible for hot swap during development.
+```cscript
+dict = {}
+func dict.foo():
+    return 123
+dict.foo()
+
+// Equivalent to:
+dict = {}
+dict.foo = func () => 123
+dict.foo()
 ```
 
 ### Closures
@@ -197,9 +256,9 @@ TODO
 ### Async
 An async task can be created using `@asyncTask()`. Code can suspend on an `apromise` and wait for the value to resolve with `await`.
 ```cscript
-fun foo():
+func foo():
     task = @asyncTask()
-    @queueTask(fun () => task.resolve(123))
+    @queueTask(func () => task.resolve(123))
     return task.promise
 await foo()
 // Returns 123.
@@ -207,9 +266,9 @@ await foo()
 
 When the function is declared to return an `apromise`. Callers can omit the `await` keyword:
 ```cscript
-fun foo() apromise:
+func foo() apromise:
     task = @asyncTask()
-    @queueTask(fun () => task.resolve(123))
+    @queueTask(func () => task.resolve(123))
     return task.promise
 1 + foo()
 // Returns 124. Equivalent to "1 + await foo()".
@@ -242,7 +301,7 @@ The author may not know all use cases of their library so this removes friction 
 Custom logic for operators can be declared in a `language` definition.
 ```cscript
 language math:
-    fun +(left, right):
+    func +(left, right):
         return Vec2{ x: left.x + right.x, y: left.y + right.y }
 
 vec3 = math# vec1 + vec2

@@ -191,10 +191,11 @@ pub const EncodeDictContext = struct {
 
     fn encodeString_(self:* EncodeDictContext, str: []const u8) !void {
         self.tmp_buf.clearRetainingCapacity();
-        _ = stdx.mem.replaceIntoList(u8, str, "'", "\\'", self.tmp_buf);
         if (std.mem.indexOfScalar(u8, str, '\n') == null) {
+            _ = stdx.mem.replaceIntoList(u8, str, "'", "\\'", self.tmp_buf);
             _ = try self.writer.print("'{s}'\n", .{self.tmp_buf.items});
         } else {
+            _ = stdx.mem.replaceIntoList(u8, str, "`", "\\`", self.tmp_buf);
             _ = try self.writer.print("`{s}`\n", .{self.tmp_buf.items});
         }
     }
@@ -324,6 +325,8 @@ pub const DecodeDictIR = struct {
                 var buf = std.ArrayList(u8).init(self.alloc);
                 defer buf.deinit();
                 _ = stdx.mem.replaceIntoList(u8, token_s[1..token_s.len-1], "\\'", "'", &buf);
+                const replaces = std.mem.replace(u8, buf.items, "\\`", "`", buf.items);
+                buf.items.len -= replaces;
                 return buf.toOwnedSlice();
             } else return error.NotAString;
         } else return error.NoSuchEntry;
@@ -392,7 +395,6 @@ const TestMapItem = struct {
 };
 
 test "encode" {
-    t.setLogLevel(.debug);
     var root = TestRoot{
         .name = "project",
         .list = &.{
@@ -404,6 +406,7 @@ test "encode" {
             .{ .id = 2, .val = "bar" },
             .{ .id = 3, .val = "ba'r" },
             .{ .id = 4, .val = "bar\nbar" },
+            .{ .id = 5, .val = "bar `bar`\nbar" },
         },
     };
 
@@ -451,6 +454,8 @@ test "encode" {
         \\        2: 'bar'
         \\        3: 'ba\'r'
         \\        4: `bar
+        \\bar`
+        \\        5: `bar \`bar\`
         \\bar`
         \\    }
         \\}
@@ -509,6 +514,8 @@ test "decodeDict" {
         \\        3: 'ba\'r'
         \\        4: `bar
         \\bar`
+        \\        5: `bar \`bar\`
+        \\bar`
         \\    }
         \\}
     );
@@ -524,7 +531,7 @@ test "decodeDict" {
     try t.eqStr(root.name, "project");
     try t.eq(root.list[0].field, 1);
     try t.eq(root.list[1].field, 2);
-    try t.eq(root.map.len, 4);
+    try t.eq(root.map.len, 5);
     try t.eq(root.map[0].id, 1);
     try t.eqStr(root.map[0].val, "foo");
     try t.eq(root.map[1].id, 2);
@@ -533,4 +540,6 @@ test "decodeDict" {
     try t.eqStr(root.map[2].val, "ba'r");
     try t.eq(root.map[3].id, 4);
     try t.eqStr(root.map[3].val, "bar\nbar");
+    try t.eq(root.map[4].id, 5);
+    try t.eqStr(root.map[4].val, "bar `bar`\nbar");
 }

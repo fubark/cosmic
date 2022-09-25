@@ -5,7 +5,7 @@ const t = stdx.testing;
 
 const log = stdx.log.scoped(.heap);
 
-const IsWasm = builtin.target.cpu.arch == .wasm32;
+const IsWasm = builtin.target.isWasm();
 
 const MeasureMemory = false;
 var gpa: ?std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = MeasureMemory }) = null;
@@ -56,14 +56,22 @@ const WasmDefaultAllocator = struct {
     reserved_pages: u32,
 
     /// Contains the heads of each segment size from 1 word size to 256 word size.
-    segments: [256]?*Node,
+    segments: [NumSegments]?*Node,
 
     /// Main free list contains pages.
     main_free_list: ?*Node,
+    num_free_pages: u32,
 
+    mem: if (builtin.is_test) struct {
+        buf: []u8,
+        len: usize,
+    } else void,
+
+    pub const NumSegments: u32 = 256;
     const PageSize: u32 = 64 * 1024;
-    const WordSize: u32 = @sizeOf(usize);
+    pub const WordSize: u32 = @sizeOf(usize);
     const PageWordSize: u32 = @divExact(PageSize, WordSize);
+    const MaxTestPages: u32 = 16;
 
     /// User payload memory follows Node.
     const Node = struct {
@@ -94,17 +102,35 @@ const WasmDefaultAllocator = struct {
     };
 
     pub fn init(self: *WasmDefaultAllocator, opts: Options) !void {
-        // Reserve intitial 256 pages of memory.
-        const base_page_idx = wasmMemorySize();
         self.* = .{
-            .base_page_idx = base_page_idx,
-            .next_page_idx = base_page_idx,
+            .base_page_idx = undefined,
+            .next_page_idx = undefined,
             .reserved_pages = 0,
             .segments = undefined,
             .main_free_list = null,
+            .num_free_pages = 0,
+            .mem = undefined,
         };
+        if (builtin.is_test) {
+            self.mem = .{
+                .buf = try t.alloc.alignedAlloc(u8, PageSize, PageSize * MaxTestPages),
+                .len = 0,
+            };
+        }
+        const base_page_idx = self.wasmMemorySize();
+        self.base_page_idx = base_page_idx;
+        self.next_page_idx = base_page_idx;
+
         std.mem.set(?*Node, &self.segments, null);
+
+        // Reserve initial 256 pages of memory.
         try self.growMemory(opts.initial_pages);
+    }
+
+    pub fn deinit(self: *WasmDefaultAllocator) void {
+        if (builtin.is_test) {
+            t.alloc.free(self.mem.buf);
+        }
     }
 
     pub fn allocator(self: *WasmDefaultAllocator) std.mem.Allocator {
@@ -114,24 +140,46 @@ const WasmDefaultAllocator = struct {
         };
     }
 
-    inline fn wasmMemorySize() u32 {
+    /// O(N) count used to verify num_free_pages.
+    fn countFreePages(self: *WasmDefaultAllocator) u32 {
+        var count: u32 = 0;
+        var cur = self.main_free_list;
+        while (cur) |node| {
+            count += 1;
+            cur = node.next.node;
+        }
+        return count;
+    }
+
+    fn getFreeListTail(self: *WasmDefaultAllocator) ?*Node {
+        if (self.main_free_list == null) {
+            return null;
+        }
+        var cur = self.main_free_list.?;
+        while (cur.next.node) |next| {
+            cur = next;
+        }
+        return cur;
+    }
+
+    inline fn wasmMemorySize(self: *WasmDefaultAllocator) u32 {
         if (builtin.is_test) {
-            return @intCast(u32, @divTrunc(@ptrToInt(wasmTestMemory.ptr) + wasmTestMemoryLen - 1, PageSize) + 1);
+            return @intCast(u32, @divTrunc(@ptrToInt(self.mem.buf.ptr) + self.mem.len - 1, PageSize) + 1);
         } else {
             // TODO: Can't pass var into @wasmMemorySize atm.
             return @wasmMemorySize(0);
         }
     }
 
-    inline fn wasmMemoryGrow(delta: usize) i32 {
+    inline fn wasmMemoryGrow(self: *WasmDefaultAllocator, delta: usize) i32 {
         if (builtin.is_test) {
-            const delta_size = delta * PageSize - @ptrToInt(wasmTestMemory.ptr);
-            if (wasmTestMemoryLen + delta_size <= wasmTestMemory.len) {
-                wasmTestMemoryLen += delta_size;
-                return @intCast(i32, @divExact(wasmTestMemoryLen, PageSize));
+            const delta_size = delta * PageSize - @ptrToInt(self.mem.buf.ptr);
+            if (self.mem.len + delta_size <= self.mem.buf.len) {
+                self.mem.len += delta_size;
+                return @intCast(i32, @divExact(self.mem.len, PageSize));
             } else return -1;
         } else {
-            // TODO: Can't pass idx into @wasmMemoryGrow atm.
+            // TODO: Can't pass var into @wasmMemoryGrow atm.
             return @wasmMemoryGrow(0, delta);
         }
     }
@@ -163,7 +211,7 @@ const WasmDefaultAllocator = struct {
 
         const seg_size = @divTrunc(req_num_bytes - 1, WordSize) + 1;
         // log.debug("alloc len={} align={} lalign={} => seg={}", .{len, alignment, len_align, seg_size});
-        if (seg_size <= 256) {
+        if (seg_size <= NumSegments) {
             // Small allocation.
             if (self.segments[seg_size-1]) |free_node| {
                 self.segments[seg_size-1] = free_node.next.node;
@@ -180,7 +228,7 @@ const WasmDefaultAllocator = struct {
             // Big allocation.
 
             const req_num_pages = @divTrunc(req_num_bytes - 1, PageSize) + 1;
-            const first = self.allocContiguousPages(req_num_pages);
+            const first = try self.allocContiguousPages(req_num_pages);
 
             // Assumes node addr has no offset from it's base frame addr.
             const user_addr = std.mem.alignForward(@ptrToInt(first) + @sizeOf(Node), alignment);
@@ -193,28 +241,27 @@ const WasmDefaultAllocator = struct {
                     .seg_size = seg_size,
                 },
             };
-            // log.debug("returned memory {}", .{user_addr});
             return @intToPtr([*]u8, user_addr)[0..payload_size];
         }
     }
 
     /// Returns the first node with num of contiguous pages.
-    fn allocContiguousPages(self: *WasmDefaultAllocator, num_pages: usize) *Node {
-        var first: *Node = undefined;
-        if (self.main_free_list) |node| {
-            first = node;
-        } else {
-            stdx.panic("No more pages");
+    fn allocContiguousPages(self: *WasmDefaultAllocator, num_pages: usize) !*Node {
+        if (self.main_free_list == null) {
+            try self.growMemory(self.reserved_pages);
         }
+        var first = self.main_free_list.?;
 
         if (num_pages == 1) {
             self.main_free_list = first.next.node;
+            self.num_free_pages -= 1;
             return first;
         }
 
         var next_cont_addr = @ptrToInt(first) + PageSize;
         var i: u32 = 1;
-        var prev: *Node = undefined;
+        var first_prev: *Node = undefined;
+        var prev: *Node = first;
         var mb_cur: ?*Node = first.next.node;
         while (mb_cur) |cur| {
             if (@ptrToInt(cur) == next_cont_addr) {
@@ -223,11 +270,13 @@ const WasmDefaultAllocator = struct {
                     if (first == self.main_free_list) {
                         self.main_free_list = cur.next.node;
                     } else {
-                        prev.next.node = cur.next.node;
+                        first_prev.next.node = cur.next.node;
                     }
+                    self.num_free_pages -= @intCast(u32, num_pages);
                     return first;
                 }
             } else {
+                first_prev = prev;
                 first = cur;
                 i = 1;
             }
@@ -235,7 +284,10 @@ const WasmDefaultAllocator = struct {
             prev = cur;
             mb_cur = cur.next.node;
         }
-        stdx.panic("Could not find contiguous pages");
+
+        try self.growMemory(self.reserved_pages);
+        // Try again.
+        return self.allocContiguousPages(num_pages);
     }
 
     fn allocToNode(self: *WasmDefaultAllocator, node: *Node, seg_size: usize, payload_size: usize, alignment: u29) []u8 {
@@ -257,14 +309,15 @@ const WasmDefaultAllocator = struct {
 
     /// Grows the wasm memory by number of pages.
     fn growMemory(self: *WasmDefaultAllocator, num_pages: u32) !void {
-        // log.debug("grow memory", .{});
-        const res = wasmMemoryGrow(self.next_page_idx + num_pages);
+        log.debug("new memory page size {}", .{self.reserved_pages + num_pages});
+        const res = self.wasmMemoryGrow(self.next_page_idx + num_pages);
         if (res == -1) {
             return error.OutOfMemory;
         }
         const first_new_page_idx = self.next_page_idx;
         self.next_page_idx = self.next_page_idx + num_pages;
         self.reserved_pages += num_pages;
+        self.num_free_pages += num_pages;
 
         // Add reserved pages into free list.
         const first_addr = first_new_page_idx * PageSize;
@@ -275,8 +328,13 @@ const WasmDefaultAllocator = struct {
                 .node = null,
             },
         };
+
         // Assumes main free list is empty which implies that no other free node addr is before the new nodes.
-        self.main_free_list = first;
+        if (self.getFreeListTail()) |tail| {
+            tail.next.node = first;
+        } else {
+            self.main_free_list = first;
+        }
         var prev = first;
         var i: u32 = 1;
         while (i < num_pages) : (i += 1) {
@@ -480,29 +538,25 @@ const WasmDefaultAllocator = struct {
                 last_freed.next.node = self.main_free_list;
                 self.main_free_list = base_node;
             }
+
+            self.num_free_pages += @intCast(u32, num_pages);
         }
     }
 };
 
-var wasmTestMemory: []u8 = undefined;
-var wasmTestMemoryLen: usize = 0;
-
 test "WasmDefaultAllocator" {
-    const PageSize: u32 = 64 * 1024;
-    wasmTestMemory = try t.alloc.alignedAlloc(u8, PageSize, PageSize * 16);
-    wasmTestMemoryLen = 0;
-    defer t.alloc.free(wasmTestMemory);
-    const start_addr = @ptrToInt(wasmTestMemory.ptr);
-
     var wgpa: WasmDefaultAllocator = undefined;
     try wgpa.init(.{ .initial_pages = 16 });
+    defer wgpa.deinit();
+
     const alloc = wgpa.allocator();
+    const start_addr = @ptrToInt(wgpa.mem.buf.ptr);
 
     // Small allocations using the same segment.
     const small1 = try alloc.alloc(u8, 16);
-    try t.expect(@ptrToInt(small1.ptr) >= start_addr and @ptrToInt(small1.ptr) < start_addr + wasmTestMemoryLen);
+    try t.expect(@ptrToInt(small1.ptr) >= start_addr and @ptrToInt(small1.ptr) < start_addr + wgpa.mem.len);
     const small2 = try alloc.alloc(u8, 16);
-    try t.expect(@ptrToInt(small2.ptr) >= start_addr and @ptrToInt(small2.ptr) < start_addr + wasmTestMemoryLen);
+    try t.expect(@ptrToInt(small2.ptr) >= start_addr and @ptrToInt(small2.ptr) < start_addr + wgpa.mem.len);
     try t.eq(@ptrToInt(small2.ptr), @ptrToInt(small1.ptr) + 32);
 
     // Small allocation reuses freed slot.
@@ -510,4 +564,51 @@ test "WasmDefaultAllocator" {
     alloc.free(small1);
     const small3 = try alloc.alloc(u8, 16);
     try t.eq(@ptrToInt(small3.ptr), small_addr);
+}
+
+test "WasmDefaultAllocator.growMemory large allocation/free." {
+    var wgpa: WasmDefaultAllocator = undefined;
+    try wgpa.init(.{ .initial_pages = 2 });
+    defer wgpa.deinit();
+
+    try t.eq(wgpa.num_free_pages, 2);
+    try t.eq(wgpa.countFreePages(), 2);
+    try wgpa.growMemory(2);
+    try t.eq(wgpa.num_free_pages, 4);
+    try t.eq(wgpa.countFreePages(), 4);
+
+    // Allocate one page from free list head.
+    const alloc = wgpa.allocator();
+    var buf = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
+    try t.eq(wgpa.num_free_pages, 3);
+    try t.eq(wgpa.countFreePages(), 3);
+
+    // Allocate two pages from free list head.
+    var buf2 = try alloc.alloc(u8, WasmDefaultAllocator.PageSize + 1);
+    try t.eq(wgpa.num_free_pages, 1);
+    try t.eq(wgpa.countFreePages(), 1);
+
+    alloc.free(buf);
+    try t.eq(wgpa.num_free_pages, 2);
+    try t.eq(wgpa.countFreePages(), 2);
+
+    alloc.free(buf2);
+    try t.eq(wgpa.num_free_pages, 4);
+    try t.eq(wgpa.countFreePages(), 4);
+
+    // Allocate two buffers one page each.
+    buf = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
+    buf2 = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
+    // Free the first so there is a used page inbetween the freelist.
+    alloc.free(buf);
+    // Allocate two pages this time so it allocates at the end of the list instead of the head.
+    buf = try alloc.alloc(u8, WasmDefaultAllocator.PageSize + 1);
+    try t.eq(wgpa.num_free_pages, 1);
+    try t.eq(wgpa.countFreePages(), 1);
+
+    // Free the middle page last to check that the freelist is reconnected from start to end.
+    alloc.free(buf);
+    alloc.free(buf2);
+    try t.eq(wgpa.num_free_pages, 4);
+    try t.eq(wgpa.countFreePages(), 4);
 }

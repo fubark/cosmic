@@ -4,6 +4,25 @@ const Allocator = std.mem.Allocator;
 
 // Wrapper around std. Might add support for UTF-8 in the future.
 
+pub const StringHash = struct {
+    len: u32,
+    hash: u64,
+
+    pub fn init(str: []const u8) StringHash {
+        return .{
+            .len = @intCast(u32, str.len),
+            .hash = std.hash.Wyhash.hash(0, str),
+        };
+    }
+
+    pub fn eqStringHash(self: StringHash, str: []const u8) bool {
+        if (self.len != str.len) {
+            return false;
+        }
+        return self.hash == std.hash.Wyhash.hash(0, str);
+    }
+};
+
 pub const BoxString = ds.Box([]const u8);
 
 pub inline fn eq(a: []const u8, b: []const u8) bool {

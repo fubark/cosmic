@@ -15,6 +15,8 @@ const LastPrimitiveId = 1;
 
 pub const JsTargetCompiler = struct {
     alloc: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    arena_alloc: std.mem.Allocator,
     out: std.ArrayListUnmanaged(u8),
     last_err: []const u8,
 
@@ -38,9 +40,13 @@ pub const JsTargetCompiler = struct {
     cur_indent: u32,
     cur_block: *BlockState,
 
-    pub fn init(alloc: std.mem.Allocator) JsTargetCompiler {
-        const new = JsTargetCompiler{
+    u8_buf: std.ArrayListUnmanaged(u8),
+
+    pub fn init(self: *JsTargetCompiler, alloc: std.mem.Allocator) void {
+        self.* = .{
             .alloc = alloc,
+            .arena = std.heap.ArenaAllocator.init(alloc),
+            .arena_alloc = undefined,
             .out = .{},
             .func_decls = undefined,
             .func_params = undefined,
@@ -58,8 +64,9 @@ pub const JsTargetCompiler = struct {
             .use_generators = undefined,
             .top_level_async = undefined,
             .ctypes = .{},
+            .u8_buf = .{},
         };
-        return new;
+        self.arena_alloc = self.arena.allocator();
     }
 
     pub fn deinit(self: *JsTargetCompiler) void {
@@ -68,11 +75,18 @@ pub const JsTargetCompiler = struct {
         self.alloc.free(self.last_err);
         self.buf.deinit(self.alloc);
         self.ctypes.deinit(self.alloc);
+        self.u8_buf.deinit(self.alloc);
+        self.arena.deinit();
     }
 
     pub fn compile(self: *JsTargetCompiler, ast: parser.ResultView, opts: CompileOptions) !ResultView {
+        defer {
+            // Clear arena for next compile.
+            self.arena.deinit();
+            self.arena.state = .{};
+        }
         try self.ctypes.resize(self.alloc, LastPrimitiveId + 1);
-        self.func_decls = ast.func_decls;
+        self.func_decls = ast.func_decls.items;
         self.func_params = ast.func_params;
         self.nodes = ast.nodes.items;
         self.node_list = ast.nodes;
@@ -97,15 +111,15 @@ pub const JsTargetCompiler = struct {
         // First perform analysis.
         self.pushBlock();
         try self.analyze(root);
+        // Analyze can transform the ast.
+        self.nodes = self.node_list.items;
 
         for (self.block_stack.items) |*block| {
             block.deinit(self.alloc);
         } 
         self.block_stack.clearRetainingCapacity();
-        // Analyze can transform the ast.
-        self.nodes = self.node_list.items;
 
-        if (self.top_level_async) {
+        if (self.top_level_async or self.opts.wrap_in_func) {
             // Last stmt is turned into a return statement.
             var prev: parser.NodeId = undefined;
             const last = parser.getLastStmt(self.nodes, root.head.child_head, &prev);
@@ -122,18 +136,27 @@ pub const JsTargetCompiler = struct {
                 .output = "",
                 .err_msg = self.last_err,
                 .has_error = true,
+                .wrapped_in_generator = false,
             };
         };
 
         if (self.top_level_async) {
-            try self.out.insertSlice(self.alloc, 0, "(async function () {");
-            try self.out.appendSlice(self.alloc, "})();");
+            try self.out.insertSlice(self.alloc, 0, "(function* () {");
+            try self.out.appendSlice(self.alloc, "});");
+        } else if (self.opts.wrap_in_func) {
+            if (self.use_generators) {
+                try self.out.insertSlice(self.alloc, 0, "(function* () {");
+            } else {
+                try self.out.insertSlice(self.alloc, 0, "(function () {");
+            }
+            try self.out.appendSlice(self.alloc, "});");
         }
 
         return ResultView{
             .output = self.out.items,
             .err_msg = "",
             .has_error = false,
+            .wrapped_in_generator = self.top_level_async or (self.use_generators and self.opts.wrap_in_func),
         };
     }
 
@@ -176,7 +199,16 @@ pub const JsTargetCompiler = struct {
                     });
                 }
             },
-            else => return,
+            .return_stmt => {
+                return;
+            },
+            .return_expr_stmt => {
+                const expr = self.nodes[stmt.head.child_head];
+                try self.analyzeRootExpr(stmt.head.child_head, expr);
+            },
+            else => {
+                return;
+            },
         }
     }
 
@@ -213,10 +245,22 @@ pub const JsTargetCompiler = struct {
         }
     }
 
+    fn logNodeStart(self: *JsTargetCompiler, node_id: parser.NodeId) void {
+        const node = self.nodes[node_id];
+        self.logTokenStart(node.start_token);
+    }
+
+    fn logTokenStart(self: *JsTargetCompiler, token_id: u32) void {
+        const token = self.tokens[token_id];
+        const PrefixLen = 10;
+        parser.logSrcPos(self.src, token.start_pos, PrefixLen);
+    }
+
     fn analyzeRootExpr(self: *JsTargetCompiler, expr_id: parser.NodeId, expr: parser.Node) anyerror!void {
         switch (expr.node_t) {
             .call_expr => {
                 const ctype = self.getOrResolveType(expr.head.func_call.callee);
+
                 var wrap_await = false;
                 switch (ctype.ctype_t) {
                     .any => {
@@ -255,6 +299,37 @@ pub const JsTargetCompiler = struct {
                 try self.analyzeRootExpr(expr.head.left_right.right, right);
             },
             else => return,
+        }
+    }
+
+    fn getNextPrefixedVar(self: *JsTargetCompiler, alloc: std.mem.Allocator, prefix: []const u8) ![]const u8 {
+        if (self.getScopedVarDesc(prefix) == null) {
+            return alloc.dupe(u8, prefix);
+        }
+        var i: u32 = 1;
+        self.u8_buf.clearRetainingCapacity();
+        try std.fmt.format(self.u8_buf.writer(self.alloc), "{s}{}", .{prefix, i});
+        while (self.getScopedVarDesc(self.u8_buf.items) != null) {
+            i += 1;
+            self.u8_buf.clearRetainingCapacity();
+            try std.fmt.format(self.u8_buf.writer(self.alloc), "{s}{}", .{prefix, i});
+        }
+        return alloc.dupe(u8, self.u8_buf.items);
+    }
+
+    fn declareConstVar(self: *JsTargetCompiler, name: []const u8, val: parser.Node) !void {
+        try self.indent();
+        _ = try self.writer.print("const {s} = ", .{name});
+        try self.genExpression(val);
+        _ = try self.writer.write(";\n");
+        try self.cur_block.vars.put(self.alloc, name, .{ .ctype = AnyCtype });
+    }
+
+    fn declareVarIfNeeded(self: *JsTargetCompiler, name: []const u8) !void {
+        if (!self.cur_block.vars.contains(name)) {
+            try self.indent();
+            _ = try self.writer.print("let {s};\n", .{name});
+            try self.cur_block.vars.put(self.alloc, name, .{ .ctype = AnyCtype });
         }
     }
 
@@ -312,12 +387,22 @@ pub const JsTargetCompiler = struct {
         try self.writer.writeByteNTimes(' ', self.cur_indent);
     }
 
+    fn isExprConst(self: *JsTargetCompiler, expr: parser.Node) bool {
+        _ = self;
+        if (expr.node_t == .number) {
+            return true;
+        } else return false;
+    }
+
     fn genStatement(self: *JsTargetCompiler, node: parser.Node) !void {
         // log.debug("gen stmt {}", .{node.node_t});
         switch (node.node_t) {
             .break_stmt => {
                 try self.indent();
                 _ = try self.writer.write("break;\n");
+            },
+            .pass_stmt => {
+                return;
             },
             .return_stmt => {
                 try self.indent();
@@ -326,7 +411,7 @@ pub const JsTargetCompiler = struct {
             .return_expr_stmt => {
                 _ = try self.writer.write("return ");
                 const expr = self.nodes[node.head.child_head];
-                try self.genExpression(expr);
+                try self.genFirstExpr(expr);
                 _ = try self.writer.write(";\n");
             },
             .add_assign_stmt => {
@@ -365,19 +450,53 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write(";\n");
             },
             .at_stmt => {
-                // Skip for now.
+                const child = self.nodes[node.head.at_stmt.child];
+                if (child.node_t == .call_expr) {
+                    const callee = self.nodes[child.head.func_call.callee];
+                    const token = self.tokens[callee.start_token+1];
+                    const name = self.src[token.start_pos..token.data.end_pos];
+                    if (std.mem.eql(u8, "compileError", name)) {
+                        return self.reportError(error.CompileError, "@compileError", .{}, node);
+                    }
+                }
+                if (!node.head.at_stmt.skip_compile) {
+                    try self.indent();
+                    try self.genFirstExpr(child);
+                    _ = try self.writer.write(";\n");
+                }
             },
             .expr_stmt => {
                 const expr = self.nodes[node.head.child_head];
                 try self.indent();
-                try self.genExpression(expr);
+                try self.genFirstExpr(expr);
                 _ = try self.writer.write(";\n");
+            },
+            .lambda_assign_decl => {
+                try self.indent();
+                const assign_expr = self.nodes[node.head.lambda_assign_decl.assign_expr];
+                try self.genExpression(assign_expr);
+
+                const func = self.func_decls[node.head.lambda_assign_decl.decl_id];
+                _ = try self.writer.write(" = function ");
+                try self.genFunctionParams(func.params);
+                _ = try self.writer.write(" {\n");
+
+                self.cur_indent += IndentWidth;
+                try self.genStatements(node.head.lambda_assign_decl.body_head);
+                self.cur_indent -= IndentWidth;
+
+                try self.indent();
+                _ = try self.writer.write("};\n");
             },
             .func_decl => {
                 const func = self.func_decls[node.head.func.decl_id];
 
                 try self.indent();
-                _ = try self.writer.write("function ");
+                if (self.use_generators) {
+                    _ = try self.writer.write("function* ");
+                } else {
+                    _ = try self.writer.write("function ");
+                }
                 _ = try self.writer.write(self.src[func.name.start..func.name.end]);
 
                 try self.genFunctionParams(func.params);
@@ -412,17 +531,138 @@ pub const JsTargetCompiler = struct {
                 try self.genStatements(node.head.left_right.right);
                 self.cur_indent -= IndentWidth;
 
-                if (node.head.left_right.extra != NullId) {
-                    const next = self.nodes[node.head.left_right.extra];
-                    if (next.node_t == .else_clause) {
+                var else_clause_id = node.head.left_right.extra;
+                while (else_clause_id != NullId) {
+                    const else_clause = self.nodes[else_clause_id];
+                    if (else_clause.head.else_clause.cond == NullId) {
                         try self.indent();
                         _ = try self.writer.write("} else {\n");
 
                         self.cur_indent += IndentWidth;
-                        try self.genStatements(next.head.child_head);
+                        try self.genStatements(else_clause.head.else_clause.body_head);
                         self.cur_indent -= IndentWidth;
-                    } else return self.reportError(error.Unsupported, "Unsupported clause.", .{}, next);
+                        break;
+                    } else {
+                        try self.indent();
+                        _ = try self.writer.write("} else if (");
+                        const else_cond = self.nodes[else_clause.head.else_clause.cond];
+                        try self.genExpression(else_cond);
+                        _ = try self.writer.write(") {\n");
+
+                        self.cur_indent += IndentWidth;
+                        try self.genStatements(else_clause.head.else_clause.body_head);
+                        self.cur_indent -= IndentWidth;
+
+                        else_clause_id = else_clause.head.else_clause.else_clause;
+                    }
                 }
+
+                try self.indent();
+                _ = try self.writer.write("}\n");
+            },
+            .for_iter_stmt => {
+                try self.indent();
+                if (self.use_generators) {
+                    _ = try self.writer.write("yield* ");
+                }
+                const iterable = self.nodes[node.head.for_iter_stmt.iterable];
+                try self.genExpression(iterable);
+                const as_clause = self.nodes[node.head.for_iter_stmt.as_clause];
+                const ident = self.nodes[as_clause.head.as_iter_clause.value];
+                const ident_token = self.tokens[ident.start_token];
+                const val_name = self.src[ident_token.start_pos..ident_token.data.end_pos];
+                if (self.use_generators) {
+                    _ = try self.writer.print(".genIterValues(function*({s}) {{\n", .{val_name});
+                } else {
+                    _ = try self.writer.print(".iterValues({s} => {{\n", .{val_name});
+                }
+
+                self.cur_indent += IndentWidth;
+                try self.genStatements(node.head.for_iter_stmt.body_head);
+                self.cur_indent -= IndentWidth;
+
+                try self.indent();
+                _ = try self.writer.write("});\n");
+            },
+            .for_range_stmt => {
+                var it_name: []const u8 = "i";
+                var step: ?parser.Node = null;
+                var step_const = true;
+                var inc = true;
+                if (node.head.for_range_stmt.as_clause != NullId) {
+                    const as_clause = self.nodes[node.head.for_range_stmt.as_clause];
+                    const ident = self.nodes[as_clause.head.as_range_clause.ident];
+                    const ident_token = self.tokens[ident.start_token];
+                    it_name = self.src[ident_token.start_pos..ident_token.data.end_pos];
+                    inc = as_clause.head.as_range_clause.inc;
+                    if (as_clause.head.as_range_clause.step != NullId) {
+                        step = self.nodes[as_clause.head.as_range_clause.step];
+                        step_const = self.isExprConst(step.?);
+                    }
+                }
+
+                const range_clause = self.nodes[node.head.for_range_stmt.range_clause];
+                const left_range = self.nodes[range_clause.head.left_right.left];
+                const right_range = self.nodes[range_clause.head.left_right.right];
+                const right_range_const = self.isExprConst(right_range);
+
+                var end_var: []const u8 = undefined;
+                if (!right_range_const) {
+                    end_var = try self.getNextPrefixedVar(self.arena_alloc, "__end");
+                    try self.declareConstVar(end_var, right_range);
+                }
+                var step_var: []const u8 = undefined;
+                if (!step_const and step != null) {
+                    step_var = try self.getNextPrefixedVar(self.arena_alloc, "__step");
+                    try self.declareConstVar(step_var, step.?);
+                }
+                try self.declareVarIfNeeded(it_name);
+                try self.indent();
+                _ = try self.writer.write("for (");
+                _ = try self.writer.print("{s}=", .{it_name});
+                try self.genExpression(left_range);
+                if (inc) {
+                    if (!right_range_const) {
+                        _ = try self.writer.print("; {s} < {s}", .{it_name, end_var});
+
+                    } else {
+                        _ = try self.writer.print("; {s} < ", .{it_name});
+                        try self.genExpression(right_range);
+                    }
+                } else {
+                    if (!right_range_const) {
+                        _ = try self.writer.print("; {s} > {s}", .{it_name, end_var});
+                    } else {
+                        _ = try self.writer.print("; {s} > ", .{it_name});
+                        try self.genExpression(right_range);
+                    }
+                }
+                if (inc) {
+                    if (!step_const) {
+                        _ = try self.writer.print("; {s} += {s}", .{it_name, step_var});
+                    } else {
+                        _ = try self.writer.print("; {s} += ", .{it_name});
+                        if (step) |step_n| {
+                            try self.genExpression(step_n);
+                        } else {
+                            _ = try self.writer.write("1");
+                        }
+                    }
+                } else {
+                    if (!step_const) {
+                        _ = try self.writer.print("; {s} -= {s}", .{it_name, step_var});
+                    } else {
+                        _ = try self.writer.print("; {s} -= ", .{it_name});
+                        if (step) |step_n| {
+                            try self.genExpression(step_n);
+                        } else {
+                            _ = try self.writer.write("1");
+                        }
+                    }
+                }
+                _ = try self.writer.write(") {\n");
+
+                try self.genForBody(node.head.for_range_stmt.body_head);
 
                 try self.indent();
                 _ = try self.writer.write("}\n");
@@ -457,14 +697,27 @@ pub const JsTargetCompiler = struct {
         if (self.opts.gas_meter != .none) {
             try self.indent();
             if (self.opts.gas_meter == .error_interrupt) {
-                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) throw new Error('Interrupted');\n");
+                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) throw globalThis._internal.interruptSym;\n");
             } else if (self.opts.gas_meter == .yield_interrupt) {
-                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) yield new Error('Interrupted');\n");
+                _ = try self.writer.write("__interrupt_count += 1; if (__interrupt_count > __interrupt_max) yield globalThis._internal.interruptSym;\n");
             }
         }
         try self.genStatements(first_stmt_id);
         self.cur_indent -= IndentWidth;
     }
+
+    fn genFirstExpr(self: *JsTargetCompiler, node: parser.Node) !void {
+        if (node.node_t == .ident) {
+            const token = self.tokens[node.start_token];
+            const name = self.src[token.start_pos..token.data.end_pos];
+            if (self.getScopedVarDesc(name) == null) {
+                try self.opts.write_global(self.opts.cb_ctx, self.writer, name);
+                return;
+            }
+        }
+        try self.genExpression(node);
+    }
+
 
     fn genExpression(self: *JsTargetCompiler, node: parser.Node) anyerror!void {
         // log.debug("gen expr {}", .{node.node_t});
@@ -477,6 +730,15 @@ pub const JsTargetCompiler = struct {
                 const ident = self.nodes[node.head.annotation.child];
                 const token = self.tokens[ident.start_token];
                 _ = try self.writer.print("globalThis.{s}", .{self.src[token.start_pos..token.data.end_pos]});
+            },
+            .true_literal => {
+                _ = try self.writer.write("true");
+            },
+            .false_literal => {
+                _ = try self.writer.write("false");
+            },
+            .none => {
+                _ = try self.writer.write("null");
             },
             .number => {
                 const token = self.tokens[node.start_token];
@@ -511,7 +773,7 @@ pub const JsTargetCompiler = struct {
                 var expr_id = node.head.child_head;
                 while (expr_id != NullId) {
                     var expr = self.nodes[expr_id];
-                    try self.genExpression(expr);
+                    try self.genFirstExpr(expr);
                     expr_id = expr.next;
                     if (expr_id != NullId) {
                         _ = try self.writer.write(",");
@@ -521,9 +783,10 @@ pub const JsTargetCompiler = struct {
                 _ = try self.writer.write("]");
             },
             .await_expr => {
-                _ = try self.writer.write("await ");
+                _ = try self.writer.write("(yield globalThis._internal.awaitYield(");
                 var expr = self.nodes[node.head.child_head];
                 try self.genExpression(expr);
+                _ = try self.writer.write("))");
             },
             .lambda_multi => {
                 const func = self.func_decls[node.head.func.decl_id];
@@ -568,6 +831,10 @@ pub const JsTargetCompiler = struct {
                         try self.writer.writeByte('-');
                         try self.genExpression(child);
                     },
+                    .not => {
+                        try self.writer.writeByte('!');
+                        try self.genExpression(child);
+                    },
                     // else => return self.reportError(error.Unsupported, "Unsupported unary op: {}", .{op}, node),
                 }
             },
@@ -578,42 +845,51 @@ pub const JsTargetCompiler = struct {
                     try self.genExpression(left);
                     try self.writer.writeByte(')');
                 } else {
-                    try self.genExpression(left);
+                    try self.genFirstExpr(left);
                 }
                 const op = @intToEnum(parser.BinaryExprOp, node.head.left_right.extra);
                 switch (op) {
                     .plus => {
-                        try self.writer.writeByte('+');
+                        _ = try self.writer.write(" + ");
                     },
                     .minus => {
-                        try self.writer.writeByte('-');
+                        _ = try self.writer.write(" - ");
                     },
                     .equal_equal => {
-                        _ = try self.writer.write("==");
+                        _ = try self.writer.write(" == ");
                     },
                     .bang_equal => {
-                        _ = try self.writer.write("!=");
+                        _ = try self.writer.write(" != ");
                     },
                     .less => {
-                        try self.writer.writeByte('<');
+                        _ = try self.writer.write(" < ");
                     },
                     .less_equal => {
-                        _ = try self.writer.write("<=");
+                        _ = try self.writer.write(" <= ");
                     },
                     .greater => {
-                        try self.writer.writeByte('>');
+                        _ = try self.writer.write(" > ");
                     },
                     .greater_equal => {
-                        _ = try self.writer.write(">=");
+                        _ = try self.writer.write(" >= ");
                     },
                     .star => {
-                        _ = try self.writer.write("*");
+                        _ = try self.writer.write(" * ");
+                    },
+                    .star_star => {
+                        _ = try self.writer.write(" ** ");
                     },
                     .slash => {
-                        _ = try self.writer.write("/");
+                        _ = try self.writer.write(" / ");
                     },
                     .percent => {
-                        _ = try self.writer.write("%");
+                        _ = try self.writer.write(" % ");
+                    },
+                    .and_op => {
+                        _ = try self.writer.write(" && ");
+                    },
+                    .or_op => {
+                        _ = try self.writer.write(" || ");
                     },
                     else => return self.reportError(error.Unsupported, "Unsupported binary op: {}", .{op}, node),
                 }
@@ -624,12 +900,12 @@ pub const JsTargetCompiler = struct {
                     try self.genExpression(right);
                     try self.writer.writeByte(')');
                 } else {
-                    try self.genExpression(right);
+                    try self.genFirstExpr(right);
                 }
             },
             .access_expr => {
                 const left = self.nodes[node.head.left_right.left];
-                try self.genExpression(left);
+                try self.genFirstExpr(left);
 
                 const right = self.nodes[node.head.left_right.right];
                 if (right.node_t == .ident) {
@@ -641,30 +917,85 @@ pub const JsTargetCompiler = struct {
                     _ = try self.writer.writeByte(']');
                 }
             },
+            .arr_range_expr => {
+                const arr = self.nodes[node.head.arr_range_expr.arr];
+                try self.genFirstExpr(arr);
+
+                _ = try self.writer.write(".slice(");
+                if (node.head.arr_range_expr.left == NullId) {
+                    _ = try self.writer.write("0");
+                } else {
+                    const left = self.nodes[node.head.arr_range_expr.left];
+                    try self.genFirstExpr(left);
+                }
+                if (node.head.arr_range_expr.right != NullId) {
+                    _ = try self.writer.write(", ");
+                    const right = self.nodes[node.head.arr_range_expr.right];
+                    try self.genFirstExpr(right);
+                }
+                _ = try self.writer.write(")");
+            },
+            .arr_access_expr => {
+                const left = self.nodes[node.head.left_right.left];
+                try self.genFirstExpr(left);
+
+                const right = self.nodes[node.head.left_right.right];
+                _ = try self.writer.writeByte('[');
+                try self.genFirstExpr(right);
+                _ = try self.writer.writeByte(']');
+            },
             .call_expr => {
+                const callee = self.nodes[node.head.func_call.callee];
                 if (!node.head.func_call.has_named_arg) {
-                    // No named args.
-                    const left = self.nodes[node.head.func_call.callee];
-                    try self.genExpression(left);
-                    _ = try self.writer.write("(");
-                    var arg_id = node.head.func_call.arg_head;
-                    if (arg_id != NullId) {
-                        var arg = self.nodes[arg_id];
-                        try self.genExpression(arg);
-                        arg_id = arg.next;
-                        while (arg_id != NullId) {
-                            arg = self.nodes[arg_id];
+                    if (self.use_generators) {
+                        // Wrap in paren for precedence in binary expr.
+                        _ = try self.writer.write("(yield* ");
+                        _ = try self.writer.write(self.opts.yieldCallFunc);
+                        _ = try self.writer.write("(");
+                        try self.genFirstExpr(callee);
+                        if (callee.node_t == .access_expr) {
                             _ = try self.writer.write(", ");
-                            try self.genExpression(arg);
-                            arg_id = arg.next;
+                            const this = self.nodes[callee.head.left_right.left];
+                            try self.genFirstExpr(this);
+                        } else {
+                            _ = try self.writer.write(", void 0");
                         }
+                        var arg_id = node.head.func_call.arg_head;
+                        if (arg_id != NullId) {
+                            _ = try self.writer.write(", ");
+                            var arg = self.nodes[arg_id];
+                            try self.genFirstExpr(arg);
+                            arg_id = arg.next;
+                            while (arg_id != NullId) {
+                                arg = self.nodes[arg_id];
+                                _ = try self.writer.write(", ");
+                                try self.genFirstExpr(arg);
+                                arg_id = arg.next;
+                            }
+                        }
+                        _ = try self.writer.write("))");
+                    } else {
+                        // No named args.
+                        try self.genExpression(callee);
+                        _ = try self.writer.write("(");
+                        var arg_id = node.head.func_call.arg_head;
+                        if (arg_id != NullId) {
+                            var arg = self.nodes[arg_id];
+                            try self.genFirstExpr(arg);
+                            arg_id = arg.next;
+                            while (arg_id != NullId) {
+                                arg = self.nodes[arg_id];
+                                _ = try self.writer.write(", ");
+                                try self.genFirstExpr(arg);
+                                arg_id = arg.next;
+                            }
+                        }
+                        _ = try self.writer.write(")");
                     }
-                    _ = try self.writer.write(")");
                 } else {
                     // Named args.
                     _ = try self.writer.write("_internal.callNamed(");
-                    const left = self.nodes[node.head.func_call.callee];
-                    try self.genExpression(left);
+                    try self.genExpression(callee);
                     _ = try self.writer.write(", [");
 
                     var arg_id = node.head.func_call.arg_head;
@@ -707,23 +1038,19 @@ pub const JsTargetCompiler = struct {
                 }
             },
             .if_expr => {
-                _ = try self.writer.write("if (");
-                const cond = self.nodes[node.head.left_right.left];
+                const cond = self.nodes[node.head.if_expr.cond];
                 try self.genExpression(cond);
-                _ = try self.writer.write(") { ");
-                const body = self.nodes[node.head.left_right.right];
+                _ = try self.writer.write(" ? ");
+                const body = self.nodes[node.head.if_expr.body_expr];
                 try self.genExpression(body);
-                if (node.head.left_right.extra != NullId) {
-                    const next = self.nodes[node.head.left_right.extra];
-                    if (next.node_t == .else_clause) {
-                        _ = try self.writer.write(" } else { ");
-                        const else_body = self.nodes[next.head.child_head];
-                        try self.genExpression(else_body);
-                    } else {
-                        return self.reportError(error.Unsupported, "Unsupported node", .{}, next);
-                    }
+                _ = try self.writer.write(" : ");
+                if (node.head.if_expr.else_clause != NullId) {
+                    const else_clause = self.nodes[node.head.if_expr.else_clause];
+                    const else_body = self.nodes[else_clause.head.child_head];
+                    try self.genExpression(else_body);
+                } else {
+                    _ = try self.writer.write("undefined");
                 }
-                _ = try self.writer.write(" }");
             },
             else => return self.reportError(error.Unsupported, "Unsupported node", .{}, node),
         }
@@ -743,6 +1070,7 @@ pub const ResultView = struct {
     output: []const u8,
     err_msg: []const u8,
     has_error: bool,
+    wrapped_in_generator: bool,
 };
 
 const BlockState = struct {
@@ -758,7 +1086,17 @@ const VarDesc = struct {
 };
 
 const CompileOptions = struct {
+    const S = struct {
+        fn defaultWriteGlobal(_: ?*anyopaque, writer: std.ArrayListUnmanaged(u8).Writer, name: []const u8) anyerror!void {
+            _ = try writer.write(name);
+        }
+    };
     gas_meter: GasMeterOption = .none,
+    write_global: fn (?*anyopaque, std.ArrayListUnmanaged(u8).Writer, []const u8) anyerror!void = S.defaultWriteGlobal,
+    cb_ctx: ?*anyopaque = null,
+    wrap_in_func: bool = false,
+
+    yieldCallFunc: []const u8 = "globalThis._internal.yieldCall",
 };
 
 const GasMeterOption = enum(u2) {

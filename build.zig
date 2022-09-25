@@ -95,8 +95,8 @@ pub fn build(b: *Builder) !void {
         } else {
             // Targeting mac but not native. eg. targeting macos with a minimum version.
             // Set sysroot with sdk path and use these setups as needed for libs:
-            // lib.addFrameworkDir("/System/Library/Frameworks");
-            // lib.addSystemIncludeDir("/usr/include");
+            // lib.addFrameworkPath("/System/Library/Frameworks");
+            // lib.addSystemIncludePath("/usr/include");
             // Don't use zig's libc, since it might not be up to date with the latest SDK which we need for frameworks.
             // lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
             if (std.zig.system.darwin.getDarwinSDK(b.allocator, builtin.target)) |sdk| {
@@ -790,7 +790,7 @@ const BuildContext = struct {
             // "-DTRACY_NO_EXIT=1"
         };
 
-        step.addIncludeDir(path);
+        step.addIncludePath(path);
         step.addCSourceFile(client_cpp, tracy_c_flags);
         step.linkSystemLibraryName("c++");
         step.linkLibC();
@@ -861,7 +861,7 @@ pub const zig_v8_pkg = Pkg{
 fn addZigV8(step: *LibExeObjStep) void {
     step.addPackage(zig_v8_pkg);
     step.linkLibC();
-    step.addIncludeDir("./lib/zig-v8/src");
+    step.addIncludePath("./lib/zig-v8/src");
 }
 
 const CopyVendorStep = struct {

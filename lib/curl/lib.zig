@@ -14,7 +14,7 @@ const Options = struct {
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor/include/curl");
+    step.addIncludePath(srcPath() ++ "/vendor/include/curl");
 }
 
 pub fn create(
@@ -235,30 +235,30 @@ pub fn create(
     lib.linkLibC();
 
     if (target.getOsTag() == .linux) {
-        lib.addIncludeDir(fromRoot(b, "linux"));
+        lib.addIncludePath(fromRoot(b, "linux"));
     } else if (target.getOsTag() == .macos) {
-        lib.addIncludeDir(fromRoot(b, "macos"));
+        lib.addIncludePath(fromRoot(b, "macos"));
     } else if (target.getOsTag() == .windows) {
-        lib.addIncludeDir(fromRoot(b, "windows"));
+        lib.addIncludePath(fromRoot(b, "windows"));
     }
 
-    lib.addIncludeDir(fromRoot(b, "vendor/include"));
-    lib.addIncludeDir(fromRoot(b, "vendor/lib"));
+    lib.addIncludePath(fromRoot(b, "vendor/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/lib"));
 
     for (opts.openssl_includes) |path| {
-        lib.addIncludeDir(path);
+        lib.addIncludePath(path);
     }
     for (opts.nghttp2_includes) |path| {
-        lib.addIncludeDir(path);
+        lib.addIncludePath(path);
     }
     for (opts.zlib_includes) |path| {
-        lib.addIncludeDir(path);
+        lib.addIncludePath(path);
     }
 
     if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
         if (!target.isNativeOs()) {
             lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
-            lib.addFrameworkDir("/System/Library/Frameworks");
+            lib.addFrameworkPath("/System/Library/Frameworks");
         } 
         lib.linkFramework("SystemConfiguration");
     }

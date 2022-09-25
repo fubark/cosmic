@@ -16,14 +16,14 @@ const Graphics = @import("graphics.zig").Graphics;
 const log = std.log.scoped(.stroke);
 
 /// Given quadratic bezier curve, generate triangles along the inner and outer offset paths.
-pub fn strokeQuadBez(mesh: *Mesh, buf: *std.ArrayList(Vec2), q_bez: QuadBez, half_width: f32, color: Color) void {
-    q_bez.flatten(0.5, buf);
+pub fn strokeQuadBez(mesh: *Mesh, alloc: std.mem.Allocator, buf: *std.ArrayListUnmanaged(Vec2), q_bez: QuadBez, half_width: f32, color: Color) void {
+    q_bez.flatten(0.5, alloc, buf);
     strokePath(mesh, buf.items, half_width, color);
 }
 
 /// Given cubic bezier curve, generate triangles along the inner and outer offset paths.
-pub fn strokeCubicBez(mesh: *Mesh, buf: *std.ArrayList(Vec2), qbez_buf: *std.ArrayList(SubQuadBez), c_bez: CubicBez, half_width: f32, color: Color) void {
-    c_bez.flatten(0.5, buf, qbez_buf);
+pub fn strokeCubicBez(mesh: *Mesh, alloc: std.mem.Allocator, buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez), c_bez: CubicBez, half_width: f32, color: Color) void {
+    c_bez.flatten(0.5, alloc, buf, qbez_buf);
     strokePath(mesh, buf.items, half_width, color);
 }
 
@@ -50,9 +50,9 @@ fn strokePath(mesh: *Mesh, pts: []const Vec2, half_width: f32, color: Color) voi
         _ = mesh.pushVertex(vert);
 
         // Left side quad.
-        mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 4, start_idx + 3);
+        mesh.pushQuadIndexes(start_idx, start_idx + 3, start_idx + 4, start_idx + 1);
         // Right side quad.
-        mesh.pushQuadIndexes(start_idx+1, start_idx + 2, start_idx + 5, start_idx + 4);
+        mesh.pushQuadIndexes(start_idx+1, start_idx + 4, start_idx + 5, start_idx + 2);
         last_uvec = uvec;
     }
     {

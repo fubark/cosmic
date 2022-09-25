@@ -88,10 +88,10 @@ pub const App = struct {
             }
 
             fn onOpenFont(self_: *App, path: []const u8) void {
-                const font_data = std.fs.cwd().readFileAlloc(self_.alloc, path, 1e8) catch @panic("error");
+                const font_data = std.fs.cwd().readFileAlloc(self_.alloc, path, 1e8) catch fatal();
                 defer self_.alloc.free(font_data);
                 const g = self_.ctx.getGraphics();
-                const font_id = g.addFontTTF(font_data);
+                const font_id = g.addFontTTF(font_data) catch fatal();
                 self_.font_family = graphics.FontFamily{ .Font = font_id };
             }
 
@@ -125,9 +125,9 @@ pub const App = struct {
                                 // .fontFamily = "Tamzen",
                                 .fontFamily = self.font_family,
                                 .fontSize = self.font_size,
-                                .init_val = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built on top of Freetype and OpenGL/Vulkan.",
-                                .text_color = self.text_color,
-                                .bg_color = self.bg_color,
+                                .initValue = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built on top of Freetype and OpenGL/Vulkan.",
+                                .textColor = self.text_color,
+                                .bgColor = self.bg_color,
                             }),
                         ),
                     ),
@@ -170,8 +170,8 @@ pub fn main() !void {
     _ = app.gctx.addFontOTB(&.{
         .{ .data = tamzen9_otb, .size = 9 },
     });
-    const emoji_font = app.gctx.addFontTTF(NotoColorEmoji);
-    app.gctx.addFallbackFont(emoji_font);
+    const emoji_font = try app.gctx.addFontTTF(NotoColorEmoji);
+    try app.gctx.addFallbackFont(emoji_font);
 
     app.runEventLoop(update);
 }

@@ -21,6 +21,9 @@ pub const Renderer = struct {
         .OpenGL => struct {
             renderer: ggl.Renderer,
         },
+        .SlaveOpenGL => struct {
+            renderer: ggl.SlaveRenderer,
+        },
         else => void,
     },
 
@@ -106,7 +109,7 @@ pub const WindowRenderer = struct {
             },
             .OpenGL => {
                 // In OpenGL, glClear can block if there there are too many commands in the queue.
-                gpu.Graphics.beginFrame(&self.renderer.gctx.impl, self.win.impl.buf_width, self.win.impl.buf_height, self.win.impl.fbo_id);
+                gpu.Graphics.beginFrame(&self.renderer.gctx.impl, self.win.impl.width, self.win.impl.height, self.win.impl.buf_width, self.win.impl.buf_height, self.win.impl.fbo_id);
             },
             else => stdx.unsupported(),
         }

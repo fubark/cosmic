@@ -57,7 +57,7 @@ pub const QuadBez = struct {
     /// The algorithm was developed by Raph Levien.
     /// This has an advantage over other methods since it determines the t values beforehand
     /// so that each t value can be evaluated in parallel, although the implementation is not taking advantage of that right now.
-    pub fn flatten(self: Self, tol: f32, buf: *std.ArrayList(Vec2)) void {
+    pub fn flatten(self: Self, tol: f32, alloc: std.mem.Allocator, buf: *std.ArrayListUnmanaged(Vec2)) void {
         const t__ = trace(@src());
         defer t__.end();
 
@@ -71,7 +71,7 @@ pub const QuadBez = struct {
         }
         const n = @floatToInt(u32, @ceil(count));
         const start = @intCast(u32, buf.items.len);
-        buf.ensureUnusedCapacity(n + 1) catch unreachable;
+        buf.ensureUnusedCapacity(alloc, n + 1) catch unreachable;
         buf.items.len = start + n + 1;
         const r0 = approx_inv_myint(a0);
         const r1 = approx_inv_myint(a1);
@@ -128,7 +128,7 @@ pub const CubicBez = struct {
     /// Given error tolerance, output the minimum points needed to flatten the curve.
     /// The cubic bezier is first converted into quad bezier curves and then uses the same quad bezier flatten algorithm.
     /// TODO: add comptime "continued" param to add points after the start point. Like a "curveTo".
-    pub fn flatten(self: Self, tol: f32, buf: *std.ArrayList(Vec2), qbez_buf: *std.ArrayList(SubQuadBez)) void {
+    pub fn flatten(self: Self, tol: f32, alloc: std.mem.Allocator, buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez)) void {
         const t__ = trace(@src());
         defer t__.end();
 
@@ -140,7 +140,7 @@ pub const CubicBez = struct {
         // n_quads is usually 2 or more quads.
         const n_quads_i = @floatToInt(u32, n_quads);
 
-        qbez_buf.ensureTotalCapacity(n_quads_i) catch unreachable;
+        qbez_buf.ensureTotalCapacity(alloc, n_quads_i) catch unreachable;
         qbez_buf.items.len = n_quads_i;
         var sum: f32 = 0;
         var i: u32 = 0;
@@ -178,7 +178,7 @@ pub const CubicBez = struct {
         const ni = @floatToInt(u32, n);
 
         const start = @intCast(u32, buf.items.len);
-        buf.ensureUnusedCapacity(ni + 1) catch unreachable;
+        buf.ensureUnusedCapacity(alloc, ni + 1) catch unreachable;
         buf.items.len = start + ni + 1;
 
         buf.items[start] = vec2(self.x0, self.y0);
@@ -264,10 +264,10 @@ test "Quadratic bezier flatten." {
         .x1 = 200,
         .y1 = 200,
     };
-    var buf = std.ArrayList(Vec2).init(t.alloc);
-    defer buf.deinit();
+    var buf: std.ArrayListUnmanaged(Vec2) = .{};
+    defer buf.deinit(t.alloc);
 
-    qbez.flatten(0.5, &buf);
+    qbez.flatten(0.5, t.alloc, &buf);
 
     const exp: []const Vec2 = &.{
         vec2(0, 0),
@@ -304,13 +304,13 @@ test "Cubic bezier flatten." {
         .x1 = 600,
         .y1 = 50,
     };
-    var buf = std.ArrayList(Vec2).init(t.alloc);
-    defer buf.deinit();
+    var buf: std.ArrayListUnmanaged(Vec2) = .{};
+    defer buf.deinit(t.alloc);
 
-    var qbez_buf = std.ArrayList(SubQuadBez).init(t.alloc);
-    defer qbez_buf.deinit();
+    var qbez_buf: std.ArrayListUnmanaged(SubQuadBez) = .{};
+    defer qbez_buf.deinit(t.alloc);
 
-    cbez.flatten(0.5, &buf, &qbez_buf);
+    cbez.flatten(0.5, t.alloc, &buf, &qbez_buf);
 
     const exp: []const Vec2 = &.{
         vec2(200, 450),

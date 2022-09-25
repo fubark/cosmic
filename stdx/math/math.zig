@@ -206,69 +206,67 @@ pub const Vec4 = struct {
 };
 
 pub const Vec2 = struct {
-    const Self = @This();
-
     x: f32,
     y: f32,
 
-    pub fn init(x: f32, y: f32) Self {
+    pub fn init(x: f32, y: f32) Vec2 {
         return .{ .x = x, .y = y };
     }
 
-    pub fn initTo(from: Vec2, to: Vec2) Self {
+    pub fn initTo(from: Vec2, to: Vec2) Vec2 {
         return .{ .x = to.x - from.x, .y = to.y - from.y };
     }
 
-    pub fn squareLength(self: Self) f32 {
+    pub fn squareLength(self: Vec2) f32 {
         return self.x * self.x + self.y * self.y;
     }
 
-    pub fn length(self: Self) f32 {
+    pub fn length(self: Vec2) f32 {
         return std.math.sqrt(self.x * self.x + self.y * self.y);
     }
 
-    pub fn normalize(self: Self) Vec2 {
+    pub fn normalize(self: Vec2) Vec2 {
         const len = self.length();
-        return Self.init(self.x / len, self.y / len);
+        return Vec2.init(self.x / len, self.y / len);
     }
 
-    pub fn toLength(self: Self, len: f32) Vec2 {
+    pub fn toLength(self: Vec2, len: f32) Vec2 {
         const factor = len / self.length();
-        return Self.init(self.x * factor, self.y * factor);
+        return Vec2.init(self.x * factor, self.y * factor);
     }
 
-    pub fn normalizeWith(self: Self, factor: f32) Vec2 {
-        return Self.init(self.x / factor, self.y / factor);
+    pub fn normalizeWith(self: Vec2, factor: f32) Vec2 {
+        return Vec2.init(self.x / factor, self.y / factor);
     }
 
-    pub fn neg(self: Self) Vec2 {
-        return Self.init(-self.x, -self.y);
+    pub fn neg(self: Vec2) Vec2 {
+        return Vec2.init(-self.x, -self.y);
     }
 
     /// Cross product.
     /// Useful for determining the z direction.
-    pub fn cross(self: Self, v: Vec2) f32 {
+    pub fn cross(self: Vec2, v: Vec2) f32 {
         return self.x * v.y - self.y * v.x;
     }
 
     /// Component addition.
-    pub fn add(self: Self, v: Vec2) Vec2 {
+    pub fn add(self: Vec2, v: Vec2) Vec2 {
         return vec2(self.x + v.x, self.y + v.y);
     }
 
     /// Dot product.
-    pub fn dot(self: Self, v: Vec2) f32 {
+    pub fn dot(self: Vec2, v: Vec2) f32 {
         return self.x * v.x + self.y * v.y;
     }
 
     /// Component multiplication.
-    pub fn mul(self: Self, s: f32) Vec2 {
-        return Self.init(self.x * s, self.y * s);
+    pub fn mul(self: Vec2, s: f32) Vec2 {
+        return Vec2.init(self.x * s, self.y * s);
     }
 
     /// Component division.
-    pub fn div(self: Self, s: f32) Vec2 {
-        return Self.init(self.x / s, self.y / s);
+    pub fn div(self: Vec2, s: f32) Vec2 {
+        return Vec2.init(self.x / s, self.y / s);
     }
 };
 

@@ -159,6 +159,8 @@ pub const EventHandlerMasks = struct {
     pub const global_mouseup: u8 = 0b00001000;
     pub const global_mousemove: u8 = 0b00010000;
     pub const hoverchange: u8 = 0b00100000;
+    pub const keyup: u8 = 0b01000000;
+    pub const keydown: u8 = 0b10000000;
 };
 
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.

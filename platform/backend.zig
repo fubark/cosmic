@@ -7,10 +7,12 @@ pub const GraphicsBackend = enum(u3) {
     WasmCanvas = 1,
     /// For Desktop and WebGL.
     OpenGL = 2,
+    /// For WebGL WebWorker.
+    SlaveOpenGL = 3,
     /// For Desktop only.
-    Vulkan = 3,
+    Vulkan = 4,
     /// Dummy, lets switch statements always have an else clause.
-    Dummy = 4,
+    Dummy = 5,
 };
 
 pub fn getGraphicsBackend(step: *std.build.LibExeObjStep) GraphicsBackend {

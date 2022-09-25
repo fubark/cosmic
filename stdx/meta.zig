@@ -19,7 +19,7 @@ pub fn hasFunctionSignature(comptime ExpFunc: type, comptime Func: type) bool {
     if (FnNumParams(ExpFunc) != FnNumParams(Func)) {
         return false;
     }
-    return std.mem.eql(std.builtin.TypeInfo.FnArg, FnParams(ExpFunc), FnParams(Func));
+    return std.mem.eql(std.builtin.Type.Fn.Param, FnParams(ExpFunc), FnParams(Func));
 }
 
 pub fn isFunc(comptime Fn: type) bool {
@@ -37,7 +37,7 @@ pub fn FnParamAt(comptime Fn: type, comptime idx: u32) type {
 
 pub const FnParamsTuple = std.meta.ArgsTuple;
 
-pub fn FnParams(comptime Fn: type) []const std.builtin.TypeInfo.FnArg {
+pub fn FnParams(comptime Fn: type) []const std.builtin.Type.Fn.Param {
     return @typeInfo(Fn).Fn.args;
 }
 

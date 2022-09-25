@@ -12,8 +12,8 @@ pub const pkg = std.build.Pkg{
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
     step.linkLibC();
-    step.addIncludeDir(srcPath() ++ "/vendor/include");
-    step.addIncludeDir(srcPath() ++ "/");
+    step.addIncludePath(srcPath() ++ "/vendor/include");
+    step.addIncludePath(srcPath() ++ "/");
 }
 
 pub fn create(
@@ -313,20 +313,20 @@ pub fn create(
 
     lib.linkLibC();
     // Look for our custom SDL_config.h.
-    lib.addIncludeDir(srcPath());
+    lib.addIncludePath(srcPath());
     // For local CMake generated config.
-    // lib.addIncludeDir(fromRoot(b, "vendor/build/include"));
-    lib.addIncludeDir(fromRoot(b, "vendor/include"));
+    // lib.addIncludePath(fromRoot(b, "vendor/build/include"));
+    lib.addIncludePath(fromRoot(b, "vendor/include"));
     if (target.getOsTag() == .linux) {
-        lib.addIncludeDir("/usr/include");
-        lib.addIncludeDir("/usr/include/x86_64-linux-gnu");
-        lib.addIncludeDir("/usr/include/dbus-1.0");
-        lib.addIncludeDir("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
+        lib.addIncludePath("/usr/include");
+        lib.addIncludePath("/usr/include/x86_64-linux-gnu");
+        lib.addIncludePath("/usr/include/dbus-1.0");
+        lib.addIncludePath("/usr/lib/x86_64-linux-gnu/dbus-1.0/include");
     } else if (builtin.os.tag == .macos and target.getOsTag() == .macos) {
         if (target.isNativeOs()) {
             lib.linkFramework("CoreFoundation");
         } else {
-            lib.addFrameworkDir("/System/Library/Frameworks");
+            lib.addFrameworkPath("/System/Library/Frameworks");
             lib.setLibCFile(std.build.FileSource.relative("./lib/macos.libc"));
         }
     }
@@ -348,8 +348,8 @@ pub fn linkDeps(step: *std.build.LibExeObjStep) void {
     if (builtin.os.tag == .macos and step.target.getOsTag() == .macos) {
         // "sdl2_config --static-libs" tells us what we need
         if (!step.target.isNativeOs()) {
-            step.addFrameworkDir("/System/Library/Frameworks");
-            step.addLibPath("/usr/lib"); // To find libiconv.
+            step.addFrameworkPath("/System/Library/Frameworks");
+            step.addLibraryPath("/usr/lib"); // To find libiconv.
         }
         step.linkFramework("Cocoa");
         step.linkFramework("IOKit");

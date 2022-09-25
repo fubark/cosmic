@@ -9,7 +9,7 @@ pub const pkg = std.build.Pkg{
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     var new_pkg = pkg;
     step.addPackage(new_pkg);
-    step.addIncludeDir(srcPath() ++ "/vendor");
+    step.addIncludePath(srcPath() ++ "/vendor");
 }
 
 const BuildOptions = struct {
@@ -19,7 +19,7 @@ const BuildOptions = struct {
 //     const exe = b.addExecutable("test-qjs", null);
 //     exe.setBuildMode(mode);
 //     exe.setTarget(target);
-//     exe.addIncludeDir(srcPath() ++ "/vendor");
+//     exe.addIncludePath(srcPath() ++ "/vendor");
 //     buildAndLink(exe, opts);
 
 //     var c_flags = std.ArrayList([]const u8).init(b.allocator);
@@ -38,7 +38,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
     const lib = b.addStaticLibrary("qjs", null);
     lib.setTarget(step.target);
     lib.setBuildMode(step.build_mode);
-    lib.addIncludeDir(srcPath() ++ "/");
+    lib.addIncludePath(srcPath() ++ "/");
     lib.linkLibC();
     lib.disable_sanitize_c = true;
 
