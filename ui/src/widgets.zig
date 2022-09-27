@@ -76,8 +76,13 @@ pub const Image = genBuildWithNoChild(ImageT);
 
 /// Buttons.
 const button = @import("widgets/button.zig");
+pub const ButtonComputedStyle = button.ButtonComputedStyle;
+pub const ButtonStyle = button.ButtonStyle;
+pub const ButtonMods = button.ButtonMods;
 pub const ButtonT = button.Button;
 pub const Button = genBuildWithChild(ButtonT);
+pub const TextButtonComputedStyle = button.TextButtonComputedStyle;
+pub const TextButtonStyle = button.TextButtonStyle;
 pub const TextButtonT = button.TextButton;
 pub const TextButton = genBuildWithNoChild(TextButtonT);
 

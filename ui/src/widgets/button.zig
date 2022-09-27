@@ -1,3 +1,4 @@
+const std = @import("std");
 const stdx = @import("stdx");
 const Function = stdx.Function;
 const graphics = @import("graphics");
@@ -8,55 +9,94 @@ const ui = @import("../ui.zig");
 const w = ui.widgets;
 const log = stdx.log.scoped(.button);
 
+const NullId = std.math.maxInt(u32);
+
+pub const TextButtonStyle = struct {
+    button: ?ButtonStyle = null,
+};
+
+pub const TextButtonComputedStyle = struct {
+    button: ?ButtonStyle = null,
+};
+
 pub const TextButton = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
-        bg_color: Color = Color.init(220, 220, 220, 255),
-        bg_pressed_color: Color = Color.Gray.darker(),
-        border_size: f32 = 1,
-        border_color: Color = Color.Gray,
-        corner_radius: f32 = 0,
         text: []const u8 = "",
+        icon: ui.IconDecl = .{ .image_id = NullId, .tint = undefined },
     },
 
-    pub fn build(self: *TextButton, _: *ui.BuildContext) ui.FrameId {
-        return w.Button(.{
-            .onClick = self.props.onClick,
-            .bg_color = self.props.bg_color,
-            .bg_pressed_color = self.props.bg_pressed_color,
-            .border_size = self.props.border_size,
-            .border_color = self.props.border_color,
-            .corner_radius = self.props.corner_radius },
-            w.Padding(.{ .padding = 10 },
+    pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FrameId {
+        var body: ui.FrameId = undefined;
+        if (self.props.icon.image_id == NullId) {
+            body = w.Text(.{
+                .text = self.props.text,
+            });
+        } else {
+            body = w.Row(.{}, &.{
+                w.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint }),
                 w.Text(.{
                     .text = self.props.text,
                 }),
+            });
+        }
+
+        const style = ctx.getStyle(TextButton);
+        const button_style: ?*const ButtonStyle = if (style.button != null) &style.button.? else null;
+        return w.Button(.{
+            .onClick = self.props.onClick,
+            .style = button_style, },
+            w.Padding(.{ .padding = 10 },
+                body,
             ),
         );
     }
+};
+
+pub const ButtonStyle = struct {
+    bgColor: ?Color = null,
+    bgColorPressed: ?Color = null,
+    borderSize: ?f32 = null,
+    borderColor: ?Color = null,
+    cornerRadius: ?f32 = null,
+};
+
+pub const ButtonComputedStyle = struct {
+    bgColor: Color = Color.init(220, 220, 220, 255),
+    borderSize: f32 = 1,
+    borderColor: Color = Color.Gray,
+    cornerRadius: f32 = 0,
+
+    pub fn defaultUpdate(style: *ButtonComputedStyle, mods: ButtonMods) void {
+        if (mods.inner.pressed) {
+            style.bgColor = Color.Gray.darker();
+        }
+    }
+};
+
+pub const ButtonMods = packed union {
+    inner: packed struct {
+        pressed: bool,
+    },
+    value: u8,
 };
 
 /// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
 pub const Button = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
-        bg_color: Color = Color.init(220, 220, 220, 255),
-        bg_pressed_color: Color = Color.Gray.darker(),
-        border_size: f32 = 1,
-        border_color: Color = Color.Gray,
-        corner_radius: f32 = 0,
         child: ui.FrameId = ui.NullFrameId,
         halign: ui.HAlign = .Center,
     },
 
-    pressed: bool,
+    mods: ButtonMods = ButtonMods{ .value = 0 },
 
     pub fn build(self: *Button, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;
     }
 
     pub fn init(self: *Button, c: *ui.InitContext) void {
-        self.pressed = false;
+        self.mods = ButtonMods{ .value = 0 };
         c.setMouseDownHandler(c.node, handleMouseDownEvent);
         c.setMouseUpHandler(c.node, handleMouseUpEvent);
     }
@@ -64,8 +104,8 @@ pub const Button = struct {
     fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
         var self = node.getWidget(Button);
         if (e.val.button == .Left) {
-            if (self.pressed) {
-                self.pressed = false;
+            if (self.mods.inner.pressed) {
+                self.mods.inner.pressed = false;
                 if (self.props.onClick.isPresent()) {
                     self.props.onClick.call(.{ e });
                 }
@@ -77,7 +117,8 @@ pub const Button = struct {
         var self = node.getWidget(Button);
         if (e.val.button == .Left) {
             e.ctx.requestFocus(.{ .onBlur = onBlur });
-            self.pressed = true;
+            self.mods.inner.pressed = true;
+            // TODO: trigger compute style.
             return .stop;
         }
         return .default;
@@ -86,7 +127,7 @@ pub const Button = struct {
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
         var self = node.getWidget(Button);
-        self.pressed = false;
+        self.mods.inner.pressed = false;
     }
 
     pub fn layout(self: *Button, c: *ui.LayoutContext) ui.LayoutSize {
@@ -110,22 +151,20 @@ pub const Button = struct {
     }
 
     pub fn render(self: *Button, ctx: *ui.RenderContext) void {
+        _ = self;
+        const style = ctx.getStyle(Button);
         const bounds = ctx.getAbsBounds();
         const g = ctx.getGraphics();
-        if (!self.pressed) {
-            g.setFillColor(self.props.bg_color);
-        } else {
-            g.setFillColor(self.props.bg_pressed_color);
-        }
-        if (self.props.corner_radius > 0) {
-            ctx.fillRoundBBox(bounds, self.props.corner_radius);
-            g.setLineWidth(self.props.border_size);
-            g.setStrokeColor(self.props.border_color);
-            ctx.drawRoundBBox(bounds, self.props.corner_radius);
+        g.setFillColor(style.bgColor);
+        if (style.cornerRadius > 0) {
+            ctx.fillRoundBBox(bounds, style.cornerRadius);
+            g.setLineWidth(style.borderSize);
+            g.setStrokeColor(style.borderColor);
+            ctx.drawRoundBBox(bounds, style.cornerRadius);
         } else {
             ctx.fillBBox(bounds);
-            g.setLineWidth(self.props.border_size);
-            g.setStrokeColor(self.props.border_color);
+            g.setLineWidth(style.borderSize);
+            g.setStrokeColor(style.borderColor);
             ctx.drawBBox(bounds);
         }
     }

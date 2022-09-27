@@ -12,6 +12,8 @@ pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
 pub const WidgetProps = module.WidgetProps;
 pub const SizeConstraints = module.SizeConstraints;
+pub const WidgetComputedStyle = module.WidgetComputedStyle;
+pub const WidgetUserStyle = module.WidgetUserStyle;
 
 const events = @import("events.zig");
 pub const Event = events.Event;
@@ -38,6 +40,7 @@ pub const Import = config.Import;
 
 const frame = @import("frame.zig");
 pub const Frame = frame.Frame;
+pub const FrameStyle = frame.FrameStyle;
 pub const FrameId = frame.FrameId;
 pub const NullId = @import("std").math.maxInt(u32);
 pub const NullFrameId = frame.NullFrameId;

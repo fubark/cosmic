@@ -35,15 +35,144 @@ pub fn getWidgetIdByType(comptime Widget: type) ui.WidgetTypeId {
     return @ptrToInt(GenWidgetVTable(Widget));
 }
 
+fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame: ui.Frame) ?*const WidgetUserStyle(Widget) {
+    const UserStyle = WidgetUserStyle(Widget);
+    if (frame.has_style) {
+        if (frame.style_is_value) {
+            const ptr = mod.build_ctx.frame_props.getBytesPtr(frame.style.value);
+            const user_style = stdx.mem.ptrCastAlign(*const UserStyle, &ptr[0]);
+            // Persist user style.
+            if (!node.hasState(ui.NodeStateMasks.user_style)) {
+                const new = mod.alloc.create(UserStyle) catch fatal();
+                new.* = user_style.*;
+                mod.common.node_user_styles.put(mod.alloc, node, .{
+                    .ptr = .{
+                        .owned = new,
+                    },
+                    .owned = true,
+                }) catch fatal();
+                node.setStateMask(ui.NodeStateMasks.user_style);
+            } else {
+                const handle = mod.common.node_user_styles.getPtr(node).?;
+                var existing: *UserStyle = undefined;
+                if (!handle.owned) {
+                    existing = mod.alloc.create(UserStyle) catch fatal();
+                    handle.ptr = .{
+                        .owned = existing,
+                    };
+                    handle.owned = true;
+                } else {
+                    existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                }
+                existing.* = user_style.*;
+            }
+            return user_style;
+        } else {
+            const user_style = stdx.mem.ptrCastAlign(*const UserStyle, frame.style.ptr);
+            if (!node.hasState(ui.NodeStateMasks.user_style)) {
+                mod.common.node_user_styles.put(mod.alloc, node, .{
+                    .ptr = .{
+                        .not_owned = frame.style.ptr,
+                    },
+                    .owned = false,
+                }) catch fatal();
+                node.setStateMask(ui.NodeStateMasks.user_style);
+            } else {
+                const handle = mod.common.node_user_styles.getPtr(node).?;
+                if (handle.owned) {
+                    const existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                    mod.alloc.destroy(existing);
+                    handle.owned = false;
+                }
+                handle.ptr.not_owned = user_style;
+            }
+            return user_style;
+        }
+    } else {
+        if (node.hasState(ui.NodeStateMasks.user_style)) {
+            const handle = mod.common.node_user_styles.get(node).?;
+            if (handle.owned) {
+                const existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                mod.alloc.destroy(existing);
+            }
+            _ = mod.common.node_user_styles.remove(node);
+            node.clearStateMask(ui.NodeStateMasks.user_style);
+        }
+        return null;
+    }
+}
+
+fn updateWidgetStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame: ui.Frame) void {
+    const Style = WidgetComputedStyle(Widget);
+    const StyleMods = WidgetStyleMods(Widget);
+    if (StyleMods != void) {
+        const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+        if (widget.mods.value > 0) {
+            var computed = mod.common.getCurrentStyleDefault(Widget).*;
+            if (updateWidgetUserStyle(Widget, mod, node, frame)) |user_style| {
+                inline for (comptime std.meta.fieldNames(Style)) |name| {
+                    if (@field(user_style, name)) |value| {
+                        @field(computed, name) = value;
+                    }
+                }
+            }
+            mod.common.getCurrentStyleUpdateFuncDefault(Widget)(&computed, widget.mods);
+
+            if (!node.hasState(ui.NodeStateMasks.computed_style)) {
+                const new = mod.alloc.create(Style) catch fatal();
+                new.* = computed;
+                mod.common.node_computed_styles.put(mod.alloc, node, new) catch fatal();
+                node.setStateMask(ui.NodeStateMasks.computed_style);
+            } else {
+                const existing = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+                existing.* = computed;
+            }
+            return;
+        }
+    }
+
+    // Has user style.
+    if (updateWidgetUserStyle(Widget, mod, node, frame)) |user_style| {
+        var computed = mod.common.getCurrentStyleDefault(Widget).*;
+
+        inline for (comptime std.meta.fieldNames(Style)) |name| {
+            if (@field(user_style, name)) |value| {
+                @field(computed, name) = value;
+            }
+        }
+
+        if (!node.hasState(ui.NodeStateMasks.computed_style)) {
+            const new = mod.alloc.create(Style) catch fatal();
+            new.* = computed;
+            mod.common.node_computed_styles.put(mod.alloc, node, new) catch fatal();
+            node.setStateMask(ui.NodeStateMasks.computed_style);
+        } else {
+            const existing = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+            existing.* = computed;
+        }
+    } else {
+        // Remove computed.
+        if (node.hasState(ui.NodeStateMasks.computed_style)) {
+            const existing = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+            mod.alloc.destroy(existing);
+            _ = mod.common.node_computed_styles.remove(node);
+            node.clearStateMask(ui.NodeStateMasks.computed_style);
+        }
+    }
+}
+
 /// Generates the vtable for a Widget.
 pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
     const gen = struct {
 
-        fn create(alloc: std.mem.Allocator, ctx_ptr: *anyopaque, props_ptr: ?[*]const u8) *anyopaque {
-            const ctx = stdx.mem.ptrCastAlign(*InitContext, ctx_ptr);
+        fn create(mod: *Module, node: *ui.Node, frame: ui.Frame) *anyopaque {
+            const ctx = &mod.init_ctx;
+            const props_ptr = if (frame.props.len > 0) mod.build_ctx.frame_props.getBytesPtr(frame.props) else null;
 
             const new: *Widget = if (@sizeOf(Widget) > 0) b: {
-                break :b alloc.create(Widget) catch unreachable;
+                const res = mod.alloc.create(Widget) catch unreachable;
+                node.widget = res;
+                break :b res;
             } else undefined;
 
             if (@sizeOf(Widget) > 0) {
@@ -54,6 +183,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     }
                 }
             }
+
             if (@hasDecl(Widget, "init")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.init))) {
                     @compileError("Invalid init function: " ++ @typeName(@TypeOf(Widget.init)) ++ " Widget: " ++ @typeName(Widget));
@@ -61,13 +191,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 // Call widget's init to set state.
                 new.init(ctx);
             }
-            if (@sizeOf(Widget) > 0) {
-                return new;
-            } else {
-                // Use a dummy pointer when size = 0.
-                var dummy: bool = undefined;
-                return &dummy;
+
+            // After Widget.init so mods is initialized for styling.
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                updateWidgetStyle(Widget, mod, node, frame);
             }
+
+            return node.widget;
         }
 
         fn postInit(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) void {
@@ -81,12 +212,21 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn updateProps(widget_ptr: *anyopaque, props_ptr: [*]const u8) void {
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+        fn updateProps(mod: *Module, node: *ui.Node, frame: ui.Frame) void {
+            const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
             if (comptime WidgetHasProps(Widget)) {
-                const Props = WidgetProps(Widget);
-                widget.props = std.mem.bytesToValue(Props, props_ptr[0..@sizeOf(Props)]);
+                if (frame.props.len > 0) {
+                    const Props = WidgetProps(Widget);
+                    const props_ptr = mod.build_ctx.frame_props.getBytesPtr(frame.props);
+                    widget.props = std.mem.bytesToValue(Props, props_ptr[0..@sizeOf(Props)]);
+                }
             }
+
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                updateWidgetStyle(Widget, mod, node, frame);
+            }
+
             if (@hasDecl(Widget, "postPropsUpdate")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget) void, @TypeOf(Widget.postPropsUpdate))) {
                     @compileError("Invalid postPropsUpdate function: " ++ @typeName(@TypeOf(Widget.postPropsUpdate)) ++ " Widget: " ++ @typeName(Widget));
@@ -203,7 +343,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             return res;
         }
 
-        fn destroy(node: *ui.Node, alloc: std.mem.Allocator) void {
+        fn destroy(mod: *Module, node: *ui.Node) void {
             if (node.bind) |bind| {
                 // Unbind.
                 if (node.hasState(ui.NodeStateMasks.bind_func)) {
@@ -216,9 +356,26 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
             const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
             if (@hasDecl(Widget, "deinit")) {
-                widget.deinit(alloc);
+                widget.deinit(mod.alloc);
             }
-            alloc.destroy(widget);
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                const UserStyle = WidgetUserStyle(Widget);
+                if (node.hasState(ui.NodeStateMasks.user_style)) {
+                    const handle = mod.common.node_user_styles.get(node).?;
+                    if (handle.owned) {
+                        const style = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                        mod.alloc.destroy(style);
+                    }
+                    _ = mod.common.node_user_styles.remove(node);
+                }
+                if (node.hasState(ui.NodeStateMasks.computed_style)) {
+                    const style = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+                    mod.alloc.destroy(style);
+                    _ = mod.common.node_computed_styles.remove(node);
+                }
+            }
+            mod.alloc.destroy(widget);
         }
 
         const vtable = ui.WidgetVTable{
@@ -799,9 +956,8 @@ pub const Module = struct {
         //     node.transform = pn.transform;
         // }
         const widget_vtable = frame.vtable;
-        if (frame.props.len > 0) {
-            const props_ptr = self.build_ctx.frame_props.getBytesPtr(frame.props);
-            widget_vtable.updateProps(node.widget, props_ptr);
+        if (frame.props.len > 0 or frame.has_style) {
+            widget_vtable.updateProps(self, node, frame);
         }
 
         defer {
@@ -1031,7 +1187,7 @@ pub const Module = struct {
         }
 
         // Destroy widget state/props after firing any cleanup events. eg. hover end event.
-        widget_vtable.destroy(node, self.alloc);
+        widget_vtable.destroy(self.mod_ctx.mod, node);
 
         node.deinit();
 
@@ -1060,7 +1216,6 @@ pub const Module = struct {
             }
             self.destroyNode(new_node);
         }
-        const props_ptr = if (frame.props.len > 0) self.build_ctx.frame_props.getBytesPtr(frame.props) else null;
 
         // Init instance.
         // log.warn("create node {}", .{frame.type_id});
@@ -1085,8 +1240,7 @@ pub const Module = struct {
         }
 
         self.init_ctx.prepareForNode(new_node);
-        const new_widget = widget_vtable.create(self.alloc, &self.init_ctx, props_ptr);
-        new_node.widget = new_widget;
+        const new_widget = widget_vtable.create(self, new_node, frame);
 
         // Bind to ref after initializing the widget.
         if (frame.widget_bind) |bind| {
@@ -1224,10 +1378,37 @@ pub const RenderContext = struct {
         return self.gctx;
     }
 
+    pub inline fn getStyle(self: *RenderContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+        return self.common.getNodeStyle(Widget, self.node);
+    }
+
     pub usingnamespace MixinContextNodeReadOps(RenderContext);
     pub usingnamespace MixinContextSharedOps(RenderContext);
     // pub usingnamespace MixinContextReadOps(RenderContext);
 };
+
+inline fn WidgetStyleMods(comptime Widget: type) type {
+    return switch (Widget) {
+        ui.widgets.ButtonT => ui.widgets.ButtonMods,
+        else => void,
+    };
+}
+
+pub inline fn WidgetComputedStyle(comptime Widget: type) type {
+    return switch (Widget) {
+        ui.widgets.ButtonT => ui.widgets.ButtonComputedStyle,
+        ui.widgets.TextButtonT => ui.widgets.TextButtonComputedStyle,
+        else => void,
+    };
+}
+
+pub inline fn WidgetUserStyle(comptime Widget: type) type {
+    return switch (Widget) {
+        ui.widgets.ButtonT => ui.widgets.ButtonStyle,
+        ui.widgets.TextButtonT => ui.widgets.TextButtonStyle,
+        else => void,
+    };
+}
 
 /// Requires Context.common.
 pub fn MixinContextEventOps(comptime Context: type) type {
@@ -1577,6 +1758,19 @@ const RequestFocusOptions = struct {
 pub const CommonContext = struct {
     common: *ModuleCommon,
     alloc: std.mem.Allocator,
+
+    pub inline fn getNodeStyle(self: CommonContext, comptime Widget: type, node: *ui.Node) *const WidgetComputedStyle(Widget) {
+        const Style = WidgetComputedStyle(Widget);
+
+        if (GenWidgetVTable(Widget) != node.vtable) {
+            stdx.panic("Type assertion failed.");
+        }
+        if (!node.hasState(ui.NodeStateMasks.computed_style)) {
+            return self.common.getCurrentStyleDefault(Widget);
+        } else {
+            return stdx.mem.ptrCastAlign(*Style, self.common.node_computed_styles.get(node).?);
+        }
+    }
 
     pub inline fn getFontVMetrics(self: CommonContext, font_gid: graphics.FontGroupId, font_size: f32) graphics.VMetrics {
         return self.common.g.getFontVMetrics(font_gid, font_size);
@@ -1982,6 +2176,14 @@ pub const CommonContext = struct {
     }
 };
 
+const UserStyleHandle = struct {
+    ptr: union {
+        owned: *anyopaque,
+        not_owned: *const anyopaque,
+    },
+    owned: bool,
+};
+
 // TODO: Refactor similar ops to their own struct. 
 pub const ModuleCommon = struct {
     alloc: std.mem.Allocator,
@@ -2031,6 +2233,22 @@ pub const ModuleCommon = struct {
     last_focused_widget: ?*ui.Node,
     hit_last_focused: bool,
     widget_hit_flag: bool,
+
+    /// Maps node to custom style. The style type is erased and is determined by the Widget type.
+    /// TODO: Currently styles are allocated on the heap, it might be better to have an arraylist per Style type and store indexes instead.
+    node_user_styles: std.AutoHashMapUnmanaged(*ui.Node, UserStyleHandle),
+
+    /// Nodes that have dynamic styles either because of per widget user styles or the widget has style modifiers,
+    /// cache their computed styles in this map.
+    /// When all style modifiers are false and there are no user style overrides,
+    /// the computed style will be removed and the current theme style will be returned instead.
+    /// TODO: Also reduce capacity if map is reduced by some threshold of current cap.
+    node_computed_styles: std.AutoHashMapUnmanaged(*ui.Node, *anyopaque),
+
+    /// Style defaults.
+    default_button_style: ui.widgets.ButtonComputedStyle,
+    default_update_button_style: fn (*ui.widgets.ButtonComputedStyle, ui.widgets.ButtonMods) void,
+    default_text_button_style: ui.widgets.TextButtonComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2103,6 +2321,12 @@ pub const ModuleCommon = struct {
             .cur_mouse_x = 0,
             .cur_mouse_y = 0,
 
+            .node_user_styles = .{},
+            .node_computed_styles = .{},
+            .default_button_style = .{},
+            .default_update_button_style = ui.widgets.ButtonComputedStyle.defaultUpdate,
+            .default_text_button_style = .{},
+
             .ctx = .{
                 .common = self,
                 .alloc = alloc, 
@@ -2118,6 +2342,8 @@ pub const ModuleCommon = struct {
     }
 
     fn deinit(self: *ModuleCommon) void {
+        // Assumes all nodes have called destroyNode.
+
         self.id_map.deinit();
         self.text_measures.deinit();
 
@@ -2143,6 +2369,15 @@ pub const ModuleCommon = struct {
         self.removeHandlers();
         self.removeNodes();
 
+        if (self.node_user_styles.size > 0) {
+            stdx.panic("Unexpected num node user styles > 0");
+        }
+        self.node_user_styles.deinit(self.alloc);
+        if (self.node_computed_styles.size > 0) {
+            stdx.panicFmt("Unexpected num node computed styles {} > 0", .{self.node_computed_styles.size});
+        }
+        self.node_computed_styles.deinit(self.alloc);
+
         self.to_remove_handlers.deinit(self.alloc);
         self.to_remove_nodes.deinit(self.alloc);
 
@@ -2161,6 +2396,23 @@ pub const ModuleCommon = struct {
 
         self.arena_allocators[0].deinit();
         self.arena_allocators[1].deinit();
+    }
+
+    inline fn getCurrentStyleDefault(self: *ModuleCommon, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+        const Style = WidgetComputedStyle(Widget);
+        return switch (Style) {
+            ui.widgets.ButtonComputedStyle => &self.default_button_style,
+            ui.widgets.TextButtonComputedStyle => &self.default_text_button_style,
+            else => @compileError("Unsupported style"),
+        };
+    }
+
+    inline fn getCurrentStyleUpdateFuncDefault(self: *ModuleCommon, comptime Widget: type) fn (*WidgetComputedStyle(Widget), WidgetStyleMods(Widget)) void {
+        const Style = WidgetComputedStyle(Widget);
+        return switch (Style) {
+            ui.widgets.ButtonComputedStyle => self.default_update_button_style,
+            else => @compileError("Unsupported style"),
+        };
     }
 
     fn cancelRemoveHandler(self: *ModuleCommon, event_t: EventType, node: *ui.Node) void {

@@ -167,7 +167,10 @@ pub const BuildContext = struct {
     }
 
     pub inline fn fragment(self: *BuildContext, list_: ui.FrameListPtr) ui.FrameId {
-        const frame = ui.Frame.init(module.FragmentVTable, null, null, ui.FramePropsPtr.init(0, 0), list_);
+        const style = ui.FrameStyle{
+            .value = ui.FramePropsPtr.init(0, 0),
+        };
+        const frame = ui.Frame.init(module.FragmentVTable, null, null, ui.FramePropsPtr.init(0, 0), style, true, list_);
         const frame_id = @intCast(ui.FrameId, @intCast(u32, self.frames.items.len));
         self.frames.append(frame) catch unreachable;
         return frame_id;
@@ -219,6 +222,10 @@ pub const BuildContext = struct {
         return ui.FrameListPtr.init(start_idx, @intCast(u32, self.frame_lists.items.len) - start_idx);
     }
 
+    pub inline fn getStyle(self: *BuildContext, comptime Widget: type) *const ui.WidgetComputedStyle(Widget) {
+        return self.mod.common.ctx.getNodeStyle(Widget, self.node);
+    }
+
     pub fn getFrame(self: BuildContext, id: ui.FrameId) ui.Frame {
         return self.frames.items[id];
     }
@@ -235,6 +242,30 @@ pub const BuildContext = struct {
         const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
         const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
 
+        var style = ui.FrameStyle{
+            .value = ui.FramePropsPtr.init(0, 0),
+        };
+        var style_is_value = true;
+        if (@hasField(BuildProps, "style")) {
+            const UserStyle = ui.WidgetUserStyle(Widget);
+            const PropsStyle = @TypeOf(build_props.style);
+            if (PropsStyle == UserStyle) {
+                style.value = self.frame_props.append(build_props.style) catch fatal();
+            } else if (PropsStyle == *UserStyle) {
+                style = ui.FrameStyle{
+                    .ptr = build_props.style,
+                };
+                style_is_value = false;
+            } else if (PropsStyle == ?*const UserStyle) {
+                if (build_props.style) |ptr| {
+                    style = ui.FrameStyle{
+                        .ptr = ptr,
+                    };
+                    style_is_value = false;
+                }
+            }
+        }
+
         const props_ptr = b: {
             const HasProps = comptime module.WidgetHasProps(Widget);
             if (HasProps) {
@@ -243,8 +274,9 @@ pub const BuildContext = struct {
                 break :b ui.FramePropsPtr.init(0, 0);
             }
         };
+
         const vtable = module.GenWidgetVTable(Widget);
-        var frame = ui.Frame.init(vtable, id, bind, props_ptr, ui.FrameListPtr.init(0, 0));
+        var frame = ui.Frame.init(vtable, id, bind, props_ptr, style, style_is_value, ui.FrameListPtr.init(0, 0));
         if (@hasField(BuildProps, "key")) {
             frame.key = build_props.key;
         }
@@ -305,6 +337,17 @@ pub const BuildContext = struct {
                 } else if (stdx.string.eq("spread", f.name)) {
                     continue;
                 } else if (stdx.string.eq("key", f.name)) {
+                    continue;
+                } else if (stdx.string.eq("style", f.name)) {
+                    const UserStyle = ui.WidgetUserStyle(Widget);
+                    if (UserStyle == void) {
+                        @compileError(@typeName(Widget) ++ " doesn't have styles.");
+                    } else {
+                        if (f.field_type != UserStyle and !(@typeInfo(f.field_type) == .Pointer and std.meta.Child(f.field_type) != UserStyle) and 
+                            f.field_type != ?*const UserStyle) {
+                            @compileError(@typeName(Widget) ++ " style must be of type " ++ @typeName(UserStyle) ++ " or a pointer to it. " ++ @typeName(f.field_type));
+                        }
+                    }
                     continue;
                 } else if (!HasProps) {
                     @compileError("No Props type declared in " ++ @typeName(Widget) ++ " for " ++ f.name);

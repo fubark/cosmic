@@ -150,6 +150,10 @@ pub const NodeStateMasks = struct {
     pub const diff_used: u8 = 0b00000010;
     /// Indicates the node's bind ptr is a *BindNodeFunc.
     pub const bind_func: u8 = 0b00000100;
+    /// Node has a user style. If true, the erased UserStyle pointer can be accessed from the module map.
+    pub const user_style: u8 = 0b00001000;
+    /// Node has a computed style. If true, the erased Style pointer can be accessed from the module map.
+    pub const computed_style: u8 = 0b00010000;
 };
 
 pub const EventHandlerMasks = struct {
@@ -197,13 +201,12 @@ pub const Node = struct {
     /// Unmanaged slice of child event ordering. Only defined if has_child_event_ordering = true.
     child_event_ordering: []const *Node,
 
-    // TODO: It might be better to keep things simple and only allow one callback per event type per node. If the widget wants more they can multiplex in their implementation.
-    // TODO: Instead of storing all these callbacks per node, use hashmaps with node id as the key.
+    // TODO: Allow only one callback. Follow convention of other events.
     /// Singly linked lists of events attached to this node. Can be NullId.
-    mouse_down_list: u32,
     mouse_scroll_list: u32,
-    key_up_list: u32,
-    key_down_list: u32,
+
+    /// TODO: Each node tracks it's own theme so that partially building widgets can get the theme easily.
+    // theme_id: u32,
 
     /// Indicates which events this widget is currently listening for.
     event_handler_mask: u8,
@@ -232,10 +235,8 @@ pub const Node = struct {
             .layout = undefined,
             .abs_bounds = stdx.math.BBox.initZero(),
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
-            .mouse_down_list = NullId,
             .mouse_scroll_list = NullId,
-            .key_up_list = NullId,
-            .key_down_list = NullId,
+            // .theme_id = NullId,
             .state_mask = 0,
             .event_handler_mask = 0,
             .has_child_event_ordering = false,
@@ -345,13 +346,13 @@ pub const Node = struct {
 pub const WidgetVTable = struct {
 
     /// Creates a new Widget on the heap and returns the pointer.
-    create: fn (alloc: std.mem.Allocator, init_ctx: *anyopaque, props_ptr: ?[*]const u8) *anyopaque,
+    create: fn (mod: *ui.Module, node: *Node, frame: ui.Frame) *anyopaque,
 
     /// Runs post init on an existing Widget.
     postInit: fn (widget_ptr: *anyopaque, init_ctx: *anyopaque) void,
 
     /// Updates the props on an existing Widget.
-    updateProps: fn (widget_ptr: *anyopaque, props_ptr: [*]const u8) void,
+    updateProps: fn (mod: *ui.Module, node: *Node, frame: ui.Frame) void,
 
     /// Runs post update.
     postUpdate: fn (node: *Node) void,
@@ -366,7 +367,7 @@ pub const WidgetVTable = struct {
     layout: fn (widget_ptr: *anyopaque, layout_ctx: *anyopaque) LayoutSize,
 
     /// Destroys an existing Widget.
-    destroy: fn (node: *Node, alloc: std.mem.Allocator) void,
+    destroy: fn (mod: *ui.Module, node: *Node) void,
 
     name: []const u8,
 

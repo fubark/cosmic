@@ -12,6 +12,11 @@ const WidgetVTable = widget.WidgetVTable;
 pub const FrameId = u32;
 pub const NullFrameId = stdx.ds.CompactNull(FrameId);
 
+pub const FrameStyle = union {
+    value: FramePropsPtr,
+    ptr: *const anyopaque,
+};
+
 /// A frame represents a declaration of a widget instance and is created in each Widget's `build` function.
 /// Before the ui engine performs layout, these frames are used to diff against an existing node tree to determine whether a new
 /// widget instance is created or updated.
@@ -37,15 +42,20 @@ pub const Frame = struct {
     /// Used to map a common tag to the created node.
     tag: ?[]const u8,
 
-    /// Pointer to the props data.
+    /// Type-erased pointer to the props data.
     props: FramePropsPtr,
+
+    /// Type-erased pointer to the style data.
+    style: FrameStyle,
+    style_is_value: bool,
+    has_style: bool,
 
     /// This is only used by the special Fragment frame which represents multiple frames.
     fragment_children: FrameListPtr,
 
     debug: if (builtin.mode == .Debug) bool else void,
 
-    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, fragment_children: FrameListPtr) Frame {
+    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, style: FrameStyle, style_is_value: bool, fragment_children: FrameListPtr) Frame {
         return .{
             .vtable = vtable,
             .id = id,
@@ -53,6 +63,9 @@ pub const Frame = struct {
             .node_binds = null,
             .is_bind_func = false,
             .props = props,
+            .style = style,
+            .style_is_value = style_is_value,
+            .has_style = !style_is_value or style.value.len > 0,
             .fragment_children = fragment_children,
             .key = null,
             .tag = null,
