@@ -65,7 +65,7 @@ pub const Button = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         child: ui.FrameId = ui.NullFrameId,
-        halign: ui.HAlign = .Center,
+        halign: ui.HAlign = .center,
     },
 
     mods: ButtonMods = ButtonMods{ .value = 0 },
@@ -103,7 +103,7 @@ pub const Button = struct {
 
     fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
         var self = node.getWidget(Button);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             if (self.mods.inner.pressed) {
                 self.mods.inner.pressed = false;
                 if (self.props.onClick.isPresent()) {
@@ -115,7 +115,7 @@ pub const Button = struct {
 
     fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(Button);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             e.ctx.requestFocus(.{ .onBlur = onBlur });
             self.mods.inner.pressed = true;
             // TODO: trigger compute style.
@@ -138,9 +138,9 @@ pub const Button = struct {
             var res = child_size;
             res.growToMin(cstr);
             switch (self.props.halign) {
-                .Left => c.setLayout(child_node, ui.Layout.initWithSize(0, 0, child_size)),
-                .Center => c.setLayout(child_node, ui.Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
-                .Right => c.setLayout(child_node, ui.Layout.initWithSize(res.width - child_size.width, 0, child_size)),
+                .left => c.setLayout(child_node, ui.Layout.initWithSize(0, 0, child_size)),
+                .center => c.setLayout(child_node, ui.Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
+                .right => c.setLayout(child_node, ui.Layout.initWithSize(res.width - child_size.width, 0, child_size)),
             }
             return res;
         } else {

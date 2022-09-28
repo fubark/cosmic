@@ -141,7 +141,7 @@ pub const MouseArea = struct {
 
     fn onMouseUp(node: *ui.Node, e: ui.MouseUpEvent) void {
         var self = node.getWidget(MouseArea);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             if (self.pressed) {
                 self.pressed = false;
                 if (self.props.onClick.isPresent()) {
@@ -153,7 +153,7 @@ pub const MouseArea = struct {
 
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(MouseArea);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             e.ctx.requestFocus(.{ .onBlur = onBlur });
             self.pressed = true;
         }

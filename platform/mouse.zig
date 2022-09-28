@@ -1,9 +1,9 @@
 pub const MouseButton = enum {
-    Left,
-    Middle,
-    Right,
-    X1,
-    X2,
+    left,
+    middle,
+    right,
+    x1,
+    x2,
 };
 
 pub const MouseUpEvent = struct {

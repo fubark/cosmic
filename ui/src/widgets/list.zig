@@ -81,7 +81,7 @@ pub const List = struct {
 
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(List);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             e.ctx.requestFocus(.{ .onBlur = onBlur });
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);

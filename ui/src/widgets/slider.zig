@@ -53,7 +53,7 @@ pub fn SliderBase(comptime is_float: bool) type {
 
         fn handleMouseUpEvent(node: *ui.Node, e: ui.Event(MouseUpEvent)) void {
             var self = node.getWidget(Self);
-            if (e.val.button == .Left and self.pressed) {
+            if (e.val.button == .left and self.pressed) {
                 self.pressed = false;
                 self.updateValueFromMouseX(node, e.val.x);
                 if (self.drag_start_value != self.value) {
@@ -71,7 +71,7 @@ pub fn SliderBase(comptime is_float: bool) type {
 
         fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
             var self = node.getWidget(Self);
-            if (e.val.button == .Left) {
+            if (e.val.button == .left) {
                 self.pressed = true;
                 self.last_value = self.value;
                 self.drag_start_value = self.value;

@@ -36,7 +36,7 @@ pub const ColorPicker = struct {
 
     pub fn build(self: *ColorPicker, c: *ui.BuildContext) ui.FrameId {
         return w.MouseArea(.{ .onClick = c.funcExt(self, onClick) },
-            w.Row(.{ .valign = .Center }, &.{
+            w.Row(.{ .valign = .center }, &.{
                 w.Flex(.{}, 
                     w.Text(.{
                         .text = self.props.label,

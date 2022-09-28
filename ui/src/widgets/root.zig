@@ -253,8 +253,8 @@ const OverlayType = enum(u2) {
 pub const ModalOverlay = struct {
     props: struct {
         child: ui.FrameId,
-        valign: ui.VAlign = .Center,
-        halign: ui.HAlign = .Center,
+        valign: ui.VAlign = .center,
+        halign: ui.HAlign = .center,
         border_color: Color = Color.DarkGray,
         bg_color: Color = Color.DarkGray.darker(),
         onRequestClose: ?stdx.Function(fn () void) = null,

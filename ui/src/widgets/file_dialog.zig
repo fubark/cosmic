@@ -69,7 +69,7 @@ pub const FileDialog = struct {
                         c.tempRange(self.files.items.len, self, S.buildItem),
                     ),
                 ),
-                w.Row(.{ .halign = .Right }, &.{
+                w.Row(.{ .halign = .right }, &.{
                     w.TextButton(.{
                         .text = "Cancel",
                         .onClick = c.funcExt(self, S.onClickCancel),
