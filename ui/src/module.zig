@@ -2264,6 +2264,7 @@ pub const ModuleCommon = struct {
     default_button_style: u.ButtonT.ComputedStyle,
     default_update_button_style: fn (*u.ButtonT.ComputedStyle, u.ButtonMods) void,
     default_text_button_style: u.TextButtonT.ComputedStyle,
+    default_text_style: u.TextT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2341,6 +2342,7 @@ pub const ModuleCommon = struct {
             .default_button_style = .{},
             .default_update_button_style = u.ButtonT.ComputedStyle.defaultUpdate,
             .default_text_button_style = .{},
+            .default_text_style = .{},
 
             .ctx = .{
                 .common = self,
@@ -2428,6 +2430,7 @@ pub const ModuleCommon = struct {
         return switch (Style) {
             u.ButtonT.ComputedStyle => &self.default_button_style,
             u.TextButtonT.ComputedStyle => &self.default_text_button_style,
+            u.TextT.ComputedStyle => &self.default_text_style,
             else => @compileError("Unsupported style"),
         };
     }

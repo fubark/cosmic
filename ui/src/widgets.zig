@@ -79,12 +79,15 @@ const button = @import("widgets/button.zig");
 pub const ButtonMods = button.ButtonMods;
 pub const ButtonT = button.Button;
 pub const Button = genBuildWithChild(ButtonT);
+pub const ButtonStyle = button.Button.Style;
 pub const TextButtonT = button.TextButton;
 pub const TextButton = genBuildWithNoChild(TextButtonT);
+pub const TextButtonStyle = button.TextButton.Style;
 
 /// Text related.
 pub const TextT = @import("widgets/text.zig").Text;
 pub const Text = genBuildWithNoChild(TextT);
+pub const TextStyle = TextT.Style;
 const text_area = @import("widgets/text_area.zig");
 pub const TextAreaT = text_area.TextArea;
 pub const TextArea = genBuildWithNoChild(TextAreaT);

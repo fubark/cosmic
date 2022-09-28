@@ -11,9 +11,6 @@ const NullId = std.math.maxInt(u32);
 pub const Text = struct {
     props: struct {
         text: []const u8 = "",
-        fontSize: f32 = 20,
-        fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
-        color: Color = Color.Black,
     },
 
     font_gid: graphics.FontGroupId,
@@ -27,9 +24,22 @@ pub const Text = struct {
     cached_line_height: f32,
     str_hash: stdx.string.StringHash,
 
+    pub const Style = struct {
+        color: ?Color = null,
+        fontSize: ?f32 = null,
+        fontFamily: ?graphics.FontFamily = null,
+    };
+
+    pub const ComputedStyle = struct {
+        color: Color = Color.Black,
+        fontSize: f32 = 18,
+        fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
+    };
+
     pub fn init(self: *Text, c: *ui.InitContext) void {
-        self.font_gid = c.getFontGroupByFamily(self.props.fontFamily);
-        self.font_size = self.props.fontSize;
+        const style = c.getStyle(Text);
+        self.font_gid = c.getFontGroupByFamily(style.fontFamily);
+        self.font_size = style.fontSize;
         self.tlo = graphics.TextLayout.init(c.alloc);
         self.use_layout = false;
         self.ctx = c.common;
@@ -42,14 +52,15 @@ pub const Text = struct {
         self.tlo.deinit();
     }
 
-    pub fn postPropsUpdate(self: *Text) void {
-        const new_font_gid = self.ctx.getFontGroupByFamily(self.props.fontFamily);
+    pub fn postPropsUpdate(self: *Text, ctx: *ui.UpdateContext) void {
+        const style = ctx.getStyle(Text);
+        const new_font_gid = self.ctx.getFontGroupByFamily(style.fontFamily);
         if (new_font_gid != self.font_gid) {
             self.font_gid = new_font_gid;
             self.needs_relayout = true;
         }
-        if (self.props.fontSize != self.font_size) {
-            self.font_size = self.props.fontSize;
+        if (style.fontSize != self.font_size) {
+            self.font_size = style.fontSize;
             self.needs_relayout = true;
         }
         if (!self.str_hash.eqStringHash(self.props.text)) {
@@ -98,8 +109,9 @@ pub const Text = struct {
         const bounds = c.getAbsBounds();
 
         if (self.props.text.len > 0) {
+            const style = c.getStyle(Text);
             g.setFont(self.font_gid, self.font_size);
-            g.setFillColor(self.props.color);
+            g.setFillColor(style.color);
 
             if (self.word_wrap) {
                 const clipped = g.getClipRect();

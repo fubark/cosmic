@@ -6,7 +6,7 @@ const Color = graphics.Color;
 const platform = @import("platform");
 
 const ui = @import("../ui.zig");
-const w = ui.widgets;
+const u = ui.widgets;
 const log = stdx.log.scoped(.button);
 
 const NullId = std.math.maxInt(u32);
@@ -20,33 +20,39 @@ pub const TextButton = struct {
 
     pub const Style = struct {
         button: ?Button.Style = null,
+        text: ?u.TextStyle = null,
     };
 
     pub const ComputedStyle = struct {
         button: ?Button.Style = null,
+        text: ?u.TextStyle = null,
     };
 
     pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FrameId {
         var body: ui.FrameId = undefined;
+
+        const style = ctx.getStyle(TextButton);
+        const text_style = ctx.getStylePropPtr(style, "text");
         if (self.props.icon.image_id == NullId) {
-            body = w.Text(.{
+            body = u.Text(.{
                 .text = self.props.text,
+                .style = text_style,
             });
         } else {
-            body = w.Row(.{}, &.{
-                w.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint }),
-                w.Text(.{
+            body = u.Row(.{ .valign = .center }, &.{
+                u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint }),
+                u.Text(.{
                     .text = self.props.text,
+                    .style = text_style,
                 }),
             });
         }
 
-        const style = ctx.getStyle(TextButton);
-        const button_style: ?*const Button.Style = if (style.button != null) &style.button.? else null;
-        return w.Button(.{
+        const button_style = ctx.getStylePropPtr(style, "button");
+        return u.Button(.{
             .onClick = self.props.onClick,
             .style = button_style, },
-            w.Padding(.{ .padding = 10 },
+            u.Padding(.{ .padding = 10 },
                 body,
             ),
         );
