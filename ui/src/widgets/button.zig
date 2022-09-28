@@ -11,20 +11,20 @@ const log = stdx.log.scoped(.button);
 
 const NullId = std.math.maxInt(u32);
 
-pub const TextButtonStyle = struct {
-    button: ?ButtonStyle = null,
-};
-
-pub const TextButtonComputedStyle = struct {
-    button: ?ButtonStyle = null,
-};
-
 pub const TextButton = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         text: []const u8 = "",
         icon: ui.IconDecl = .{ .image_id = NullId, .tint = undefined },
     },
+
+    pub const Style = struct {
+        button: ?Button.Style = null,
+    };
+
+    pub const ComputedStyle = struct {
+        button: ?Button.Style = null,
+    };
 
     pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FrameId {
         var body: ui.FrameId = undefined;
@@ -42,7 +42,7 @@ pub const TextButton = struct {
         }
 
         const style = ctx.getStyle(TextButton);
-        const button_style: ?*const ButtonStyle = if (style.button != null) &style.button.? else null;
+        const button_style: ?*const Button.Style = if (style.button != null) &style.button.? else null;
         return w.Button(.{
             .onClick = self.props.onClick,
             .style = button_style, },
@@ -50,27 +50,6 @@ pub const TextButton = struct {
                 body,
             ),
         );
-    }
-};
-
-pub const ButtonStyle = struct {
-    bgColor: ?Color = null,
-    bgColorPressed: ?Color = null,
-    borderSize: ?f32 = null,
-    borderColor: ?Color = null,
-    cornerRadius: ?f32 = null,
-};
-
-pub const ButtonComputedStyle = struct {
-    bgColor: Color = Color.init(220, 220, 220, 255),
-    borderSize: f32 = 1,
-    borderColor: Color = Color.Gray,
-    cornerRadius: f32 = 0,
-
-    pub fn defaultUpdate(style: *ButtonComputedStyle, mods: ButtonMods) void {
-        if (mods.inner.pressed) {
-            style.bgColor = Color.Gray.darker();
-        }
     }
 };
 
@@ -90,6 +69,27 @@ pub const Button = struct {
     },
 
     mods: ButtonMods = ButtonMods{ .value = 0 },
+
+    pub const Style = struct {
+        bgColor: ?Color = null,
+        bgColorPressed: ?Color = null,
+        borderSize: ?f32 = null,
+        borderColor: ?Color = null,
+        cornerRadius: ?f32 = null,
+    };
+
+    pub const ComputedStyle = struct {
+        bgColor: Color = Color.init(220, 220, 220, 255),
+        borderSize: f32 = 1,
+        borderColor: Color = Color.Gray,
+        cornerRadius: f32 = 0,
+
+        pub fn defaultUpdate(style: *ComputedStyle, mods: ButtonMods) void {
+            if (mods.inner.pressed) {
+                style.bgColor = Color.Gray.darker();
+            }
+        }
+    };
 
     pub fn build(self: *Button, _: *ui.BuildContext) ui.FrameId {
         return self.props.child;

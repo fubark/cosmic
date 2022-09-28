@@ -13,6 +13,7 @@ const platform = @import("platform");
 const EventDispatcher = platform.EventDispatcher;
 
 const ui = @import("ui.zig");
+const u = ui.widgets;
 const events = @import("events.zig");
 const Frame = ui.Frame;
 const BindNode = @import("frame.zig").BindNode;
@@ -1395,19 +1396,15 @@ inline fn WidgetStyleMods(comptime Widget: type) type {
 }
 
 pub inline fn WidgetComputedStyle(comptime Widget: type) type {
-    return switch (Widget) {
-        ui.widgets.ButtonT => ui.widgets.ButtonComputedStyle,
-        ui.widgets.TextButtonT => ui.widgets.TextButtonComputedStyle,
-        else => void,
-    };
+    if (@hasDecl(Widget, "ComputedStyle")) {
+        return Widget.ComputedStyle;
+    } else return void;
 }
 
 pub inline fn WidgetUserStyle(comptime Widget: type) type {
-    return switch (Widget) {
-        ui.widgets.ButtonT => ui.widgets.ButtonStyle,
-        ui.widgets.TextButtonT => ui.widgets.TextButtonStyle,
-        else => void,
-    };
+    if (@hasDecl(Widget, "Style")) {
+        return Widget.Style;
+    } else return void;
 }
 
 /// Requires Context.common.
@@ -2246,9 +2243,9 @@ pub const ModuleCommon = struct {
     node_computed_styles: std.AutoHashMapUnmanaged(*ui.Node, *anyopaque),
 
     /// Style defaults.
-    default_button_style: ui.widgets.ButtonComputedStyle,
-    default_update_button_style: fn (*ui.widgets.ButtonComputedStyle, ui.widgets.ButtonMods) void,
-    default_text_button_style: ui.widgets.TextButtonComputedStyle,
+    default_button_style: u.ButtonT.ComputedStyle,
+    default_update_button_style: fn (*u.ButtonT.ComputedStyle, u.ButtonMods) void,
+    default_text_button_style: u.TextButtonT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2324,7 +2321,7 @@ pub const ModuleCommon = struct {
             .node_user_styles = .{},
             .node_computed_styles = .{},
             .default_button_style = .{},
-            .default_update_button_style = ui.widgets.ButtonComputedStyle.defaultUpdate,
+            .default_update_button_style = u.ButtonT.ComputedStyle.defaultUpdate,
             .default_text_button_style = .{},
 
             .ctx = .{
@@ -2401,8 +2398,8 @@ pub const ModuleCommon = struct {
     inline fn getCurrentStyleDefault(self: *ModuleCommon, comptime Widget: type) *const WidgetComputedStyle(Widget) {
         const Style = WidgetComputedStyle(Widget);
         return switch (Style) {
-            ui.widgets.ButtonComputedStyle => &self.default_button_style,
-            ui.widgets.TextButtonComputedStyle => &self.default_text_button_style,
+            u.ButtonT.ComputedStyle => &self.default_button_style,
+            u.TextButtonT.ComputedStyle => &self.default_text_button_style,
             else => @compileError("Unsupported style"),
         };
     }
@@ -2410,7 +2407,7 @@ pub const ModuleCommon = struct {
     inline fn getCurrentStyleUpdateFuncDefault(self: *ModuleCommon, comptime Widget: type) fn (*WidgetComputedStyle(Widget), WidgetStyleMods(Widget)) void {
         const Style = WidgetComputedStyle(Widget);
         return switch (Style) {
-            ui.widgets.ButtonComputedStyle => self.default_update_button_style,
+            u.ButtonT.ComputedStyle => self.default_update_button_style,
             else => @compileError("Unsupported style"),
         };
     }
@@ -3173,7 +3170,6 @@ test "Setting and clearing an event handler in the same update cycle results in 
 }
 
 test "WidgetRef binding." {
-    const u = ui.widgets;
     const A = struct {};
     const Options = struct {
         decl: bool,
@@ -3202,7 +3198,6 @@ test "WidgetRef binding." {
 }
 
 test "NodeRefMap binding." {
-    const u = ui.widgets;
     const A = struct {};
     const Options = struct {
         decl: bool,
