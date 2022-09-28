@@ -344,11 +344,13 @@ pub const GlyphResult = struct {
     glyph: *Glyph,
 };
 
+const OutlineMaxNoScale = 18;
+
 // Computes bitmap font size and also updates the requested font size if necessary.
 pub fn computeRenderFontSize(desc: FontDesc, font_size: *f32) u16 {
     switch (desc.font_type) {
         .Outline => {
-            if (font_size.* <= 16) {
+            if (font_size.* <= OutlineMaxNoScale) {
                 if (font_size.* < MinRenderFontSize) {
                     font_size.* = MinRenderFontSize;
                     return MinRenderFontSize;
