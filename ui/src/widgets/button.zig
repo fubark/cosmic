@@ -15,7 +15,7 @@ pub const TextButton = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         text: []const u8 = "",
-        icon: ui.IconDecl = .{ .image_id = NullId, .tint = undefined },
+        icon: ui.IconT = ui.Icon(NullId, .{}),
     },
 
     pub const Style = struct {
@@ -40,7 +40,7 @@ pub const TextButton = struct {
             });
         } else {
             body = u.Row(.{ .valign = .center }, &.{
-                u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint }),
+                u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint, .width = self.props.icon.size, .height = self.props.icon.size }),
                 u.Text(.{
                     .text = self.props.text,
                     .style = text_style,

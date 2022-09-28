@@ -1,4 +1,5 @@
 const std = @import("std");
+const graphics = @import("graphics");
 
 const module = @import("module.zig");
 pub const Module = module.Module;
@@ -114,3 +115,22 @@ pub const ExpandedWidth = std.math.inf_f32;
 pub const ExpandedHeight = std.math.inf_f32;
 
 pub const OverlayId = @import("widgets/root.zig").OverlayId;
+
+pub const IconT = struct {
+    image_id: graphics.ImageId,
+    tint: graphics.Color,
+    size: ?f32 = null,
+};
+
+const IconOptions = struct{
+    tint: graphics.Color = graphics.Color.White,
+    size: ?f32 = null,
+};
+
+pub fn Icon(image_id: graphics.ImageId, opts: IconOptions) IconT {
+    return .{
+        .image_id = image_id,
+        .tint = opts.tint,
+        .size = opts.size,
+    };
+}

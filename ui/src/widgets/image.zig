@@ -11,6 +11,9 @@ const NullId = std.math.maxInt(u32);
 pub const Image = struct {
     props: struct {
         imageId: graphics.ImageId = NullId,
+        tint: graphics.Color = graphics.Color.White,
+        width: ?f32 = null,
+        height: ?f32 = null,
     },
 
     pub fn build(_: *Image, _: *ui.BuildContext) ui.FrameId {
@@ -25,7 +28,9 @@ pub const Image = struct {
     pub fn layout(self: *Image, ctx: *ui.LayoutContext) ui.LayoutSize {
         if (self.props.imageId != NullId) {
             const size = ctx.gctx.getImageSize(self.props.imageId);
-            return ui.LayoutSize.init(@intToFloat(f32, size.x), @intToFloat(f32, size.y));
+            const width = self.props.width orelse @intToFloat(f32, size.x);
+            const height = self.props.height orelse @intToFloat(f32, size.y);
+            return ui.LayoutSize.init(width, height);
         } else {
             return ui.LayoutSize.init(0, 0);
         }
@@ -34,7 +39,6 @@ pub const Image = struct {
     pub fn render(self: *Image, ctx: *ui.RenderContext) void {
         const bounds = ctx.getAbsBounds();
         const gctx = ctx.getGraphics();
-
-        gctx.drawImageScaled(bounds.min_x, bounds.min_y, bounds.computeWidth(), bounds.computeHeight(), self.props.imageId);
+        gctx.drawImageScaledTinted(bounds.min_x, bounds.min_y, bounds.computeWidth(), bounds.computeHeight(), self.props.imageId, self.props.tint);
     }
 };
