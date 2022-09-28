@@ -11,6 +11,43 @@ const log = stdx.log.scoped(.button);
 
 const NullId = std.math.maxInt(u32);
 
+pub const IconButton = struct {
+    props: struct {
+        onClick: Function(fn (ui.MouseUpEvent) void) = .{},
+        icon: ui.IconT,
+        halign: ui.HAlign = .center,
+    },
+
+    pub const Style = struct {
+        button: ?Button.Style = null,
+        padding: ?f32 = null,
+    };
+
+    pub const ComputedStyle = struct {
+        button: ?Button.Style = null,
+        padding: f32 = 10,
+    };
+
+    pub fn build(self: *IconButton, ctx: *ui.BuildContext) ui.FrameId {
+        var body: ui.FrameId = NullId;
+
+        const style = ctx.getStyle(IconButton);
+        if (self.props.icon.image_id != NullId) {
+            body = u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint, .width = self.props.icon.size, .height = self.props.icon.size });
+        }
+
+        const button_style = ctx.getStylePropPtr(style, "button");
+        return u.Button(.{
+            .onClick = self.props.onClick,
+            .halign = self.props.halign,
+            .style = button_style, },
+            u.Padding(.{ .padding = style.padding },
+                body,
+            ),
+        );
+    }
+};
+
 pub const TextButton = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},

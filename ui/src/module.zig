@@ -2264,6 +2264,7 @@ pub const ModuleCommon = struct {
     default_button_style: u.ButtonT.ComputedStyle,
     default_update_button_style: fn (*u.ButtonT.ComputedStyle, u.ButtonMods) void,
     default_text_button_style: u.TextButtonT.ComputedStyle,
+    default_icon_button_style: u.IconButtonT.ComputedStyle,
     default_text_style: u.TextT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
@@ -2342,6 +2343,7 @@ pub const ModuleCommon = struct {
             .default_button_style = .{},
             .default_update_button_style = u.ButtonT.ComputedStyle.defaultUpdate,
             .default_text_button_style = .{},
+            .default_icon_button_style = .{},
             .default_text_style = .{},
 
             .ctx = .{
@@ -2431,7 +2433,9 @@ pub const ModuleCommon = struct {
             u.ButtonT.ComputedStyle => &self.default_button_style,
             u.TextButtonT.ComputedStyle => &self.default_text_button_style,
             u.TextT.ComputedStyle => &self.default_text_style,
-            else => @compileError("Unsupported style"),
+            u.WindowT.ComputedStyle => &self.default_window_style,
+            u.IconButtonT.ComputedStyle => &self.default_icon_button_style,
+            else => @compileError("Unsupported style: " ++ @typeName(Widget)),
         };
     }
 
@@ -2439,7 +2443,7 @@ pub const ModuleCommon = struct {
         const Style = WidgetComputedStyle(Widget);
         return switch (Style) {
             u.ButtonT.ComputedStyle => self.default_update_button_style,
-            else => @compileError("Unsupported style"),
+            else => @compileError("Unsupported style: " ++ @typeName(Widget)),
         };
     }
 

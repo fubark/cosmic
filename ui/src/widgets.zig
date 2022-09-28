@@ -83,6 +83,9 @@ pub const ButtonStyle = button.Button.Style;
 pub const TextButtonT = button.TextButton;
 pub const TextButton = genBuildWithNoChild(TextButtonT);
 pub const TextButtonStyle = button.TextButton.Style;
+pub const IconButtonT = button.IconButton;
+pub const IconButton = genBuildWithNoChild(IconButtonT);
+pub const IconButtonStyle = button.IconButton.Style;
 
 /// Text related.
 pub const TextT = @import("widgets/text.zig").Text;
