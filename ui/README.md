@@ -6,6 +6,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 - [x] Fast linear time layout algorithm.
 - [x] Widgets defined as plain structs. Easy to navigate with your editor and ZLS.
 - [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextArea, Color Picker, Popovers, Modals, and more. Collection is still growing.
+- [x] Widget styling.
 - [x] Custom widgets. Easily create your own widgets with your own build/layout/render steps.
 - [x] Draw with Canvas API / Vector graphics directly from a custom widget.
 - [x] Register input handlers (mouse, keyboard, etc).
@@ -154,11 +155,11 @@ pub const Counter = struct {
         // Invoked when the engine wants to know the structure of this Widget.
     }
 
-    pub fn postPropsUpdate(self: *Counter) void {
+    pub fn postPropsUpdate(self: *Counter, c: *ui.UpdateContext) void {
         // Invoked when a widget has updated their props from the parent.
     }
 
-    pub fn postUpdate(self: *Counter) void {
+    pub fn postUpdate(self: *Counter, c: *ui.UpdateContext) void {
         // Invoked when a widget and it's children have finished updating. (They have resolved their instance trees from the diff operation.)
     }
 
@@ -196,13 +197,19 @@ Before any widget instances are created, the engine needs to know the structure 
                 u.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
                     u.Text(.{
                         .text = c.fmt("{}", .{self.counter}),
-                        .color = Color.White,
+                        .style = u.TextStyle{
+                            .color = Color.White,
+                        },
                     }),
                 ),
                 u.TextButton(.{
                     .text = "Count",
                     .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
-                    .corner_radius = 10,
+                    .style = u.TextButtonStyle{
+                        .button = u.ButtonStyle{
+                            .cornerRadius = 10,
+                        },
+                    },
                 }),
             }),
         );

@@ -4,6 +4,7 @@ const module = @import("module.zig");
 pub const Module = module.Module;
 pub const Layout = module.Layout;
 pub const TextMeasureId = module.TextMeasureId;
+pub const UpdateContext = module.UpdateContext;
 pub const RenderContext = module.RenderContext;
 pub const LayoutContext = module.LayoutContext;
 pub const InitContext = module.InitContext;

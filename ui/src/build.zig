@@ -226,6 +226,10 @@ pub const BuildContext = struct {
         return self.mod.common.ctx.getNodeStyle(Widget, self.node);
     }
 
+    pub inline fn getStylePropPtr(self: *BuildContext, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {
+        return self.mod.common.getStylePropPtr(style, prop);
+    }
+
     pub fn getFrame(self: BuildContext, id: ui.FrameId) ui.Frame {
         return self.frames.items[id];
     }

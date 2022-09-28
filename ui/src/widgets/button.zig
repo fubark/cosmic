@@ -96,7 +96,7 @@ pub const Button = struct {
     }
 
     pub fn init(self: *Button, c: *ui.InitContext) void {
-        self.mods = ButtonMods{ .value = 0 };
+        _ = self;
         c.setMouseDownHandler(c.node, handleMouseDownEvent);
         c.setMouseUpHandler(c.node, handleMouseUpEvent);
     }

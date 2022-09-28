@@ -185,6 +185,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 }
             }
 
+            // Styles are computed just before Widget.init so they can be accessed.
+            // eg. TextStyle.fontSize needs to be cached in Text widget to skip recomputing the layout.
+            // This also means that any modifiers need to be inited on Widget struct init with default values.
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                updateWidgetStyle(Widget, mod, node, frame);
+            }
+
             if (@hasDecl(Widget, "init")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.init))) {
                     @compileError("Invalid init function: " ++ @typeName(@TypeOf(Widget.init)) ++ " Widget: " ++ @typeName(Widget));
@@ -193,17 +201,10 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 new.init(ctx);
             }
 
-            // After Widget.init so mods is initialized for styling.
-            const Style = WidgetComputedStyle(Widget);
-            if (Style != void) {
-                updateWidgetStyle(Widget, mod, node, frame);
-            }
-
             return node.widget;
         }
 
-        fn postInit(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) void {
-            const ctx = stdx.mem.ptrCastAlign(*InitContext, ctx_ptr);
+        fn postInit(widget_ptr: *anyopaque, ctx: *InitContext) void {
             const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
             if (@hasDecl(Widget, "postInit")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.postInit))) {
@@ -213,7 +214,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn updateProps(mod: *Module, node: *ui.Node, frame: ui.Frame) void {
+        fn updateProps(mod: *Module, node: *ui.Node, frame: ui.Frame, ctx: *UpdateContext) void {
             const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
             if (comptime WidgetHasProps(Widget)) {
                 if (frame.props.len > 0) {
@@ -229,24 +230,24 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
 
             if (@hasDecl(Widget, "postPropsUpdate")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget) void, @TypeOf(Widget.postPropsUpdate))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext) void, @TypeOf(Widget.postPropsUpdate))) {
                     @compileError("Invalid postPropsUpdate function: " ++ @typeName(@TypeOf(Widget.postPropsUpdate)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                widget.postPropsUpdate();
+                widget.postPropsUpdate(ctx);
             }
         }
 
-        fn postUpdate(node: *ui.Node) void {
+        fn postUpdate(node: *ui.Node, ctx: *UpdateContext) void {
             if (@hasDecl(Widget, "postUpdate")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*ui.Node) void, @TypeOf(Widget.postUpdate))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext) void, @TypeOf(Widget.postUpdate))) {
                     @compileError("Invalid postUpdate function: " ++ @typeName(@TypeOf(Widget.postUpdate)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                Widget.postUpdate(node);
+                const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                widget.postUpdate(ctx);
             }
         }
 
-        fn build(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) ui.FrameId {
-            const ctx = stdx.mem.ptrCastAlign(*BuildContext, ctx_ptr);
+        fn build(widget_ptr: *anyopaque, ctx: *BuildContext) ui.FrameId {
             const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
 
             if (!@hasDecl(Widget, "build")) {
@@ -306,8 +307,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn layout(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) LayoutSize {
-            const ctx = stdx.mem.ptrCastAlign(*LayoutContext, ctx_ptr);
+        fn layout(widget_ptr: *anyopaque, ctx: *LayoutContext) LayoutSize {
             if (builtin.mode == .Debug) {
                 if (ctx.node.debug) {
                     log.debug("layout: {}", .{ctx.getSizeConstraints()});
@@ -425,6 +425,7 @@ pub const Module = struct {
 
     init_ctx: InitContext,
     build_ctx: BuildContext,
+    update_ctx: UpdateContext,
     layout_ctx: LayoutContext,
     render_ctx: RenderContext,
     event_ctx: ui.EventContext,
@@ -448,6 +449,7 @@ pub const Module = struct {
             .layout_ctx = LayoutContext.init(self, g),
             .event_ctx = ui.EventContext.init(self),
             .render_ctx = undefined,
+            .update_ctx = undefined,
             .mod_ctx = ModuleContext.init(self),
             .common = undefined,
             .text_measure_batch_buf = std.ArrayList(*graphics.TextMeasure).init(alloc),
@@ -455,6 +457,10 @@ pub const Module = struct {
         self.common.init(alloc, self, g);
         self.build_ctx = BuildContext.init(alloc, self.common.arena_alloc, self);
         self.render_ctx = RenderContext.init(&self.common.ctx, g);
+        self.update_ctx = .{
+            .common = &self.common.ctx,
+            .node = undefined,
+        };
     }
 
     pub fn deinit(self: *Module) void {
@@ -957,13 +963,16 @@ pub const Module = struct {
         //     node.transform = pn.transform;
         // }
         const widget_vtable = frame.vtable;
+
         if (frame.props.len > 0 or frame.has_style) {
-            widget_vtable.updateProps(self, node, frame);
+            self.update_ctx.node = node;
+            widget_vtable.updateProps(self, node, frame, &self.update_ctx);
         }
 
         defer {
             if (widget_vtable.has_post_update) {
-                widget_vtable.postUpdate(node);
+                self.update_ctx.node = node;
+                widget_vtable.postUpdate(node, &self.update_ctx);
             }
         }
 
@@ -1314,6 +1323,15 @@ pub const Module = struct {
         for (node.children.items) |child| {
             self.dumpTreeR(depth + 1, child);
         }
+    }
+};
+
+pub const UpdateContext = struct {
+    common: *CommonContext,
+    node: *ui.Node,
+
+    pub inline fn getStyle(self: *UpdateContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+        return self.common.getNodeStyle(Widget, self.node);
     }
 };
 
@@ -2395,6 +2413,16 @@ pub const ModuleCommon = struct {
         self.arena_allocators[1].deinit();
     }
 
+    pub inline fn getStylePropPtr(self: *ModuleCommon, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {
+        _ = self;
+        const Prop = @TypeOf(@field(style, prop));
+        if (@typeInfo(Prop) == .Optional) {
+            return if (@field(style, prop) != null) &@field(style, prop).? else null;
+        } else {
+            return &@field(style, prop);
+        }
+    }
+
     inline fn getCurrentStyleDefault(self: *ModuleCommon, comptime Widget: type) *const WidgetComputedStyle(Widget) {
         const Style = WidgetComputedStyle(Widget);
         return switch (Style) {
@@ -2565,6 +2593,10 @@ pub const InitContext = struct {
 
     pub fn getModuleContext(self: *InitContext) *ModuleContext {
         return &self.mod.mod_ctx;
+    }
+
+    pub inline fn getStyle(self: *InitContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+        return self.common.getNodeStyle(Widget, self.node);
     }
 
     // TODO: findChildrenByTag

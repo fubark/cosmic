@@ -261,18 +261,16 @@ pub const ZStack = struct {
         return c.fragment(self.props.children);
     }
 
-    pub fn postUpdate(node: *ui.Node) void {
-        const self = node.getWidget(ZStack);
-
+    pub fn postUpdate(self: *ZStack, ctx: *ui.UpdateContext) void {
         // Child event ordering is z-index desc.
         self.child_event_ordering.ensureTotalCapacity(self.props.children.len) catch @panic("error");
         self.child_event_ordering.items.len = 0;
         var i = @intCast(u32, self.props.children.len);
         while (i > 0) {
             i -= 1;
-            self.child_event_ordering.appendAssumeCapacity(node.children.items[i]);
+            self.child_event_ordering.appendAssumeCapacity(ctx.node.children.items[i]);
         }
-        node.setChildEventOrdering(self.child_event_ordering.items);
+        ctx.node.setChildEventOrdering(self.child_event_ordering.items);
     }
 
     /// Return ordering sorted by z-index desc.

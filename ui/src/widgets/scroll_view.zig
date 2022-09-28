@@ -158,7 +158,7 @@ pub const ScrollView = struct {
         self.checkScroll();
     }
 
-    pub fn postPropsUpdate(self: *ScrollView) void {
+    pub fn postPropsUpdate(self: *ScrollView, _: *ui.UpdateContext) void {
         self.checkScroll();
     }
 

@@ -349,22 +349,22 @@ pub const WidgetVTable = struct {
     create: fn (mod: *ui.Module, node: *Node, frame: ui.Frame) *anyopaque,
 
     /// Runs post init on an existing Widget.
-    postInit: fn (widget_ptr: *anyopaque, init_ctx: *anyopaque) void,
+    postInit: fn (widget_ptr: *anyopaque, init_ctx: *ui.InitContext) void,
 
     /// Updates the props on an existing Widget.
-    updateProps: fn (mod: *ui.Module, node: *Node, frame: ui.Frame) void,
+    updateProps: fn (mod: *ui.Module, node: *Node, frame: ui.Frame, ctx: *ui.UpdateContext) void,
 
     /// Runs post update.
-    postUpdate: fn (node: *Node) void,
+    postUpdate: fn (node: *Node, ctx: *ui.UpdateContext) void,
 
     /// Generates the frame for an existing Widget.
-    build: fn (widget_ptr: *anyopaque, build_ctx: *anyopaque) FrameId,
+    build: fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) FrameId,
 
     /// Renders an existing Widget.
     render: fn (node: *Node, render_ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
 
     /// Computes the layout size for an existing Widget and sets the relative positioning for it's child nodes.
-    layout: fn (widget_ptr: *anyopaque, layout_ctx: *anyopaque) LayoutSize,
+    layout: fn (widget_ptr: *anyopaque, ctx: *ui.LayoutContext) LayoutSize,
 
     /// Destroys an existing Widget.
     destroy: fn (mod: *ui.Module, node: *Node) void,

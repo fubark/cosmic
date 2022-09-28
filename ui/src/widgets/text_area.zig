@@ -84,7 +84,7 @@ pub const TextArea = struct {
         );
     }
 
-    pub fn postPropsUpdate(self: *TextArea) void {
+    pub fn postPropsUpdate(self: *TextArea, _: *ui.UpdateContext) void {
         const new_font_gid = self.ctx.getFontGroupByFamily(self.props.fontFamily);
         if (new_font_gid != self.font_gid) {
             self.font_gid = new_font_gid;
