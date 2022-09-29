@@ -137,11 +137,11 @@ pub const Graphics = struct {
     light_color: Vec3 = Vec3.init(5, 5, 5),
     light_vec: Vec3 = Vec3.init(-1, -1, 0).normalize(),
 
-    pub fn initGL(self: *Graphics, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
+    pub fn initGL(self: *Graphics, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32, stats: *graphics.FrameStats) !void {
         self.initDefault(alloc, dpr);
         try self.initCommon(alloc);
         self.inner.renderer = renderer;
-        self.batcher = Batcher.initGL(alloc, renderer, &self.image_store);
+        self.batcher = Batcher.initGL(alloc, renderer, &self.image_store, stats);
     }
 
     pub fn initVK(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
@@ -871,7 +871,10 @@ pub const Graphics = struct {
         self.fillCircleSectorN(x, y, radius, start_rad, sweep_rad, num_tri);
     }
 
-    // Same implementation as fillEllipse when h_radius = v_radius.
+    /// Same implementation as fillEllipse when h_radius = v_radius.
+    /// TODO: Allow error tolerance option:
+    /// th = arccos(2 * (1 - e / r)^2 - 1)
+    /// num_vertices = ceil(2*pi/th)
     pub fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         self.fillCircleSectorN(x, y, radius, 0, math.pi_2, 360);
     }

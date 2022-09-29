@@ -44,9 +44,12 @@ pub const initPerspectiveProjection = camera.initPerspectiveProjection;
 pub const tessellator = @import("tessellator.zig");
 pub const RectBinPacker = @import("rect_bin_packer.zig").RectBinPacker;
 pub const SwapChain = @import("swapchain.zig").SwapChain;
-pub const Renderer = @import("renderer.zig").Renderer;
-pub const WindowRenderer = @import("renderer.zig").WindowRenderer;
-pub const FrameResultVK = @import("renderer.zig").FrameResultVK;
+
+const renderer_ = @import("renderer.zig");
+pub const Renderer = renderer_.Renderer;
+pub const WindowRenderer = renderer_.WindowRenderer;
+pub const FrameStats = renderer_.FrameStats;
+pub const FrameResultVK = renderer_.FrameResultVK;
 
 const _text = @import("text.zig");
 pub const TextMeasure = _text.TextMeasure;
@@ -108,12 +111,12 @@ pub const Graphics = struct {
     vec2_slice_buf: std.ArrayListUnmanaged(stdx.IndexSlice(u32)),
     qbez_buf: std.ArrayListUnmanaged(curve.SubQuadBez),
 
-    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gl.Renderer) !void {
+    pub fn init(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gl.Renderer, stats: *FrameStats) !void {
         self.initCommon(alloc);
         switch (Backend) {
             .OpenGL => {
                 try gl.Graphics.init(&self.new_impl, alloc, renderer);
-                try gpu.Graphics.initGL(&self.impl, alloc, renderer, dpr);
+                try gpu.Graphics.initGL(&self.impl, alloc, renderer, dpr, stats);
                 self.new_impl.gpu_ctx = &self.impl;
                 self.new_impl.renderer.image_store = &self.impl.image_store;
             },
