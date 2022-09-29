@@ -2266,6 +2266,7 @@ pub const ModuleCommon = struct {
     default_text_button_style: u.TextButtonT.ComputedStyle,
     default_icon_button_style: u.IconButtonT.ComputedStyle,
     default_text_style: u.TextT.ComputedStyle,
+    default_text_area_style: u.TextAreaT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2345,6 +2346,7 @@ pub const ModuleCommon = struct {
             .default_text_button_style = .{},
             .default_icon_button_style = .{},
             .default_text_style = .{},
+            .default_text_area_style = .{},
 
             .ctx = .{
                 .common = self,
@@ -2434,6 +2436,7 @@ pub const ModuleCommon = struct {
             u.TextButtonT.ComputedStyle => &self.default_text_button_style,
             u.TextT.ComputedStyle => &self.default_text_style,
             u.WindowT.ComputedStyle => &self.default_window_style,
+            u.TextAreaT.ComputedStyle => &self.default_text_area_style,
             u.IconButtonT.ComputedStyle => &self.default_icon_button_style,
             else => @compileError("Unsupported style: " ++ @typeName(Widget)),
         };

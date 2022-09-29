@@ -20,12 +20,8 @@ const log = stdx.log.scoped(.text_area);
 pub const TextArea = struct {
     props: struct {
         initValue: []const u8,
-        fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
-        fontSize: f32 = 18,
         width: f32 = 400,
         height: f32 = 300,
-        textColor: Color = Color.Black,
-        bgColor: Color = Color.White,
         onBlur: stdx.Function(fn () void) = .{},
     },
 
@@ -42,15 +38,36 @@ pub const TextArea = struct {
     font_vmetrics: graphics.VMetrics,
     font_line_height: u32,
     font_line_offset_y: f32, // y offset to first text line is drawn
+    needs_remeasure_font: bool,
 
     ctx: *ui.CommonContext,
     alloc: std.mem.Allocator,
     node: *ui.Node,
 
+    pub const Style = struct {
+        padding: ?f32 = null,
+        bgColor: ?Color = null,
+        color: ?Color = null,
+        fontSize: ?f32 = null,
+        fontFamily: ?graphics.FontFamily = null,
+    };
+
+    pub const ComputedStyle = struct {
+        padding: f32 = 10,
+        bgColor: Color = Color.White,
+        color: Color = Color.Black,
+        fontSize: f32 = 18,
+        fontFamily: graphics.FontFamily = graphics.FontFamily.Default,
+    };
+
     pub fn init(self: *TextArea, c: *ui.InitContext) void {
+        const style = c.getStyle(TextArea);
         const props = self.props;
 
-        self.font_gid = c.getFontGroupByFamily(self.props.fontFamily);
+        self.font_gid = c.getFontGroupByFamily(style.fontFamily);
+        self.font_size = style.fontSize;
+        self.needs_remeasure_font = true;
+
         self.lines = std.ArrayList(Line).init(c.alloc);
         self.caret_line = 0;
         self.caret_col = 0;
@@ -59,7 +76,6 @@ pub const TextArea = struct {
         self.ctx = c.common;
         self.node = c.node;
         self.alloc = c.alloc;
-        self.setFontSize(self.props.fontSize);
 
         self.setText(props.initValue);
         c.setKeyDownHandler(self, onKeyDown);
@@ -73,25 +89,34 @@ pub const TextArea = struct {
     }
 
     pub fn build(self: *TextArea, c: *ui.BuildContext) ui.FrameId {
+        const style = c.getStyle(TextArea);
         return u.ScrollView(.{
             .bind = &self.scroll_view,
-            .bg_color = self.props.bgColor,
+            .bg_color = style.bgColor,
             .onContentMouseDown = c.funcExt(self, onMouseDown) },
-            c.build(TextAreaInner, .{
-                .bind = &self.inner,
-                .editor = self,
-            }),
+            u.Padding(.{ .padding = style.padding },
+                c.build(TextAreaInner, .{
+                    .bind = &self.inner,
+                    .editor = self,
+                }),
+            ),
         );
     }
 
-    pub fn postPropsUpdate(self: *TextArea, _: *ui.UpdateContext) void {
-        const new_font_gid = self.ctx.getFontGroupByFamily(self.props.fontFamily);
+    pub fn postPropsUpdate(self: *TextArea, ctx: *ui.UpdateContext) void {
+        const style = ctx.getStyle(TextArea);
+        const new_font_gid = self.ctx.getFontGroupByFamily(style.fontFamily);
         if (new_font_gid != self.font_gid) {
             self.font_gid = new_font_gid;
-            self.remeasureText();
+            if (!self.needs_remeasure_font) {
+                self.queueRemeasureFont();
+            }
         }
-        if (self.props.fontSize != self.font_size) {
-            self.setFontSize(self.props.fontSize);
+        if (style.fontSize != self.font_size) {
+            self.font_size = style.fontSize;
+            if (!self.needs_remeasure_font) {
+                self.queueRemeasureFont();
+            }
         }
     }
 
@@ -251,33 +276,17 @@ pub const TextArea = struct {
         };
     }
 
-    fn remeasureText(self: *TextArea) void {
-        const font_vmetrics = self.ctx.getPrimaryFontVMetrics(self.font_gid, self.font_size);
-        // log.warn("METRICS {}", .{font_vmetrics});
-        const font_line_height_factor: f32 = 1.2;
-        const font_line_height = @round(font_line_height_factor * self.font_size);
-        const font_line_offset_y = (font_line_height - font_vmetrics.height) / 2;
-        // log.warn("{} {} {}", .{font_vmetrics.height, font_line_height, font_line_offset_y});
-
-        self.font_vmetrics = font_vmetrics;
-        self.font_line_height = @floatToInt(u32, font_line_height);
-        self.font_line_offset_y = font_line_offset_y;
+    fn queueRemeasureFont(self: *TextArea) void {
+        self.needs_remeasure_font = true;
 
         for (self.lines.items) |*line| {
-            line.width = self.ctx.measureText(self.font_gid, self.font_size, line.buf.buf.items).width;
-            line.needs_measure = false;
+            line.needs_measure = true;
         }
 
         if (self.inner.binded) {
             const widget = self.inner.getWidget();
-            widget.to_caret_width = self.ctx.measureText(self.font_gid, self.font_size, widget.to_caret_str).width;
-            widget.to_caret_needs_measure = false;
+            widget.to_caret_needs_measure = true;
         }
-    }
-
-    pub fn setFontSize(self: *TextArea, font_size: f32) void {
-        self.font_size = font_size;
-        self.remeasureText();
     }
 
     fn getCaretBottomY(self: *TextArea) f32 {
@@ -545,6 +554,21 @@ pub const TextAreaInner = struct {
     }
 
     pub fn layout(self: *TextAreaInner, ctx: *ui.LayoutContext) ui.LayoutSize {
+        const editor = self.props.editor;
+        if (editor.needs_remeasure_font) {
+            const font_vmetrics = self.ctx.getPrimaryFontVMetrics(editor.font_gid, editor.font_size);
+            // log.warn("METRICS {}", .{font_vmetrics});
+            const font_line_height_factor: f32 = 1.2;
+            const font_line_height = @round(font_line_height_factor * editor.font_size);
+            const font_line_offset_y = (font_line_height - font_vmetrics.height) / 2;
+            // log.warn("{} {} {}", .{font_vmetrics.height, font_line_height, font_line_offset_y});
+
+            editor.font_vmetrics = font_vmetrics;
+            editor.font_line_height = @floatToInt(u32, font_line_height);
+            editor.font_line_offset_y = font_line_offset_y;
+            editor.needs_remeasure_font = false;
+        }
+
         var height: f32 = 0;
         var max_width: f32 = 0;
         for (self.editor.lines.items) |*it| {
@@ -574,7 +598,8 @@ pub const TextAreaInner = struct {
         const line_height = @intToFloat(f32, editor.font_line_height);
 
         g.setFontGroup(editor.font_gid, editor.font_size);
-        g.setFillColor(self.editor.props.textColor);
+        const style = c.common.getNodeStyle(TextArea, self.props.editor.node);
+        g.setFillColor(style.color);
         // TODO: Use binary search when word wrap is enabled and we can't determine the first visible line with O(1)
         const scroll_view = editor.scroll_view.getWidget();
         const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(scroll_view.scroll_y / line_height)));
@@ -590,7 +615,7 @@ pub const TextAreaInner = struct {
         if (self.focused) {
             // Draw caret.
             if (self.caret_anim_show_toggle) {
-                g.setFillColor(self.editor.props.textColor);
+                g.setFillColor(style.color);
                 // log.warn("width {d:2}", .{width});
                 const height = self.editor.font_vmetrics.height;
                 g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);

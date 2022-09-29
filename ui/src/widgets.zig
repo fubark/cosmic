@@ -94,6 +94,7 @@ pub const TextStyle = TextT.Style;
 const text_area = @import("widgets/text_area.zig");
 pub const TextAreaT = text_area.TextArea;
 pub const TextArea = genBuildWithNoChild(TextAreaT);
+pub const TextAreaStyle = TextAreaT.Style;
 const text_field = @import("widgets/text_field.zig");
 pub const TextFieldT = text_field.TextField;
 pub const TextField = genBuildWithNoChild(TextFieldT);

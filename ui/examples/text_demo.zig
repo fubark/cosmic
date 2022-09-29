@@ -115,6 +115,13 @@ pub const App = struct {
             .onChange = c.closure(self, S.onSliderChange),
         };
 
+        const ta_style = u.TextAreaStyle{
+            // .fontFamily = "Tamzen",
+            .fontFamily = self.font_family,
+            .fontSize = self.font_size,
+            .color = self.text_color,
+            .bgColor = self.bg_color,
+        };
         return u.Row(.{}, &.{
             u.Flex(.{ .flex = 3 },
                 u.Column(.{}, &.{
@@ -122,12 +129,8 @@ pub const App = struct {
                         u.Padding(.{ .padding = 10 }, 
                             u.TextArea(.{
                                 .bind = &self.text_editor,
-                                // .fontFamily = "Tamzen",
-                                .fontFamily = self.font_family,
-                                .fontSize = self.font_size,
                                 .initValue = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built on top of Freetype and OpenGL/Vulkan.",
-                                .textColor = self.text_color,
-                                .bgColor = self.bg_color,
+                                .style = ta_style,
                             }),
                         ),
                     ),
