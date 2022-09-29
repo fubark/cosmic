@@ -1,5 +1,6 @@
 const std = @import("std");
-const stdx = @import("stdx");
+
+const stdx = @import("../stdx.zig");
 const fatal = stdx.fatal;
 const t = stdx.testing;
 
@@ -99,6 +100,37 @@ pub const TextBuffer = struct {
     pub fn getCodepointAt(self: TextBuffer, idx: u32) u21 {
         const bytes = self.getSubStr(idx, idx + 1);
         return std.unicode.utf8Decode(bytes) catch fatal();
+    }
+
+    pub fn findFirst(self: TextBuffer, pred: fn (u21) bool) ?u32 {
+        var iter = std.unicode.Utf8View.initUnchecked(self.buf.items).iterator();
+        var i: u32 = 0;
+        while (iter.nextCodepoint()) |cp| {
+            if (pred(cp)) {
+                return i;
+            }
+            i += 1;
+        }
+        return null;
+    }
+
+    pub fn findFirstBefore(self: TextBuffer, end_idx: u32, pred: fn (u21) bool) ?u32 {
+        if (end_idx == 0) {
+            return null;
+        }
+        var iter = std.unicode.Utf8View.initUnchecked(self.buf.items).iterator();
+        var last_idx: ?u32 = null; 
+        var i: u32 = 0;
+        while (iter.nextCodepoint()) |cp| {
+            if (pred(cp)) {
+                last_idx = i;
+            }
+            i += 1;
+            if (i == end_idx) {
+                return last_idx;
+            }
+        }
+        return null;
     }
 
     pub fn getSubStr(self: TextBuffer, start_idx: u32, end_idx: u32) []const u8 {
