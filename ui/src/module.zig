@@ -41,7 +41,7 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
     if (frame.has_style) {
         if (frame.style_is_value) {
             const ptr = mod.build_ctx.frame_props.getBytesPtr(frame.style.value);
-            const user_style = stdx.mem.ptrCastAlign(*const UserStyle, &ptr[0]);
+            const user_style = stdx.mem.ptrCastAlign(*const align(1) UserStyle, &ptr[0]);
             // Persist user style.
             if (!node.hasState(ui.NodeStateMasks.user_style)) {
                 const new = mod.alloc.create(UserStyle) catch fatal();
@@ -53,6 +53,7 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
                     .owned = true,
                 }) catch fatal();
                 node.setStateMask(ui.NodeStateMasks.user_style);
+                return new;
             } else {
                 const handle = mod.common.node_user_styles.getPtr(node).?;
                 var existing: *UserStyle = undefined;
@@ -66,8 +67,8 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
                     existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
                 }
                 existing.* = user_style.*;
+                return existing;
             }
-            return user_style;
         } else {
             const user_style = stdx.mem.ptrCastAlign(*const UserStyle, frame.style.ptr);
             if (!node.hasState(ui.NodeStateMasks.user_style)) {
