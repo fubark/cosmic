@@ -1,5 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const fatal = stdx.fatal;
 const t = stdx.testing;
 
 pub const document = @import("document.zig");
@@ -95,6 +96,11 @@ pub const TextBuffer = struct {
         self.num_chars += i;
     }
 
+    pub fn getCodepointAt(self: TextBuffer, idx: u32) u21 {
+        const bytes = self.getSubStr(idx, idx + 1);
+        return std.unicode.utf8Decode(bytes) catch fatal();
+    }
+
     pub fn getSubStr(self: TextBuffer, start_idx: u32, end_idx: u32) []const u8 {
         const range = self.getBufferRange(start_idx, end_idx);
         return self.buf.items[range.buf_start_idx..range.buf_end_idx];
@@ -106,7 +112,7 @@ pub const TextBuffer = struct {
 
     pub fn removeSubStr(self: *TextBuffer, start_idx: u32, end_idx: u32) void {
         const range = self.getBufferRange(start_idx, end_idx);
-        self.buf.replaceRange(range.buf_start_idx, range.buf_end_idx - range.buf_start_idx, "") catch @panic("error");
+        self.buf.replaceRange(range.buf_start_idx, range.buf_end_idx - range.buf_start_idx, "") catch fatal();
         self.num_chars -= (end_idx - start_idx);
     }
 
@@ -287,4 +293,14 @@ test "TextBuffer.removeSubStr" {
     buf.removeSubStr(1, 2);
     try t.eq(buf.num_chars, 2);
     try t.eqStr(buf.buf.items, "ac");
+}
+
+test "TextBuffer.getCodepointAt" {
+    var buf = try TextBuffer.init(t.alloc, "ab🫐c");
+    defer buf.deinit();
+
+    try t.eq(buf.getCodepointAt(0), 'a');
+    try t.eq(buf.getCodepointAt(1), 'b');
+    try t.eq(buf.getCodepointAt(2), 129744);
+    try t.eq(buf.getCodepointAt(3), 'c');
 }
