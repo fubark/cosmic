@@ -25,12 +25,15 @@ fn SliderOptionBase(comptime is_float: bool) type {
         const Self = @This();
 
         pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+            const t_style = w.TextStyle{
+                .fontSize = 14,
+                .color = Color.White,
+            };
             return w.Row(.{ .valign = .center }, &.{
                 w.Flex(.{ .flex = 1 },
                     w.Text(.{
                         .text = self.props.label,
-                        .color = Color.White,
-                        .fontSize = 14,
+                        .style = t_style,
                     }),
                 ),
                 w.Flex(.{ .flex = 3, }, 
@@ -66,13 +69,16 @@ pub const SwitchOption = struct {
                 self_.inner.getWidget().toggle();
             }
         };
+        const t_style = w.TextStyle{
+            .fontSize = 14,
+            .color = Color.White,
+        };
         return w.MouseArea(.{ .onClick = c.funcExt(self, S.onClick) },
             w.Row(.{ .valign = .center }, &.{
                 w.Flex(.{}, 
                     w.Text(.{
                         .text = self.props.label,
-                        .fontSize = 14,
-                        .color = Color.White,
+                        .style = t_style,
                     }),
                 ),
                 w.Switch(.{

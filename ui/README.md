@@ -206,7 +206,7 @@ Before any widget instances are created, the engine needs to know the structure 
                     .text = "Count",
                     .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
                     .style = u.TextButtonStyle{
-                        .button = u.ButtonStyle{
+                        .button = .{
                             .cornerRadius = 10,
                         },
                     },

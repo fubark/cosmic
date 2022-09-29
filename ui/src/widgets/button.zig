@@ -53,6 +53,7 @@ pub const TextButton = struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         text: []const u8 = "",
         icon: ui.IconT = ui.Icon(NullId, .{}),
+        halign: ui.HAlign = .center,
     },
 
     pub const Style = struct {
@@ -88,6 +89,7 @@ pub const TextButton = struct {
         const button_style = ctx.getStylePropPtr(style, "button");
         return u.Button(.{
             .onClick = self.props.onClick,
+            .halign = self.props.halign,
             .style = button_style, },
             u.Padding(.{ .padding = 10 },
                 body,

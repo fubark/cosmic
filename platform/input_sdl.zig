@@ -17,20 +17,20 @@ const log = stdx.log.scoped(.input_sdl);
 
 const ButtonMap = b: {
     var arr: [6]MouseButton = undefined;
-    arr[sdl.SDL_BUTTON_LEFT] = .Left;
-    arr[sdl.SDL_BUTTON_RIGHT] = .Right;
-    arr[sdl.SDL_BUTTON_MIDDLE] = .Middle;
-    arr[sdl.SDL_BUTTON_X1] = .X1;
-    arr[sdl.SDL_BUTTON_X2] = .X2;
+    arr[sdl.SDL_BUTTON_LEFT] = .left;
+    arr[sdl.SDL_BUTTON_RIGHT] = .right;
+    arr[sdl.SDL_BUTTON_MIDDLE] = .middle;
+    arr[sdl.SDL_BUTTON_X1] = .x1;
+    arr[sdl.SDL_BUTTON_X2] = .x2;
     break :b arr;
 };
 
 test "ButtonMap" {
-    try t.eq(ButtonMap[sdl.SDL_BUTTON_LEFT], .Left);
-    try t.eq(ButtonMap[sdl.SDL_BUTTON_RIGHT], .Right);
-    try t.eq(ButtonMap[sdl.SDL_BUTTON_MIDDLE], .Middle);
-    try t.eq(ButtonMap[sdl.SDL_BUTTON_X1], .X1);
-    try t.eq(ButtonMap[sdl.SDL_BUTTON_X2], .X2);
+    try t.eq(ButtonMap[sdl.SDL_BUTTON_LEFT], .left);
+    try t.eq(ButtonMap[sdl.SDL_BUTTON_RIGHT], .right);
+    try t.eq(ButtonMap[sdl.SDL_BUTTON_MIDDLE], .middle);
+    try t.eq(ButtonMap[sdl.SDL_BUTTON_X1], .x1);
+    try t.eq(ButtonMap[sdl.SDL_BUTTON_X2], .x2);
 }
 
 pub fn initMouseDownEvent(event: sdl.SDL_MouseButtonEvent) MouseDownEvent {

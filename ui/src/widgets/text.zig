@@ -40,11 +40,12 @@ pub const Text = struct {
         const style = c.getStyle(Text);
         self.font_gid = c.getFontGroupByFamily(style.fontFamily);
         self.font_size = style.fontSize;
-        self.tlo = graphics.TextLayout.init(c.alloc);
-        self.use_layout = false;
-        self.ctx = c.common;
         self.word_wrap = false;
+        self.use_layout = false;
         self.needs_relayout = true;
+
+        self.tlo = graphics.TextLayout.init(c.alloc);
+        self.ctx = c.common;
         self.str_hash = stdx.string.StringHash.init(self.props.text);
     }
 

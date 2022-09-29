@@ -102,7 +102,7 @@ pub const List = struct {
         return .default;
     }
 
-    pub fn postPropsUpdate(self: *List) void {
+    pub fn postPropsUpdate(self: *List, _: *ui.UpdateContext) void {
         if (self.selected_idx != NullId) {
             if (self.selected_idx >= self.props.children.len) {
                 if (self.props.children.len == 0) {

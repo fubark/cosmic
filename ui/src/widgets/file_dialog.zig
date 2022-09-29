@@ -38,9 +38,10 @@ pub const FileDialog = struct {
     pub fn build(self: *FileDialog, c: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn buildItem(self_: *FileDialog, _: *ui.BuildContext, i: u32) ui.FrameId {
+                const t_style = w.TextStyle{ .color = Color.White };
                 return w.Text(.{
                     .text = self_.files.items[i].name,
-                    .color = Color.White,
+                    .style = t_style,
                 });
             }
             fn onClickCancel(self_: *FileDialog, e: ui.MouseUpEvent) void {
