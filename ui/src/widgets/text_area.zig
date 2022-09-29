@@ -44,6 +44,9 @@ pub const TextArea = struct {
     alloc: std.mem.Allocator,
     node: *ui.Node,
 
+    // Faster access to current padding.
+    padding: f32,
+
     pub const Style = struct {
         padding: ?f32 = null,
         bgColor: ?Color = null,
@@ -76,6 +79,7 @@ pub const TextArea = struct {
         self.ctx = c.common;
         self.node = c.node;
         self.alloc = c.alloc;
+        self.padding = style.padding;
 
         self.setText(props.initValue);
         c.setKeyDownHandler(self, onKeyDown);
@@ -122,6 +126,7 @@ pub const TextArea = struct {
                 self.queueRemeasureFont();
             }
         }
+        self.padding = style.padding;
     }
 
     fn onMouseDown(self: *TextArea, e: platform.MouseDownEvent) ui.EventResult {
@@ -232,7 +237,9 @@ pub const TextArea = struct {
         }
     }
 
-    fn toCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x: f32, y: f32) DocLocation {
+    fn toCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x: f32, y_: f32) DocLocation {
+        // Account for padding.
+        const y = y_ - self.padding;
         if (y < 0) {
             return .{
                 .line_idx = 0,
@@ -294,15 +301,15 @@ pub const TextArea = struct {
     }
 
     fn getCaretBottomY(self: *TextArea) f32 {
-        return @intToFloat(f32, self.caret_line + 1) * @intToFloat(f32, self.font_line_height);
+        return @intToFloat(f32, self.caret_line + 1) * @intToFloat(f32, self.font_line_height) + self.padding;
     }
 
     fn getCaretTopY(self: *TextArea) f32 {
-        return @intToFloat(f32, self.caret_line) * @intToFloat(f32, self.font_line_height);
+        return @intToFloat(f32, self.caret_line) * @intToFloat(f32, self.font_line_height) + self.padding;
     }
 
     fn getCaretX(self: *TextArea) f32 {
-        return self.inner.getWidget().to_caret_width;
+        return self.inner.getWidget().to_caret_width + self.padding;
     }
 
     fn postLineUpdate(self: *TextArea, idx: usize) void {
@@ -339,9 +346,10 @@ pub const TextArea = struct {
                     // Above current view
                     sv.setScrollPosAfterLayout(svn, sv.scroll_x, caret_top_y);
                 }
-                if (caret_x > sv.scroll_x + view_width) {
+                const CaretRightPadding = 5;
+                if (caret_x > sv.scroll_x + view_width - CaretRightPadding) {
                     // Right of current view
-                    sv.setScrollPosAfterLayout(svn, caret_x - view_width, sv.scroll_y);
+                    sv.setScrollPosAfterLayout(svn, caret_x - view_width + CaretRightPadding, sv.scroll_y);
                 } else if (caret_x < sv.scroll_x) {
                     // Left of current view
                     sv.setScrollPosAfterLayout(svn, caret_x, sv.scroll_y);
