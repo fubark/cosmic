@@ -17,6 +17,7 @@ pub const Window = struct {
         initHeight: f32 = 200,
         child: ui.FrameId = ui.NullFrameId,
         onClose: ?stdx.Function(fn (ui.WidgetRef(Window)) void) = null,
+        closeIcon: graphics.ImageId,
     },
 
     x: f32,
@@ -37,7 +38,15 @@ pub const Window = struct {
     drag_start_win_bottom: f32,
     resize_type: ResizeType,
 
-    const TitleBarHeight = 30;
+    pub const Style = struct {
+        titleColor: ?Color = null,
+        titleBgColor: ?Color = null,
+    };
+
+    pub const ComputedStyle = struct {
+        titleColor: Color = Color.White,
+        titleBgColor: Color = Color.DarkGray,
+    };
 
     pub fn init(self: *Window, ctx: *ui.InitContext) void {
         self.x = self.props.initX;
@@ -49,6 +58,9 @@ pub const Window = struct {
     }
 
     pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FrameId {
+        const style = ctx.getStyle(Window);
+        const tstyle = u.TextStyle{ .color = style.titleColor };
+        const cstyle = u.IconButtonStyle{ .button = .{ .borderSize = 0, .bgColor = Color.Transparent }, .padding = 5 };
         return u.Positioned(.{ .x = self.x, .y = self.y, .width = self.width, .height = self.height },
             u.MouseHoverArea(.{
                 .hitTest = ctx.funcExt(self, hitResizeBorder),
@@ -60,19 +72,21 @@ pub const Window = struct {
                     .onDragStart = ctx.funcExt(self, onDragStartBorder),
                     .onDragMove = ctx.funcExt(self, onDragMoveBorder), },
                     u.Column(.{}, &.{
-                        u.Container(.{ .bgColor = Color.Gray, .width = ui.ExpandedWidth, .height = TitleBarHeight },
-                            u.Row(.{}, &.{
-                                u.Flex(.{},
-                                    u.MouseDragArea(.{
-                                        .onDragStart = ctx.funcExt(self, onDragStartTitle),
-                                        .onDragMove = ctx.funcExt(self, onDragMoveTitle), },
-                                        u.Text(.{ .text = self.props.title }),
+                        u.Container(.{ .bgColor = style.titleBgColor, .width = ui.ExpandedWidth },
+                            u.MouseDragArea(.{
+                                .onDragStart = ctx.funcExt(self, onDragStartTitle),
+                                .onDragMove = ctx.funcExt(self, onDragMoveTitle), },
+                                u.Row(.{}, &.{
+                                    u.Flex(.{},
+                                        u.Text(.{ .text = self.props.title, .style = tstyle }),
                                     ),
-                                ),
-                                u.Button(.{ .onClick = ctx.funcExt(ctx.node, onClickClose) }, 
-                                    u.Text(.{ .text = "close" }),
-                                ),
-                            }),
+                                    u.IconButton(.{
+                                        .onClick = ctx.funcExt(ctx.node, onClickClose),
+                                        .style = cstyle,
+                                        .icon = ui.Icon(self.props.closeIcon, .{ .size = 16 }),
+                                    }), 
+                                }),
+                            ),  
                         ),
                         u.Container(.{ .bgColor = self.props.bgColor, .width = ui.ExpandedWidth, .height = ui.ExpandedHeight }, 
                             self.props.child,

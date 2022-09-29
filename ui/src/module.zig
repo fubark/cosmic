@@ -2267,6 +2267,7 @@ pub const ModuleCommon = struct {
     default_icon_button_style: u.IconButtonT.ComputedStyle,
     default_text_style: u.TextT.ComputedStyle,
     default_text_area_style: u.TextAreaT.ComputedStyle,
+    default_window_style: u.WindowT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2346,6 +2347,7 @@ pub const ModuleCommon = struct {
             .default_text_button_style = .{},
             .default_icon_button_style = .{},
             .default_text_style = .{},
+            .default_window_style = .{},
             .default_text_area_style = .{},
 
             .ctx = .{
