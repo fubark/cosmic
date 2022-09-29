@@ -20,17 +20,12 @@ const ScrollBarVisibility = enum(u2) {
 pub const ScrollView = struct {
     props: struct {
         child: ui.FrameId = ui.NullFrameId,
-        bg_color: Color = Color.Transparent,
-        gutterColor: Color = Color.Transparent,
-        thumbColor: Color = Color.Gray,
-        border_color: Color = Color.DarkGray,
         show_hscroll: ScrollBarVisibility = .auto,
         show_vscroll: ScrollBarVisibility = .auto,
         /// Whether scrolling is enabled along the x axis. If false, the child's width is bounded by the ScrollView's width.
         enable_hscroll: bool = true,
         /// Whether scrolling is enabled along the y axis. If false, the child's height is bounded by the ScrollView's height.
         enable_vscroll: bool = true,
-        show_border: bool = true,
 
         /// Triggered when mouse down hits the content rather than the scrollbars.
         onContentMouseDown: ?stdx.Function(fn (platform.MouseDownEvent) ui.EventResult) = null,
@@ -54,6 +49,18 @@ pub const ScrollView = struct {
 
     node: *ui.Node,
     scroll_to_bottom_after_layout: bool,
+
+    pub const Style = struct {
+        bgColor: ?Color = null,
+        gutterColor: ?Color = null,
+        thumbColor: ?Color = null,
+    };
+
+    pub const ComputedStyle = struct {
+        bgColor: Color = Color.Transparent,
+        gutterColor: Color = Color.Transparent,
+        thumbColor: Color = Color.Gray,
+    };
 
     const BarSize = 15;
 
@@ -269,8 +276,10 @@ pub const ScrollView = struct {
         const bounds = ctx.getAbsBounds();
         const g = ctx.getGraphics();
 
-        if (self.props.bg_color.channels.a > 0) {
-            g.setFillColor(self.props.bg_color);
+        const style = ctx.getStyle(ScrollView);
+
+        if (!style.bgColor.isTransparent()) {
+            g.setFillColor(style.bgColor);
             ctx.fillBBox(bounds);
         }
 
@@ -282,17 +291,12 @@ pub const ScrollView = struct {
         // Computes the layout of the scrollbars here since it depends on layout phase completed to obtain the final ScrollView size.
         g.popState();
 
-        // Draw borders and scrollbars over the content.
-        if (self.props.show_border) {
-            g.setStrokeColor(self.props.border_color);
-            g.setLineWidth(2);
-            ctx.drawBBox(bounds);
-        }
+        // Draw scrollbars over the content.
 
         // Draw bottom right corner.
         if (self.has_vbar and self.has_hbar) {
-            if (!self.props.gutterColor.isTransparent()) {
-                g.setFillColor(Color.LightGray);
+            if (!style.gutterColor.isTransparent()) {
+                g.setFillColor(Color.Green);
                 g.fillRect(bounds.max_x - BarSize, bounds.max_y - BarSize, BarSize, BarSize);
             }
         }
@@ -301,13 +305,13 @@ pub const ScrollView = struct {
             const bar_bounds = self.getVBarBounds(bounds);
 
             // Draw vertical scrollbar.
-            if (!self.props.gutterColor.isTransparent()) {
-                g.setFillColor(self.props.gutterColor);
+            if (!style.gutterColor.isTransparent()) {
+                g.setFillColor(style.gutterColor);
                 g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
             }
 
             // Draw thumb.
-            g.setFillColor(self.props.thumbColor);
+            g.setFillColor(style.thumbColor);
             g.fillRect(bar_bounds.x, bar_bounds.thumb_y, bar_bounds.width, bar_bounds.thumb_height);
         }
 
@@ -315,13 +319,13 @@ pub const ScrollView = struct {
             const bar_bounds = self.getHBarBounds(bounds);
 
             // Draw horizontal scrollbar.
-            if (!self.props.gutterColor.isTransparent()) {
-                g.setFillColor(self.props.gutterColor);
+            if (!style.gutterColor.isTransparent()) {
+                g.setFillColor(style.gutterColor);
                 g.fillRect(bar_bounds.x, bar_bounds.y, bar_bounds.width, bar_bounds.height);
             }
 
             // Draw thumb.
-            g.setFillColor(self.props.thumbColor);
+            g.setFillColor(style.thumbColor);
             g.fillRect(bar_bounds.thumb_x, bar_bounds.y, bar_bounds.thumb_width, bar_bounds.height);
         }
     }

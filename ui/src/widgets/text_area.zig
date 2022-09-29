@@ -90,9 +90,13 @@ pub const TextArea = struct {
 
     pub fn build(self: *TextArea, c: *ui.BuildContext) ui.FrameId {
         const style = c.getStyle(TextArea);
+
+        const sv_style = u.ScrollViewStyle{
+            .bgColor = style.bgColor,
+        };
         return u.ScrollView(.{
             .bind = &self.scroll_view,
-            .bg_color = style.bgColor,
+            .style = sv_style,
             .onContentMouseDown = c.funcExt(self, onMouseDown) },
             u.Padding(.{ .padding = style.padding },
                 c.build(TextAreaInner, .{

@@ -18,9 +18,12 @@ pub const ScrollList = struct {
     list: ui.WidgetRef(List),
 
     pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
+        const sv_style = w.ScrollViewStyle{
+            .bgColor = self.props.bg_color,
+        };
         return w.ScrollView(.{
             .enable_hscroll = false,
-            .bg_color = self.props.bg_color },
+            .style = sv_style },
             w.Stretch(.{ .method = .Width },
                 c.build(List, .{
                     .bind = &self.list,
@@ -98,6 +101,7 @@ pub const List = struct {
                     }
                 }
             }
+            return .stop;
         }
         return .default;
     }

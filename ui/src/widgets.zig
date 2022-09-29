@@ -48,6 +48,7 @@ pub const TabViewT = containers.TabView;
 pub const TabView = genBuildWithNoChild(TabViewT);
 pub const ScrollViewT = @import("widgets/scroll_view.zig").ScrollView;
 pub const ScrollView = genBuildWithChild(ScrollViewT);
+pub const ScrollViewStyle = ScrollViewT.Style;
 const mouse_area = @import("widgets/mouse_area.zig");
 pub const MouseAreaT = mouse_area.MouseArea;
 pub const MouseArea = genBuildWithChild(MouseAreaT);
