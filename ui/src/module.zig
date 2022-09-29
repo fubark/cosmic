@@ -2737,7 +2737,7 @@ const TestModule = struct {
     size: ui.LayoutSize,
 
     pub fn init(self: *TestModule) void {
-        self.g.init(t.alloc, 1, undefined) catch fatal();
+        self.g.init(t.alloc, 1, undefined, undefined) catch fatal();
         self.mod.init(t.alloc, &self.g);
         self.size = LayoutSize.init(800, 600);
     }

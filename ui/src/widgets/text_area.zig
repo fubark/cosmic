@@ -23,6 +23,7 @@ pub const TextArea = struct {
         width: f32 = 400,
         height: f32 = 300,
         onBlur: stdx.Function(fn () void) = .{},
+        onKeyDown: stdx.Function(fn (ui.WidgetRef(TextArea), platform.KeyDownEvent) ui.EventResult) = .{},
     },
 
     lines: std.ArrayList(Line),
@@ -237,8 +238,9 @@ pub const TextArea = struct {
         }
     }
 
-    fn toCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x: f32, y_: f32) DocLocation {
+    fn toCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x_: f32, y_: f32) DocLocation {
         // Account for padding.
+        const x = x_ - self.padding;
         const y = y_ - self.padding;
         if (y < 0) {
             return .{
@@ -359,9 +361,59 @@ pub const TextArea = struct {
         self.ctx.nextPostLayout(self, S.cb);
     }
 
+    pub fn getCaretLineBuffer(self: *TextArea) *const stdx.textbuf.TextBuffer {
+        return &self.lines.items[self.caret_line].buf;
+    }
+
+    pub fn getCodepointBeforeCaret(self: *TextArea) ?u21 {
+        if (self.caret_col > 0) {
+            return self.lines.items[self.caret_line].buf.getCodepointAt(self.caret_col - 1);
+        } else return null;
+    }
+
+    /// Assume no new lines.
+    pub fn caretInsert(self: *TextArea, str: []const u8) !void {
+        const line = &self.lines.items[self.caret_line];
+        if (self.caret_col == line.buf.num_chars) {
+            self.caret_col += try line.buf.appendSubStr(str);
+        } else {
+            self.caret_col += try line.buf.insertSubStr(self.caret_col, str);
+        }
+        self.postLineUpdate(self.caret_line);
+
+        self.postCaretUpdate();
+        self.postCaretActivity();
+    }
+
+    pub fn caretInsertNewLine(self: *TextArea) !void {
+        const new_line = Line.init(self.ctx.alloc);
+        try self.lines.insert(self.caret_line + 1, new_line);
+        // Requery current line since insert could have resized array.
+        const cur_line = &self.lines.items[self.caret_line];
+        if (self.caret_col < cur_line.buf.num_chars) {
+            // Move text after caret to the new line.
+            const after_text = cur_line.buf.getSubStr(self.caret_col, cur_line.buf.num_chars);
+            _ = try self.lines.items[self.caret_line+1].buf.appendSubStr(after_text);
+            cur_line.buf.removeSubStr(self.caret_col, cur_line.buf.num_chars);
+            self.postLineUpdate(self.caret_line);
+        }
+        self.postLineUpdate(self.caret_line + 1);
+
+        self.caret_line += 1;
+        self.caret_col = 0;
+        self.postCaretUpdate();
+        self.postCaretActivity();
+    }
+
     fn onKeyDown(self: *TextArea, e: ui.KeyDownEvent) void {
-        const c = e.ctx.common;
         const val = e.val;
+
+        if (self.props.onKeyDown.isPresent()) {
+            if (self.props.onKeyDown.call(.{ ui.WidgetRef(TextArea).init(self.node), e.val }) == .stop) {
+                return;
+            }
+        }
+
         const line = &self.lines.items[self.caret_line];
         if (val.code == .Backspace) {
             if (self.caret_col > 0) {
@@ -404,23 +456,7 @@ pub const TextArea = struct {
                 }
             }
         } else if (val.code == .Enter) {
-            const new_line = Line.init(c.alloc);
-            self.lines.insert(self.caret_line + 1, new_line) catch unreachable;
-            // Requery current line since insert could have resized array.
-            const cur_line = &self.lines.items[self.caret_line];
-            if (self.caret_col < cur_line.buf.num_chars) {
-                // Move text after caret to the new line.
-                const after_text = cur_line.buf.getSubStr(self.caret_col, cur_line.buf.num_chars);
-                _ = self.lines.items[self.caret_line+1].buf.appendSubStr(after_text) catch @panic("error");
-                cur_line.buf.removeSubStr(self.caret_col, cur_line.buf.num_chars);
-                self.postLineUpdate(self.caret_line);
-            }
-            self.postLineUpdate(self.caret_line + 1);
-
-            self.caret_line += 1;
-            self.caret_col = 0;
-            self.postCaretUpdate();
-            self.postCaretActivity();
+            self.caretInsertNewLine() catch fatal();
         } else if (val.code == .ArrowLeft) {
             if (self.caret_col > 0) {
                 self.caret_col -= 1;

@@ -108,7 +108,7 @@ pub fn IntervalHandler(comptime Context: type) type {
 
 pub const EventResult = enum(u1) {
     /// Allow the engine to continue with the default behavior.
-    /// Usually these means the event continues to propagate down to the children.
+    /// This usually means the event continues to propagate down to the children.
     default = 0,
     /// Stop the event from propagating to children.
     stop = 1,
