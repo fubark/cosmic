@@ -2280,6 +2280,7 @@ pub const ModuleCommon = struct {
     default_window_style: u.WindowT.ComputedStyle,
     default_scroll_view_style: u.ScrollViewT.ComputedStyle,
     default_tab_view_style: u.TabViewT.ComputedStyle,
+    default_border_style: u.BorderT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2363,6 +2364,7 @@ pub const ModuleCommon = struct {
             .default_text_area_style = .{},
             .default_scroll_view_style = .{},
             .default_tab_view_style = .{},
+            .default_border_style = .{},
 
             .ctx = .{
                 .common = self,
@@ -2456,6 +2458,7 @@ pub const ModuleCommon = struct {
             u.IconButtonT.ComputedStyle => &self.default_icon_button_style,
             u.ScrollViewT.ComputedStyle => &self.default_scroll_view_style,
             u.TabViewT.ComputedStyle => &self.default_tab_view_style,
+            u.BorderT.ComputedStyle => &self.default_border_style,
             else => @compileError("Unsupported style: " ++ @typeName(Widget)),
         };
     }

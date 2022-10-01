@@ -19,12 +19,14 @@ pub const IconButton = struct {
     },
 
     pub const Style = struct {
-        button: ?Button.Style = null,
+        bgColor: ?Color = null,
+        border: ?u.BorderStyle = null,
         padding: ?f32 = null,
     };
 
     pub const ComputedStyle = struct {
-        button: ?Button.Style = null,
+        bgColor: Color = Color.init(220, 220, 220, 255),
+        border: ?u.BorderStyle = null,
         padding: f32 = 10,
     };
 
@@ -36,11 +38,14 @@ pub const IconButton = struct {
             body = u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint, .width = self.props.icon.size, .height = self.props.icon.size });
         }
 
-        const button_style = ctx.getStylePropPtr(style, "button");
+        const b_style = u.ButtonStyle{
+            .bgColor = style.bgColor,
+            .border = style.border,
+        };
         return u.Button(.{
             .onClick = self.props.onClick,
             .halign = self.props.halign,
-            .style = button_style, },
+            .style = b_style, },
             u.Padding(.{ .padding = style.padding },
                 body,
             ),
@@ -57,12 +62,14 @@ pub const TextButton = struct {
     },
 
     pub const Style = struct {
-        button: ?Button.Style = null,
+        border: ?u.BorderStyle = null,
+        bgColor: ?Color = null,
         text: ?u.TextStyle = null,
     };
 
     pub const ComputedStyle = struct {
-        button: ?Button.Style = null,
+        border: ?u.BorderStyle = null,
+        bgColor: Color = Color.init(220, 220, 220, 255),
         text: ?u.TextStyle = null,
     };
 
@@ -86,11 +93,14 @@ pub const TextButton = struct {
             });
         }
 
-        const button_style = ctx.getStylePropPtr(style, "button");
+        const b_style = u.ButtonStyle{
+            .bgColor = style.bgColor,
+            .border = style.border,
+        };
         return u.Button(.{
             .onClick = self.props.onClick,
             .halign = self.props.halign,
-            .style = button_style, },
+            .style = b_style, },
             u.Padding(.{ .padding = 10 },
                 body,
             ),
@@ -117,17 +127,12 @@ pub const Button = struct {
 
     pub const Style = struct {
         bgColor: ?Color = null,
-        bgColorPressed: ?Color = null,
-        borderSize: ?f32 = null,
-        borderColor: ?Color = null,
-        cornerRadius: ?f32 = null,
+        border: ?u.BorderStyle = null,
     };
 
     pub const ComputedStyle = struct {
         bgColor: Color = Color.init(220, 220, 220, 255),
-        borderSize: f32 = 1,
-        borderColor: Color = Color.Gray,
-        cornerRadius: f32 = 0,
+        border: ?u.BorderStyle = null,
 
         pub fn defaultUpdate(style: *ComputedStyle, mods: ButtonMods) void {
             if (mods.inner.pressed) {
@@ -136,8 +141,17 @@ pub const Button = struct {
         }
     };
 
-    pub fn build(self: *Button, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Button, ctx: *ui.BuildContext) ui.FrameId {
+        const style = ctx.getStyle(Button);
+        
+        var b_style = u.BorderStyle{};
+        if (ctx.getStylePropPtr(style, "border")) |override| {
+            b_style.size = override.size;
+            b_style.cornerRadius = override.cornerRadius;
+            b_style.color = override.color;
+        }
+        b_style.bgColor = style.bgColor;
+        return u.Border(.{ .style = b_style }, self.props.child);
     }
 
     pub fn init(self: *Button, c: *ui.InitContext) void {
@@ -178,39 +192,27 @@ pub const Button = struct {
     pub fn layout(self: *Button, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
         if (self.props.child != ui.NullFrameId) {
-            const child_node = c.getNode().children.items[0];
-            const child_size = c.computeLayoutWithMax(child_node, cstr.max_width, cstr.max_height);
-            var res = child_size;
-            res.growToMin(cstr);
+            const border_node = c.getNode().children.items[0];
+            var border_size = c.computeLayoutWithMax(border_node, cstr.max_width, cstr.max_height);
+            const child_node = border_node.children.items[0];
+            const child_size = child_node.layout;
+            const border_extra_width = border_size.width - child_size.width;
+            
+            // Make border decorator just as big.
+            border_size.growToMin(cstr);
+            c.setLayout2(border_node, 0, 0, border_size.width, border_size.height);
+
+            // Align child in the border decorator.
             switch (self.props.halign) {
-                .left => c.setLayout(child_node, ui.Layout.initWithSize(0, 0, child_size)),
-                .center => c.setLayout(child_node, ui.Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
-                .right => c.setLayout(child_node, ui.Layout.initWithSize(res.width - child_size.width, 0, child_size)),
+                .left => c.setLayout2(child_node, 0, 0, child_size.width, child_size.height),
+                .center => c.setLayout2(child_node, (border_size.width - border_extra_width - child_size.width)/2, 0, child_size.width, child_size.height),
+                .right => c.setLayout2(child_node, border_size.width - border_extra_width - child_size.width, 0, child_size.width, child_size.height),
             }
-            return res;
+            return border_size;
         } else {
             var res = ui.LayoutSize.init(150, 40);
             res.growToMin(cstr);
             return res;
-        }
-    }
-
-    pub fn render(self: *Button, ctx: *ui.RenderContext) void {
-        _ = self;
-        const style = ctx.getStyle(Button);
-        const bounds = ctx.getAbsBounds();
-        const g = ctx.getGraphics();
-        g.setFillColor(style.bgColor);
-        if (style.cornerRadius > 0) {
-            ctx.fillRoundBBox(bounds, style.cornerRadius);
-            g.setLineWidth(style.borderSize);
-            g.setStrokeColor(style.borderColor);
-            ctx.drawRoundBBox(bounds, style.cornerRadius);
-        } else {
-            ctx.fillBBox(bounds);
-            g.setLineWidth(style.borderSize);
-            g.setStrokeColor(style.borderColor);
-            ctx.drawBBox(bounds);
         }
     }
 };

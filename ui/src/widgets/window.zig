@@ -60,7 +60,7 @@ pub const Window = struct {
     pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FrameId {
         const style = ctx.getStyle(Window);
         const tstyle = u.TextStyle{ .color = style.titleColor };
-        const cstyle = u.IconButtonStyle{ .button = .{ .borderSize = 0, .bgColor = Color.Transparent }, .padding = 5 };
+        const cstyle = u.IconButtonStyle{ .border = .{ .size = 0 }, .bgColor = Color.Transparent, .padding = 5 };
         return u.Positioned(.{ .x = self.x, .y = self.y, .width = self.width, .height = self.height },
             u.MouseHoverArea(.{
                 .hitTest = ctx.funcExt(self, hitResizeBorder),

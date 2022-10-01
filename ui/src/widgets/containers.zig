@@ -7,6 +7,83 @@ const ui = @import("../ui.zig");
 const u = ui.widgets;
 const log = stdx.log.scoped(.containers);
 
+/// Provides a border around a child widget.
+pub const Border = struct {
+    props: struct {
+        child: ui.FrameId = ui.NullFrameId,
+    },
+
+    pub const Style = struct {
+        color: ?Color = null,
+        size: ?f32 = null,
+        cornerRadius: ?f32 = null,
+        bgColor: ?Color = null,
+    };
+
+    pub const ComputedStyle = struct {
+        color: Color = Color.DarkGray,
+        size: f32 = 1,
+        cornerRadius: f32 = 0,
+        bgColor: Color = Color.Transparent,
+    };
+
+    pub fn build(self: *Border, _: *ui.BuildContext) ui.FrameId {
+        return self.props.child;
+    }
+
+    pub fn layout(self: *Border, ctx: *ui.LayoutContext) ui.LayoutSize {
+        const style = ctx.getStyle(Border);
+        const left_offset = style.size;
+        const top_offset = style.size;
+        const h_size = style.size * 2;
+        const v_size = style.size * 2;
+
+        if (self.props.child == ui.NullFrameId) {
+            return ui.LayoutSize.init(h_size, v_size);
+        }
+
+        const cstr = ctx.getSizeConstraints();
+        const node = ctx.getNode();
+        const child = node.children.items[0];
+
+        const min_width = std.math.max(cstr.min_width - h_size, 0);
+        const min_height = std.math.max(cstr.min_height - v_size, 0);
+        const max_width = std.math.max(cstr.max_width - h_size, 0);
+        const max_height = std.math.max(cstr.max_height - v_size, 0);
+        const child_size = ctx.computeLayout(child, min_width, min_height, max_width, max_height);
+        ctx.setLayout(child, ui.Layout.init(left_offset, top_offset, child_size.width, child_size.height));
+        return child_size.toIncSize(h_size, v_size);
+    }
+
+    pub fn renderCustom(self: *Border, ctx: *ui.RenderContext) void {
+        _ = self;
+        const b = ctx.getAbsBounds();
+
+        const style = ctx.getStyle(Border);
+        if (style.bgColor.isTransparent()) {
+            ctx.gctx.setFillColor(style.bgColor);
+            if (style.cornerRadius > 0) {
+                ctx.gctx.fillRoundRectBounds(b.min_x + style.size, b.min_y + style.size, b.max_x - style.size * 2, b.max_y - style.size * 2, style.cornerRadius);
+            } else {
+                ctx.gctx.fillRectBounds(b.min_x + style.size, b.min_y + style.size, b.max_x - style.size * 2, b.max_y - style.size * 2);
+            }
+        }
+
+        ctx.renderChildren();
+
+        // TODO: Provide optional flag to clip the child.
+
+        // Draw border over children.
+        ctx.gctx.setStrokeColor(style.color);
+        ctx.gctx.setLineWidth(style.size);
+        if (style.cornerRadius > 0) {
+            ctx.strokeRoundBBoxInward(b, style.cornerRadius);
+        } else {
+            ctx.strokeBBoxInward(b);
+        }
+    }
+};
+
 /// Provides padding around a child widget.
 pub const Padding = struct {
     props: struct {
