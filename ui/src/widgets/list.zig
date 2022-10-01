@@ -153,7 +153,7 @@ pub const List = struct {
             g.setStrokeColor(Color.Blue);
             g.setLineWidth(2);
             const child = node.children.items[self.selected_idx];
-            g.drawRectBounds(child.abs_bounds.min_x, child.abs_bounds.min_y, bounds.max_x, child.abs_bounds.max_y);
+            g.strokeRectBounds(child.abs_bounds.min_x, child.abs_bounds.min_y, bounds.max_x, child.abs_bounds.max_y);
         }
     }
 };

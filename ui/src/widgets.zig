@@ -46,6 +46,13 @@ pub const ZStackT = containers.ZStack;
 pub const ZStack = genBuildWithChildren(ZStackT);
 pub const TabViewT = containers.TabView;
 pub const TabView = genBuildWithNoChild(TabViewT);
+pub const TabViewStyle = TabViewT.Style;
+pub const ContainerT = containers.Container;
+pub const Container = genBuildWithChild(ContainerT);
+pub const PositionedT = containers.Positioned;
+pub const Positioned = genBuildWithChild(PositionedT);
+pub const KeepAspectRatioT = containers.KeepAspectRatio;
+pub const KeepAspectRatio = genBuildWithChild(KeepAspectRatioT);
 pub const ScrollViewT = @import("widgets/scroll_view.zig").ScrollView;
 pub const ScrollView = genBuildWithChild(ScrollViewT);
 pub const ScrollViewStyle = ScrollViewT.Style;
@@ -60,12 +67,6 @@ const list = @import("widgets/list.zig");
 pub const List = list.List;
 pub const ScrollListT = list.ScrollList;
 pub const ScrollList = genBuildWithChildren(ScrollListT);
-pub const ContainerT = containers.Container;
-pub const Container = genBuildWithChild(ContainerT);
-pub const PositionedT = containers.Positioned;
-pub const Positioned = genBuildWithChild(PositionedT);
-pub const KeepAspectRatioT = containers.KeepAspectRatio;
-pub const KeepAspectRatio = genBuildWithChild(KeepAspectRatioT);
 
 /// Window.
 pub const WindowT = @import("widgets/window.zig").Window;

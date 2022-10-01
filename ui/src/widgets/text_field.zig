@@ -233,7 +233,7 @@ pub const TextField = struct {
         if (c.isFocused() and self.props.focused_show_border) {
             g.setStrokeColor(self.props.focused_border_color);
             g.setLineWidth(2);
-            c.drawBBox(bounds);
+            c.strokeBBoxInward(bounds);
         }
     }
 };

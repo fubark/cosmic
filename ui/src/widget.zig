@@ -9,6 +9,7 @@ const Layout = ui.Layout;
 const RenderContext = ui.RenderContext;
 const FrameId = ui.FrameId;
 const GenWidgetVTable = @import("module.zig").GenWidgetVTable;
+const log = stdx.log.scoped(.widget);
 
 /// Id can be an enum literal that is given a unique id at comptime.
 pub const WidgetUserId = usize;
@@ -339,6 +340,13 @@ pub const Node = struct {
 
     pub inline fn hasState(self: Node, mask: u8) bool {
         return self.state_mask & mask > 0;
+    }
+
+    pub fn dumpPath(self: Node) void {
+        log.debug("{s} {}", .{self.vtable.name, self.children.items.len});
+        if (self.parent) |parent| {
+            parent.dumpPath();
+        }
     }
 };
 

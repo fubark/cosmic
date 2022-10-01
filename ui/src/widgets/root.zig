@@ -318,7 +318,7 @@ pub const ModalOverlay = struct {
 
             gctx.setStrokeColor(self.props.border_color);
             gctx.setLineWidth(2);
-            gctx.drawRect(child_x, child_y, child_lo.width, child_lo.height);
+            gctx.strokeRect(child_x, child_y, child_lo.width, child_lo.height);
         }
     }
 };
@@ -453,7 +453,7 @@ pub const PopoverOverlay = struct {
 
             g.setStrokeColor(self.props.border_color);
             g.setLineWidth(2);
-            g.drawRect(child_x, child_y, child_lo.width, child_lo.height);
+            g.strokeRect(child_x, child_y, child_lo.width, child_lo.height);
         }
         if (self.custom_post_render) |cb| {
             cb(self.custom_post_render_ctx, c);

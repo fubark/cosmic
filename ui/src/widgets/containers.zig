@@ -223,7 +223,7 @@ pub const Stretch = struct {
 
 // TODO: Children can override the order by providing a z-index property. All children default to 0 z-index which results in the natural order.
 //       A higher z-index would raise the child up.
-/// Stacks children over each other. The first child will be rendered last and receive input events last.
+/// Stacks children over each other. The first child will be rendered first and receive input events last.
 pub const ZStack = struct {
     props: struct {
         children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
@@ -329,7 +329,7 @@ pub const Container = struct {
         if (self.props.outlineSize > 0) {
             gctx.setStrokeColor(self.props.outlineColor);
             gctx.setLineWidth(self.props.outlineSize);
-            ctx.drawBBox(ctx.getAbsBounds());
+            ctx.strokeBBoxInward(ctx.getAbsBounds());
         }
     }
 };
@@ -376,6 +376,16 @@ pub const TabView = struct {
 
     tab_idx: u32,
 
+    pub const Style = struct {
+        tabBgColor: ?Color = null,
+        activeTabBgColor: ?Color = null,
+    };
+
+    pub const ComputedStyle = struct {
+        tabBgColor: Color = Color.Transparent,
+        activeTabBgColor: Color = Color.White,
+    };
+
     pub fn init(self: *TabView, _: *ui.InitContext) void {
         self.tab_idx = 0;
     }
@@ -383,9 +393,17 @@ pub const TabView = struct {
     pub fn build(self: *TabView, ctx: *ui.BuildContext) ui.FrameId {
         const S = struct {
             fn buildTab(self_: *TabView, ctx_: *ui.BuildContext, idx: u32) ui.FrameId {
+                const style = ctx_.getStyle(TabView);
                 const active = self_.tab_idx == idx;
                 const user_inner = self_.props.buildTab.call(.{ ctx_, idx, active });
-                return u.MouseArea(.{ .onClick = ctx_.closurePtrId(self_, idx, onClickTab) }, user_inner);
+                const bgColor = if (active) style.activeTabBgColor else style.tabBgColor;
+                return u.MouseArea(.{ .onClick = ctx_.closurePtrId(self_, idx, onClickTab) },
+                    u.Container(.{ .bgColor = bgColor },
+                        u.Padding(.{ .padding = 0, .pad_left = 5, .pad_right = 5 },
+                            user_inner,
+                        ),
+                    ),
+                );
             }
         };
         var content = ui.NullFrameId;

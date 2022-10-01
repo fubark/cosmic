@@ -16,7 +16,7 @@ pub const Window = struct {
         initWidth: f32 = 300,
         initHeight: f32 = 200,
         child: ui.FrameId = ui.NullFrameId,
-        onClose: ?stdx.Function(fn (ui.WidgetRef(Window)) void) = null,
+        onClose: stdx.Function(fn (ui.WidgetRef(Window)) void) = .{},
         closeIcon: graphics.ImageId,
     },
 
@@ -298,9 +298,9 @@ pub const Window = struct {
 
     fn onClickClose(node: *ui.Node, _: ui.MouseUpEvent) void {
         const self = node.getWidget(Window);
-        if (self.props.onClose) |cb| {
+        if (self.props.onClose.isPresent()) {
             const src = ui.WidgetRef(Window).init(node);
-            cb.call(.{ src });
+            self.props.onClose.call(.{ src });
         }
     }
 };

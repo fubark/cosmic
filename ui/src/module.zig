@@ -1355,8 +1355,8 @@ pub const RenderContext = struct {
         };
     }
 
-    pub inline fn drawBBox(self: *RenderContext, bounds: stdx.math.BBox) void {
-        self.gctx.drawRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
+    pub inline fn strokeBBoxInward(self: *RenderContext, bounds: stdx.math.BBox) void {
+        self.gctx.strokeRectBoundsInward(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
     }
 
     pub inline fn fillBBox(self: *RenderContext, bounds: stdx.math.BBox) void {
@@ -1367,8 +1367,8 @@ pub const RenderContext = struct {
         self.gctx.fillRoundRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y, radius);
     }
 
-    pub inline fn drawRoundBBox(self: *RenderContext, bounds: stdx.math.BBox, radius: f32) void {
-        self.gctx.drawRoundRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y, radius);
+    pub inline fn strokeRoundBBoxInward(self: *RenderContext, bounds: stdx.math.BBox, radius: f32) void {
+        self.gctx.strokeRoundRectBoundsInward(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y, radius);
     }
 
     pub inline fn clipBBox(self: *RenderContext, bounds: stdx.math.BBox) void {
@@ -1665,6 +1665,10 @@ pub const LayoutContext = struct {
             .node = undefined,
         };
     }
+        
+    pub inline fn getStyle(self: *LayoutContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+        return self.common.getNodeStyle(Widget, self.node);
+    }
 
     pub inline fn getSizeConstraints(self: LayoutContext) SizeConstraints {
         return self.cstr;
@@ -1743,6 +1747,11 @@ pub const LayoutContext = struct {
             .node = node,
         };
         return node.vtable.layout(node.widget, &child_ctx);
+    }
+
+    pub fn setLayout2(self: *LayoutContext, node: *ui.Node, x: f32, y: f32, width: f32, height: f32) void {
+        _ = self;
+        node.layout = Layout.init(x, y, width, height);
     }
 
     pub fn setLayout(self: *LayoutContext, node: *ui.Node, layout: Layout) void {
@@ -2270,6 +2279,7 @@ pub const ModuleCommon = struct {
     default_text_area_style: u.TextAreaT.ComputedStyle,
     default_window_style: u.WindowT.ComputedStyle,
     default_scroll_view_style: u.ScrollViewT.ComputedStyle,
+    default_tab_view_style: u.TabViewT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2352,6 +2362,7 @@ pub const ModuleCommon = struct {
             .default_window_style = .{},
             .default_text_area_style = .{},
             .default_scroll_view_style = .{},
+            .default_tab_view_style = .{},
 
             .ctx = .{
                 .common = self,
@@ -2444,6 +2455,7 @@ pub const ModuleCommon = struct {
             u.TextAreaT.ComputedStyle => &self.default_text_area_style,
             u.IconButtonT.ComputedStyle => &self.default_icon_button_style,
             u.ScrollViewT.ComputedStyle => &self.default_scroll_view_style,
+            u.TabViewT.ComputedStyle => &self.default_tab_view_style,
             else => @compileError("Unsupported style: " ++ @typeName(Widget)),
         };
     }

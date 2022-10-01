@@ -270,7 +270,7 @@ const ColorPickerPopover = struct {
         g.fillCircle(thumb_x, thumb_y, ThumbRadius);
         g.setStrokeColor(Color.White);
         g.setLineWidth(2);
-        g.drawCircle(thumb_x, thumb_y, ThumbRadius);
+        g.strokeCircle(thumb_x, thumb_y, ThumbRadius);
 
         // Draw the palette.
         const palette_bounds = self.palette.getAbsBounds();
@@ -294,6 +294,6 @@ const ColorPickerPopover = struct {
         g.fillCircle(cursor_x, cursor_y, ThumbRadius);
         g.setStrokeColor(Color.White);
         g.setLineWidth(2);
-        g.drawCircle(cursor_x, cursor_y, ThumbRadius);
+        g.strokeCircle(cursor_x, cursor_y, ThumbRadius);
     }
 };
