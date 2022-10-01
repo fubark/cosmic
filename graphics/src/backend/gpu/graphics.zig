@@ -621,15 +621,27 @@ pub const Graphics = struct {
         self.batcher.pushVertexData(num_verts, num_indices, data);
     }
 
-    pub fn drawRectVec(self: *Graphics, pos: Vec2, width: f32, height: f32) void {
-        self.drawRect(pos.x, pos.y, width, height);
+    pub fn strokeRectVec(self: *Graphics, pos: Vec2, width: f32, height: f32) void {
+        self.strokeRect(pos.x, pos.y, width, height);
     }
 
-    pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
-        self.drawRectBounds(x, y, x + width, y + height);
+    pub fn strokeRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+        self.strokeRectBounds(x, y, x + width, y + height);
     }
 
-    pub fn drawRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+    pub fn strokeRectBoundsInward(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        // Top border.
+        self.fillRectBoundsColor(x0, y0, x1, y0 + self.ps.line_width, self.ps.stroke_color);
+        // Right border.
+        self.fillRectBoundsColor(x1 - self.ps.line_width, y0 + self.ps.line_width, x1, y1 - self.ps.line_width, self.ps.stroke_color);
+        // Bottom border.
+        self.fillRectBoundsColor(x0, y1 - self.ps.line_width, x1, y1, self.ps.stroke_color);
+        // Left border.
+        self.fillRectBoundsColor(x0, y0 + self.ps.line_width, x0 + self.ps.line_width, y1 - self.ps.line_width, self.ps.stroke_color);
+    }
+
+    pub fn strokeRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top border.
         self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 - self.ps.line_width_half, x1 + self.ps.line_width_half, y0 + self.ps.line_width_half, self.ps.stroke_color);
@@ -674,28 +686,48 @@ pub const Graphics = struct {
         self.fillCircleSectorN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
-    pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
-        self.drawRoundRectBounds(x, y, x + width, y + height, radius);
+    pub fn strokeRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.strokeRoundRectBounds(x, y, x + width, y + height, radius);
     }
 
-    pub fn drawRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+    pub fn strokeRoundRectBoundsInward(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top left corner.
-        self.drawCircleArcN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
+        self.strokeCircleArcInwardN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
+        // Left side.
+        self.fillRectBoundsColor(x0, y0 + radius, x0 + self.ps.line_width, y1 - radius, self.ps.stroke_color);
+        // Bottom left corner.
+        self.strokeCircleArcInwardN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
+        // Top.
+        self.fillRectBoundsColor(x0 + radius, y0, x1 - radius, y0 + self.ps.line_width, self.ps.stroke_color);
+        // Bottom.
+        self.fillRectBoundsColor(x0 + radius, y1 - self.ps.line_width, x1 - radius, y1, self.ps.stroke_color);
+        // Top right corner.
+        self.strokeCircleArcInwardN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
+        // Right side.
+        self.fillRectBoundsColor(x1 - self.ps.line_width, y0 + radius, x1, y1 - radius, self.ps.stroke_color);
+        // Bottom right corner.
+        self.strokeCircleArcInwardN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
+    }
+
+    pub fn strokeRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        // Top left corner.
+        self.strokeCircleArcN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
         self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 + radius, x0 + self.ps.line_width_half, y1 - radius, self.ps.stroke_color);
         // Bottom left corner.
-        self.drawCircleArcN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
+        self.strokeCircleArcN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
         // Top.
         self.fillRectBoundsColor(x0 + radius, y0 - self.ps.line_width_half, x1 - radius, y0 + self.ps.line_width_half, self.ps.stroke_color);
         // Bottom.
         self.fillRectBoundsColor(x0 + radius, y1 - self.ps.line_width_half, x1 - radius, y1 + self.ps.line_width_half, self.ps.stroke_color);
         // Top right corner.
-        self.drawCircleArcN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
+        self.strokeCircleArcN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
         self.fillRectBoundsColor(x1 - self.ps.line_width_half, y0 + radius, x1 + self.ps.line_width_half, y1 - radius, self.ps.stroke_color);
         // Bottom right corner.
-        self.drawCircleArcN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
+        self.strokeCircleArcN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
     pub fn drawPlane(self: *Graphics) void {
@@ -770,7 +802,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         self.batcher.beginTex(self.white_tex);
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
@@ -778,16 +810,24 @@ pub const Graphics = struct {
         }
         // Approx 1 arc sector per degree.
         var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
-        self.drawCircleArcN(x, y, radius, start_rad, sweep_rad, n);
+        self.strokeCircleArcN(x, y, radius, start_rad, sweep_rad, n);
     }
 
     // n is the number of sections in the arc we will draw.
-    pub fn drawCircleArcN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
-        self.batcher.beginTex(self.white_tex);
-        self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
-
+    pub fn strokeCircleArcN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         const inner_rad = radius - self.ps.line_width_half;
         const outer_rad = radius + self.ps.line_width_half;
+        self.strokeCircleArcExtN(x, y, inner_rad, outer_rad, start_rad, sweep_rad, n);
+    }
+
+    pub fn strokeCircleArcInwardN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+        const inner_rad = radius - self.ps.line_width;
+        self.strokeCircleArcExtN(x, y, inner_rad, radius, start_rad, sweep_rad, n);
+    }
+
+    pub fn strokeCircleArcExtN(self: *Graphics, x: f32, y: f32, innerRadius: f32, outerRadius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+        self.batcher.beginTex(self.white_tex);
+        self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.ps.stroke_color);
@@ -796,9 +836,9 @@ pub const Graphics = struct {
         // Add first two vertices.
         var cos = @cos(start_rad);
         var sin = @sin(start_rad);
-        vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
+        vert.setXY(x + cos * innerRadius, y + sin * innerRadius);
         self.batcher.mesh.pushVertex(vert);
-        vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
+        vert.setXY(x + cos * outerRadius, y + sin * outerRadius);
         self.batcher.mesh.pushVertex(vert);
 
         const rad_per_n = sweep_rad / @intToFloat(f32, n);
@@ -810,9 +850,9 @@ pub const Graphics = struct {
             // Add inner/outer vertex.
             cos = @cos(rad);
             sin = @sin(rad);
-            vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
+            vert.setXY(x + cos * innerRadius, y + sin * innerRadius);
             self.batcher.mesh.pushVertex(vert);
-            vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
+            vert.setXY(x + cos * outerRadius, y + sin * outerRadius);
             self.batcher.mesh.pushVertex(vert);
 
             // Add arc sector.
@@ -880,8 +920,8 @@ pub const Graphics = struct {
     }
 
     // Same implementation as drawEllipse when h_radius = v_radius. Might be slightly faster since we use fewer vars.
-    pub fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
-        self.drawCircleArcN(x, y, radius, 0, math.pi_2, 360);
+    pub fn strokeCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+        self.strokeCircleArcN(x, y, radius, 0, math.pi_2, 360);
     }
 
     pub fn fillEllipseSectorN(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
@@ -938,7 +978,7 @@ pub const Graphics = struct {
         self.fillEllipseSectorN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -990,16 +1030,16 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn strokeEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         self.drawEllipseArcN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawPoint(self: *Graphics, x: f32, y: f32) void {
+    pub fn strokePoint(self: *Graphics, x: f32, y: f32) void {
         self.batcher.beginTex(self.white_tex);
         self.fillRectBoundsColor(x - self.ps.line_width_half, y - self.ps.line_width_half, x + self.ps.line_width_half, y + self.ps.line_width_half, self.ps.stroke_color);
     }
 
-    pub fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
+    pub fn strokeLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
         self.batcher.beginTex(self.white_tex);
         const normal = vec2(y2 - y1, x2 - x1).toLength(self.ps.line_width_half);
         self.fillQuad(
@@ -1011,7 +1051,7 @@ pub const Graphics = struct {
         );
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+    pub fn strokeQuadraticBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const q_bez = QuadBez{
             .x0 = x0,
@@ -1036,7 +1076,7 @@ pub const Graphics = struct {
         self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawCubicBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez), x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+    pub fn strokeCubicBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez), x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const c_bez = CubicBez{
             .x0 = x0,
@@ -1978,7 +2018,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
+    pub fn strokePolygon(self: *Graphics, pts: []const Vec2) void {
         _ = pts;
         self.batcher.beginTex(self.white_tex);
         // TODO: Implement this.

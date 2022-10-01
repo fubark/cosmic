@@ -354,17 +354,24 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn strokeRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRectBounds(&self.impl, x, y, x + width, y + height),
-            .WasmCanvas => canvas.Graphics.drawRect(&self.impl, x, y, width, height),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeRectBounds(&self.impl, x, y, x + width, y + height),
+            .WasmCanvas => canvas.Graphics.strokeRect(&self.impl, x, y, width, height),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+    pub fn strokeRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRectBounds(&self.impl, x0, y0, x1, y1),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeRectBounds(&self.impl, x0, y0, x1, y1),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn strokeRectBoundsInward(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.strokeRectBoundsInward(&self.impl, x0, y0, x1, y1),
             else => stdx.unsupported(),
         }
     }
@@ -384,17 +391,24 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+    pub fn strokeRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRectBounds(&self.impl, x, y, x + width, y + height, radius),
-            .WasmCanvas => canvas.Graphics.drawRoundRect(&self.impl, x, y, width, height, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeRoundRectBounds(&self.impl, x, y, x + width, y + height, radius),
+            .WasmCanvas => canvas.Graphics.strokeRoundRect(&self.impl, x, y, width, height, radius),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+    pub fn strokeRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawRoundRectBounds(&self.impl, x0, y0, x1, y1, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeRoundRectBounds(&self.impl, x0, y0, x1, y1, radius),
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn strokeRoundRectBoundsInward(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.strokeRoundRectBoundsInward(&self.impl, x0, y0, x1, y1, radius),
             else => stdx.unsupported(),
         }
     }
@@ -413,16 +427,16 @@ pub const Graphics = struct {
     }
 
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
-    pub fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
-            .WasmCanvas => canvas.Graphics.drawCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
+            .WasmCanvas => canvas.Graphics.strokeCircleArc(&self.impl, x, y, radius, start_rad, sweep_rad),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawCircleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
-        self.drawCircleArc(x, y, radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
+    pub fn strokeCircleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
+        self.strokeCircleArc(x, y, radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
     pub fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
@@ -433,10 +447,10 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+    pub fn strokeCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawCircle(&self.impl, x, y, radius),
-            .WasmCanvas => canvas.Graphics.drawCircle(&self.impl, x, y, radius),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeCircle(&self.impl, x, y, radius),
+            .WasmCanvas => canvas.Graphics.strokeCircle(&self.impl, x, y, radius),
             else => stdx.unsupported(),
         }
     }
@@ -462,55 +476,55 @@ pub const Graphics = struct {
         self.fillEllipseSector(x, y, h_radius, v_radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
-    pub fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn strokeEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawEllipse(&self.impl, x, y, h_radius, v_radius),
-            .WasmCanvas => canvas.Graphics.drawEllipse(&self.impl, x, y, h_radius, v_radius),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeEllipse(&self.impl, x, y, h_radius, v_radius),
+            .WasmCanvas => canvas.Graphics.strokeEllipse(&self.impl, x, y, h_radius, v_radius),
             else => stdx.unsupported(),
         }
     }
 
     // Radians start at 0 and end at 2pi going clockwise. Negative radians goes counter clockwise.
-    pub fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
-            .WasmCanvas => canvas.Graphics.drawEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
+            .WasmCanvas => canvas.Graphics.strokeEllipseArc(&self.impl, x, y, h_radius, v_radius, start_rad, sweep_rad),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawEllipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
-        self.drawEllipseArc(x, y, h_radius, v_radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
+    pub fn strokeEllipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
+        self.strokeEllipseArc(x, y, h_radius, v_radius, math.degToRad(start_deg), math.degToRad(sweep_deg));
     }
 
-    pub fn drawPoint(self: *Graphics, x: f32, y: f32) void {
+    pub fn strokePoint(self: *Graphics, x: f32, y: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawPoint(&self.impl, x, y),
-            .WasmCanvas => canvas.Graphics.drawPoint(&self.impl, x, y),
+            .OpenGL, .Vulkan => gpu.Graphics.strokePoint(&self.impl, x, y),
+            .WasmCanvas => canvas.Graphics.strokePoint(&self.impl, x, y),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
+    pub fn strokeLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawLine(&self.impl, x1, y1, x2, y2),
-            .WasmCanvas => canvas.Graphics.drawLine(&self.impl, x1, y1, x2, y2),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeLine(&self.impl, x1, y1, x2, y2),
+            .WasmCanvas => canvas.Graphics.strokeLine(&self.impl, x1, y1, x2, y2),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawCubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
+    pub fn strokeCubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawCubicBezierCurve(&self.impl, &self.vec2_buf, &self.qbez_buf, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
-            .WasmCanvas => canvas.Graphics.drawCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeCubicBezierCurve(&self.impl, &self.vec2_buf, &self.qbez_buf, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
+            .WasmCanvas => canvas.Graphics.strokeCubicBezierCurve(&self.impl, x1, y1, c1x, c1y, c2x, c2y, x2, y2),
             else => stdx.unsupported(),
         }
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
+    pub fn strokeQuadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawQuadraticBezierCurve(&self.impl, &self.vec2_buf, x1, y1, cx, cy, x2, y2),
-            .WasmCanvas => canvas.Graphics.drawQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
+            .OpenGL, .Vulkan => gpu.Graphics.strokeQuadraticBezierCurve(&self.impl, &self.vec2_buf, x1, y1, cx, cy, x2, y2),
+            .WasmCanvas => canvas.Graphics.strokeQuadraticBezierCurve(&self.impl, x1, y1, cx, cy, x2, y2),
             else => stdx.unsupported(),
         }
     }
@@ -566,19 +580,19 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawPolygonF(self: *Graphics, pts: []const f32) void {
+    pub fn strokePolygonF(self: *Graphics, pts: []const f32) void {
         self.vec2_buf.resize(self.alloc, pts.len / 2) catch fatal();
         var i: u32 = 0;
         while (i < pts.len / 2) : (i += 1) {
             self.vec2_buf.items[i] = Vec2.init(pts[i*2], pts[i*2+1]);
         }
-        self.drawPolygon(self.vec2_buf.items);
+        self.strokePolygon(self.vec2_buf.items);
     }
 
-    pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
+    pub fn strokePolygon(self: *Graphics, pts: []const Vec2) void {
         switch (Backend) {
-            .OpenGL, .Vulkan => gpu.Graphics.drawPolygon(&self.impl, pts),
-            .WasmCanvas => canvas.Graphics.drawPolygon(&self.impl, pts),
+            .OpenGL, .Vulkan => gpu.Graphics.strokePolygon(&self.impl, pts),
+            .WasmCanvas => canvas.Graphics.strokePolygon(&self.impl, pts),
             else => stdx.unsupported(),
         }
     }
