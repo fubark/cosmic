@@ -422,11 +422,14 @@ pub const Graphics = struct {
     }
 
     pub fn setPaintState(self: *Graphics, ps: *PaintState) void {
+        if (self.ps != ps) {
+            self.pushClearColor(ps.clear_color);
+        }
         self.ps = ps;
     }
 
     pub fn setMainPaintState(self: *Graphics) void {
-        self.ps = self.main_ps;
+        self.setPaintState(self.main_ps);
     }
 
     pub fn setFont(self: *Graphics, font_id: FontId) void {
@@ -445,8 +448,17 @@ pub const Graphics = struct {
         gl.clear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
     }
 
+    pub fn getClearColor(self: *Graphics) Color {
+        return self.ps.clear_color;
+    }
+
     pub fn setClearColor(self: *Graphics, color: Color) void {
         self.ps.clear_color = color;
+        self.pushClearColor(color);
+    }
+
+    fn pushClearColor(self: *Graphics, color: Color) void {
+        _ = self;
         if (Backend == .OpenGL) {
             const f = color.toFloatArray();
             gl.clearColor(f[0], f[1], f[2], f[3]);
@@ -2263,6 +2275,8 @@ pub const Graphics = struct {
         self.buf_width = buf_width;
         self.buf_height = buf_height;
 
+        self.setMainPaintState();
+
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
         gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
 
@@ -2569,7 +2583,7 @@ pub const PaintState = struct {
 
             .clip_rect = undefined,
             .blend_mode = ._undefined,
-            .clear_color = undefined,
+            .clear_color = Color.DarkGray,
         };
     }
 

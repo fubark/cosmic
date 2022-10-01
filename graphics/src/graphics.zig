@@ -262,6 +262,13 @@ pub const Graphics = struct {
         }
     }
 
+    pub inline fn getClearColor(self: *Graphics) Color {
+        switch (Backend) {
+            .OpenGL, .Vulkan => return gpu.Graphics.getClearColor(&self.impl),
+            else => stdx.unsupported(),
+        }
+    }
+
     pub inline fn clear(self: Graphics) void {
         switch (Backend) {
             .OpenGL => gpu.Graphics.clear(self.impl),
