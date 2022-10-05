@@ -25,7 +25,7 @@ pub const TextMeasureId = usize;
 pub const IntervalId = u32;
 const log = stdx.log.scoped(.module);
 
-const build_ = @import("build.zig");
+const build_ = @import("ui_build.zig");
 const BuildContext = build_.BuildContext;
 
 /// Using a global BuildContext makes widget declarations more idiomatic.

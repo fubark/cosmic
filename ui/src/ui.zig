@@ -33,7 +33,7 @@ pub const DragMoveEvent = events.DragMoveEvent;
 pub const EventContext = events.EventContext;
 pub const EventResult = events.EventResult;
 
-const build = @import("build.zig");
+const build = @import("ui_build.zig");
 pub const BuildContext = build.BuildContext;
 pub const PtrId = build.PtrId;
 
