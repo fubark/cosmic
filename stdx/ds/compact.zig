@@ -23,7 +23,7 @@ pub fn CompactSinglyLinkedList(comptime Id: type, comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: *Self) void {
             self.nodes.deinit();
         }
 
@@ -173,7 +173,7 @@ pub fn CompactManySinglyLinkedList(comptime ListId: type, comptime Index: type, 
             };
         }
 
-        pub fn deinit(self: Self) void {
+        pub fn deinit(self: *Self) void {
             self.nodes.deinit();
             self.lists.deinit();
         }

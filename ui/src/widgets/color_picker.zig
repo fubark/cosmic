@@ -34,7 +34,7 @@ pub const ColorPicker = struct {
         self.color = self.props.init_val;
     }
 
-    pub fn build(self: *ColorPicker, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ColorPicker, c: *ui.BuildContext) ui.FramePtr {
         const t_style = w.TextStyle{
             .fontSize = self.props.fontSize,
             .color = Color.White,
@@ -51,7 +51,7 @@ pub const ColorPicker = struct {
                     .bind = &self.preview,
                     .width = 30,
                     .height = 30,
-                }, ui.NullFrameId),
+                }, .{}),
             }),
         );
     }
@@ -64,7 +64,7 @@ pub const ColorPicker = struct {
 
     fn onClick(self: *ColorPicker, _: ui.MouseUpEvent) void {
         const S = struct {
-            fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
+            fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
                 const self_ = stdx.mem.ptrCastAlign(*ColorPicker, ptr);
                 return c_.build(ColorPickerPopover, .{
                     .bind = &self_.popover_inner,
@@ -184,7 +184,7 @@ const ColorPickerPopover = struct {
         c.clearGlobalMouseUpHandler(n);
     }
 
-    pub fn build(self: *ColorPickerPopover, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ColorPickerPopover, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClickSave(self_: *ColorPickerPopover, _: ui.MouseUpEvent) void {
                 self_.save_result = true;
@@ -205,7 +205,7 @@ const ColorPickerPopover = struct {
                     .method = .WidthAndKeepRatio,
                     .aspect_ratio = 1,
                     .bind = &self.palette,
-                }, ui.NullFrameId),
+                }, .{}),
                 w.Slider(.{
                     .min_val = 0,
                     .max_val = 360,

@@ -11,13 +11,13 @@ const log = stdx.log.scoped(.list);
 
 pub const ScrollList = struct {
     props: struct {
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
         bg_color: Color = Color.White,
     },
 
     list: ui.WidgetRef(List),
 
-    pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FramePtr {
         const sv_style = w.ScrollViewStyle{
             .bgColor = self.props.bg_color,
         };
@@ -28,7 +28,7 @@ pub const ScrollList = struct {
                 c.build(List, .{
                     .bind = &self.list,
                     .bg_color = self.props.bg_color,
-                    .children = self.props.children,
+                    .children = self.props.children.dupe(),
                 }),
             ),
         );
@@ -43,7 +43,7 @@ pub const ScrollList = struct {
 /// Fills maximum space and lays out children in a column.
 pub const List = struct {
     props: struct {
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
         bg_color: Color = Color.White,
     },
 
@@ -55,8 +55,8 @@ pub const List = struct {
         c.setKeyDownHandler(self, onKeyDown);
     }
 
-    pub fn build(self: *List, c: *ui.BuildContext) ui.FrameId {
-        return c.fragment(self.props.children);
+    pub fn build(self: *List, c: *ui.BuildContext) ui.FramePtr {
+        return c.fragment(self.props.children.dupe());
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
@@ -69,8 +69,9 @@ pub const List = struct {
         switch (ke.code) {
             .ArrowDown => {
                 self.selected_idx += 1;
-                if (self.selected_idx >= self.props.children.len) {
-                    self.selected_idx = self.props.children.len-1;
+                const len = self.props.children.size();
+                if (self.selected_idx >= len) {
+                    self.selected_idx = @intCast(u32, len)-1;
                 } 
             },
             .ArrowUp => {
@@ -108,11 +109,12 @@ pub const List = struct {
 
     pub fn postPropsUpdate(self: *List, _: *ui.UpdateContext) void {
         if (self.selected_idx != NullId) {
-            if (self.selected_idx >= self.props.children.len) {
-                if (self.props.children.len == 0) {
+            const len = self.props.children.size();
+            if (self.selected_idx >= len) {
+                if (len == 0) {
                     self.selected_idx = NullId;
                 } else {
-                    self.selected_idx = self.props.children.len - 1;
+                    self.selected_idx = @intCast(u32, len) - 1;
                 }
             }
         }

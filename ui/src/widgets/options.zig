@@ -24,7 +24,7 @@ fn SliderOptionBase(comptime is_float: bool) type {
 
         const Self = @This();
 
-        pub fn build(self: *Self, c: *ui.BuildContext) ui.FrameId {
+        pub fn build(self: *Self, c: *ui.BuildContext) ui.FramePtr {
             const t_style = w.TextStyle{
                 .fontSize = 14,
                 .color = Color.White,
@@ -63,7 +63,7 @@ pub const SwitchOption = struct {
         return self.inner.getWidget().isSet();
     }
 
-    pub fn build(self: *SwitchOption, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *SwitchOption, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *SwitchOption, _: ui.MouseUpEvent) void {
                 self_.inner.getWidget().toggle();

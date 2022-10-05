@@ -10,7 +10,7 @@ const log = stdx.log.scoped(.containers);
 /// Provides a border around a child widget.
 pub const Border = struct {
     props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
     pub const Style = struct {
@@ -27,8 +27,8 @@ pub const Border = struct {
         bgColor: Color = Color.Transparent,
     };
 
-    pub fn build(self: *Border, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Border, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Border, ctx: *ui.LayoutContext) ui.LayoutSize {
@@ -38,7 +38,7 @@ pub const Border = struct {
         const h_size = style.size * 2;
         const v_size = style.size * 2;
 
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return ui.LayoutSize.init(h_size, v_size);
         }
 
@@ -60,12 +60,12 @@ pub const Border = struct {
         const b = ctx.getAbsBounds();
 
         const style = ctx.getStyle(Border);
-        if (style.bgColor.isTransparent()) {
+        if (!style.bgColor.isTransparent()) {
             ctx.gctx.setFillColor(style.bgColor);
             if (style.cornerRadius > 0) {
-                ctx.gctx.fillRoundRectBounds(b.min_x + style.size, b.min_y + style.size, b.max_x - style.size * 2, b.max_y - style.size * 2, style.cornerRadius);
+                ctx.fillRoundBBox(b, style.cornerRadius);
             } else {
-                ctx.gctx.fillRectBounds(b.min_x + style.size, b.min_y + style.size, b.max_x - style.size * 2, b.max_y - style.size * 2);
+                ctx.fillBBox(b);
             }
         }
 
@@ -92,11 +92,11 @@ pub const Padding = struct {
         pad_bottom: ?f32 = null,
         pad_left: ?f32 = null,
         padding: f32 = 10,
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
-    pub fn build(self: *Padding, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Padding, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Padding, c: *ui.LayoutContext) ui.LayoutSize {
@@ -108,7 +108,7 @@ pub const Padding = struct {
         const h_pad = pad_left + pad_right;
         const v_pad = pad_top + pad_bottom;
 
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return ui.LayoutSize.init(h_pad, v_pad);
         }
 
@@ -134,11 +134,11 @@ pub const Sized = struct {
         /// If height is not provided, this container will shrink to the child's height.
         height: ?f32 = null,
 
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
-    pub fn build(self: *Sized, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Sized, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Sized, ctx: *ui.LayoutContext) ui.LayoutSize {
@@ -146,7 +146,7 @@ pub const Sized = struct {
     }
 };
 
-fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, child_id: ui.FrameId) ui.LayoutSize {
+fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, child_frame: ui.FramePtr) ui.LayoutSize {
     var child_cstr = ctx.getSizeConstraints();
     if (m_width) |width| {
         if (width != ui.ExpandedWidth) {
@@ -168,7 +168,7 @@ fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, c
             child_cstr.min_height = child_cstr.max_height;
         }
     }
-    if (child_id != ui.NullFrameId) {
+    if (child_frame.isPresent()) {
         const child = ctx.getNode().children.items[0];
         const child_size = ctx.computeLayout2(child, child_cstr);
         ctx.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
@@ -183,20 +183,20 @@ fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, c
 
 pub const Center = struct {
     props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         vcenter: bool = true,
         hcenter: bool = true,
     },
 
-    pub fn build(self: *Center, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Center, c: *ui.BuildContext) ui.FramePtr {
         _ = c;
-        return self.props.child;
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Center, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
 
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return cstr.getMaxLayoutSize();
         }
 
@@ -216,15 +216,15 @@ pub const Center = struct {
 /// Only child widgets that support resize work.
 pub const KeepAspectRatio = struct {
     props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
-    pub fn build(self: *KeepAspectRatio, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *KeepAspectRatio, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *KeepAspectRatio, c: *ui.LayoutContext) ui.LayoutSize {
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return ui.LayoutSize.init(0, 0);
         }
 
@@ -261,15 +261,15 @@ const StretchMethod = enum(u3) {
 /// When method = HeightAndKeepRatio, the height is stretched and the width is adjusted to keep the aspect ratio.
 pub const Stretch = struct {
     props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         method: StretchMethod = .Both,
 
         /// Width to height ratio.
         aspect_ratio: f32 = 1,
     },
 
-    pub fn build(self: *Stretch, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Stretch, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Stretch, c: *ui.LayoutContext) ui.LayoutSize {
@@ -281,7 +281,7 @@ pub const Stretch = struct {
             else => {},
         }
 
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return child_cstr;
         }
 
@@ -303,7 +303,7 @@ pub const Stretch = struct {
 /// Stacks children over each other. The first child will be rendered first and receive input events last.
 pub const ZStack = struct {
     props: struct {
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
     },
 
     /// Ordered by z-index asc.
@@ -319,33 +319,45 @@ pub const ZStack = struct {
         self.child_event_ordering = std.ArrayList(*ui.Node).init(c.alloc);
     }
 
-    pub fn deinit(self: *ZStack, _: std.mem.Allocator) void {
+    pub fn deinit(self: *ZStack, _: *ui.DeinitContext) void {
         self.ordered_children.deinit();
         self.child_event_ordering.deinit();
     }
 
-    pub fn build(self: *ZStack, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ZStack, c: *ui.BuildContext) ui.FramePtr {
         // Ordering is determined at build step.
-        self.ordered_children.ensureTotalCapacity(self.props.children.len) catch @panic("error");
-        self.ordered_children.items.len = 0;
+        if (self.props.children.isPresent()) {
+            const children = self.props.children.get();
+            const len = children.size();
 
-        // For now, the order is the same.
-        var i: u32 = 0;
-        while (i < self.props.children.len) : (i += 1) {
-            self.ordered_children.appendAssumeCapacity(i);
+            self.ordered_children.ensureTotalCapacity(len) catch @panic("error");
+            self.ordered_children.items.len = 0;
+
+            // For now, the order is the same.
+            var i: u32 = 0;
+            while (i < len) : (i += 1) {
+                self.ordered_children.appendAssumeCapacity(i);
+            }
+        } else {
+            self.ordered_children.items.len = 0;
         }
 
-        return c.fragment(self.props.children);
+        return c.fragment(self.props.children.dupe());
     }
 
     pub fn postUpdate(self: *ZStack, ctx: *ui.UpdateContext) void {
         // Child event ordering is z-index desc.
-        self.child_event_ordering.ensureTotalCapacity(self.props.children.len) catch @panic("error");
-        self.child_event_ordering.items.len = 0;
-        var i = @intCast(u32, self.props.children.len);
-        while (i > 0) {
-            i -= 1;
-            self.child_event_ordering.appendAssumeCapacity(ctx.node.children.items[i]);
+        if (self.props.children.isPresent()) {
+            const len = ctx.node.children.items.len;
+            self.child_event_ordering.ensureTotalCapacity(len) catch @panic("error");
+            self.child_event_ordering.items.len = 0;
+            var i = @intCast(u32, len);
+            while (i > 0) {
+                i -= 1;
+                self.child_event_ordering.appendAssumeCapacity(ctx.node.children.items[i]);
+            }
+        } else {
+            self.child_event_ordering.items.len = 0;
         }
         ctx.node.setChildEventOrdering(self.child_event_ordering.items);
     }
@@ -380,11 +392,11 @@ pub const Container = struct {
         outlineSize: f32 = 0,
         outlineColor: Color = Color.Transparent,
 
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
-    pub fn build(self: *Container, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Container, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Container, ctx: *ui.LayoutContext) ui.LayoutSize {
@@ -420,16 +432,16 @@ pub const Positioned = struct {
         y: f32,
         width: ?f32 = null,
         height: ?f32 = null,
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
-    pub fn build(self: *Positioned, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Positioned, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *Positioned, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return cstr.getMaxLayoutSize();
         }
 
@@ -447,8 +459,8 @@ pub const Positioned = struct {
 pub const TabView = struct {
     props: struct {
         numTabs: u32 = 0,
-        buildTab: stdx.Function(fn (*ui.BuildContext, idx: u32, active: bool) ui.FrameId) = .{},
-        buildContent: stdx.Function(fn (*ui.BuildContext, idx: u32) ui.FrameId) = .{},
+        buildTab: stdx.Function(fn (*ui.BuildContext, idx: u32, active: bool) ui.FramePtr) = .{},
+        buildContent: stdx.Function(fn (*ui.BuildContext, idx: u32) ui.FramePtr) = .{},
     },
 
     tab_idx: u32,
@@ -467,9 +479,9 @@ pub const TabView = struct {
         self.tab_idx = 0;
     }
 
-    pub fn build(self: *TabView, ctx: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *TabView, ctx: *ui.BuildContext) ui.FramePtr {
         const S = struct {
-            fn buildTab(self_: *TabView, ctx_: *ui.BuildContext, idx: u32) ui.FrameId {
+            fn buildTab(self_: *TabView, ctx_: *ui.BuildContext, idx: u32) ui.FramePtr {
                 const style = ctx_.getStyle(TabView);
                 const active = self_.tab_idx == idx;
                 const user_inner = self_.props.buildTab.call(.{ ctx_, idx, active });
@@ -483,12 +495,12 @@ pub const TabView = struct {
                 );
             }
         };
-        var content = ui.NullFrameId;
+        var content = ui.FramePtr{};
         if (self.props.buildContent.isPresent()) {
             content = self.props.buildContent.call(.{ ctx, self.tab_idx });
         }
 
-        var tabs: []const ui.FrameId = &.{};
+        var tabs: []const ui.FramePtr = &.{};
         if (self.props.buildTab.isPresent()) {
             tabs = ctx.tempRange(self.props.numTabs, self, S.buildTab);
         }

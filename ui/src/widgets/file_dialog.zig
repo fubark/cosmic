@@ -27,7 +27,7 @@ pub const FileDialog = struct {
         self.gotoDir(self.props.init_cwd);
     }
 
-    pub fn deinit(self: *FileDialog, _: std.mem.Allocator) void {
+    pub fn deinit(self: *FileDialog, _: *ui.DeinitContext) void {
         self.cwd.deinit();
         for (self.files.items) |it| {
             it.deinit(self.alloc);
@@ -35,9 +35,9 @@ pub const FileDialog = struct {
         self.files.deinit();
     }
 
-    pub fn build(self: *FileDialog, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *FileDialog, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
-            fn buildItem(self_: *FileDialog, _: *ui.BuildContext, i: u32) ui.FrameId {
+            fn buildItem(self_: *FileDialog, _: *ui.BuildContext, i: u32) ui.FramePtr {
                 const t_style = w.TextStyle{ .color = Color.White };
                 return w.Text(.{
                     .text = self_.files.items[i].name,

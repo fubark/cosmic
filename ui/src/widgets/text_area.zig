@@ -86,14 +86,14 @@ pub const TextArea = struct {
         c.setKeyDownHandler(self, onKeyDown);
     }
 
-    pub fn deinit(self: *TextArea, _: std.mem.Allocator) void {
+    pub fn deinit(self: *TextArea, _: *ui.DeinitContext) void {
         for (self.lines.items) |line| {
             line.deinit();
         }
         self.lines.deinit();
     }
 
-    pub fn build(self: *TextArea, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *TextArea, c: *ui.BuildContext) ui.FramePtr {
         const style = c.getStyle(TextArea);
 
         const sv_style = u.ScrollViewStyle{
@@ -595,10 +595,10 @@ pub const TextAreaInner = struct {
         self.caret_anim_show_toggle = !self.caret_anim_show_toggle;
     }
 
-    pub fn build(self: *TextAreaInner, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *TextAreaInner, c: *ui.BuildContext) ui.FramePtr {
         _ = self;
         _ = c;
-        return ui.NullFrameId;
+        return .{};
     }
 
     pub fn layout(self: *TextAreaInner, ctx: *ui.LayoutContext) ui.LayoutSize {

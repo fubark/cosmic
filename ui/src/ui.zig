@@ -9,6 +9,7 @@ pub const UpdateContext = module.UpdateContext;
 pub const RenderContext = module.RenderContext;
 pub const LayoutContext = module.LayoutContext;
 pub const InitContext = module.InitContext;
+pub const DeinitContext = module.DeinitContext;
 pub const ModuleContext = module.ModuleContext;
 pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
@@ -42,12 +43,11 @@ pub const Import = config.Import;
 
 const frame = @import("frame.zig");
 pub const Frame = frame.Frame;
-pub const FrameStyle = frame.FrameStyle;
 pub const FrameId = frame.FrameId;
-pub const NullId = @import("std").math.maxInt(u32);
-pub const NullFrameId = frame.NullFrameId;
+pub const FramePtr = frame.FramePtr;
+pub const FrameListId = frame.FrameListId;
 pub const FrameListPtr = frame.FrameListPtr;
-pub const FramePropsPtr = frame.FramePropsPtr;
+pub const NullId = @import("std").math.maxInt(u32);
 pub const NoChild = NullId;
 
 const widget = @import("widget.zig");

@@ -20,11 +20,15 @@ pub const App = struct {
     quit: bool,
     last_frame_time_ms: f64,
     alloc: std.mem.Allocator,
+    dumpMemory: bool,
+    frameCount: u32,
 
     pub fn init(self: *App, title: []const u8) !void {
         const alloc = stdx.heap.getDefaultAllocator();
         self.alloc = alloc;
         self.dispatcher = EventDispatcher.init(alloc);
+        self.dumpMemory = false;
+        self.frameCount = 0;
 
         self.win = Window.init(alloc, .{
             .title = title,
@@ -77,6 +81,12 @@ pub const App = struct {
             if (delay > 0) {
                 platform.delay(delay);
             }
+        
+            if (app.dumpMemory and app.frameCount % 300 == 0) {
+                const mem = stdx.heap.getTotalRequestedMemory();
+                log.debug("memory: {}", .{mem});
+            }
+            app.frameCount += 1;
         }
     }
 

@@ -113,7 +113,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(Counter, .{});
         }
     };
@@ -151,7 +151,7 @@ pub const Counter = struct {
         // Invoked when the widget instance is destroyed.
     }
 
-    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FramePtr {
         // Invoked when the engine wants to know the structure of this Widget.
     }
 
@@ -185,7 +185,7 @@ Before any widget instances are created, the engine needs to know the structure 
 
     // ... in Counter struct.
 
-    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *Counter, _: MouseUpEvent) void {
                 self_.counter += 1;
@@ -217,7 +217,7 @@ Before any widget instances are created, the engine needs to know the structure 
 ```
 `build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.build()` is used to build a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list()` is used to group together frames.
 
-The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
+The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.FramePtr{}` or simply `.{}`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
 
 ### Widget Binding
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
@@ -225,7 +225,7 @@ Often times you'll want access to a child widget. Here's how you would do that w
 const App = struct {
     slider: WidgetRef(u.SliderT),
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *App, _: MouseUpEvent) void {
                 std.debug.print("slider value {}", .{self_.slider.getWidget().getValue()});

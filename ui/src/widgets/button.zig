@@ -30,8 +30,8 @@ pub const IconButton = struct {
         padding: f32 = 10,
     };
 
-    pub fn build(self: *IconButton, ctx: *ui.BuildContext) ui.FrameId {
-        var body: ui.FrameId = NullId;
+    pub fn build(self: *IconButton, ctx: *ui.BuildContext) ui.FramePtr {
+        var body: ui.FramePtr = .{};
 
         const style = ctx.getStyle(IconButton);
         if (self.props.icon.image_id != NullId) {
@@ -73,8 +73,8 @@ pub const TextButton = struct {
         text: ?u.TextStyle = null,
     };
 
-    pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FrameId {
-        var body: ui.FrameId = undefined;
+    pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FramePtr {
+        var body: ui.FramePtr = undefined;
 
         const style = ctx.getStyle(TextButton);
         const text_style = ctx.getStylePropPtr(style, "text");
@@ -119,7 +119,7 @@ pub const ButtonMods = packed union {
 pub const Button = struct {
     props: struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         halign: ui.HAlign = .center,
     },
 
@@ -141,7 +141,7 @@ pub const Button = struct {
         }
     };
 
-    pub fn build(self: *Button, ctx: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Button, ctx: *ui.BuildContext) ui.FramePtr {
         const style = ctx.getStyle(Button);
         
         var b_style = u.BorderStyle{};
@@ -151,7 +151,7 @@ pub const Button = struct {
             b_style.color = override.color;
         }
         b_style.bgColor = style.bgColor;
-        return u.Border(.{ .style = b_style }, self.props.child);
+        return u.Border(.{ .style = b_style }, self.props.child.dupe());
     }
 
     pub fn init(self: *Button, c: *ui.InitContext) void {
@@ -191,7 +191,7 @@ pub const Button = struct {
 
     pub fn layout(self: *Button, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const border_node = c.getNode().children.items[0];
             var border_size = c.computeLayoutWithMax(border_node, cstr.max_width, cstr.max_height);
             const child_node = border_node.children.items[0];

@@ -6,7 +6,7 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -16,9 +16,9 @@ pub const App = struct {
     alloc: std.mem.Allocator,
     filter: []const u8,
 
-    list: ui.WidgetRef(w.ScrollListT),
-    first_tf: ui.WidgetRef(w.TextFieldT),
-    last_tf: ui.WidgetRef(w.TextFieldT),
+    list: ui.WidgetRef(u.ScrollListT),
+    first_tf: ui.WidgetRef(u.TextFieldT),
+    last_tf: ui.WidgetRef(u.TextFieldT),
 
     pub fn init(self: *App, c: *ui.InitContext) void {
         self.buf = std.ArrayList([]const u8).init(c.alloc);
@@ -26,7 +26,7 @@ pub const App = struct {
         self.filter = "";
     }
 
-    pub fn deinit(self: *App, _: std.mem.Allocator) void {
+    pub fn deinit(self: *App, _: *ui.DeinitContext) void {
         for (self.buf.items) |str| {
             self.alloc.free(str);
         }
@@ -34,7 +34,7 @@ pub const App = struct {
         self.buf.deinit();
     }
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClickCreate(self_: *App, _: ui.MouseUpEvent) void {
                 const first_w = self_.first_tf.getWidget();
@@ -71,84 +71,93 @@ pub const App = struct {
                 self_.filter = self_.alloc.dupe(u8, val) catch unreachable;
             }
 
-            fn buildItem(self_: *App, _: *ui.BuildContext, i: u32) ui.FrameId {
+            fn buildItem(self_: *App, _: *ui.BuildContext, i: u32) ui.FramePtr {
                 if (std.mem.startsWith(u8, self_.buf.items[i], self_.filter)) {
-                    return w.Text(.{ .text = self_.buf.items[i] });
+                    return u.Text(.{ .text = self_.buf.items[i] });
                 } else {
-                    return ui.NullFrameId;
+                    return .{};
                 }
             }
         };
 
-        const left_side = w.Column(.{}, &.{
-            w.Flex(.{}, 
-                w.Sized(.{ .width = 300 },
-                    w.ScrollList(.{ .bind = &self.list },
+        const left_side = u.Column(.{}, &.{
+            u.Flex(.{}, 
+                u.Sized(.{ .width = 300 },
+                    u.ScrollList(.{ .bind = &self.list },
                         c.tempRange(self.buf.items.len, self, S.buildItem),
                     ),
                 ),
             ),
         });
 
-        const right_side = w.Column(.{ .spacing = 20 }, &.{
-            w.Row(.{}, &.{
-                w.Padding(.{}, 
-                    w.Text(.{ .text = "First: ", .color = Color.White }),
+        const t_style = u.TextStyle{
+            .color = Color.White,
+        };
+        const tb_style = u.TextButtonStyle{
+            .border = .{
+                .cornerRadius = 10,
+            },
+        };
+
+        const right_side = u.Column(.{ .spacing = 20 }, &.{
+            u.Row(.{}, &.{
+                u.Padding(.{}, 
+                    u.Text(.{ .text = "First: ", .style = t_style }),
                 ),
-                w.Flex(.{}, 
-                    w.TextField(.{ .bind = &self.first_tf }),
+                u.Flex(.{}, 
+                    u.TextField(.{ .bind = &self.first_tf }),
                 ),
             }),
-            w.Row(.{}, &.{
-                w.Padding(.{}, 
-                    w.Text(.{ .text = "Last: ", .color = Color.White }),
+            u.Row(.{}, &.{
+                u.Padding(.{}, 
+                    u.Text(.{ .text = "Last: ", .style = t_style }),
                 ),
-                w.Flex(.{},
-                    w.TextField(.{ .bind = &self.last_tf }),
+                u.Flex(.{},
+                    u.TextField(.{ .bind = &self.last_tf }),
                 ),
             }),
-            w.Row(.{ .spacing = 10 }, &.{
-                w.Flex(.{},
-                    w.TextButton(.{
+            u.Row(.{ .spacing = 10 }, &.{
+                u.Flex(.{},
+                    u.TextButton(.{
                         .text = "Create",
-                        .corner_radius = 10,
+                        .style = tb_style,
                         .onClick = c.funcExt(self, S.onClickCreate),
                     }),
                 ),
-                w.Flex(.{},
-                    w.TextButton(.{
+                u.Flex(.{},
+                    u.TextButton(.{
                         .text = "Update",
-                        .corner_radius = 10,
+                        .style = tb_style,
                         .onClick = c.funcExt(self, S.onClickUpdate),
                     }),
                 ),
-                w.Flex(.{}, 
-                    w.TextButton(.{
+                u.Flex(.{}, 
+                    u.TextButton(.{
                         .text = "Delete",
-                        .corner_radius = 10,
+                        .style = tb_style,
                         .onClick = c.funcExt(self, S.onClickDelete),
                     }),
                 ),
             })
         });
 
-        return w.Center(.{},
-            w.Sized(.{ .width = 600, .height = 500 }, 
-                w.Column(.{}, &.{
-                    w.Padding(.{ .padding = 0, .pad_bottom = 20 },
-                        w.Row(.{}, &.{
-                            w.Padding(.{ .padding = 10 },
-                                w.Text(.{
+        return u.Center(.{},
+            u.Sized(.{ .width = 600, .height = 500 }, 
+                u.Column(.{}, &.{
+                    u.Padding(.{ .padding = 0, .pad_bottom = 20 },
+                        u.Row(.{}, &.{
+                            u.Padding(.{ .padding = 10 },
+                                u.Text(.{
                                     .text = c.fmt("Search: ({} Entries)", .{self.buf.items.len}),
-                                    .color = Color.White,
+                                    .style = t_style,
                                 }),
                             ),
-                            w.Flex(.{}, 
-                                w.TextField(.{ .onChangeEnd = c.funcExt(self, S.onChangeSearch) }),
+                            u.Flex(.{}, 
+                                u.TextField(.{ .onChangeEnd = c.funcExt(self, S.onChangeSearch) }),
                             )
                         }),
                     ),
-                    w.Row(.{ .spacing = 10 }, &.{
+                    u.Row(.{ .spacing = 10 }, &.{
                         left_side,
                         right_side,
                     }),
@@ -169,7 +178,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(App, .{});
         }
     };

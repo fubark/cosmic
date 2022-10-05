@@ -7,6 +7,7 @@ const dense = @import("dense.zig");
 pub const DenseHandleList = dense.DenseHandleList;
 const pooled = @import("pooled.zig");
 pub const PooledHandleList = pooled.PooledHandleList;
+pub const RcPooledHandleList = pooled.RcPooledHandleList;
 pub const PooledHandleSLLBuffer = pooled.PooledHandleSLLBuffer;
 pub const PoolIdGenerator = pooled.PoolIdGenerator;
 const compact = @import("compact.zig");

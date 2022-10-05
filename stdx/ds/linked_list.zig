@@ -36,6 +36,7 @@ pub fn SLLUnmanaged(comptime T: type) type {
                 cur = node.next;
                 alloc.destroy(node);
             }
+            self.head = null;
         }
 
         pub fn size(self: SLLUnmanagedT) u32 {
@@ -48,26 +49,28 @@ pub fn SLLUnmanaged(comptime T: type) type {
             return i;
         }
 
-        pub fn removeHead(self: *SLLUnmanagedT, alloc: std.mem.Allocator) ?*Node {
+        pub fn removeHead(self: *SLLUnmanagedT, alloc: std.mem.Allocator) ?T {
             const mb_head = self.head;
             if (mb_head) |head| {
+                const data = head.data;
                 self.head = head.next;
                 alloc.destroy(head);
-            }
-            return mb_head;
+                return data;
+            } else return null;
         }
 
-        pub fn removeAfter(self: *SLLUnmanagedT, alloc: std.mem.Allocator, node: *Node) ?*Node {
+        pub fn removeAfter(self: *SLLUnmanagedT, alloc: std.mem.Allocator, node: *Node) ?T {
             _ = self;
             const mb_next = node.next;
             if (mb_next) |next| {
+                const data = next.data;
                 node.next = next.next;
                 alloc.destroy(next);
-            }
-            return mb_next;
+                return data;
+            } else return null;
         }
 
-        pub fn removeAfterOrHead(self: *SLLUnmanagedT, alloc: std.mem.Allocator, mb_node: ?*Node) ?*Node {
+        pub fn removeAfterOrHead(self: *SLLUnmanagedT, alloc: std.mem.Allocator, mb_node: ?*Node) ?T {
             if (mb_node) |node| {
                 return self.removeAfter(alloc, node);
             } else {
@@ -172,15 +175,15 @@ pub fn SinglyLinkedList(comptime T: type) type {
             self.inner.deinit(self.alloc);
         }
 
-        pub fn removeHead(self: *SinglyLinkedListT) ?*Node {
+        pub fn removeHead(self: *SinglyLinkedListT) ?T {
             return self.inner.removeHead(self.alloc);
         }
 
-        pub fn removeAfter(self: *SinglyLinkedListT, node: *Node) ?*Node {
+        pub fn removeAfter(self: *SinglyLinkedListT, node: *Node) ?T {
             return self.inner.removeAfter(self.alloc, node);
         }
             
-        pub fn removeAfterOrHead(self: *SinglyLinkedListT, mb_node: ?*Node) ?*Node {
+        pub fn removeAfterOrHead(self: *SinglyLinkedListT, mb_node: ?*Node) ?T {
             return self.inner.removeAfterOrHead(self.alloc, mb_node);
         }
 
@@ -230,12 +233,14 @@ test "SinglyLinkedList" {
     try t.eq(list.find(1).?, .{ .prev = second, .node = first});
     try t.eq(list.find(2).?, .{ .prev = null, .node = second });
 
-    _ = list.removeAfter(second);
+    var removed = list.removeAfter(second);
+    try t.eq(removed, 1);
     try t.eq(list.size(), 1);
     try t.eq(list.head().?, second);
     try t.eq(list.head().?.next, null);
 
-    _ = list.removeHead();
+    removed = list.removeHead();
+    try t.eq(removed, 2);
     try t.eq(list.size(), 0);
     try t.eq(list.head(), null);
 }

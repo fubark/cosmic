@@ -17,7 +17,7 @@ const RootOverlayHandle = struct {
 /// The Root widget allows the user's root widget to be wrapped by a container that can provide additional functionality such as modals and popovers.
 pub const Root = struct {
     props: struct {
-        user_root: ui.FrameId = ui.NullFrameId,
+        user_root: ui.FramePtr = .{},
     },
 
     /// There are currently two groups of overlays.
@@ -27,23 +27,39 @@ pub const Root = struct {
     base_overlays: stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true),
     top_overlays: stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true),
 
-    build_buf: std.ArrayList(ui.FrameId),
+    build_buf: std.ArrayList(ui.FramePtr),
 
     user_root: ui.NodeRef,
 
-    pub fn init(self: *Root, c: *ui.InitContext) void {
-        self.base_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(c.alloc);
-        self.top_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(c.alloc);
-        self.build_buf = std.ArrayList(ui.FrameId).init(c.alloc);
+    pub fn init(self: *Root, ctx: *ui.InitContext) void {
+        ctx.incFrameRef(self.props.user_root);
+        self.base_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(ctx.alloc);
+        self.top_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(ctx.alloc);
+        self.build_buf = std.ArrayList(ui.FramePtr).init(ctx.alloc);
     }
 
-    pub fn deinit(self: *Root, _: std.mem.Allocator) void {
+    pub fn deinit(self: *Root, _: *ui.DeinitContext) void {
+        if (self.props.user_root.isPresent()) {
+            self.props.user_root.destroy();
+        }
         self.base_overlays.deinit();
         self.top_overlays.deinit();
         self.build_buf.deinit();
     }
 
-    pub fn build(self: *Root, c: *ui.BuildContext) ui.FrameId {
+    pub fn deinitFrame(frame: ui.Frame, _: *ui.DeinitContext) void {
+        const Props = ui.WidgetProps(Root);
+        const props = stdx.mem.ptrCastAlign(*Props, frame.props.?);
+        if (props.user_root.isPresent()) {
+            props.user_root.destroy();
+        }
+    }
+
+    pub fn prePropsUpdate(self: *Root, ctx: *ui.UpdateContext, new: *const ui.WidgetProps(Root)) void {
+        ctx.handleFrameUpdate(self.props.user_root, new.user_root);
+    }
+
+    pub fn build(self: *Root, c: *ui.BuildContext) ui.FramePtr {
         self.build_buf.ensureTotalCapacity(self.base_overlays.size() + self.top_overlays.size()) catch @panic("error");
         self.build_buf.items.len = 0;
 
@@ -66,7 +82,7 @@ pub const Root = struct {
 
         // For now the user's root is the first child so it doesn't need a key.
         return u.ZStack(.{}, &.{
-            self.props.user_root,
+            self.props.user_root.dupe(),
             u.ZStack(.{}, base_frames),
             u.ZStack(.{}, top_frames),
         });
@@ -87,8 +103,8 @@ pub const Root = struct {
         };
         switch (desc.overlay_type) {
             .Overlay => {
-                const frame_id = desc.build_fn(desc.build_ctx, ctx);
-                self.build_buf.appendAssumeCapacity(frame_id);
+                const frame_ptr = desc.build_fn(desc.build_ctx, ctx);
+                self.build_buf.appendAssumeCapacity(frame_ptr);
             },
             .Popover => {
                 const frame_id = desc.build_fn(desc.build_ctx, ctx);
@@ -114,7 +130,7 @@ pub const Root = struct {
         }
     }
 
-    pub fn addOverlay(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, top: bool) !OverlayId {
+    pub fn addOverlay(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, top: bool) !OverlayId {
         const desc = OverlayDesc{
             .overlay_type = .Overlay,
             .build_ctx = build_ctx,
@@ -129,8 +145,8 @@ pub const Root = struct {
         }
     }
 
-    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: PopoverOptions) !OverlayId {
-        return try self.base_overlays.add(.{
+    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, opts: PopoverOptions) !OverlayId {
+        const desc = OverlayDesc{
             .overlay_type = .Popover,
             .build_ctx = build_ctx,
             .build_fn = build_fn,
@@ -140,11 +156,16 @@ pub const Root = struct {
             .close_after_mouseleave = opts.close_after_mouseleave,
             .placement = opts.placement,
             .margin_from_src = opts.margin_from_src,
-        });
+        };
+        if (opts.top_layer) {
+            return try self.top_overlays.add(desc);
+        } else {
+            return try self.base_overlays.add(desc);
+        }
     }
 
     /// Modals always appear on top of everything.
-    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId, opts: ModalOptions) !OverlayId {
+    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, opts: ModalOptions) !OverlayId {
         return try self.top_overlays.add(.{
             .overlay_type = .Modal,
             .build_ctx = build_ctx,
@@ -218,6 +239,7 @@ const PopoverOptions = struct {
     close_after_mouseleave: bool = false,
     placement: PopoverPlacement = .auto,
     margin_from_src: f32 = 20,
+    top_layer: bool = false,
 };
 
 const PopoverPlacement = enum(u2) {
@@ -228,7 +250,7 @@ const PopoverPlacement = enum(u2) {
 
 const OverlayDesc = struct {
     build_ctx: ?*anyopaque,
-    build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FrameId,
+    build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr,
 
     close_ctx: ?*anyopaque,
     close_cb: ?fn (?*anyopaque) void,
@@ -252,7 +274,7 @@ const OverlayType = enum(u2) {
 /// Clicking outside of the child modal will close the modal.
 pub const ModalOverlay = struct {
     props: struct {
-        child: ui.FrameId,
+        child: ui.FramePtr,
         valign: ui.VAlign = .center,
         halign: ui.HAlign = .center,
         border_color: Color = Color.DarkGray,
@@ -265,7 +287,7 @@ pub const ModalOverlay = struct {
     }
 
     fn onMouseDown(self: *ModalOverlay, e: ui.MouseDownEvent) ui.EventResult {
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const child = e.ctx.node.children.items[0];
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
@@ -284,14 +306,14 @@ pub const ModalOverlay = struct {
         }
     }
 
-    pub fn build(self: *ModalOverlay, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *ModalOverlay, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn layout(self: *ModalOverlay, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
 
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const child = c.node.children.items[0];
             const child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
@@ -304,7 +326,7 @@ pub const ModalOverlay = struct {
     }
 
     pub fn renderCustom(self: *ModalOverlay, c: *ui.RenderContext) void {
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const bounds = c.getAbsBounds();
             const child_lo = c.node.children.items[0].layout;
             const child_x = bounds.min_x + child_lo.x;
@@ -327,7 +349,7 @@ pub const ModalOverlay = struct {
 /// Clicking outside of the child popover will close the popover.
 pub const PopoverOverlay = struct {
     props: struct {
-        child: ui.FrameId,
+        child: ui.FramePtr,
         src_node: *ui.Node,
         placement: PopoverPlacement,
         marginFromSrc: f32 = 20,
@@ -354,7 +376,7 @@ pub const PopoverOverlay = struct {
     }
 
     fn onMouseDown(self: *PopoverOverlay, e: ui.MouseDownEvent) ui.EventResult {
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const child = e.ctx.node.children.items[0];
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
@@ -373,7 +395,7 @@ pub const PopoverOverlay = struct {
         }
     }
 
-    pub fn build(self: *PopoverOverlay, ctx: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *PopoverOverlay, ctx: *ui.BuildContext) ui.FramePtr {
         ctx.bindFrame(self.props.child, &self.child);
         if (self.props.closeAfterMouseLeave) {
             return u.MouseHoverArea(.{
@@ -381,10 +403,10 @@ pub const PopoverOverlay = struct {
                 .initHovered = true,
                 .hitTest = ctx.funcExt(self, hoverHitTest),
                 .onHoverChange = ctx.funcExt(self, onHoverChange) },
-                self.props.child,
+                self.props.child.dupe(),
             );
         } else {
-            return self.props.child;
+            return self.props.child.dupe();
         }
     }
 
@@ -404,7 +426,7 @@ pub const PopoverOverlay = struct {
     pub fn layout(self: *PopoverOverlay, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
 
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const child = c.node.children.items[0];
             const child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
@@ -439,7 +461,7 @@ pub const PopoverOverlay = struct {
     }
 
     pub fn renderCustom(self: *PopoverOverlay, c: *ui.RenderContext) void {
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const bounds = c.getAbsBounds();
             const child_lo = c.node.children.items[0].layout;
             const child_x = bounds.min_x + child_lo.x;

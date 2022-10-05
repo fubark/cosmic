@@ -7,13 +7,13 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    progress_bar: ui.WidgetRef(w.ProgressBarT),
+    progress_bar: ui.WidgetRef(u.ProgressBarT),
 
     duration_secs: f32,
     progress_ms: f32,
@@ -50,7 +50,7 @@ pub const App = struct {
         self.progress_bar.getWidget().setValue(self.progress_ms/1000);
     }
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onChangeDuration(self_: *App, val: i32) void {
                 const duration_secs = @intToFloat(f32, val);
@@ -63,34 +63,46 @@ pub const App = struct {
             }
         };
 
-        return w.Center(.{}, 
-            w.Sized(.{ .width = 400 },
-                w.Column(.{ .expand_child_width = true, .spacing = 20 }, &.{
-                    w.Row(.{}, &.{
-                        w.Text(.{
+        const t_style = u.TextStyle{
+            .color = Color.White,
+        };
+        const t_style2 = u.TextStyle{
+            .color = Color.Blue,
+        };
+        const tb_style = u.TextButtonStyle{
+            .border = .{
+                .cornerRadius = 10,
+            },
+        };
+
+        return u.Center(.{}, 
+            u.Sized(.{ .width = 400 },
+                u.Column(.{ .expand_child_width = true, .spacing = 20 }, &.{
+                    u.Row(.{}, &.{
+                        u.Text(.{
                             .text = "Elapsed Time: ",
-                            .color = Color.White,
+                            .style = t_style,
                         }),
-                        w.Flex(.{}, 
-                            w.ProgressBar(.{
+                        u.Flex(.{}, 
+                            u.ProgressBar(.{
                                 .bind = &self.progress_bar,
                                 .max_val = self.duration_secs,
                             }),
                         ),
                     }),
-                    w.Row(.{}, &.{
-                        w.Text(.{
+                    u.Row(.{}, &.{
+                        u.Text(.{
                             .text = c.fmt("{d:.0}ms", .{self.progress_ms}),
-                            .color = Color.Blue,
+                            .style = t_style2,
                         }),
                     }),
-                    w.Row(.{}, &.{
-                        w.Text(.{
+                    u.Row(.{}, &.{
+                        u.Text(.{
                             .text = "Duration: ",
-                            .color = Color.White,
+                            .style = t_style,
                         }),
-                        w.Flex(.{},
-                            w.Slider(.{
+                        u.Flex(.{},
+                            u.Slider(.{
                                 .init_val = @floatToInt(i32, self.duration_secs),
                                 .min_val = 1,
                                 .max_val = 30,
@@ -98,11 +110,11 @@ pub const App = struct {
                             }),
                         ),
                     }),
-                    w.Row(.{}, &.{
-                        w.Flex(.{}, 
-                            w.TextButton(.{
+                    u.Row(.{}, &.{
+                        u.Flex(.{}, 
+                            u.TextButton(.{
                                 .text = "Reset",
-                                .corner_radius = 10,
+                                .style = tb_style,
                                 .onClick = c.funcExt(self, S.onClickReset),
                             }),
                         ),
@@ -124,7 +136,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(App, .{});
         }
     };

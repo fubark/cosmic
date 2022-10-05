@@ -49,11 +49,11 @@ pub const TextField = struct {
         self.node = c.node;
     }
 
-    pub fn deinit(self: *TextField, _: std.mem.Allocator) void {
+    pub fn deinit(self: *TextField, _: *ui.DeinitContext) void {
         self.buf.deinit();
     }
 
-    pub fn build(self: *TextField, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *TextField, c: *ui.BuildContext) ui.FramePtr {
         return w.Padding(.{ .padding = self.props.padding },
             c.build(TextFieldInner, .{
                 .bind = &self.inner,
@@ -274,7 +274,7 @@ pub const TextFieldInner = struct {
         self.node = c.node;
     }
 
-    pub fn postPropsUpdate(self: *TextFieldInner) void {
+    pub fn postPropsUpdate(self: *TextFieldInner, _: *ui.UpdateContext) void {
         // Make sure caret_idx is in bounds.
         if (self.caret_idx > self.props.text.len) {
             self.caret_idx = @intCast(u32, self.props.text.len);

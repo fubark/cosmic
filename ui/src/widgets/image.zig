@@ -16,8 +16,8 @@ pub const Image = struct {
         height: ?f32 = null,
     },
 
-    pub fn build(_: *Image, _: *ui.BuildContext) ui.FrameId {
-        return ui.NullFrameId;
+    pub fn build(_: *Image, _: *ui.BuildContext) ui.FramePtr {
+        return .{};
     }
 
     pub fn init(self: *Image, c: *ui.InitContext) void {
@@ -37,8 +37,10 @@ pub const Image = struct {
     }
 
     pub fn render(self: *Image, ctx: *ui.RenderContext) void {
-        const bounds = ctx.getAbsBounds();
-        const gctx = ctx.getGraphics();
-        gctx.drawImageScaledTinted(bounds.min_x, bounds.min_y, bounds.computeWidth(), bounds.computeHeight(), self.props.imageId, self.props.tint);
+        if (self.props.imageId != NullId) {
+            const bounds = ctx.getAbsBounds();
+            const gctx = ctx.getGraphics();
+            gctx.drawImageScaledTinted(bounds.min_x, bounds.min_y, bounds.computeWidth(), bounds.computeHeight(), self.props.imageId, self.props.tint);
+        }
     }
 };

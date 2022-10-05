@@ -15,7 +15,7 @@ pub const Window = struct {
         initY: f32 = 0,
         initWidth: f32 = 300,
         initHeight: f32 = 200,
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         onClose: stdx.Function(fn (ui.WidgetRef(Window)) void) = .{},
         closeIcon: graphics.ImageId,
     },
@@ -57,7 +57,7 @@ pub const Window = struct {
         ctx.setMouseDownHandler(self, onMouseDown);
     }
 
-    pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FramePtr {
         const style = ctx.getStyle(Window);
         const tstyle = u.TextStyle{ .color = style.titleColor };
         const cstyle = u.IconButtonStyle{ .border = .{ .size = 0 }, .bgColor = Color.Transparent, .padding = 5 };
@@ -89,7 +89,7 @@ pub const Window = struct {
                             ),  
                         ),
                         u.Container(.{ .bgColor = self.props.bgColor, .width = ui.ExpandedWidth, .height = ui.ExpandedHeight }, 
-                            self.props.child,
+                            self.props.child.dupe(),
                         ),
                     }),
                 ),

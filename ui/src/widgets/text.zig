@@ -49,7 +49,7 @@ pub const Text = struct {
         self.str_hash = stdx.string.StringHash.init(self.props.text);
     }
 
-    pub fn deinit(self: *Text, _: std.mem.Allocator) void {
+    pub fn deinit(self: *Text, _: *ui.DeinitContext) void {
         self.tlo.deinit();
     }
 
@@ -81,8 +81,8 @@ pub const Text = struct {
         }
     }
 
-    pub fn build(_: *Text, _: *ui.BuildContext) ui.FrameId {
-        return ui.NullFrameId;
+    pub fn build(_: *Text, _: *ui.BuildContext) ui.FramePtr {
+        return .{};
     }
 
     pub fn layout(self: *Text, c: *ui.LayoutContext) ui.LayoutSize {

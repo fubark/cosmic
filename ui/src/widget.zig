@@ -366,7 +366,7 @@ pub const WidgetVTable = struct {
     postUpdate: fn (node: *Node, ctx: *ui.UpdateContext) void,
 
     /// Generates the frame for an existing Widget.
-    build: fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) FrameId,
+    build: fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) ui.FramePtr,
 
     /// Renders an existing Widget.
     render: fn (node: *Node, render_ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
@@ -376,6 +376,8 @@ pub const WidgetVTable = struct {
 
     /// Destroys an existing Widget.
     destroy: fn (mod: *ui.Module, node: *Node) void,
+
+    deinitFrame: fn (mod: *ui.Module, frame: ui.Frame) void,
 
     name: []const u8,
 

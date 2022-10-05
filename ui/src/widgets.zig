@@ -113,18 +113,18 @@ pub const SliderOption = genBuildWithNoChild (SliderOptionT);
 pub const SliderFloatOptionT = options.SliderFloatOption;
 pub const SliderFloatOption = genBuildWithNoChild(SliderFloatOptionT);
 
-fn genBuildWithNoChild(comptime Widget: type) fn (props: anytype) ui.FrameId {
+fn genBuildWithNoChild(comptime Widget: type) fn (props: anytype) ui.FramePtr {
     const S = struct {
-        fn build(props: anytype) ui.FrameId {
+        fn build(props: anytype) ui.FramePtr {
             return module.gbuild_ctx.build(Widget, props);
         }
     };
     return S.build;
 }
 
-fn genBuildWithChild(comptime Widget: type) fn (props: anytype, child: ui.FrameId) ui.FrameId {
+fn genBuildWithChild(comptime Widget: type) fn (props: anytype, child: ui.FramePtr) ui.FramePtr {
     const S = struct {
-        fn build(props: anytype, child: ui.FrameId) ui.FrameId {
+        fn build(props: anytype, child: ui.FramePtr) ui.FramePtr {
             var wprops: ui.WidgetProps(Widget) = undefined;
             ui.BuildContext.setWidgetProps(Widget, &wprops, props);
             wprops.child = child;
@@ -134,9 +134,9 @@ fn genBuildWithChild(comptime Widget: type) fn (props: anytype, child: ui.FrameI
     return S.build;
 }
 
-fn genBuildWithChildren(comptime Widget: type) fn (props: anytype, children: []const ui.FrameId) ui.FrameId {
+fn genBuildWithChildren(comptime Widget: type) fn (props: anytype, children: []const ui.FramePtr) ui.FramePtr {
     const S = struct {
-        fn build(props: anytype, children: []const ui.FrameId) ui.FrameId {
+        fn build(props: anytype, children: []const ui.FramePtr) ui.FramePtr {
             var wprops: ui.WidgetProps(Widget) = undefined;
             ui.BuildContext.setWidgetProps(Widget, &wprops, props);
             wprops.children = module.gbuild_ctx.list(children);

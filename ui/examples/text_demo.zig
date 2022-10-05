@@ -55,11 +55,11 @@ pub const App = struct {
         self.cwd = c.alloc.dupe(u8, cwd) catch @panic("error");
     }
 
-    pub fn deinit(self: *App, alloc: std.mem.Allocator) void {
-        alloc.free(self.cwd);
+    pub fn deinit(self: *App, ctx: *ui.DeinitContext) void {
+        ctx.alloc.free(self.cwd);
     }
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onSliderChange(self_: *App, value: i32) void {
                 self_.font_size = @intToFloat(f32, value);
@@ -95,7 +95,7 @@ pub const App = struct {
                 self_.font_family = graphics.FontFamily{ .Font = font_id };
             }
 
-            fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
+            fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
                 const self_ = stdx.mem.ptrCastAlign(*App, ptr);
                 return u.FileDialog(.{
                     .init_cwd = self_.cwd,
@@ -181,7 +181,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(App, .{});
         }
     };

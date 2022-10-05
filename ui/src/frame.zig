@@ -2,6 +2,7 @@ const stdx = @import("stdx");
 const builtin = @import("builtin");
 
 const NodeRef = @import("ui.zig").NodeRef;
+const module = @import("module.zig");
 
 const widget = @import("widget.zig");
 const WidgetUserId = widget.WidgetUserId;
@@ -10,12 +11,7 @@ const WidgetKey = widget.WidgetKey;
 const WidgetVTable = widget.WidgetVTable;
 
 pub const FrameId = u32;
-pub const NullFrameId = stdx.ds.CompactNull(FrameId);
-
-pub const FrameStyle = union {
-    value: FramePropsPtr,
-    ptr: *const anyopaque,
-};
+const NullFrameId = stdx.ds.CompactNull(FrameId);
 
 /// A frame represents a declaration of a widget instance and is created in each Widget's `build` function.
 /// Before the ui engine performs layout, these frames are used to diff against an existing node tree to determine whether a new
@@ -43,19 +39,18 @@ pub const Frame = struct {
     tag: ?[]const u8,
 
     /// Type-erased pointer to the props data.
-    props: FramePropsPtr,
+    props: ?*anyopaque,
 
     /// Type-erased pointer to the style data.
-    style: FrameStyle,
-    style_is_value: bool,
-    has_style: bool,
+    style: ?*const anyopaque,
+    style_is_owned: bool,
 
     /// This is only used by the special Fragment frame which represents multiple frames.
     fragment_children: FrameListPtr,
 
     debug: if (builtin.mode == .Debug) bool else void,
 
-    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: FramePropsPtr, style: FrameStyle, style_is_value: bool, fragment_children: FrameListPtr) Frame {
+    pub fn init(vtable: *const WidgetVTable, id: ?WidgetUserId, bind: ?*anyopaque, props: ?*anyopaque, style: ?*const anyopaque, style_is_owned: bool, fragment_children: FrameListPtr) Frame {
         return .{
             .vtable = vtable,
             .id = id,
@@ -64,8 +59,7 @@ pub const Frame = struct {
             .is_bind_func = false,
             .props = props,
             .style = style,
-            .style_is_value = style_is_value,
-            .has_style = !style_is_value or style.value.len > 0,
+            .style_is_owned = style_is_owned,
             .fragment_children = fragment_children,
             .key = null,
             .tag = null,
@@ -74,16 +68,88 @@ pub const Frame = struct {
     }
 };
 
-/// Sized pointer to props data.
-pub const FramePropsPtr = stdx.ds.DynamicArrayList(u32, u8).SizedPtr;
+pub const FramePtr = struct {
+    id: FrameId = NullFrameId,
 
-/// Represent a list of frames as a slice since the buffer could have been reallocated.
+    pub fn init(id: FrameId) FramePtr {
+        return .{ .id = id };
+    }
+
+    pub fn destroy(self: FramePtr) void {
+        module.gbuild_ctx.removeFrame(self.id);
+    }
+
+    pub fn get(self: FramePtr) Frame {
+        return module.gbuild_ctx.frames.getNoCheck(self.id);
+    }
+
+    pub fn getPtr(self: FramePtr) *Frame {
+        return module.gbuild_ctx.frames.getPtrNoCheck(self.id);
+    }
+
+    pub inline fn isNull(self: FramePtr) bool {
+        return self.id == NullFrameId;
+    }
+
+    pub inline fn isPresent(self: FramePtr) bool {
+        return self.id != NullFrameId;
+    }
+
+    pub fn dupe(self: FramePtr) FramePtr {
+        if (self.id == NullFrameId) {
+            return .{};
+        } else {
+            module.gbuild_ctx.frames.incRef(self.id);
+            return self;
+        }
+    }
+};
+
+pub const FrameListId = u32;
+const NullFrameListId = stdx.ds.CompactNull(FrameListId);
+
 pub const FrameListPtr = struct {
-    id: FrameId,
-    len: u32,
+    id: FrameListId = NullFrameListId,
 
-    pub fn init(id: FrameId, len: u32) @This() {
-        return .{ .id = id, .len = len };
+    pub fn init(id: FrameListId) FrameListPtr {
+        return .{ .id = id };
+    }
+
+    pub fn destroy(self: FrameListPtr) void {
+        module.gbuild_ctx.removeFrameList(self.id);
+    }
+
+    pub fn get(self: FrameListPtr) stdx.ds.SLLUnmanaged(FramePtr) {
+        return module.gbuild_ctx.frame_lists.getNoCheck(self.id);
+    }
+
+    pub fn getPtr(self: FrameListPtr) *stdx.ds.SLLUnmanaged(FramePtr) {
+        return module.gbuild_ctx.frame_lists.getPtrNoCheck(self.id);
+    }
+
+    pub inline fn isNull(self: FrameListPtr) bool {
+        return self.id == NullFrameListId;
+    }
+
+    pub inline fn isPresent(self: FrameListPtr) bool {
+        return self.id != NullFrameListId;
+    }
+
+    pub fn size(self: FrameListPtr) usize {
+        if (self.id == NullFrameListId) {
+            return 0;
+        } else {
+            return module.gbuild_ctx.getFrameList(self.id).size();
+        }
+    }
+
+    pub fn dupe(self: FrameListPtr) FrameListPtr {
+        if (self.id == NullFrameListId) {
+            return .{};
+        } else {
+            module.gbuild_ctx.frame_lists.incRef(self.id);
+            return self;
+        }
     }
 };
 

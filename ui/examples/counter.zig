@@ -6,7 +6,7 @@ const platform = @import("platform");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
@@ -18,28 +18,35 @@ pub const App = struct {
         self.counter = 0;
     }
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *App, _: ui.MouseUpEvent) void {
                 self_.counter += 1;
             }
         };
-        return w.Center(.{}, 
-            w.Row(.{}, &.{
-                w.Padding(.{
+        const t_style = u.TextStyle{
+            .color = Color.White,
+        };
+        const tb_style = u.TextButtonStyle{
+            .border = .{
+                .cornerRadius = 10,
+            },
+        };
+        return u.Center(.{}, 
+            u.Row(.{}, &.{
+                u.Padding(.{
                     .padding = 10,
                     .pad_left = 30,
-                    .pad_right = 30,
-                }, 
-                    w.Text(.{
+                    .pad_right = 30, }, 
+                    u.Text(.{
                         .text = c.fmt("{}", .{self.counter}),
-                        .color = Color.White,
+                        .style = t_style,
                     }),
                 ),
-                w.TextButton(.{
+                u.TextButton(.{
                     .text = "Count",
                     .onClick = c.funcExt(self, S.onClick),
-                    .corner_radius = 10,
+                    .style = tb_style,
                 }),
             }),
         );
@@ -57,7 +64,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(App, .{});
         }
     };

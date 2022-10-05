@@ -12,7 +12,7 @@ pub const MouseDragArea = struct {
         onDragStart: stdx.Function(fn (ui.DragStartEvent) void) = .{},
         onDragMove: stdx.Function(fn (ui.DragMoveEvent) void) = .{},
         onDragEnd: stdx.Function(fn (i16, i16) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         useEnterMouseDown: bool = false,
     },
 
@@ -24,8 +24,8 @@ pub const MouseDragArea = struct {
         }
     }
 
-    pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     fn onMouseDown(self: *MouseDragArea, e: ui.MouseDownEvent) ui.EventResult {
@@ -76,7 +76,7 @@ pub const MouseHoverArea = struct {
         hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onHoverChange: stdx.Function(fn (ui.HoverChangeEvent) void) = .{},
         onHoverMove: stdx.Function(fn (i16, i16) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
 
         /// Initializes in the hovered state (but doesn't fire onHoverChange(true)).
         /// This is useful for the user to rely on onHoverChange(false) for teardown logic.
@@ -94,8 +94,8 @@ pub const MouseHoverArea = struct {
         }
     }
 
-    pub fn build(self: *MouseHoverArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *MouseHoverArea, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     fn onHoverChange(self: *MouseHoverArea, e: ui.HoverChangeEvent) void {
@@ -124,13 +124,13 @@ pub const MouseHoverArea = struct {
 pub const MouseArea = struct {
     props: struct {
         onClick: stdx.Function(fn (ui.MouseUpEvent) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
     pressed: bool,
 
-    pub fn build(self: *MouseArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *MouseArea, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn init(self: *MouseArea, c: *ui.InitContext) void {

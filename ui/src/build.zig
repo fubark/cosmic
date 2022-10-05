@@ -7,26 +7,26 @@ const builtin = @import("builtin");
 const ui = @import("ui.zig");
 const module = @import("module.zig");
 const BindNode = @import("frame.zig").BindNode;
+const log = stdx.log.scoped(.build);
 
 pub const BuildContext = struct {
     alloc: std.mem.Allocator,
     arena_alloc: std.mem.Allocator,
     mod: *ui.Module,
 
-    /// Temporary buffers used to build Frames in Widget's `build` function.
-    /// Cleared on the next update cycle. FrameIds generated are indexes to this buffer.
+    /// Buffer for refcounted frames created from Widget's `build` function.
     /// Currently, frames are pushed into `frames`, `frame_lists`, and `frame_props` in a depth first order from BuildContext.build.
     /// This may help keep related frames in a subtree together when partial updates is implemented. 
-    frames: std.ArrayList(ui.Frame),
-    // One ArrayList is used to store multiple frame lists.
-    // Appends a complete list and returns the start index and size as the key.
-    frame_lists: std.ArrayList(ui.FrameId),
-    // Stores variable sized Widget props data. Appends props data and returns
-    // the start index and size as the key.
-    frame_props: stdx.ds.DynamicArrayList(u32, u8),
+    frames: stdx.ds.RcPooledHandleList(ui.FrameId, ui.Frame),
+
+    // Linked list nodes buffer with a list of refcounted list heads.
+    frame_lists: stdx.ds.RcPooledHandleList(ui.FrameListId, stdx.ds.SLLUnmanaged(ui.FramePtr)),
+
+    /// Allocator for dynamic data that aren't organized in an array list but should still be close together in memory.
+    dynamic_alloc: std.mem.Allocator,
 
     /// Temporary frame id buffer.
-    frameid_buf: std.ArrayListUnmanaged(ui.FrameId),
+    frameid_buf: std.ArrayListUnmanaged(ui.FramePtr),
     u8_buf: std.ArrayList(u8),
 
     // Current node.
@@ -35,14 +35,14 @@ pub const BuildContext = struct {
     // Current Frame used. Must use id since pointer could be invalidated.
     frame_id: ui.FrameId,
 
-    pub fn init(alloc: std.mem.Allocator, arena_alloc: std.mem.Allocator, mod: *ui.Module) BuildContext {
-        return .{
+    pub fn init(self: *BuildContext, alloc: std.mem.Allocator, arena_alloc: std.mem.Allocator, mod: *ui.Module) void {
+        self.* = .{
             .alloc = alloc,
+            .dynamic_alloc = alloc,
             .arena_alloc = arena_alloc,
             .mod = mod,
-            .frames = std.ArrayList(ui.Frame).init(alloc),
-            .frame_lists = std.ArrayList(ui.FrameId).init(alloc),
-            .frame_props = stdx.ds.DynamicArrayList(u32, u8).init(alloc),
+            .frames = stdx.ds.RcPooledHandleList(ui.FrameId, ui.Frame).init(alloc),
+            .frame_lists = stdx.ds.RcPooledHandleList(ui.FrameListId, stdx.ds.SLLUnmanaged(ui.FramePtr)).init(alloc),
             .u8_buf = std.ArrayList(u8).init(alloc),
             .frameid_buf = .{},
             .node = undefined,
@@ -51,9 +51,20 @@ pub const BuildContext = struct {
     }
 
     pub fn deinit(self: *BuildContext) void {
+        if (builtin.mode == .Debug) {
+            if (self.frames.size() > 0) {
+                var iter = self.frames.iterator();
+                while (iter.next()) |frame| {
+                    log.debug("{s} {} rc: {}", .{frame.vtable.name, iter.cur_id, self.frames.getRefCount(iter.cur_id)});
+                }
+                stdx.panicFmt("{} remaining frames.", .{self.frames.size()});
+            }
+            if (self.frame_lists.size() > 0) {
+                stdx.panicFmt("{} remaining frame lists.", .{self.frame_lists.size()});
+            }
+        }
         self.frames.deinit();
         self.frame_lists.deinit();
-        self.frame_props.deinit();
         self.frameid_buf.deinit(self.alloc);
         self.u8_buf.deinit();
     }
@@ -94,41 +105,44 @@ pub const BuildContext = struct {
     }
 
     /// Returned slice should be used immediately. eg. Pass into a build widget function.
-    pub fn tempRange(self: *BuildContext, count: usize, ctx: anytype, build_fn: fn(@TypeOf(ctx), *BuildContext, u32) ui.FrameId) []const ui.FrameId {
+    pub fn tempRange(self: *BuildContext, count: usize, ctx: anytype, build_fn: fn(@TypeOf(ctx), *BuildContext, u32) ui.FramePtr) []const ui.FramePtr {
         self.frameid_buf.resize(self.alloc, count) catch fatal();
         var cur: u32 = 0;
         var i: u32 = 0;
         while (i < count) : (i += 1) {
-            const frame_id = build_fn(ctx, self, @intCast(u32, i));
-            if (frame_id != ui.NullFrameId) {
-                self.frameid_buf.items[cur] = frame_id;
+            const frame = build_fn(ctx, self, @intCast(u32, i));
+            if (frame.isPresent()) {
+                self.frameid_buf.items[cur] = frame;
                 cur += 1;
             }
         }
         return self.frameid_buf.items[0..cur];
     }
 
-    pub fn range(self: *BuildContext, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *BuildContext, u32) ui.FrameId) ui.FrameListPtr {
-        const start_idx = self.frame_lists.items.len;
+    pub fn range(self: *BuildContext, count: usize, ctx: anytype, build_fn: fn (@TypeOf(ctx), *BuildContext, u32) ui.FramePtr) ui.FrameListPtr {
         var i: u32 = 0;
-        var buf_i: u32 = 0;
-        // Preallocate the list so that the frame ids can be layed out contiguously. Otherwise, the frame_lists array runs the risk of being modified by the user build fn.
-        // TODO: This is inefficient if the range is mostly a filter, leaving empty frame slots. One way to solve this is to use a separate stack buffer.
-        self.frame_lists.resize(self.frame_lists.items.len + count) catch unreachable;
+        var act_count: u32 = 0;
+        self.frames.ensureUnusedCapacity(count) catch fatal();
+
+        var slist = stdx.ds.SLLUnmanaged(ui.FramePtr).init();
+        var last = slist.head;
         while (i < count) : (i += 1) {
-            const frame_id = build_fn(ctx, self, @intCast(u32, i));
-            if (frame_id != ui.NullFrameId) {
-                self.frame_lists.items[start_idx + buf_i] = frame_id;
-                buf_i += 1;
+            const frame_ptr = build_fn(ctx, self, @intCast(u32, i));
+            if (frame_ptr.isPresent()) {
+                last = slist.insertAfterOrHead(self.alloc, last, frame_ptr) catch fatal();
+                act_count += 1;
             }
         }
-        return ui.FrameListPtr.init(@intCast(u32, start_idx), buf_i);
+
+        if (act_count > 0) {
+            const id = self.frame_lists.add(slist) catch fatal();
+            return ui.FrameListPtr.init(id);
+        } else {
+            return .{}; 
+        }
     }
 
     pub fn resetBuffer(self: *BuildContext) void {
-        self.frames.clearRetainingCapacity();
-        self.frame_lists.clearRetainingCapacity();
-        self.frame_props.clearRetainingCapacity();
         self.u8_buf.clearRetainingCapacity();
     }
 
@@ -143,7 +157,7 @@ pub const BuildContext = struct {
     }
 
     /// Short-hand for createFrame.
-    pub inline fn build(self: *BuildContext, comptime Widget: type, props: anytype) ui.FrameId {
+    pub inline fn build(self: *BuildContext, comptime Widget: type, props: anytype) ui.FramePtr {
         const HasProps = comptime module.WidgetHasProps(Widget);
         if (HasProps) {
             var widget_props: ui.WidgetProps(Widget) = undefined;
@@ -154,37 +168,66 @@ pub const BuildContext = struct {
         }
     }
 
-    pub inline fn list(self: *BuildContext, tuple_or_slice: anytype) ui.FrameListPtr {
-        const IsTuple = comptime std.meta.trait.isTuple(@TypeOf(tuple_or_slice));
-        if (IsTuple) {
-            // createFrameList doesn't support tuples right now because of tuples nested in anonymous struct is bugged,
-            // so we convert it to an array.
-            const arr: [stdx.meta.TupleLen(@TypeOf(tuple_or_slice))]ui.FrameId = tuple_or_slice;
-            return self.createFrameList(arr);
-        } else {
-            return self.createFrameList(tuple_or_slice);
+    pub inline fn list(self: *BuildContext, slice: []const ui.FramePtr) ui.FrameListPtr {
+        return self.createFrameList(slice);
+    }
+
+    pub fn removeFrame(self: *BuildContext, id: ui.FrameId) void {
+        // log.debug("remove frame {s} {} rc:{}", .{self.getFrame(id).vtable.name, id, self.frames.getRefCount(id)});
+        const ref_count = self.frames.getRefCount(id);
+        if (ref_count == 1) {
+            const frame = self.getFrame(id);
+            if (frame.fragment_children.isPresent()) {
+                frame.fragment_children.destroy();
+            }
+            frame.vtable.deinitFrame(self.mod, frame);
         }
+        if (builtin.mode == .Debug) {
+            if (ref_count == 0) {
+                log.debug("Free frame with ref count = 0.", .{});
+                self.mod.dumpTrace();
+                stdx.panic("");
+            }
+        }
+        self.frames.remove(id);
     }
 
-    pub inline fn fragment(self: *BuildContext, list_: ui.FrameListPtr) ui.FrameId {
-        const style = ui.FrameStyle{
-            .value = ui.FramePropsPtr.init(0, 0),
-        };
-        const frame = ui.Frame.init(module.FragmentVTable, null, null, ui.FramePropsPtr.init(0, 0), style, true, list_);
-        const frame_id = @intCast(ui.FrameId, @intCast(u32, self.frames.items.len));
-        self.frames.append(frame) catch unreachable;
-        return frame_id;
+    pub fn removeFrameList(self: *BuildContext, id: ui.FrameListId) void {
+        // log.debug("remove list {}", .{self.frame_lists.getRefCount(id)});
+        const ref_count = self.frame_lists.getRefCount(id);
+        if (ref_count == 1) {
+            const slist = self.frame_lists.getPtrNoCheck(id);
+            while (slist.head) |node| {
+                node.data.destroy();
+                _ = slist.removeHead(self.dynamic_alloc);
+            }
+        }
+        if (builtin.mode == .Debug) {
+            if (ref_count == 0) {
+                log.debug("Free frame list with ref count = 0", .{});
+                self.mod.dumpTrace();
+                stdx.panic("");
+            }
+        }
+        self.frame_lists.remove(id);
     }
 
-    pub inline fn fragmentSlice(self: *BuildContext, frames: []const ui.FrameId) ui.FrameId {
+    /// Creates a fragment frame and owns the list.
+    pub fn fragment(self: *BuildContext, list_: ui.FrameListPtr) ui.FramePtr {
+        const frame = ui.Frame.init(module.FragmentVTable, null, null, null, null, true, list_);
+        const frame_id = self.frames.add(frame) catch fatal();
+        return ui.FramePtr.init(frame_id);
+    }
+
+    pub fn fragmentSlice(self: *BuildContext, frames: []const ui.FrameId) ui.FramePtr {
         const list_ptr = self.createFrameList(frames);
         return self.fragment(list_ptr);
     }
 
     /// Allows caller to bind a FrameId to a NodeRef. One frame can be binded to many NodeRefs.
-    pub fn bindFrame(self: *BuildContext, frame_id: ui.FrameId, ref: *ui.NodeRef) void {
-        if (frame_id != ui.NullFrameId) {
-            const frame = &self.frames.items[frame_id];
+    pub fn bindFrame(self: *BuildContext, frame_ptr: ui.FramePtr, ref: *ui.NodeRef) void {
+        if (frame_ptr.isPresent()) {
+            const frame = frame_ptr.getPtr();
             const node = self.arena_alloc.create(BindNode) catch fatal();
             node.node_ref = ref;
             node.next = frame.node_binds;
@@ -192,9 +235,9 @@ pub const BuildContext = struct {
         }
     }
 
-    fn createFrameList(self: *BuildContext, frame_ids: anytype) ui.FrameListPtr {
-        const Type = @TypeOf(frame_ids);
-        const IsSlice = comptime std.meta.trait.isSlice(Type) and @typeInfo(Type).Pointer.child == ui.FrameId;
+    fn createFrameList(self: *BuildContext, frame_ptrs: anytype) ui.FrameListPtr {
+        const Type = @TypeOf(frame_ptrs);
+        const IsSlice = comptime std.meta.trait.isSlice(Type) and @typeInfo(Type).Pointer.child == ui.FramePtr;
         const IsArray = @typeInfo(Type) == .Array;
         // const IsTuple = comptime std.meta.trait.isTuple(Type);
         comptime {
@@ -203,12 +246,13 @@ pub const BuildContext = struct {
                 @compileError("unsupported  " ++ @typeName(Type));
             }
         }
-        const start_idx = @intCast(u32, self.frame_lists.items.len);
-        self.frame_lists.ensureUnusedCapacity(frame_ids.len) catch @panic("error");
+
+        var slist = stdx.ds.SLLUnmanaged(ui.FramePtr).init();
+        var last = slist.head;
         if (IsSlice or IsArray) {
-            for (frame_ids) |id| {
-                if (id != ui.NullFrameId) {
-                    self.frame_lists.appendAssumeCapacity(id);
+            for (frame_ptrs) |ptr| {
+                if (ptr.isPresent()) {
+                    last = slist.insertAfterOrHead(self.dynamic_alloc, last, ptr) catch fatal();
                 }
             }
         } else {
@@ -219,7 +263,13 @@ pub const BuildContext = struct {
             //     self.frame_lists.append(frame_id) catch unreachable;
             // }
         }
-        return ui.FrameListPtr.init(start_idx, @intCast(u32, self.frame_lists.items.len) - start_idx);
+
+        if (slist.head != null) {
+            const id = self.frame_lists.add(slist) catch fatal();
+            return ui.FrameListPtr.init(id);
+        } else {
+            return .{};
+        }
     }
 
     pub inline fn getStyle(self: *BuildContext, comptime Widget: type) *const ui.WidgetComputedStyle(Widget) {
@@ -231,56 +281,49 @@ pub const BuildContext = struct {
     }
 
     pub fn getFrame(self: BuildContext, id: ui.FrameId) ui.Frame {
-        return self.frames.items[id];
+        return self.frames.getNoCheck(id);
     }
 
-    fn getFrameList(self: *BuildContext, ptr: ui.FrameListPtr) []const ui.FrameId {
-        const end_idx = ptr.id + ptr.len;
-        return self.frame_lists.items[ptr.id..end_idx];
+    pub fn getFrameList(self: *BuildContext, id: ui.FrameListId) stdx.ds.SLLUnmanaged(ui.FramePtr) {
+        return self.frame_lists.getNoCheck(id);
     }
 
-    pub fn createFrame(self: *BuildContext, comptime Widget: type, props: ?*ui.WidgetProps(Widget), build_props: anytype) ui.FrameId {
+    pub fn createFrame(self: *BuildContext, comptime Widget: type, props: ?*ui.WidgetProps(Widget), build_props: anytype) ui.FramePtr {
         // log.warn("createFrame {}", .{build_props});
         const BuildProps = @TypeOf(build_props);
 
         const bind: ?*anyopaque = if (@hasField(BuildProps, "bind")) build_props.bind else null;
         const id = if (@hasField(BuildProps, "id")) stdx.meta.enumLiteralId(build_props.id) else null;
 
-        var style = ui.FrameStyle{
-            .value = ui.FramePropsPtr.init(0, 0),
-        };
-        var style_is_value = true;
+        var style: ?*const anyopaque = null;
+        var style_is_owned = true;
         if (@hasField(BuildProps, "style")) {
             const UserStyle = ui.WidgetUserStyle(Widget);
             const PropsStyle = @TypeOf(build_props.style);
             if (PropsStyle == UserStyle) {
-                style.value = self.frame_props.append(build_props.style) catch fatal();
+                const dupe = self.dynamic_alloc.create(UserStyle) catch fatal();
+                dupe.* = build_props.style;
+                style = dupe;
             } else if (PropsStyle == *UserStyle) {
-                style = ui.FrameStyle{
-                    .ptr = build_props.style,
-                };
-                style_is_value = false;
+                style = build_props.style;
+                style_is_owned = false;
             } else if (PropsStyle == ?*const UserStyle) {
                 if (build_props.style) |ptr| {
-                    style = ui.FrameStyle{
-                        .ptr = ptr,
-                    };
-                    style_is_value = false;
+                    style = ptr;
+                    style_is_owned = false;
                 }
             }
         }
 
-        const props_ptr = b: {
-            const HasProps = comptime module.WidgetHasProps(Widget);
-            if (HasProps) {
-                break :b self.frame_props.append(props.?.*) catch unreachable;
-            } else {
-                break :b ui.FramePropsPtr.init(0, 0);
-            }
-        };
+        const HasProps = comptime module.WidgetHasProps(Widget);
+        var props_ptr: ?*anyopaque = if (HasProps) b: {
+            const dupe = self.dynamic_alloc.create(ui.WidgetProps(Widget)) catch fatal();
+            dupe.* = props.?.*;
+            break :b dupe;
+        } else null;
 
         const vtable = module.GenWidgetVTable(Widget);
-        var frame = ui.Frame.init(vtable, id, bind, props_ptr, style, style_is_value, ui.FrameListPtr.init(0, 0));
+        var frame = ui.Frame.init(vtable, id, bind, props_ptr, style, style_is_owned, .{});
         if (@hasField(BuildProps, "key")) {
             frame.key = build_props.key;
         }
@@ -297,11 +340,10 @@ pub const BuildContext = struct {
                 }
             }
         }
-        const frame_id = @intCast(ui.FrameId, @intCast(u32, self.frames.items.len));
-        self.frames.append(frame) catch unreachable;
+        const frame_id = self.frames.add(frame) catch fatal();
 
         // log.warn("created frame {}", .{frame_id});
-        return frame_id;
+        return ui.FramePtr.init(frame_id);
     }
 
     pub fn validateBuildProps(comptime Widget: type, build_props: anytype) void {

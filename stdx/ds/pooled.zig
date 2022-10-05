@@ -12,19 +12,27 @@ const log = stdx.log.scoped(.pooled);
 /// Slower at iteration since items can have fragmentation after removals.
 /// TODO: Iterating can be just as fast as a dense array if PoolIdGenerator kept a sorted list of freed id ranges. Then delete ops would be O(logn)
 pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
+    return PooledHandleListExt(Id, T, false);
+}
+pub fn RcPooledHandleList(comptime Id: type, comptime T: type) type {
+    return PooledHandleListExt(Id, T, true);
+}
+fn PooledHandleListExt(comptime Id: type, comptime T: type, comptime RC: bool) type {
     if (@typeInfo(Id).Int.signedness != .unsigned) {
         @compileError("Unsigned id type required.");
     }
     return struct {
         id_gen: PoolIdGenerator(Id),
 
-        // TODO: Rename to buf.
-        data: std.ArrayList(T),
+        alloc: std.mem.Allocator,
+        buf: std.ArrayListUnmanaged(T),
 
         // Keep track of whether an item exists at id in order to perform iteration.
         // TODO: Rename to exists.
         // TODO: Maybe the user should provide this if it's important. It would also simplify the api and remove optional return types. It also means iteration won't be possible.
         data_exists: stdx.ds.BitArrayList,
+
+        ref_counts: if (RC) std.ArrayListUnmanaged(u32) else void,
 
         const PooledHandleListT = @This();
         pub const Iterator = struct {
@@ -46,12 +54,12 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             pub fn nextPtr(self: *Iterator) ?*T {
                 self.cur_id +%= 1;
                 while (true) {
-                    if (self.cur_id < self.list.data.items.len) {
+                    if (self.cur_id < self.list.buf.items.len) {
                         if (!self.list.data_exists.isSet(self.cur_id)) {
                             self.cur_id += 1;
                             continue;
                         } else {
-                            return &self.list.data.items[self.cur_id];
+                            return &self.list.buf.items[self.cur_id];
                         }
                     } else {
                         return null;
@@ -62,12 +70,12 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             pub fn next(self: *@This()) ?T {
                 self.cur_id +%= 1;
                 while (true) {
-                    if (self.cur_id < self.list.data.items.len) {
+                    if (self.cur_id < self.list.buf.items.len) {
                         if (!self.list.data_exists.isSet(self.cur_id)) {
                             self.cur_id += 1;
                             continue;
                         } else {
-                            return self.list.data.items[self.cur_id];
+                            return self.list.buf.items[self.cur_id];
                         }
                     } else {
                         return null;
@@ -76,19 +84,24 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
             }
         };
 
-        pub fn init(alloc: std.mem.Allocator) @This() {
-            const new = @This(){
+        pub fn init(alloc: std.mem.Allocator) PooledHandleListT {
+            const new = PooledHandleListT{
+                .alloc = alloc,
                 .id_gen = PoolIdGenerator(Id).init(alloc, 0),
-                .data = std.ArrayList(T).init(alloc),
+                .buf = .{},
                 .data_exists = stdx.ds.BitArrayList.init(alloc),
+                .ref_counts = if (RC) .{} else {},
             };
             return new;
         }
 
-        pub fn deinit(self: PooledHandleListT) void {
+        pub fn deinit(self: *PooledHandleListT) void {
             self.id_gen.deinit();
-            self.data.deinit();
+            self.buf.deinit(self.alloc);
             self.data_exists.deinit();
+            if (RC) {
+                self.ref_counts.deinit(self.alloc);
+            }
         }
 
         pub fn iterator(self: *const PooledHandleListT) Iterator {
@@ -135,52 +148,93 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
                     }
                 }
             } else {
-                const last_len = self.data.items.len;
-                try self.data.resize(id + 1);
+                const last_len = self.buf.items.len;
+                try self.buf.resize(self.alloc, id + 1);
                 try self.data_exists.resizeFillNew(id + 1, false);
+                if (RC) {
+                    try self.ref_counts.resize(self.alloc, id + 1);
+                }
                 var i = @intCast(Id, last_len);
                 while (i < id) : (i += 1) {
                     self.id_gen.deleteId(i);
                 }
-                self.id_gen.next_default_id = @intCast(u32, self.data.items.len);
+                self.id_gen.next_default_id = @intCast(u32, self.buf.items.len);
             }
-            self.data.items[id] = item;
+            self.buf.items[id] = item;
             self.data_exists.set(id);
+            if (RC) {
+                self.ref_counts[id] = 1;
+            }
         }
 
         pub fn set(self: *PooledHandleListT, id: Id, item: T) void {
-            self.data.items[id] = item;
+            self.buf.items[id] = item;
         }
 
+        pub usingnamespace if (RC) struct {
+            pub fn incRef(self: *PooledHandleListT, id: Id) void {
+                self.ref_counts.items[id] += 1;
+            }
+
+            pub fn getRefCount(self: *PooledHandleListT, id: Id) u32 {
+                return self.ref_counts.items[id];
+            }
+        } else struct {};
+
         pub fn remove(self: *PooledHandleListT, id: Id) void {
-            self.data_exists.unset(id);
-            self.id_gen.deleteId(id);
+            if (RC) {
+                self.ref_counts.items[id] -= 1;
+                if (self.ref_counts.items[id] == 0) {
+                    self.data_exists.unset(id);
+                    self.id_gen.deleteId(id);
+                }
+            } else {
+                self.data_exists.unset(id);
+                self.id_gen.deleteId(id);
+            }
+        }
+
+        pub fn ensureUnusedCapacity(self: *PooledHandleListT, cap: usize) !void {
+            const num_free = self.id_gen.freeCount();
+            if (num_free >= cap) {
+                return;
+            } else {
+                const new_cap = cap - num_free; 
+                try self.data_exists.ensureUnusedCapacity(new_cap);
+                try self.buf.ensureUnusedCapacity(self.alloc, new_cap);
+                if (RC) {
+                    try self.ref_counts.ensureUnusedCapacity(self.alloc, new_cap);
+                }
+            }
         }
 
         pub fn clearRetainingCapacity(self: *PooledHandleListT) void {
             self.data_exists.clearRetainingCapacity();
             self.id_gen.clearRetainingCapacity();
-            self.data.clearRetainingCapacity();
+            self.buf.clearRetainingCapacity();
+            if (RC) {
+                self.ref_counts.clearRetainingCapacity();
+            }
         }
 
         pub fn get(self: PooledHandleListT, id: Id) ?T {
             if (self.has(id)) {
-                return self.data.items[id];
+                return self.buf.items[id];
             } else return null;
         }
 
         pub fn getNoCheck(self: PooledHandleListT, id: Id) T {
-            return self.data.items[id];
+            return self.buf.items[id];
         }
 
         pub fn getPtr(self: *const PooledHandleListT, id: Id) ?*T {
             if (self.has(id)) {
-                return &self.data.items[id];
+                return &self.buf.items[id];
             } else return null;
         }
 
         pub fn getPtrNoCheck(self: PooledHandleListT, id: Id) *T {
-            return &self.data.items[id];
+            return &self.buf.items[id];
         }
 
         pub fn has(self: PooledHandleListT, id: Id) bool {
@@ -188,9 +242,25 @@ pub fn PooledHandleList(comptime Id: type, comptime T: type) type {
         }
 
         pub fn size(self: PooledHandleListT) usize {
-            return self.data.items.len - self.id_gen.next_ids.count;
+            return self.buf.items.len - self.id_gen.next_ids.count;
         }
     };
+}
+
+test "RcPooledHandleList" {
+    var list = RcPooledHandleList(u32, u8).init(t.alloc);
+    defer list.deinit();
+
+    var id = try list.add(1);
+    list.remove(id);
+    try t.eq(list.has(id), false);
+
+    id = try list.add(1);
+    list.incRef(id);
+    list.remove(id);
+    try t.eq(list.has(id), true);
+    list.remove(id);
+    try t.eq(list.has(id), false);
 }
 
 test "PooledHandleList" {
@@ -262,6 +332,10 @@ pub fn PoolIdGenerator(comptime T: type) type {
                 .next_default_id = start_id,
                 .next_ids = std.fifo.LinearFifo(T, .Dynamic).init(alloc),
             };
+        }
+
+        pub inline fn freeCount(self: PoolIdGeneratorT) usize {
+            return self.next_ids.count;
         }
 
         pub fn peekNextId(self: PoolIdGeneratorT) T {
@@ -365,7 +439,7 @@ pub fn PooledHandleSLLBuffer(comptime Id: type, comptime T: type) type {
             };
         }
 
-        pub fn deinit(self: PooledHandleSLLBufferT) void {
+        pub fn deinit(self: *PooledHandleSLLBufferT) void {
             self.nodes.deinit();
         }
 

@@ -19,7 +19,7 @@ const ScrollBarVisibility = enum(u2) {
 /// By default, scroll view will stretch to it's child. Must be constrained by parent sizer (eg. Sized, Flex) to trigger scrollbars. 
 pub const ScrollView = struct {
     props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         show_hscroll: ScrollBarVisibility = .auto,
         show_vscroll: ScrollBarVisibility = .auto,
         /// Whether scrolling is enabled along the x axis. If false, the child's width is bounded by the ScrollView's width.
@@ -81,8 +81,8 @@ pub const ScrollView = struct {
         c.addMouseScrollHandler(self, onMouseScroll);
     }
 
-    pub fn build(self: *ScrollView, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *ScrollView, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     fn onMouseDown(self: *ScrollView, e: ui.MouseDownEvent) ui.EventResult {
@@ -209,7 +209,7 @@ pub const ScrollView = struct {
 
         const cstr = c.getSizeConstraints();
 
-        if (self.props.child != ui.NullFrameId) {
+        if (self.props.child.isPresent()) {
             const node = c.getNode();
             const child = node.children.items[0];
             var child_size: ui.LayoutSize = undefined;

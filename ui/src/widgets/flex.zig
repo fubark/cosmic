@@ -24,11 +24,11 @@ pub const Column = struct {
         flex: u32 = 1,
         flex_fit: ui.FlexFit = .exact,
 
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
     },
 
-    pub fn build(self: *Column, c: *ui.BuildContext) ui.FrameId {
-        return c.fragment(self.props.children);
+    pub fn build(self: *Column, c: *ui.BuildContext) ui.FramePtr {
+        return c.fragment(self.props.children.dupe());
     }
 
     pub fn layout(self: *Column, c: *ui.LayoutContext) ui.LayoutSize {
@@ -176,11 +176,11 @@ pub const Row = struct {
         /// Expands to the parent container's width by default.
         expand: bool = false,
 
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
     },
 
-    pub fn build(self: *Row, c: *ui.BuildContext) ui.FrameId {
-        return c.fragment(self.props.children);
+    pub fn build(self: *Row, c: *ui.BuildContext) ui.FramePtr {
+        return c.fragment(self.props.children.dupe());
     }
 
     pub fn layout(self: *Row, c: *ui.LayoutContext) ui.LayoutSize {
@@ -301,22 +301,22 @@ pub const Row = struct {
 /// Interpreted by Column or Row as a flexible widget. The flex property is used determine how it fits in the parent container.
 pub const Flex = struct {
     props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
 
         /// Flex properties are used by the parent.
         flex: u32 = 1,
         flex_fit: ui.FlexFit = .exact,
     },
 
-    pub fn build(self: *Flex, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Flex, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     /// Computes the child layout preferring to stretch it and returns the current constraint.
     pub fn layout(self: *Flex, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
 
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return cstr.getMinLayoutSize();
         }
 
