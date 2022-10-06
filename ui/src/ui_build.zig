@@ -13,6 +13,7 @@ pub const BuildContext = struct {
     alloc: std.mem.Allocator,
     arena_alloc: std.mem.Allocator,
     mod: *ui.Module,
+    common: *ui.CommonContext,
 
     /// Buffer for refcounted frames created from Widget's `build` function.
     /// Currently, frames are pushed into `frames`, `frame_lists`, and `frame_props` in a depth first order from BuildContext.build.
@@ -41,6 +42,7 @@ pub const BuildContext = struct {
             .dynamic_alloc = alloc,
             .arena_alloc = arena_alloc,
             .mod = mod,
+            .common = &mod.common.ctx,
             .frames = stdx.ds.RcPooledHandleList(ui.FrameId, ui.Frame).init(alloc),
             .frame_lists = stdx.ds.RcPooledHandleList(ui.FrameListId, stdx.ds.SLLUnmanaged(ui.FramePtr)).init(alloc),
             .u8_buf = std.ArrayList(u8).init(alloc),
@@ -272,14 +274,6 @@ pub const BuildContext = struct {
         }
     }
 
-    pub inline fn getStyle(self: *BuildContext, comptime Widget: type) *const ui.WidgetComputedStyle(Widget) {
-        return self.mod.common.ctx.getNodeStyle(Widget, self.node);
-    }
-
-    pub inline fn getStylePropPtr(self: *BuildContext, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {
-        return self.mod.common.getStylePropPtr(style, prop);
-    }
-
     pub fn getFrame(self: BuildContext, id: ui.FrameId) ui.Frame {
         return self.frames.getNoCheck(id);
     }
@@ -438,6 +432,8 @@ pub const BuildContext = struct {
         // }
         // log.warn("set frame props", .{});
     }
+
+    pub usingnamespace module.MixinContextStyleOps(BuildContext);
 };
 
 pub const PtrId = struct {

@@ -30,12 +30,17 @@ pub const Root = struct {
     build_buf: std.ArrayList(ui.FramePtr),
 
     user_root: ui.NodeRef,
+    node: *ui.Node,
+
+    overlay_map: ui.NodeRefMap,
 
     pub fn init(self: *Root, ctx: *ui.InitContext) void {
         ctx.incFrameRef(self.props.user_root);
         self.base_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(ctx.alloc);
         self.top_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(ctx.alloc);
         self.build_buf = std.ArrayList(ui.FramePtr).init(ctx.alloc);
+        self.node = ctx.node;
+        self.overlay_map.init(ctx.alloc);
     }
 
     pub fn deinit(self: *Root, _: *ui.DeinitContext) void {
@@ -45,6 +50,7 @@ pub const Root = struct {
         self.base_overlays.deinit();
         self.top_overlays.deinit();
         self.build_buf.deinit();
+        self.overlay_map.deinit();
     }
 
     pub fn deinitFrame(frame: ui.Frame, _: *ui.DeinitContext) void {
@@ -88,16 +94,17 @@ pub const Root = struct {
         });
     }
 
+    pub fn getPopoverOverlay(self: *Root, id: OverlayId) *PopoverOverlay {
+        const child = self.overlay_map.getNode(ui.WidgetKeyId(id)).?;
+        return child.getWidget(PopoverOverlay);
+    }
+
     fn appendOverlayFrame(self: *Root, ctx: *ui.BuildContext, id: OverlayId, desc: OverlayDesc) void {
         const S = struct {
             fn popoverRequestClose(h: RootOverlayHandle) void {
                 h.root.closePopover(h.overlay_id);
             }
             fn modalRequestClose(h: RootOverlayHandle) void {
-                const desc_ = h.root.getOverlay(h.overlay_id).?;
-                if (desc_.close_cb) |cb| {
-                    cb(desc_.close_ctx);
-                }
                 h.root.closeModal(h.overlay_id);
             }
         };
@@ -110,6 +117,7 @@ pub const Root = struct {
                 const frame_id = desc.build_fn(desc.build_ctx, ctx);
                 const wrapper = ctx.build(PopoverOverlay, .{
                     .child = frame_id,
+                    .bind = &self.overlay_map.bind,
                     .src_node = desc.src_node,
                     .placement = desc.placement,
                     .marginFromSrc = desc.margin_from_src,
@@ -216,6 +224,9 @@ pub const Root = struct {
 
     pub fn closeModal(self: *Root, id: OverlayId) void {
         if (self.base_overlays.get(id)) |desc| {
+            if (desc.close_cb) |cb| {
+                cb(desc.close_ctx);
+            }
             if (desc.overlay_type == .Modal) {
                 self.base_overlays.remove(id);
             }
@@ -223,6 +234,9 @@ pub const Root = struct {
         }
         const desc = self.top_overlays.get(id).?;
         if (desc.overlay_type == .Modal) {
+            if (desc.close_cb) |cb| {
+                cb(desc.close_ctx);
+            }
             self.top_overlays.remove(id);
         }
     }
@@ -279,7 +293,7 @@ pub const ModalOverlay = struct {
         halign: ui.HAlign = .center,
         border_color: Color = Color.DarkGray,
         bg_color: Color = Color.DarkGray.darker(),
-        onRequestClose: ?stdx.Function(fn () void) = null,
+        onRequestClose: stdx.Function(fn () void) = .{},
     },
 
     pub fn init(self: *ModalOverlay, c: *ui.InitContext) void {
@@ -301,8 +315,8 @@ pub const ModalOverlay = struct {
     }
 
     pub fn requestClose(self: *ModalOverlay) void {
-        if (self.props.onRequestClose) |cb| {
-            cb.call(.{});
+        if (self.props.onRequestClose.isPresent()) {
+            self.props.onRequestClose.call(.{});
         }
     }
 
@@ -354,9 +368,8 @@ pub const PopoverOverlay = struct {
         placement: PopoverPlacement,
         marginFromSrc: f32 = 20,
         closeAfterMouseLeave: bool = false,
-        border_color: Color = Color.DarkGray,
-        bg_color: Color = Color.DarkGray.darker(),
-        onRequestClose: ?stdx.Function(fn () void) = null,
+        closeAfterMouseClick: bool = false,
+        onRequestClose: stdx.Function(fn () void) = .{},
     },
 
     to_left: bool,
@@ -367,6 +380,16 @@ pub const PopoverOverlay = struct {
     custom_post_render: ?fn (?*anyopaque, ctx: *ui.RenderContext) void,
 
     node: *ui.Node,
+
+    pub const Style = struct {
+        bgColor: ?Color = null,
+        border: ?u.BorderStyle = null,
+    };
+
+    pub const ComputedStyle = struct {
+        bgColor: Color = Color.DarkGray.darker(),
+        border: ?u.BorderStyle = null,
+    };
 
     pub fn init(self: *PopoverOverlay, c: *ui.InitContext) void {
         self.custom_post_render = null;
@@ -390,15 +413,23 @@ pub const PopoverOverlay = struct {
     }
 
     pub fn requestClose(self: *PopoverOverlay) void {
-        if (self.props.onRequestClose) |cb| {
-            cb.call(.{});
+        if (self.props.onRequestClose.isPresent()) {
+            self.props.onRequestClose.call(.{});
         }
     }
 
     pub fn build(self: *PopoverOverlay, ctx: *ui.BuildContext) ui.FramePtr {
         ctx.bindFrame(self.props.child, &self.child);
+
+        const style = ctx.getStyle(PopoverOverlay);
+
+        var b_style = u.BorderStyle{};
+        ctx.overrideUserStyle(u.BorderT, &b_style, style.border);
+        b_style.bgColor = style.bgColor;
+
+        var body = ui.FramePtr{};
         if (self.props.closeAfterMouseLeave) {
-            return u.MouseHoverArea(.{
+            body = u.MouseHoverArea(.{
                 // Initialized as hovered so a onHoverChange(false) is guaranteed to fire even if the initial hoverHitTest returns false.
                 .initHovered = true,
                 .hitTest = ctx.funcExt(self, hoverHitTest),
@@ -406,8 +437,10 @@ pub const PopoverOverlay = struct {
                 self.props.child.dupe(),
             );
         } else {
-            return self.props.child.dupe();
+            body = self.props.child.dupe();
         }
+
+        return u.Border(.{ .style = b_style }, body);
     }
 
     fn hoverHitTest(self: *PopoverOverlay, x: i16, y: i16) bool {
@@ -462,20 +495,7 @@ pub const PopoverOverlay = struct {
 
     pub fn renderCustom(self: *PopoverOverlay, c: *ui.RenderContext) void {
         if (self.props.child.isPresent()) {
-            const bounds = c.getAbsBounds();
-            const child_lo = c.node.children.items[0].layout;
-            const child_x = bounds.min_x + child_lo.x;
-            const child_y = bounds.min_y + child_lo.y;
-
-            const g = c.gctx;
-            g.setFillColor(self.props.bg_color);
-            g.fillRect(child_x, child_y, child_lo.width, child_lo.height);
-
             c.renderChildren();
-
-            g.setStrokeColor(self.props.border_color);
-            g.setLineWidth(2);
-            g.strokeRect(child_x, child_y, child_lo.width, child_lo.height);
         }
         if (self.custom_post_render) |cb| {
             cb(self.custom_post_render_ctx, c);

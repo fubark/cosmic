@@ -95,11 +95,16 @@ pub const App = struct {
                 self_.font_family = graphics.FontFamily{ .Font = font_id };
             }
 
+            fn onCloseFileDialog(self_: *App) void {
+                self_.root.closeModal(self_.file_m);
+            }
+
             fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
                 const self_ = stdx.mem.ptrCastAlign(*App, ptr);
                 return u.FileDialog(.{
                     .init_cwd = self_.cwd,
                     .onResult = c_.funcExt(self_, onOpenFont),
+                    .onRequestClose = c_.funcExt(self_, onCloseFileDialog),
                 });
             }
 

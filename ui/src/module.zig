@@ -1520,11 +1520,8 @@ pub const UpdateContext = struct {
     common: *CommonContext,
     node: *ui.Node,
 
-    pub inline fn getStyle(self: *UpdateContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
-        return self.common.getNodeStyle(Widget, self.node);
-    }
-
     pub usingnamespace MixinContextFrameOps(UpdateContext);
+    pub usingnamespace MixinContextStyleOps(UpdateContext);
 };
 
 pub const RenderContext = struct {
@@ -1589,12 +1586,9 @@ pub const RenderContext = struct {
         return self.gctx;
     }
 
-    pub inline fn getStyle(self: *RenderContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
-        return self.common.getNodeStyle(Widget, self.node);
-    }
-
     pub usingnamespace MixinContextNodeReadOps(RenderContext);
     pub usingnamespace MixinContextSharedOps(RenderContext);
+    pub usingnamespace MixinContextStyleOps(RenderContext);
     // pub usingnamespace MixinContextReadOps(RenderContext);
 };
 
@@ -1643,6 +1637,34 @@ pub fn MixinContextEventOps(comptime Context: type) type {
     };
 }
 
+pub fn MixinContextStyleOps(comptime Context: type) type {
+    return struct {
+        pub inline fn getStyle(self: *Context, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+            return self.common.getNodeStyle(Widget, self.node);
+        }
+
+        pub inline fn getDefaultStyle(self: *Context, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+            return self.common.common.getCurrentStyleDefault(Widget);
+        }
+
+        pub inline fn overrideUserStyle(self: *Context, comptime Widget: type, userStyle: *WidgetUserStyle(Widget), mbOverride: ?WidgetUserStyle(Widget)) void {
+            _ = self;
+            if (mbOverride) |override| {
+                const Style = WidgetUserStyle(Widget);
+                inline for (comptime std.meta.fieldNames(Style)) |name| {
+                    if (@field(override, name)) |value| {
+                        @field(userStyle, name) = value;
+                    }
+                }
+            }
+        }
+
+        pub inline fn getStylePropPtr(self: *BuildContext, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {
+            return self.common.common.getStylePropPtr(style, prop);
+        }
+    };
+}
+
 pub fn MixinContextFrameOps(comptime Context: type) type {
     return struct {
         pub fn handleFrameUpdate(self: Context, old: ui.FramePtr, new: ui.FramePtr) void {
@@ -1657,6 +1679,7 @@ pub fn MixinContextFrameOps(comptime Context: type) type {
         }
 
         pub fn removeFrame(self: Context, ptr: ui.FramePtr) void {
+            _ = self;
             if (ptr.isPresent()) {
                 ptr.destroy();
             }
@@ -1884,10 +1907,6 @@ pub const LayoutContext = struct {
         };
     }
         
-    pub inline fn getStyle(self: *LayoutContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
-        return self.common.getNodeStyle(Widget, self.node);
-    }
-
     pub inline fn getSizeConstraints(self: LayoutContext) SizeConstraints {
         return self.cstr;
     }
@@ -1990,6 +2009,7 @@ pub const LayoutContext = struct {
 
     pub usingnamespace MixinContextNodeOps(LayoutContext);
     pub usingnamespace MixinContextFontOps(LayoutContext);
+    pub usingnamespace MixinContextStyleOps(LayoutContext);
 };
 
 const RequestFocusOptions = struct {
@@ -2501,6 +2521,7 @@ pub const ModuleCommon = struct {
     default_scroll_view_style: u.ScrollViewT.ComputedStyle,
     default_tab_view_style: u.TabViewT.ComputedStyle,
     default_border_style: u.BorderT.ComputedStyle,
+    defPopoverOverlayStyle: u.PopoverOverlayT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2586,6 +2607,7 @@ pub const ModuleCommon = struct {
             .default_scroll_view_style = .{},
             .default_tab_view_style = .{},
             .default_border_style = .{},
+            .defPopoverOverlayStyle = .{},
 
             .ctx = .{
                 .common = self,
@@ -2682,6 +2704,7 @@ pub const ModuleCommon = struct {
             u.ScrollViewT.ComputedStyle => &self.default_scroll_view_style,
             u.TabViewT.ComputedStyle => &self.default_tab_view_style,
             u.BorderT.ComputedStyle => &self.default_border_style,
+            u.PopoverOverlayT.ComputedStyle => &self.defPopoverOverlayStyle,
             else => @compileError("Unsupported style: " ++ @typeName(Widget)),
         };
     }
@@ -2865,10 +2888,6 @@ pub const InitContext = struct {
         return &self.mod.mod_ctx;
     }
 
-    pub inline fn getStyle(self: *InitContext, comptime Widget: type) *const WidgetComputedStyle(Widget) {
-        return self.common.getNodeStyle(Widget, self.node);
-    }
-
     // TODO: findChildrenByTag
     // TODO: findChildByKey
     pub fn findChildWidgetByType(self: *InitContext, comptime Widget: type) ?ui.WidgetRef(Widget) {
@@ -2899,6 +2918,7 @@ pub const InitContext = struct {
     pub usingnamespace MixinContextFontOps(InitContext);
     pub usingnamespace MixinContextSharedOps(InitContext);
     pub usingnamespace MixinContextFrameOps(InitContext);
+    pub usingnamespace MixinContextStyleOps(InitContext);
 };
 
 fn SubscriberRet(comptime T: type, comptime Return: type) type {

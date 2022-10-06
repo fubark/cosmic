@@ -3,27 +3,26 @@ const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("../ui.zig");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const log = stdx.log.scoped(.file_dialog);
 
 pub const FileDialog = struct {
     props: struct {
         init_cwd: []const u8,
-        onResult: ?stdx.Function(fn (path: []const u8) void) = null,
+        onResult: stdx.Function(fn (path: []const u8) void) = .{},
+        onRequestClose: stdx.Function(fn () void) = .{},
     },
 
     alloc: std.mem.Allocator,
     cwd: std.ArrayList(u8),
     files: std.ArrayList(FileItem),
-    window: *ui.widgets.ModalOverlay,
-    scroll_list: ui.WidgetRef(w.ScrollListT),
+    scroll_list: ui.WidgetRef(u.ScrollListT),
 
     pub fn init(self: *FileDialog, c: *ui.InitContext) void {
         self.alloc = c.alloc;
         self.cwd = std.ArrayList(u8).init(c.alloc);
         self.files = std.ArrayList(FileItem).init(c.alloc);
-        self.window = c.node.parent.?.getWidget(ui.widgets.ModalOverlay);
         self.gotoDir(self.props.init_cwd);
     }
 
@@ -38,44 +37,48 @@ pub const FileDialog = struct {
     pub fn build(self: *FileDialog, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn buildItem(self_: *FileDialog, _: *ui.BuildContext, i: u32) ui.FramePtr {
-                const t_style = w.TextStyle{ .color = Color.White };
-                return w.Text(.{
+                const t_style = u.TextStyle{ .color = Color.White };
+                return u.Text(.{
                     .text = self_.files.items[i].name,
                     .style = t_style,
                 });
             }
             fn onClickCancel(self_: *FileDialog, e: ui.MouseUpEvent) void {
                 _ = e;
-                self_.window.requestClose();
+                if (self_.props.onRequestClose.isPresent()) {
+                    self_.props.onRequestClose.call(.{});
+                }
             }
             fn onClickSave(self_: *FileDialog, e: ui.MouseUpEvent) void {
                 _ = e;
                 const list = self_.scroll_list.getWidget();
                 const idx = list.getSelectedIdx();
                 if (idx != ui.NullId) {
-                    if (self_.props.onResult) |cb| {
+                    if (self_.props.onResult.isPresent()) {
                         const name = self_.files.items[idx].name;
                         const path = std.fs.path.join(self_.alloc, &.{ self_.cwd.items, name }) catch @panic("error");
                         defer self_.alloc.free(path);
-                        cb.call(.{ path });
+                        self_.props.onResult.call(.{ path });
                     }
-                    self_.window.requestClose();
+                    if (self_.props.onRequestClose.isPresent()) {
+                        self_.props.onRequestClose.call(.{});
+                    }
                 }
             }
         };
-        return w.Sized(.{ .width = 500, .height = 400 },
-            w.Column(.{ .expand_child_width = true }, &.{
-                w.Flex(.{},
-                    w.ScrollList(.{ .bind = &self.scroll_list, .bg_color = Color.init(50, 50, 50, 255) },
+        return u.Sized(.{ .width = 500, .height = 400 },
+            u.Column(.{ .expand_child_width = true }, &.{
+                u.Flex(.{},
+                    u.ScrollList(.{ .bind = &self.scroll_list, .bg_color = Color.init(50, 50, 50, 255) },
                         c.tempRange(self.files.items.len, self, S.buildItem),
                     ),
                 ),
-                w.Row(.{ .halign = .right }, &.{
-                    w.TextButton(.{
+                u.Row(.{ .halign = .right }, &.{
+                    u.TextButton(.{
                         .text = "Cancel",
                         .onClick = c.funcExt(self, S.onClickCancel),
                     }),
-                    w.TextButton(.{
+                    u.TextButton(.{
                         .text = "Open",
                         .onClick = c.funcExt(self, S.onClickSave),
                     }),

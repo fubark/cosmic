@@ -145,11 +145,7 @@ pub const Button = struct {
         const style = ctx.getStyle(Button);
         
         var b_style = u.BorderStyle{};
-        if (ctx.getStylePropPtr(style, "border")) |override| {
-            b_style.size = override.size;
-            b_style.cornerRadius = override.cornerRadius;
-            b_style.color = override.color;
-        }
+        ctx.overrideUserStyle(u.BorderT, &b_style, style.border);
         b_style.bgColor = style.bgColor;
         return u.Border(.{ .style = b_style }, self.props.child.dupe());
     }

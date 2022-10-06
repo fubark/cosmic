@@ -3,8 +3,8 @@ const module = @import("module.zig");
 
 /// Root and overlays.
 pub const Root = @import("widgets/root.zig").Root;
-pub const PopoverOverlay = @import("widgets/root.zig").PopoverOverlay;
-pub const ModalOverlay = @import("widgets/root.zig").ModalOverlay;
+pub const PopoverOverlayT = @import("widgets/root.zig").PopoverOverlay;
+pub const ModalOverlayT = @import("widgets/root.zig").ModalOverlay;
 
 /// General widgets.
 const slider = @import("widgets/slider.zig");
