@@ -3,20 +3,24 @@ const graphics = @import("graphics");
 
 const module = @import("module.zig");
 pub const Module = module.Module;
-pub const Layout = module.Layout;
 pub const TextMeasureId = module.TextMeasureId;
 pub const UpdateContext = module.UpdateContext;
 pub const RenderContext = module.RenderContext;
-pub const LayoutContext = module.LayoutContext;
 pub const InitContext = module.InitContext;
 pub const DeinitContext = module.DeinitContext;
 pub const ModuleContext = module.ModuleContext;
 pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
 pub const WidgetProps = module.WidgetProps;
-pub const SizeConstraints = module.SizeConstraints;
 pub const WidgetComputedStyle = module.WidgetComputedStyle;
 pub const WidgetUserStyle = module.WidgetUserStyle;
+pub const GenWidgetVTable = module.GenWidgetVTable;
+
+const layout = @import("layout.zig");
+pub const Layout = layout.Layout;
+pub const SizeConstraints = layout.SizeConstraints;
+pub const LayoutContext = layout.LayoutContext;
+pub const LayoutSize = layout.LayoutSize;
 
 const events = @import("events.zig");
 pub const Event = events.Event;
@@ -63,7 +67,6 @@ pub const WidgetRef = widget.WidgetRef;
 pub const NodeRefMap = widget.NodeRefMap;
 pub const BindNodeFunc = widget.BindNodeFunc;
 pub const WidgetVTable = widget.WidgetVTable;
-pub const LayoutSize = widget.LayoutSize;
 
 pub const widgets = @import("widgets.zig");
 

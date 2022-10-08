@@ -18,7 +18,6 @@ const events = @import("events.zig");
 const Frame = ui.Frame;
 const BindNode = @import("frame.zig").BindNode;
 const ui_render = @import("render.zig");
-const LayoutSize = ui.LayoutSize;
 const NullId = stdx.ds.CompactNull(u32);
 const TextMeasure = ui.TextMeasure;
 pub const TextMeasureId = usize;
@@ -351,7 +350,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn layout(widget_ptr: *anyopaque, ctx: *LayoutContext) LayoutSize {
+        fn layout(widget_ptr: *anyopaque, ctx: *ui.LayoutContext) ui.LayoutSize {
             if (builtin.mode == .Debug) {
                 if (ctx.node.debug) {
                     log.debug("layout: {}", .{ctx.getSizeConstraints()});
@@ -359,7 +358,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
             const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
             if (@hasDecl(Widget, "layout")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *LayoutContext) LayoutSize, @TypeOf(Widget.layout))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *ui.LayoutContext) ui.LayoutSize, @TypeOf(Widget.layout))) {
                     @compileError("Invalid layout function: " ++ @typeName(@TypeOf(Widget.layout)) ++ " Widget: " ++ @typeName(Widget));
                 }
                 return widget.layout(ctx);
@@ -370,12 +369,12 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
 
         /// The default layout passes the constraints to the children and reports the size of its children.
         /// Multiple children are stacked over each other like a ZStack.
-        fn defaultLayout(c: *LayoutContext) LayoutSize {
+        fn defaultLayout(c: *ui.LayoutContext) ui.LayoutSize {
             var max_width: f32 = 0;
             var max_height: f32 = 0;
             for (c.node.children.items) |child| {
                 const child_size = c.computeLayoutInherit(child);
-                c.setLayout(child, Layout.init(0, 0, child_size.width, child_size.height));
+                c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
                 if (child_size.width > max_width) {
                     max_width = child_size.width;
                 }
@@ -383,7 +382,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     max_height = child_size.height;
                 }
             }
-            var res = LayoutSize.init(max_width, max_height);
+            var res = ui.LayoutSize.init(max_width, max_height);
             res.growToMin(c.cstr);
             return res;
         }
@@ -527,7 +526,7 @@ pub const Module = struct {
     deinit_ctx: DeinitContext,
     build_ctx: BuildContext,
     update_ctx: UpdateContext,
-    layout_ctx: LayoutContext,
+    layout_ctx: ui.LayoutContext,
     render_ctx: RenderContext,
     event_ctx: ui.EventContext,
     mod_ctx: ModuleContext,
@@ -551,7 +550,7 @@ pub const Module = struct {
             .init_ctx = InitContext.init(self),
             .deinit_ctx = DeinitContext.init(self),
             .build_ctx = undefined,
-            .layout_ctx = LayoutContext.init(self, g),
+            .layout_ctx = ui.LayoutContext.init(self, g),
             .event_ctx = ui.EventContext.init(self),
             .render_ctx = undefined,
             .update_ctx = undefined,
@@ -974,7 +973,7 @@ pub const Module = struct {
     /// 3. Build frames. Diff tree and create/update nodes from frames.
     /// 4. Compute layout.
     /// 5. Run next post layout cbs.
-    pub fn preUpdate(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, layout_size: LayoutSize) UpdateError!void {
+    pub fn preUpdate(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, layout_size: ui.LayoutSize) UpdateError!void {
         self.common.updateIntervals(delta_ms, &self.event_ctx);
 
         // Remove event handlers marked for removal. This should happen before removing and invalidating nodes.
@@ -1048,7 +1047,7 @@ pub const Module = struct {
         // The goal here is to perform layout in linear time, more specifically pre and post visits to each node.
         if (self.root_node != null) {
             const size = self.layout_ctx.computeLayout(self.root_node.?, 0, 0, layout_size.width, layout_size.height);
-            self.layout_ctx.setLayout(self.root_node.?, Layout.init(0, 0, size.width, size.height));
+            self.layout_ctx.setLayout(self.root_node.?, ui.Layout.init(0, 0, size.width, size.height));
         }
 
         // Run logic that needs to happen after layout.
@@ -1068,7 +1067,7 @@ pub const Module = struct {
     /// A bootstrap fn is needed to tell the module how to build the root frame.
     /// A width and height is needed to specify the root container size in which subsequent widgets will use for layout.
     pub fn updateAndRender(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, width: f32, height: f32) !void {
-        const layout_size = LayoutSize.init(width, height);
+        const layout_size = ui.LayoutSize.init(width, height);
         try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
         self.render(delta_ms);
         self.postUpdate();
@@ -1090,7 +1089,7 @@ pub const Module = struct {
 
     /// Just do an update without rendering.
     pub fn update(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, width: f32, height: f32) !void {
-        const layout_size = LayoutSize.init(width, height);
+        const layout_size = ui.LayoutSize.init(width, height);
         try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
         self.postUpdate();
     }
@@ -1708,9 +1707,9 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
             return self.common.common.mod.getUserRoot(Widget);
         }
 
-        pub inline fn getRootLayoutSize(self: Context) LayoutSize {
+        pub inline fn getRootLayoutSize(self: Context) ui.LayoutSize {
             const layout = self.common.common.mod.root_node.?.layout;
-            return LayoutSize.init(layout.width, layout.height);
+            return ui.LayoutSize.init(layout.width, layout.height);
         }
     };
 }
@@ -1870,147 +1869,6 @@ pub fn MixinContextInputOps(comptime Context: type) type {
         }
     };
 }
-
-/// Contains the min/max space for a child widget to occupy.
-/// When min_width == max_width or min_height == max_height, the parent is forcing a tight size on the child.
-pub const SizeConstraints = struct {
-    min_width: f32,
-    min_height: f32,
-    max_width: f32,
-    max_height: f32,
-
-    pub inline fn getMaxLayoutSize(self: SizeConstraints) ui.LayoutSize {
-        return ui.LayoutSize.init(self.max_width, self.max_height);
-    }
-
-    pub inline fn getMinLayoutSize(self: SizeConstraints) ui.LayoutSize {
-        return ui.LayoutSize.init(self.min_width, self.min_height);
-    }
-};
-
-pub const LayoutContext = struct {
-    mod: *Module,
-    common: *CommonContext,
-    gctx: *graphics.Graphics,
-
-    /// Size constraints are set by the parent, and consumed by child widget's `layout`.
-    cstr: SizeConstraints,
-    node: *ui.Node,
-
-    fn init(mod: *Module, gctx: *graphics.Graphics) LayoutContext {
-        return .{
-            .mod = mod,
-            .common = &mod.common.ctx,
-            .gctx = gctx,
-            .cstr = undefined,
-            .node = undefined,
-        };
-    }
-        
-    pub inline fn getSizeConstraints(self: LayoutContext) SizeConstraints {
-        return self.cstr;
-    }
-
-    /// Computes the layout for a node with a maximum size.
-    pub fn computeLayoutWithMax(self: *LayoutContext, node: *ui.Node, max_width: f32, max_height: f32) LayoutSize {
-        // Creates another context on the stack so the caller can continue to use their context.
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = .{
-                .min_width = 0,
-                .min_height = 0,
-                .max_width = max_width,
-                .max_height = max_height,
-            },
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    /// Computes the layout for a node that prefers an exact size.
-    pub fn computeLayoutExact(self: *LayoutContext, node: *ui.Node, width: f32, height: f32) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = .{
-                .min_width = width,
-                .min_height = height,
-                .max_width = width,
-                .max_height = height,
-            },
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    /// Computes the layout for a node with given size constraints.
-    pub fn computeLayout(self: *LayoutContext, node: *ui.Node, min_width: f32, min_height: f32, max_width: f32, max_height: f32) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common  = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = .{
-                .min_width = min_width,
-                .min_height = min_height,
-                .max_width = max_width,
-                .max_height = max_height,
-            },
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    /// Computes the layout for a node with given size constraints.
-    pub fn computeLayout2(self: *LayoutContext, node: *ui.Node, cstr: SizeConstraints) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common  = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = cstr,
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    pub fn computeLayoutInherit(self: *LayoutContext, node: *ui.Node) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common  = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = self.cstr,
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    pub fn setLayout2(self: *LayoutContext, node: *ui.Node, x: f32, y: f32, width: f32, height: f32) void {
-        _ = self;
-        node.layout = Layout.init(x, y, width, height);
-    }
-
-    pub fn setLayout(self: *LayoutContext, node: *ui.Node, layout: Layout) void {
-        _ = self;
-        node.layout = layout;
-    }
-
-    pub fn setLayoutPos(self: *LayoutContext, node: *ui.Node, x: f32, y: f32) void {
-        _ = self;
-        node.layout.x = x;
-        node.layout.y = y;
-    }
-
-    pub inline fn getLayout(self: *LayoutContext, node: *ui.Node) Layout {
-        _ = self;
-        return node.layout;
-    }
-
-    pub usingnamespace MixinContextNodeOps(LayoutContext);
-    pub usingnamespace MixinContextFontOps(LayoutContext);
-    pub usingnamespace MixinContextStyleOps(LayoutContext);
-};
 
 const RequestFocusOptions = struct {
     onBlur: ?BlurHandler = null,
@@ -3014,7 +2872,7 @@ const TestModule = struct {
     pub fn init(self: *TestModule) void {
         self.g.init(t.alloc, 1, undefined, undefined) catch fatal();
         self.mod.init(t.alloc, &self.g);
-        self.size = LayoutSize.init(800, 600);
+        self.size = ui.LayoutSize.init(800, 600);
     }
 
     pub fn deinit(self: *TestModule) void {
@@ -3562,42 +3420,6 @@ test "NodeRefMap binding." {
 //     defer mod.deinit();
 //     _ = mod.build_ctx.new(.Foo, .{ .text = "foo" });
 // }
-
-pub const LayoutConstraints = struct {
-    min_width: f32,
-    max_width: f32,
-    min_height: f32,
-    max_height: f32,
-};
-
-pub const Layout = struct {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-
-    pub fn init(x: f32, y: f32, width: f32, height: f32) Layout {
-        return .{
-            .x = x,
-            .y = y,
-            .width = width,
-            .height = height,
-        };
-    }
-
-    pub fn initWithSize(x: f32, y: f32, size: LayoutSize) Layout {
-        return .{
-            .x = x,
-            .y = y,
-            .width = size.width,
-            .height = size.height,
-        };
-    }
-
-    pub inline fn contains(self: Layout, x: f32, y: f32) bool {
-        return x >= self.x and x <= self.x + self.width and y >= self.y and y <= self.y + self.height;
-    }
-};
 
 const IntervalSession = struct {
     dur: Duration,

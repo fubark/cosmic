@@ -5,10 +5,6 @@ const fatal = stdx.fatal;
 const Vec2 = stdx.math.Vec2;
 
 const ui = @import("ui.zig");
-const Layout = ui.Layout;
-const RenderContext = ui.RenderContext;
-const FrameId = ui.FrameId;
-const GenWidgetVTable = @import("module.zig").GenWidgetVTable;
 const log = stdx.log.scoped(.widget);
 
 /// Id can be an enum literal that is given a unique id at comptime.
@@ -190,7 +186,7 @@ pub const Node = struct {
 
     /// The final layout is set by it's parent during the layout phase.
     /// x, y are relative to the parent's position.
-    layout: Layout,
+    layout: ui.Layout,
 
     /// Absolute bounds of the node is computed when traversing the render tree.
     abs_bounds: stdx.math.BBox,
@@ -282,7 +278,7 @@ pub const Node = struct {
 
     /// Depth-first search of the first child that has the specified widget type.
     pub fn findChild(self: *Node, comptime Widget: type) ?WidgetRef(Widget) {
-        if (findChildRec(self, GenWidgetVTable(Widget))) |node| {
+        if (findChildRec(self, ui.GenWidgetVTable(Widget))) |node| {
             return WidgetRef(Widget).init(node);
         } else return null;
     }
@@ -369,10 +365,10 @@ pub const WidgetVTable = struct {
     build: fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) ui.FramePtr,
 
     /// Renders an existing Widget.
-    render: fn (node: *Node, render_ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
+    render: fn (node: *Node, render_ctx: *ui.RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
 
     /// Computes the layout size for an existing Widget and sets the relative positioning for it's child nodes.
-    layout: fn (widget_ptr: *anyopaque, ctx: *ui.LayoutContext) LayoutSize,
+    layout: fn (widget_ptr: *anyopaque, ctx: *ui.LayoutContext) ui.LayoutSize,
 
     /// Destroys an existing Widget.
     destroy: fn (mod: *ui.Module, node: *Node) void,
@@ -387,79 +383,4 @@ pub const WidgetVTable = struct {
     /// If no children can overlap, mouse events propagate down the widget tree on the first child hit.
     /// If children can overlap, mouse events continue to check silbing hits until `stop` is returned from a handler.
     children_can_overlap: bool,
-};
-
-pub const LayoutSize = struct {
-    width: f32,
-    height: f32,
-
-    pub fn init(width: f32, height: f32) LayoutSize {
-        return .{
-            .width = width,
-            .height = height,
-        };
-    }
-
-    pub fn growToMin(self: *LayoutSize, cstr: ui.SizeConstraints) void {
-        if (self.width < cstr.min_width) {
-            self.width = cstr.min_width;
-        }
-        if (self.height < cstr.min_height) {
-            self.height = cstr.min_height;
-        }
-    }
-
-    pub fn growToWidth(self: *LayoutSize, width: f32) void {
-        if (self.width < width) {
-            self.width = width;
-        }
-    }
-
-    pub fn growToHeight(self: *LayoutSize, height: f32) void {
-        if (self.height < height) {
-            self.height = height;
-        }
-    }
-
-    pub fn limitToMinMax(self: *LayoutSize, cstr: ui.SizeConstraints) void {
-        self.growToMin(cstr);
-        self.cropToMax(cstr);
-    }
-
-    pub fn cropToMax(self: *LayoutSize, cstr: ui.SizeConstraints) void {
-        if (self.width > cstr.max_width) {
-            self.width = cstr.max_width;
-        }
-        if (self.height > cstr.max_height) {
-            self.height = cstr.max_height;
-        }
-    }
-
-    pub fn cropTo(self: *LayoutSize, max_size: LayoutSize) void {
-        if (self.width > max_size.width) {
-            self.width = max_size.width;
-        }
-        if (self.height > max_size.height) {
-            self.height = max_size.height;
-        }
-    }
-
-    pub fn cropToWidth(self: *LayoutSize, width: f32) void {
-        if (self.width > width) {
-            self.width = width;
-        }
-    }
-
-    pub fn cropToHeight(self: *LayoutSize, height: f32) void {
-        if (self.height > height) {
-            self.height = height;
-        }
-    }
-
-    pub fn toIncSize(self: LayoutSize, inc_width: f32, inc_height: f32) LayoutSize {
-        return .{
-            .width = self.width + inc_width,
-            .height = self.height + inc_height,
-        };
-    }
 };
