@@ -215,6 +215,10 @@ pub const Color = extern union {
             @intToFloat(f32, self.channels.a) / 255,
         };
     }
+
+    pub fn dump(self: Color) void {
+        log.debug("{}, {}, {}, {}", .{self.channels.r, self.channels.g, self.channels.b, self.channels.a});
+    }
 };
 
 test "Color.initFloat" {

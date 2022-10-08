@@ -1,5 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const ds = stdx.ds;
 
 const graphics = @import("../../graphics.zig");
@@ -86,8 +88,10 @@ pub const FontCache = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.main_atlas.dumpBufferToDisk("main_atlas.bmp");
-        self.bitmap_atlas.dumpBufferToDisk("bitmap_atlas.bmp");
+        if (builtin.mode == .Debug and !IsWasm) {
+            self.main_atlas.dumpBufferToDisk("main_atlas.bmp");
+            self.bitmap_atlas.dumpBufferToDisk("bitmap_atlas.bmp");
+        }
 
         self.main_atlas.deinit();
         self.bitmap_atlas.deinit();

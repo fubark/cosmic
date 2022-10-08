@@ -59,7 +59,7 @@ pub const App = struct {
         self.enable_shadows = true;
     }
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onBoxColorPreview(self_: *App, color: Color) void { self_.box_color = color; }
             fn onBoxColor(self_: *App, color: Color, _: bool) void { self_.box_color = color; }
@@ -221,7 +221,7 @@ pub fn main() !void {
     app.runEventLoop(update);
 }
 
-fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
     return c.build(App, .{});
 }
 

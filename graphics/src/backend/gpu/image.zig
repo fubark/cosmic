@@ -40,7 +40,7 @@ pub const ImageStore = struct {
         return ret;
     }
 
-    pub fn deinit(self: ImageStore) void {
+    pub fn deinit(self: *ImageStore) void {
         // Delete images after since some deinit could have removed images.
         self.images.deinit();
 

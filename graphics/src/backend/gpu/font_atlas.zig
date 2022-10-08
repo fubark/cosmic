@@ -63,7 +63,7 @@ pub const FontAtlas = struct {
         self.packer.addResizeCallback(self, S.onResize);
     }
 
-    pub fn deinit(self: FontAtlas) void {
+    pub fn deinit(self: *FontAtlas) void {
         self.packer.deinit();
         self.alloc.free(self.gl_buf);
         self.g.image_store.markForRemoval(self.image.image_id);

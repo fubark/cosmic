@@ -2583,7 +2583,7 @@ pub const PaintState = struct {
 
             .clip_rect = undefined,
             .blend_mode = ._undefined,
-            .clear_color = Color.DarkGray,
+            .clear_color = Color.init(20, 20, 20, 255),
         };
     }
 

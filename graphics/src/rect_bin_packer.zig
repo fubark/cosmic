@@ -43,7 +43,7 @@ pub const RectBinPacker = struct {
         return new;
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.spans.deinit();
         self.resize_cbs.deinit();
     }
