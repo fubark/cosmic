@@ -1501,7 +1501,7 @@ pub const Module = struct {
         };
         if (node.vtable == GenWidgetVTable(u.TextT)) {
             const text = node.getWidget(u.TextT);
-            const buf = std.fmt.bufPrint(&S.buf, "{[0]s: <[1]}{[2]s} \"{[3]s}\"", .{ "", depth * 2, node.vtable.name, text.props.text }) catch fatal();
+            const buf = std.fmt.bufPrint(&S.buf, "{[0]s: <[1]}{[2]s} \"{[3]s}\"", .{ "", depth * 2, node.vtable.name, text.props.text.slice() }) catch fatal();
             log.debug("{s}", .{buf});
         } else {
             const buf = std.fmt.bufPrint(&S.buf, "{[0]s: <[1]}{[2]s}", .{ "", depth * 2, node.vtable.name }) catch fatal();
@@ -2321,6 +2321,8 @@ pub const ModuleCommon = struct {
 
     build_owned_frames: std.ArrayListUnmanaged(ui.FramePtr),
 
+    slice_rcs: stdx.ds.PooledHandleList(u32, u32),
+
     g: *graphics.Graphics,
     text_measures: stdx.ds.PooledHandleList(TextMeasureId, TextMeasure),
     interval_sessions: stdx.ds.PooledHandleList(u32, IntervalSession),
@@ -2420,6 +2422,7 @@ pub const ModuleCommon = struct {
             .use_first_arena = true,
             .arena_alloc = undefined,
             .build_owned_frames = .{},
+            .slice_rcs = stdx.ds.PooledHandleList(u32, u32).init(alloc),
 
             .g = g,
             .text_measures = stdx.ds.PooledHandleList(TextMeasureId, TextMeasure).init(alloc),
@@ -2538,6 +2541,42 @@ pub const ModuleCommon = struct {
         self.arena_allocators[1].deinit();
 
         self.build_owned_frames.deinit(self.alloc);
+
+        if (builtin.mode == .Debug) {
+            if (self.slice_rcs.size() > 0) {
+                log.debug("{} remaining slices.", .{self.slice_rcs.size()});
+                stdx.panic("");
+            }
+        }
+        self.slice_rcs.deinit();
+    }
+
+    pub fn dupeRcSlice(self: *ModuleCommon, comptime T: type, slice: []const T) !ui.SlicePtr(T) {
+        const id = try self.slice_rcs.add(1);
+        const dupe = try self.alloc.dupe(T, slice);
+        return ui.SlicePtr(T){
+            .ptr_t = .rc,
+            .inner = .{
+                .rc = .{
+                    .slice = dupe,
+                    .refId = id,
+                },
+            },
+        };
+    }
+
+    pub fn releaseRcSlice(self: *ModuleCommon, comptime T: type, ptr: ui.SlicePtr(T)) void {
+        const count = self.slice_rcs.getPtrNoCheck(ptr.inner.rc.refId);
+        if (count.* == 1) {
+            self.alloc.free(ptr.inner.rc.slice);
+            self.slice_rcs.remove(ptr.inner.rc.refId);
+        }
+        count.* -= 1;
+    }
+
+    pub fn retainRcSlice(self: *ModuleCommon, id: u32) void {
+        const count = self.slice_rcs.getPtrNoCheck(id);
+        count.* += 1;
     }
 
     pub inline fn getStylePropPtr(self: *ModuleCommon, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {

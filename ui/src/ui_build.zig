@@ -415,7 +415,13 @@ pub const BuildContext = struct {
         } else {
             inline for (std.meta.fields(ui.WidgetProps(Widget))) |Field| {
                 if (@hasField(BuildProps, Field.name)) {
-                    @field(props, Field.name) = @field(build_props, Field.name);
+                    if (Field.field_type == ui.SlicePtr(u8) and comptime stdx.meta.CanCoalesceToSlice(u8, @TypeOf(@field(build_props, Field.name)))) {
+                        @field(props, Field.name) = ui.SlicePtr(u8).initStatic(
+                            @field(build_props, Field.name),
+                        );
+                    } else {
+                        @field(props, Field.name) = @field(build_props, Field.name);
+                    }
                 } else {
                     if (Field.default_value) |def| {
                         // Set default value.

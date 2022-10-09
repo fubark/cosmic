@@ -10,7 +10,7 @@ const NullId = std.math.maxInt(u32);
 
 pub const Text = struct {
     props: struct {
-        text: []const u8 = "",
+        text: ui.SlicePtr(u8) = .{},
     },
 
     font_gid: graphics.FontGroupId,
@@ -46,7 +46,7 @@ pub const Text = struct {
 
         self.tlo = graphics.TextLayout.init(c.alloc);
         self.ctx = c.common;
-        self.str_hash = stdx.string.StringHash.init(self.props.text);
+        self.str_hash = stdx.string.StringHash.init(self.props.text.slice());
     }
 
     pub fn deinit(self: *Text, _: *ui.DeinitContext) void {
@@ -64,19 +64,19 @@ pub const Text = struct {
             self.font_size = style.fontSize;
             self.needs_relayout = true;
         }
-        if (!self.str_hash.eqStringHash(self.props.text)) {
-            self.str_hash = stdx.string.StringHash.init(self.props.text);
+        if (!self.str_hash.eqStringHash(self.props.text.slice())) {
+            self.str_hash = stdx.string.StringHash.init(self.props.text.slice());
             self.needs_relayout = true;
         }
     }
 
     fn remeasureText(self: *Text, c: *ui.LayoutContext, max_width: f32) ui.LayoutSize {
         if (!self.word_wrap) {
-            const m = c.measureText(self.font_gid, self.font_size, self.props.text);
+            const m = c.measureText(self.font_gid, self.font_size, self.props.text.slice());
             return ui.LayoutSize.init(m.width, m.height);
         } else {
             // Compute text layout. Perform word wrap.
-            c.textLayout(self.font_gid, self.font_size, self.props.text, max_width, &self.tlo);
+            c.textLayout(self.font_gid, self.font_size, self.props.text.slice(), max_width, &self.tlo);
             return ui.LayoutSize.init(self.tlo.width, self.tlo.height);
         }
     }
@@ -86,7 +86,7 @@ pub const Text = struct {
     }
 
     pub fn layout(self: *Text, c: *ui.LayoutContext) ui.LayoutSize {
-        if (self.props.text.len > 0) {
+        if (self.props.text.slice().len > 0) {
             const cstr = c.getSizeConstraints();
             const new_word_wrap = cstr.max_width != ui.ExpandedWidth;
             if (self.word_wrap != new_word_wrap) {
@@ -109,7 +109,8 @@ pub const Text = struct {
         const g = c.gctx;
         const bounds = c.getAbsBounds();
 
-        if (self.props.text.len > 0) {
+        const text = self.props.text.slice();
+        if (text.len > 0) {
             const style = c.getStyle(Text);
             g.setFont(self.font_gid, self.font_size);
             g.setFillColor(style.color);
@@ -121,13 +122,13 @@ pub const Text = struct {
                 var y = bounds.min_y;
                 for (self.tlo.lines.items) |line| {
                     if (y >= min_y and y <= max_y) {
-                        const text = self.props.text[line.start_idx..line.end_idx];
-                        g.fillText(bounds.min_x, y, text);
+                        const lineS = text[line.start_idx..line.end_idx];
+                        g.fillText(bounds.min_x, y, lineS);
                     }
                     y += line.height;
                 }
             } else {
-                g.fillText(bounds.min_x, bounds.min_y, self.props.text);
+                g.fillText(bounds.min_x, bounds.min_y, text);
             }
         }
     }

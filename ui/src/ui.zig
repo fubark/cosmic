@@ -137,3 +137,59 @@ pub fn Icon(image_id: graphics.ImageId, opts: IconOptions) IconT {
         .size = opts.size,
     };
 }
+
+const SlicePtrType = enum {
+    static,
+    rc,
+};
+
+pub fn SlicePtr(comptime T: type) type {
+    return struct {
+        ptr_t: SlicePtrType = .static,
+        inner: union {
+            static: []const T,
+            rc: struct {
+                slice: []const T,
+                refId: u32,
+            },
+        } = .{ .static = &.{} },
+
+        pub const SlicePtr = true;
+        const SlicePtrT = @This();
+
+        pub fn initStatic(from: []const T) SlicePtrT {
+            return .{
+                .ptr_t = .static,
+                .inner = .{
+                    .static = from,
+                },
+            };
+        }
+
+        pub fn destroy(self: SlicePtrT) void {
+            switch (self.ptr_t) {
+                .static => {},
+                .rc => {
+                    module.gbuild_ctx.mod.common.releaseRcSlice(T, self);
+                },
+            }
+        }
+
+        pub fn dupeRef(self: SlicePtrT) SlicePtrT {
+            switch (self.ptr_t) {
+                .static => {},
+                .rc => {
+                    module.gbuild_ctx.mod.common.retainRcSlice(self.inner.rc.refId);
+                },
+            }
+            return self;
+        }
+
+        pub fn slice(self: SlicePtrT) []const T {
+            return switch (self.ptr_t) {
+                .static => self.inner.static,
+                .rc => self.inner.rc.slice,
+            };
+        }
+    };
+}
