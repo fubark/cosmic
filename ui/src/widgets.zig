@@ -70,6 +70,9 @@ const list = @import("widgets/list.zig");
 pub const List = list.List;
 pub const ScrollListT = list.ScrollList;
 pub const ScrollList = genBuildWithChildren(ScrollListT);
+const menu = @import("widgets/menu.zig");
+pub const MenuT = menu.Menu;
+pub const Menu = genBuildWithChildren(MenuT);
 
 /// Window.
 pub const WindowT = @import("widgets/window.zig").Window;
