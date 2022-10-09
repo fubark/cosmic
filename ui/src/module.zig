@@ -559,6 +559,7 @@ pub const Module = struct {
             self.debug_dump_after_num_updates = null;
             self.trace = .{};
         }
+        gbuild_ctx = &self.build_ctx;
     }
 
     pub fn deinit(self: *Module) void {
@@ -2329,6 +2330,7 @@ pub const ModuleCommon = struct {
     /// Arena allocators that get freed after two update cycles.
     /// Allocations should survive two update cycles so that nodes that have been discarded from tree diff still have valid props memory.
     /// Two are needed to alternate on each engine update.
+    /// TODO: Since frames are ref counted now, revisit to see if this can be removed since it adds unnecessary complexity.
     arena_allocators: [2]std.heap.ArenaAllocator,
     arena_allocs: [2]std.mem.Allocator,
     use_first_arena: bool,

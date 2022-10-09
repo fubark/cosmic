@@ -58,19 +58,20 @@ pub const TextButton = struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         text: []const u8 = "",
         icon: ui.IconT = ui.Icon(NullId, .{}),
-        halign: ui.HAlign = .center,
     },
 
     pub const Style = struct {
         border: ?u.BorderStyle = null,
         bgColor: ?Color = null,
         text: ?u.TextStyle = null,
+        halign: ?ui.HAlign = null,
     };
 
     pub const ComputedStyle = struct {
         border: ?u.BorderStyle = null,
         bgColor: Color = Color.init(220, 220, 220, 255),
         text: ?u.TextStyle = null,
+        halign: ui.HAlign = .center,
     };
 
     pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FramePtr {
@@ -99,7 +100,7 @@ pub const TextButton = struct {
         };
         return u.Button(.{
             .onClick = self.props.onClick,
-            .halign = self.props.halign,
+            .halign = style.halign,
             .style = b_style, },
             u.Padding(.{ .padding = 10 },
                 body,

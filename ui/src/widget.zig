@@ -154,14 +154,14 @@ pub const NodeStateMasks = struct {
 };
 
 pub const EventHandlerMasks = struct {
-    pub const mousedown: u8 = 0b00000001;
-    pub const enter_mousedown: u8 = 0b00000010;
-    pub const mouseup: u8 = 0b00000100;
-    pub const global_mouseup: u8 = 0b00001000;
-    pub const global_mousemove: u8 = 0b00010000;
-    pub const hoverchange: u8 = 0b00100000;
-    pub const keyup: u8 = 0b01000000;
-    pub const keydown: u8 = 0b10000000;
+    pub const mousedown: u16 = 1 << 1;
+    pub const enter_mousedown: u16 = 1 << 2;
+    pub const mouseup: u16 = 1 << 3;
+    pub const global_mouseup: u16 = 1 << 4;
+    pub const global_mousemove: u16 = 1 << 5;
+    pub const hoverchange: u16 = 1 << 6;
+    pub const keyup: u16 = 1 << 7;
+    pub const keydown: u16 = 1 << 8;
 };
 
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.
@@ -206,7 +206,7 @@ pub const Node = struct {
     // theme_id: u32,
 
     /// Indicates which events this widget is currently listening for.
-    event_handler_mask: u8,
+    event_handler_mask: u16,
 
     /// Various boolean states for the node.
     state_mask: u8,
@@ -314,15 +314,15 @@ pub const Node = struct {
         return self.abs_bounds;
     }
 
-    pub inline fn clearHandlerMask(self: *Node, mask: u8) void {
+    pub inline fn clearHandlerMask(self: *Node, mask: u16) void {
         self.event_handler_mask &= ~mask;
     }
 
-    pub inline fn setHandlerMask(self: *Node, mask: u8) void {
+    pub inline fn setHandlerMask(self: *Node, mask: u16) void {
         self.event_handler_mask |= mask;
     }
 
-    pub inline fn hasHandler(self: Node, mask: u8) bool {
+    pub inline fn hasHandler(self: Node, mask: u16) bool {
         return self.event_handler_mask & mask > 0;
     }
 

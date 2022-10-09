@@ -87,10 +87,10 @@ pub const Border = struct {
 /// Provides padding around a child widget.
 pub const Padding = struct {
     props: struct {
-        pad_top: ?f32 = null,
-        pad_right: ?f32 = null,
-        pad_bottom: ?f32 = null,
-        pad_left: ?f32 = null,
+        padTop: ?f32 = null,
+        padRight: ?f32 = null,
+        padBottom: ?f32 = null,
+        padLeft: ?f32 = null,
         padding: f32 = 10,
         child: ui.FramePtr = .{},
     },
@@ -100,10 +100,10 @@ pub const Padding = struct {
     }
 
     pub fn layout(self: *Padding, c: *ui.LayoutContext) ui.LayoutSize {
-        var pad_top = self.props.pad_top orelse self.props.padding;
-        var pad_right = self.props.pad_right orelse self.props.padding;
-        var pad_bottom = self.props.pad_bottom orelse self.props.padding;
-        var pad_left = self.props.pad_left orelse self.props.padding;
+        var pad_top = self.props.padTop orelse self.props.padding;
+        var pad_right = self.props.padRight orelse self.props.padding;
+        var pad_bottom = self.props.padBottom orelse self.props.padding;
+        var pad_left = self.props.padLeft orelse self.props.padding;
 
         const h_pad = pad_left + pad_right;
         const v_pad = pad_top + pad_bottom;
@@ -204,11 +204,14 @@ pub const Center = struct {
         const child = node.children.items[0];
         var child_size = c.computeLayoutWithMax(child, cstr.max_width, cstr.max_height);
 
+        // Wrap child height otherwise take up finite parent height.
+        const height = if (cstr.max_height == ui.ExpandedHeight) child_size.height else cstr.max_height;
+
         const x = if (self.props.hcenter) (cstr.max_width - child_size.width) * 0.5 else 0;
-        const y = if (self.props.vcenter) (cstr.max_height - child_size.height) * 0.5 else 0;
+        const y = if (self.props.vcenter) (height - child_size.height) * 0.5 else 0;
 
         c.setLayout(child, ui.Layout.init(x, y, child_size.width, child_size.height));
-        return cstr.getMaxLayoutSize();
+        return ui.LayoutSize.init(cstr.max_width, height);
     }
 };
 
@@ -488,7 +491,7 @@ pub const TabView = struct {
                 const bgColor = if (active) style.activeTabBgColor else style.tabBgColor;
                 return u.MouseArea(.{ .onClick = ctx_.closurePtrId(self_, idx, onClickTab) },
                     u.Container(.{ .bgColor = bgColor },
-                        u.Padding(.{ .padding = 0, .pad_left = 5, .pad_right = 5 },
+                        u.Padding(.{ .padding = 0, .padLeft = 5, .padRight = 5 },
                             user_inner,
                         ),
                     ),
