@@ -113,7 +113,8 @@ pub const Root = struct {
                     .src_node = desc.src_node,
                     .placement = desc.placement,
                     .marginFromSrc = desc.margin_from_src,
-                    .closeAfterMouseLeave = desc.close_after_mouseleave,
+                    .closeAfterMouseLeave = desc.closeAfterMouseLeave,
+                    .closeAfterMouseClick = desc.closeAfterMouseClick,
                     .onRequestClose = ctx.closure(RootOverlayHandle{ .root = self, .overlay_id = id }, S.popoverRequestClose),
                     .key = ui.WidgetKeyId(id),
                 });
@@ -153,7 +154,8 @@ pub const Root = struct {
             .close_ctx = opts.close_ctx,
             .close_cb = opts.close_cb,
             .src_node = src_widget,
-            .close_after_mouseleave = opts.close_after_mouseleave,
+            .closeAfterMouseLeave = opts.closeAfterMouseLeave,
+            .closeAfterMouseClick = opts.closeAfterMouseClick,
             .placement = opts.placement,
             .margin_from_src = opts.margin_from_src,
         };
@@ -242,16 +244,18 @@ const ModalOptions = struct {
 const PopoverOptions = struct {
     close_ctx: ?*anyopaque = null,
     close_cb: ?fn (?*anyopaque) void = null,
-    close_after_mouseleave: bool = false,
+    closeAfterMouseLeave: bool = false,
+    closeAfterMouseClick: bool = false,
     placement: PopoverPlacement = .auto,
     margin_from_src: f32 = 20,
     top_layer: bool = false,
 };
 
-const PopoverPlacement = enum(u2) {
-    auto = 0,
-    left = 1,
-    right = 2,
+const PopoverPlacement = enum {
+    auto,
+    left,
+    right,
+    bottom,
 };
 
 const OverlayDesc = struct {
@@ -266,7 +270,8 @@ const OverlayDesc = struct {
     // Used for popovers.
     src_node: *ui.Node = undefined,
     placement: PopoverPlacement = undefined,
-    close_after_mouseleave: bool = undefined,
+    closeAfterMouseLeave: bool = undefined,
+    closeAfterMouseClick: bool = undefined,
     margin_from_src: f32 = undefined,
 };
 
@@ -364,7 +369,7 @@ pub const PopoverOverlay = struct {
         onRequestClose: stdx.Function(fn () void) = .{},
     },
 
-    to_left: bool,
+    placement: PopoverPlacement,
     child: ui.NodeRef,
 
     /// Allow a custom post render. For child popovers that want to draw over the border.
@@ -372,6 +377,7 @@ pub const PopoverOverlay = struct {
     custom_post_render: ?fn (?*anyopaque, ctx: *ui.RenderContext) void,
 
     node: *ui.Node,
+    pressed: bool,
 
     pub const Style = struct {
         bgColor: ?Color = null,
@@ -388,6 +394,28 @@ pub const PopoverOverlay = struct {
         self.custom_post_render_ctx = null;
         self.node = c.node;
         c.setMouseDownHandler(self, onMouseDown);
+        if (self.props.closeAfterMouseClick) {
+            c.setEnterMouseDownHandler(self, onEnterMouseDown);
+            c.setMouseUpHandler(self, onMouseUp);
+        }
+        self.pressed = false;
+    }
+
+    fn onEnterMouseDown(self: *PopoverOverlay, e: ui.MouseDownEvent) ui.EventResult {
+        _ = e;
+        // Capture before children has a chance to stop propagation.
+        self.pressed = true;
+        return .default;
+    }
+
+    fn onMouseUp(self: *PopoverOverlay, e: ui.MouseUpEvent) void {
+        _ = e;
+        if (self.props.closeAfterMouseClick) {
+            if (self.pressed) {
+                self.pressed = false;
+                self.requestClose();
+            }
+        }
     }
 
     fn onMouseDown(self: *PopoverOverlay, e: ui.MouseDownEvent) ui.EventResult {
@@ -462,27 +490,36 @@ pub const PopoverOverlay = struct {
             switch (self.props.placement) {
                 .auto => {
                     if (src_abs_bounds.min_x > cstr.max_width * 0.5) {
-                        self.placeUserChild(c, child, child_size, src_abs_bounds, true);
+                        self.placeUserChild(c, child, child_size, src_abs_bounds, .left);
                     } else {
-                        self.placeUserChild(c, child, child_size, src_abs_bounds, false);
+                        self.placeUserChild(c, child, child_size, src_abs_bounds, .right);
                     }
                 },
-                .left => self.placeUserChild(c, child, child_size, src_abs_bounds, true),
-                .right => self.placeUserChild(c, child, child_size, src_abs_bounds, false),
+                else => {
+                    self.placeUserChild(c, child, child_size, src_abs_bounds, self.props.placement);
+                },
             }
         }
         return cstr.getMaxLayoutSize();
     }
 
-    fn placeUserChild(self: *PopoverOverlay, ctx: *ui.LayoutContext, child: *ui.Node, child_size: ui.LayoutSize, src_abs_bounds: stdx.math.BBox, to_left: bool) void {
-        if (to_left) {
-            // Place popover to the left.
-            ctx.setLayout(child, ui.Layout.init(src_abs_bounds.min_x - child_size.width - self.props.marginFromSrc, src_abs_bounds.min_y, child_size.width, child_size.height));
-        } else {
-            // Place popover to the right.
-            ctx.setLayout(child, ui.Layout.init(src_abs_bounds.max_x + self.props.marginFromSrc, src_abs_bounds.min_y, child_size.width, child_size.height));
+    fn placeUserChild(self: *PopoverOverlay, ctx: *ui.LayoutContext, child: *ui.Node, child_size: ui.LayoutSize, src_abs_bounds: stdx.math.BBox, placement: PopoverPlacement) void {
+        switch (placement) {
+            .auto => stdx.fatal(),
+            .left => {
+                // Place popover to the left.
+                ctx.setLayout(child, ui.Layout.init(src_abs_bounds.min_x - child_size.width - self.props.marginFromSrc, src_abs_bounds.min_y, child_size.width, child_size.height));
+            },
+            .right => {
+                // Place popover to the right.
+                ctx.setLayout(child, ui.Layout.init(src_abs_bounds.max_x + self.props.marginFromSrc, src_abs_bounds.min_y, child_size.width, child_size.height));
+            },
+            .bottom => {
+                // Place popover to the bottom.
+                ctx.setLayout(child, ui.Layout.init(src_abs_bounds.min_x, src_abs_bounds.max_y + self.props.marginFromSrc, child_size.width, child_size.height));
+            },
         }
-        self.to_left = to_left;
+        self.placement = placement;
     }
 
     pub fn renderCustom(self: *PopoverOverlay, c: *ui.RenderContext) void {
