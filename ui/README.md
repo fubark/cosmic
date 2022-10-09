@@ -147,12 +147,16 @@ pub const Counter = struct {
         // Invoked after the widget instance and it's child widgets were created.
     }
 
-    pub fn deinit(self: *Counter, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *Counter, c: *ui.DeinitContext) void {
         // Invoked when the widget instance is destroyed.
     }
 
     pub fn build(self: *Counter, c: *ui.BuildContext) ui.FramePtr {
         // Invoked when the engine wants to know the structure of this Widget.
+    }
+
+    pub fn prePropsUpdate(self: *Counter, c: *ui.UpdateContext) void {
+        // Invoked before a widget updates its props.
     }
 
     pub fn postPropsUpdate(self: *Counter, c: *ui.UpdateContext) void {
@@ -219,6 +223,9 @@ Before any widget instances are created, the engine needs to know the structure 
 
 The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.FramePtr{}` or simply `.{}`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
 
+### Widget Styles
+The ui module allows you to set default styles for widgets as well as overriding them when declaring the widgets at build time. TODO: Explain Style and ComputedStyle with example.
+
 ### Widget Binding
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
 ```zig
@@ -240,14 +247,14 @@ const App = struct {
 ```
 
 ### Events
-Widgets can add event handlers and request focus for keyboard events:
+Widgets can set event handlers and request focus for keyboard events. Note that each widget can only have one handler per event type.
 ```zig
 const TextField = struct {
     // ...
 
     pub fn init(self: *TextField, c: *ui.InitContext) void {
-        c.addMouseDownHandler(self, onMouseDown);
-        c.addKeyDownHandler(self, onKeyDown);
+        c.setMouseDownHandler(self, onMouseDown);
+        c.setKeyDownHandler(self, onKeyDown);
     }
 
     fn onMouseDown(self: *TextField, e: ui.MouseDownEvent) void {
@@ -257,7 +264,7 @@ const TextField = struct {
     // ...
 };
 ```
-Similarily you can remove handlers. If you forget, they will be cleaned up anyway when the widget is disposed.
+Similarily you can clear handlers. If you forget, they will be cleaned up anyway when the widget is disposed.
 
 ### Layout
 When the engine needs to perform layout, the `layout` hook is invoked. If the widget does not provide a hook, a default implementation is used. Each widget's `layout` is responsible for:
