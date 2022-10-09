@@ -7,6 +7,8 @@ const log = stdx.log.scoped(.closure);
 pub fn Closure(comptime Capture: type, comptime Fn: type) type {
     stdx.meta.assertFunctionType(Fn);
 
+    const FnPtr = stdx.meta.FnWithPrefixParam(Fn, Capture);
+
     // The compiler crashes when a created @Type is not used. Declaring a dummy var somehow makes the compiler aware of it.
     var dummy: stdx.meta.FnParamsTuple(Fn) = undefined;
     _ = dummy;
@@ -14,9 +16,9 @@ pub fn Closure(comptime Capture: type, comptime Fn: type) type {
         const Self = @This();
 
         capture: *Capture,
-        user_fn: stdx.meta.FnWithPrefixParam(Fn, Capture),
+        user_fn: FnPtr,
 
-        pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: stdx.meta.FnWithPrefixParam(Fn, Capture)) Self {
+        pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: FnPtr) Self {
             if (@sizeOf(Capture) == 0) {
                 return .{
                     .capture = undefined,

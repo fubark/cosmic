@@ -114,3 +114,16 @@ pub fn lastIndexOfPos(comptime T: type, haystack: []const T, start: usize, needl
 pub fn removeConst(comptime T: type, val: *const T) *T {
     return @intToPtr(*T, @ptrToInt(val));
 }
+
+pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
+    for (a) |item, index| {
+        if (@typeInfo(T) == .Struct) {
+            if (std.meta.eql(b[index], item)) return false;
+        } else {
+            if (b[index] != item) return false;
+        }
+    }
+    return true;
+}

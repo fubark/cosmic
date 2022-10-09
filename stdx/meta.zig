@@ -1,7 +1,15 @@
 const std = @import("std");
-const stdx = @import("stdx");
+const stdx = @import("stdx.zig");
 const t = stdx.testing;
 const log = stdx.log.scoped(.meta);
+
+pub fn ChildOrStruct(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .Struct => T,
+        .Optional => |info| info.child,
+        else => @compileError("Unsupported: " ++ @typeName(T)),
+    };
+}
 
 pub fn assertPointerType(comptime T: type) void {
     if (@typeInfo(T) != .Pointer) {
@@ -19,7 +27,7 @@ pub fn hasFunctionSignature(comptime ExpFunc: type, comptime Func: type) bool {
     if (FnNumParams(ExpFunc) != FnNumParams(Func)) {
         return false;
     }
-    return std.mem.eql(std.builtin.Type.Fn.Param, FnParams(ExpFunc), FnParams(Func));
+    return stdx.mem.eql(std.builtin.Type.Fn.Param, FnParams(ExpFunc), FnParams(Func));
 }
 
 pub fn isFunc(comptime Fn: type) bool {
@@ -122,4 +130,17 @@ test "enumLiteralId" {
 
 pub fn TupleLen(comptime T: type) usize {
     return @typeInfo(T).Struct.fields.len;
+}
+
+pub fn CanCoalesceToSlice(comptime SliceItem: type, comptime T: type) bool {
+    if (T == []const SliceItem) {
+        return true;
+    }
+    if (@typeInfo(T) == .Pointer) {
+        const ChildInfo = @typeInfo(@typeInfo(T).Pointer.child);
+        if (ChildInfo == .Array and ChildInfo.Array.child == SliceItem) {
+            return true;
+        }
+    }
+    return false;
 }

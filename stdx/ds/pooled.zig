@@ -112,19 +112,25 @@ fn PooledHandleListExt(comptime Id: type, comptime T: type, comptime RC: bool) t
         pub fn add(self: *PooledHandleListT, item: T) !Id {
             const new_id = self.id_gen.getNextId();
 
-            if (new_id >= self.data.items.len) {
+            if (new_id >= self.buf.items.len) {
                 errdefer self.id_gen.deleteId(new_id);
-                try self.data.resize(new_id + 1);
+                try self.buf.resize(self.alloc, new_id + 1);
                 try self.data_exists.resize(new_id + 1);
+                if (RC) {
+                    try self.ref_counts.resize(self.alloc, new_id + 1);
+                }
             }
-            self.data.items[new_id] = item;
+            self.buf.items[new_id] = item;
             self.data_exists.set(new_id);
+            if (RC) {
+                self.ref_counts.items[new_id] = 1;
+            }
             return new_id;
         }
 
         /// Add with specific id.
         pub fn addWithId(self: *PooledHandleListT, id: Id, item: T) !void {
-            if (id < self.data.items.len) {
+            if (id < self.buf.items.len) {
                 if (self.data_exists.isSet(id)) {
                     return error.AlreadyExists;
                 }

@@ -52,8 +52,12 @@ pub fn IndexSlice(comptime T: type) type {
             };
         }
 
-        pub fn len(self: *const @This()) T {
+        pub fn len(self: @This()) T {
             return self.end - self.start;
+        }
+
+        pub fn isEmpty(self: @This()) bool {
+            return self.start == self.end;
         }
     };
 }
