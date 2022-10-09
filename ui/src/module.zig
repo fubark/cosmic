@@ -180,17 +180,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                         const props = stdx.mem.ptrCastAlign(*const Props, ptr);
                         new.props = props.*;
 
-                        if (@hasField(Widget, "props")) {
-                            // "child" or "children" are duped into widget props.
-                            if (@hasField(stdx.meta.FieldType(Widget, .props), "child")) {
-                                if (props.child.isPresent()) {
-                                    mod.build_ctx.frames.incRef(props.child.id);
-                                }
-                            }
-                            if (@hasField(stdx.meta.FieldType(Widget, .props), "children")) {
-                                if (props.children.isPresent()) {
-                                    mod.build_ctx.frame_lists.incRef(props.children.id);
-                                }
+                        // Dupe ref counted props.
+                        inline for (comptime std.meta.fields(Props)) |field| {
+                            if (field.field_type == ui.FramePtr) {
+                                _ = @field(props, field.name).dupe();
+                            } else if (field.field_type == ui.FrameListPtr) {
+                                _ = @field(props, field.name).dupe();
+                            } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
+                                _ = @field(props, field.name).dupeRef();
                             }
                         }
                     }
@@ -234,24 +231,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     const props = stdx.mem.ptrCastAlign(*const Props, ptr);
 
                     if (@hasField(Widget, "props")) {
-                        if (@hasField(stdx.meta.FieldType(Widget, .props), "child")) {
-                            if (widget.props.child.id != props.child.id) {
-                                if (widget.props.child.isPresent()) {
-                                    widget.props.child.destroy();
-                                }
-                                if (props.child.isPresent()) {
-                                    mod.build_ctx.frames.incRef(props.child.id);
-                                }
-                            }
-                        }
-                        if (@hasField(stdx.meta.FieldType(Widget, .props), "children")) {
-                            if (widget.props.children.id != props.children.id) {
-                                if (widget.props.children.isPresent()) {
-                                    widget.props.children.destroy();
-                                }
-                                if (props.children.isPresent()) {
-                                    mod.build_ctx.frame_lists.incRef(props.children.id);
-                                }
+                        inline for (comptime std.meta.fields(Props)) |field| {
+                            if (field.field_type == ui.FramePtr) {
+                                ctx.handleFrameUpdate(@field(widget.props, field.name), @field(props, field.name));
+                            } else if (field.field_type == ui.FrameListPtr) {
+                                ctx.handleFrameListUpdate(@field(widget.props, field.name), @field(props, field.name));
+                            } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
+                                const T = std.meta.Child(@TypeOf(@field(widget.props, field.name).inner.static));
+                                ctx.handleSlicePtrUpdate(T, @field(widget.props, field.name), @field(props, field.name));
                             }
                         }
                     }
@@ -406,16 +393,17 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 widget.deinit(&mod.deinit_ctx);
             }
 
-            // "child" and "children" are automatically freed.
             if (@hasField(Widget, "props")) {
-                if (@hasField(stdx.meta.FieldType(Widget, .props), "child")) {
-                    if (widget.props.child.isPresent()) {
-                        widget.props.child.destroy();
-                    }
-                }
-                if (@hasField(stdx.meta.FieldType(Widget, .props), "children")) {
-                    if (widget.props.children.isPresent()) {
-                        widget.props.children.destroy();
+                const Props = WidgetProps(Widget);
+
+                // Release ref counted props.
+                inline for (comptime std.meta.fields(Props)) |field| {
+                    if (field.field_type == ui.FramePtr) {
+                        @field(widget.props, field.name).destroy();
+                    } else if (field.field_type == ui.FrameListPtr) {
+                        @field(widget.props, field.name).destroy();
+                    } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
+                        @field(widget.props, field.name).destroy();
                     }
                 }
             }
@@ -1672,19 +1660,47 @@ pub fn MixinContextFrameOps(comptime Context: type) type {
                     old.destroy();
                 }
                 if (new.isPresent()) {
-                    self.incFrameRef(new);
+                    self.retainFrame(new);
                 }
             }
         }
 
-        pub fn removeFrame(self: Context, ptr: ui.FramePtr) void {
+        pub fn handleFrameListUpdate(self: Context, old: ui.FrameListPtr, new: ui.FrameListPtr) void {
+            _ = self;
+            if (old.id != new.id) {
+                if (old.isPresent()) {
+                    old.destroy();
+                }
+                if (new.isPresent()) {
+                    _ = new.dupe();
+                }
+            }
+        }
+
+        pub fn handleSlicePtrUpdate(self: Context, comptime T: type, old: ui.SlicePtr(T), new: ui.SlicePtr(T)) void {
+            _ = self;
+            if (old.ptr_t != new.ptr_t) {
+                if (old.ptr_t == .static and new.ptr_t == .rc) {
+                    _ = new.dupeRef();
+                } else if (old.ptr_t == .rc and new.ptr_t == .static) {
+                    old.destroy();
+                }
+                return;
+            }
+            if (old.ptr_t == .rc and old.inner.rc.refId != new.inner.rc.refId) {
+                old.destroy();
+                _ = new.dupeRef();
+            }
+        }
+
+        pub fn releaseFrame(self: Context, ptr: ui.FramePtr) void {
             _ = self;
             if (ptr.isPresent()) {
                 ptr.destroy();
             }
         }
             
-        pub fn incFrameRef(self: Context, ptr: ui.FramePtr) void {
+        pub fn retainFrame(self: Context, ptr: ui.FramePtr) void {
             if (ptr.isPresent()) {
                 return self.common.common.mod.build_ctx.frames.incRef(ptr.id);
             }

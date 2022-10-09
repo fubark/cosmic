@@ -174,7 +174,7 @@ pub const BuildContext = struct {
         return self.createFrameList(slice);
     }
 
-    pub fn removeFrame(self: *BuildContext, id: ui.FrameId) void {
+    pub fn releaseFrame(self: *BuildContext, id: ui.FrameId) void {
         // log.debug("remove frame {s} {} rc:{}", .{self.getFrame(id).vtable.name, id, self.frames.getRefCount(id)});
         const ref_count = self.frames.getRefCount(id);
         if (ref_count == 1) {
@@ -194,7 +194,7 @@ pub const BuildContext = struct {
         self.frames.remove(id);
     }
 
-    pub fn removeFrameList(self: *BuildContext, id: ui.FrameListId) void {
+    pub fn releaseFrameList(self: *BuildContext, id: ui.FrameListId) void {
         // log.debug("remove list {}", .{self.frame_lists.getRefCount(id)});
         const ref_count = self.frame_lists.getRefCount(id);
         if (ref_count == 1) {

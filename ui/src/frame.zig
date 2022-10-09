@@ -76,7 +76,9 @@ pub const FramePtr = struct {
     }
 
     pub fn destroy(self: FramePtr) void {
-        module.gbuild_ctx.removeFrame(self.id);
+        if (self.id != NullFrameId) {
+            module.gbuild_ctx.releaseFrame(self.id);
+        }
     }
 
     pub fn get(self: FramePtr) Frame {
@@ -116,7 +118,9 @@ pub const FrameListPtr = struct {
     }
 
     pub fn destroy(self: FrameListPtr) void {
-        module.gbuild_ctx.removeFrameList(self.id);
+        if (self.id != NullFrameListId) {
+            module.gbuild_ctx.releaseFrameList(self.id);
+        }
     }
 
     pub fn get(self: FrameListPtr) stdx.ds.SLLUnmanaged(FramePtr) {

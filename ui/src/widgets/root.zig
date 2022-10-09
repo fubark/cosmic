@@ -35,7 +35,6 @@ pub const Root = struct {
     overlay_map: ui.NodeRefMap,
 
     pub fn init(self: *Root, ctx: *ui.InitContext) void {
-        ctx.incFrameRef(self.props.user_root);
         self.base_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(ctx.alloc);
         self.top_overlays = stdx.ds.DenseHandleList(OverlayId, OverlayDesc, true).init(ctx.alloc);
         self.build_buf = std.ArrayList(ui.FramePtr).init(ctx.alloc);
@@ -44,9 +43,6 @@ pub const Root = struct {
     }
 
     pub fn deinit(self: *Root, _: *ui.DeinitContext) void {
-        if (self.props.user_root.isPresent()) {
-            self.props.user_root.destroy();
-        }
         self.base_overlays.deinit();
         self.top_overlays.deinit();
         self.build_buf.deinit();
@@ -59,10 +55,6 @@ pub const Root = struct {
         if (props.user_root.isPresent()) {
             props.user_root.destroy();
         }
-    }
-
-    pub fn prePropsUpdate(self: *Root, ctx: *ui.UpdateContext, new: *const ui.WidgetProps(Root)) void {
-        ctx.handleFrameUpdate(self.props.user_root, new.user_root);
     }
 
     pub fn build(self: *Root, c: *ui.BuildContext) ui.FramePtr {
