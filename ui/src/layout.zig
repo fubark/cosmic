@@ -153,6 +153,14 @@ pub const LayoutContext = struct {
         return self.cstr;
     }
 
+    pub inline fn getChildren(self: LayoutContext) []const *ui.Node {
+        return self.node.children.items;
+    }
+
+    pub inline fn getFirstChild(self: LayoutContext) *ui.Node {
+        return self.node.children.items[0];
+    }
+
     /// Computes the layout for a node with a maximum size.
     pub fn computeLayoutWithMax(self: *LayoutContext, node: *ui.Node, max_width: f32, max_height: f32) LayoutSize {
         // Creates another context on the stack so the caller can continue to use their context.

@@ -541,3 +541,37 @@ pub const Link = struct {
         }
     }
 };
+
+/// Constrained wrapper over a child widget.
+pub const Constrained = struct {
+    props: struct {
+        minWidth: ?f32 = null,
+        minHeight: ?f32 = null,
+        maxWidth: ?f32 = null,
+        maxHeight: ?f32 = null,
+        child: ui.FramePtr = .{},
+    },
+
+    pub fn build(self: *Constrained, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
+    }
+
+    pub fn layout(self: *Constrained, ctx: *ui.LayoutContext) ui.LayoutSize {
+        var cstr = ctx.getSizeConstraints();
+        cstr.min_width = self.props.minWidth orelse cstr.min_width;
+        cstr.min_height = self.props.minHeight orelse cstr.min_height;
+        cstr.max_width = self.props.maxWidth orelse cstr.max_width;
+        cstr.max_height = self.props.maxHeight orelse cstr.max_height;
+
+        if (self.props.child.isNull()) {
+            return ui.LayoutSize.init(cstr.min_width, cstr.min_height);
+        }
+
+        const child = ctx.getFirstChild();
+        var childSize = ctx.computeLayout2(child, cstr);
+        ctx.setLayout2(child, 0, 0, childSize.width, childSize.height);
+        childSize.limitToMinMax(cstr);
+
+        return childSize;
+    }
+};
