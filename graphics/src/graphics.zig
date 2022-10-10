@@ -51,11 +51,11 @@ pub const WindowRenderer = renderer_.WindowRenderer;
 pub const FrameStats = renderer_.FrameStats;
 pub const FrameResultVK = renderer_.FrameResultVK;
 
-const _text = @import("text.zig");
-pub const TextMeasure = _text.TextMeasure;
-pub const TextMetrics = _text.TextMetrics;
-pub const TextGlyphIterator = _text.TextGlyphIterator;
-pub const TextLayout = _text.TextLayout;
+const text_ = @import("text.zig");
+pub const TextMeasure = text_.TextMeasure;
+pub const TextMetrics = text_.TextMetrics;
+pub const TextGlyphIterator = text_.TextGlyphIterator;
+pub const TextLayout = text_.TextLayout;
 
 const FontRendererBackendType = enum(u1) {
     /// Default renderer for desktop.
@@ -1084,78 +1084,8 @@ pub const Graphics = struct {
     }
 
     /// Perform text layout and save the results.
-    pub fn textLayout(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8, preferred_width: f32, buf: *TextLayout) void {
-        buf.lines.clearRetainingCapacity();
-        var iter = self.textGlyphIter(font_gid, size, str);
-        var y: f32 = 0;
-        var last_fit_start_idx: u32 = 0;
-        var last_fit_end_idx: u32 = 0;
-        var last_fit_x: f32 = 0;
-        var x: f32 = 0;
-        var max_width: f32 = 0;
-        while (iter.nextCodepoint()) {
-            x += iter.state.kern;
-            // Assume snapping.
-            x = @round(x);
-            x += iter.state.advance_width;
-
-            if (iter.state.cp == 10) {
-                // Line feed. Force new line.
-                buf.lines.append(.{
-                    .start_idx = last_fit_start_idx,
-                    .end_idx = @intCast(u32, iter.state.end_idx - 1), // Exclude new line.
-                    .height = iter.primary_height,
-                }) catch @panic("error");
-                last_fit_start_idx = @intCast(u32, iter.state.end_idx);
-                last_fit_end_idx = @intCast(u32, iter.state.end_idx);
-                if (x > max_width) {
-                    max_width = x;
-                }
-                x = 0;
-                y += iter.primary_height;
-                continue;
-            }
-
-            if (x <= preferred_width) {
-                if (stdx.unicode.isSpace(iter.state.cp)) {
-                    // Space character indicates the end of a word.
-                    last_fit_end_idx = @intCast(u32, iter.state.end_idx);
-                }
-            } else {
-                if (last_fit_start_idx == last_fit_end_idx) {
-                    // Haven't fit a word yet. Just keep going.
-                } else {
-                    // Wrap to next line.
-                    buf.lines.append(.{
-                        .start_idx = last_fit_start_idx,
-                        .end_idx = last_fit_end_idx,
-                        .height = iter.primary_height,
-                    }) catch @panic("error");
-                    y += iter.primary_height;
-                    last_fit_start_idx = last_fit_end_idx;
-                    last_fit_x = 0;
-                    if (x > max_width) {
-                        max_width = x;
-                    }
-                    x = 0;
-                    iter.setIndex(last_fit_start_idx);
-                }
-            }
-        }
-        if (last_fit_end_idx <= iter.state.end_idx) {
-            // Add last line.
-            buf.lines.append(.{
-                .start_idx = last_fit_start_idx,
-                .end_idx = @intCast(u32, iter.state.end_idx),
-                .height = iter.primary_height,
-            }) catch @panic("error");
-            if (x > max_width) {
-                max_width = x;
-            }
-            y += iter.primary_height;
-        }
-        buf.width = max_width;
-        buf.height = y;
+    pub fn textLayout(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8, preferred_width: f32, spanStartX: f32, buf: *TextLayout) void {
+        text_.textLayout(self, font_gid, size, str, preferred_width, spanStartX, buf);
     }
 
     /// Return a text glyph iterator over UTF-8 string.

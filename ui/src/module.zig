@@ -1754,8 +1754,8 @@ pub fn MixinContextFontOps(comptime Context: type) type {
             return self.common.textGlyphIter(font_gid, font_size, str);
         }
 
-        pub inline fn textLayout(self: *Context, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, buf: *graphics.TextLayout) void {
-            return self.common.textLayout(font_gid, font_size, str, max_width, buf);
+        pub inline fn textLayout(self: *Context, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, spanStartX: f32, buf: *graphics.TextLayout) void {
+            return self.common.textLayout(font_gid, font_size, str, max_width, spanStartX, buf);
         }
 
         pub inline fn getFontGroupBySingleFontName(self: Context, name: []const u8) graphics.FontGroupId {
@@ -1939,8 +1939,8 @@ pub const CommonContext = struct {
         return self.common.g.textGlyphIter(font_gid, font_size, str);
     }
 
-    pub inline fn textLayout(self: *CommonContext, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, buf: *graphics.TextLayout) void {
-        self.common.g.textLayout(font_gid, font_size, str, max_width, buf);
+    pub inline fn textLayout(self: *CommonContext, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, spanStartX: f32, buf: *graphics.TextLayout) void {
+        self.common.g.textLayout(font_gid, font_size, str, max_width, spanStartX, buf);
     }
 
     pub inline fn getFontGroupForSingleFont(self: CommonContext, font_id: graphics.FontId) graphics.FontGroupId {
