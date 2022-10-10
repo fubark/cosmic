@@ -447,16 +447,15 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             if (Props != void) {
                 if (frame.props) |ptr| {
                     const props = stdx.mem.ptrCastAlign(*Props, ptr);
-                    if (@hasField(Widget, "props")) {
-                        if (@hasField(stdx.meta.FieldType(Widget, .props), "child")) {
-                            if (props.child.isPresent()) {
-                                props.child.destroy();
-                            }
-                        }
-                        if (@hasField(stdx.meta.FieldType(Widget, .props), "children")) {
-                            if (props.children.isPresent()) {
-                                props.children.destroy();
-                            }
+
+                    // Release ref counted props.
+                    inline for (comptime std.meta.fields(Props)) |field| {
+                        if (field.field_type == ui.FramePtr) {
+                            @field(props, field.name).destroy();
+                        } else if (field.field_type == ui.FrameListPtr) {
+                            @field(props, field.name).destroy();
+                        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
+                            @field(props, field.name).destroy();
                         }
                     }
                     mod.build_ctx.dynamic_alloc.destroy(props);

@@ -49,14 +49,6 @@ pub const Root = struct {
         self.overlay_map.deinit();
     }
 
-    pub fn deinitFrame(frame: ui.Frame, _: *ui.DeinitContext) void {
-        const Props = ui.WidgetProps(Root);
-        const props = stdx.mem.ptrCastAlign(*Props, frame.props.?);
-        if (props.user_root.isPresent()) {
-            props.user_root.destroy();
-        }
-    }
-
     pub fn build(self: *Root, c: *ui.BuildContext) ui.FramePtr {
         self.build_buf.ensureTotalCapacity(self.base_overlays.size() + self.top_overlays.size()) catch @panic("error");
         self.build_buf.items.len = 0;
