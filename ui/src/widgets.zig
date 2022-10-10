@@ -98,9 +98,12 @@ pub const IconButton = genBuildWithNoChild(IconButtonT);
 pub const IconButtonStyle = button.IconButton.Style;
 
 /// Text related.
-pub const TextT = @import("widgets/text.zig").Text;
+const text = @import("widgets/text.zig");
+pub const TextT = text.Text;
 pub const Text = genBuildWithNoChild(TextT);
 pub const TextStyle = TextT.Style;
+pub const TextLinkT = text.TextLink;
+pub const TextLink = genBuildWithNoChild(TextLinkT);
 const text_area = @import("widgets/text_area.zig");
 pub const TextAreaT = text_area.TextArea;
 pub const TextArea = genBuildWithNoChild(TextAreaT);

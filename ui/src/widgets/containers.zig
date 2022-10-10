@@ -1,6 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const graphics = @import("graphics");
+const platform = @import("platform");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
