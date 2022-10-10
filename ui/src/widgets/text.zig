@@ -8,7 +8,90 @@ const ui = @import("../ui.zig");
 const u = ui.widgets;
 const log = stdx.log.scoped(.text);
 
-const NullId = std.math.maxInt(u32);
+/// Lays out Text/TextSpan children inline.
+pub const TextSpan = struct {
+    props: struct {
+        children: ui.FrameListPtr = .{},
+    },
+
+    const LayoutRun = struct {
+        curX: f32,
+        lastLineHeight: f32,
+        width: f32,
+        height: f32,
+    };
+
+    pub fn build(self: *TextSpan, ctx: *ui.BuildContext) ui.FramePtr {
+        return ctx.fragment(self.props.children.dupe());
+    }
+
+    pub fn layout(self: *TextSpan, ctx: *ui.LayoutContext) ui.LayoutSize {
+        const cstr = ctx.getSizeConstraints();
+        if (cstr.max_width == ui.ExpandedWidth) {
+            stdx.unsupported();
+        }
+        var run = LayoutRun{
+            .curX = 0,
+            .lastLineHeight = 0,
+            .width = 0,
+            .height = 0,
+        };
+        for (ctx.node.children.items) |child| {
+            if (child.vtable == ui.GenWidgetVTable(u.TextT)) {
+                self.layoutChildText(ctx, child, cstr, &run);
+            } else if (child.vtable == ui.GenWidgetVTable(TextLink)) {
+                // Hacky way to compute the inner Text widget layout until a better approach is developed.
+                const child2 = child.children.items[0];
+                const child3 = child2.children.items[0];
+                const child4 = child3.children.items[0];
+                if (child4.vtable == ui.GenWidgetVTable(Text)) {
+                    self.layoutChildText(ctx, child4, cstr, &run);
+                    child.layout = child4.layout;
+                    child4.layout.y = 0;
+                    child3.layout = child4.layout;
+                    child2.layout = child4.layout;
+                } else {
+                    stdx.fatal();
+                }
+            } else if (child.vtable == ui.GenWidgetVTable(TextSpan)) {
+                stdx.unsupported();
+            }
+        }
+        var res = ui.LayoutSize.init(run.width, run.height);
+        res.growToMin(cstr);
+        return res;
+    }
+
+    fn layoutChildText(self: *TextSpan, ctx: *ui.LayoutContext, child: *ui.Node, cstr: ui.SizeConstraints, run: *LayoutRun) void {
+        _ = self;
+        const text = child.getWidget(u.TextT);
+        text.layoutStartX = run.curX;
+        var child_size = ctx.computeLayout(child, 0, 0, cstr.max_width, cstr.max_height);
+        if (child_size.width > run.width) {
+            run.width = child_size.width;
+        }
+        const numLines = text.tlo.lines.items.len;
+        if (numLines > 0) {
+            if (text.cached_line_height > run.lastLineHeight) {
+                // Child's first line increased the height of the previous child's last line.
+                run.height += text.cached_line_height - run.lastLineHeight;
+            }
+
+            // Set layout after height has been revised from the last line.
+            ctx.setLayout2(child, 0, run.height - text.cached_line_height, child_size.width, child_size.height);
+
+            run.curX = text.tlo.lastLineEndX;
+            run.lastLineHeight = text.cached_line_height;
+            // Accumulate height of lines after the first child line.
+            if (numLines > 1) {
+                const firstLineHeight = text.cached_line_height;
+                run.height += child_size.height - firstLineHeight;
+            }
+        } else {
+            ctx.setLayout2(child, 0, run.height - text.cached_line_height, child_size.width, child_size.height);
+        }
+    }
+};
 
 pub const Text = struct {
     props: struct {
@@ -25,6 +108,9 @@ pub const Text = struct {
     cached_layout: ui.LayoutSize,
     cached_line_height: f32,
     str_hash: stdx.string.StringHash,
+
+    layoutStartX: f32,
+    cachedLayoutStartX: f32, 
 
     pub const Style = struct {
         color: ?Color = null,
@@ -45,6 +131,8 @@ pub const Text = struct {
         self.word_wrap = false;
         self.use_layout = false;
         self.needs_relayout = true;
+        self.layoutStartX = 0;
+        self.cachedLayoutStartX = -1;
 
         self.tlo = graphics.TextLayout.init(c.alloc);
         self.ctx = c.common;
@@ -72,13 +160,13 @@ pub const Text = struct {
         }
     }
 
-    fn remeasureText(self: *Text, c: *ui.LayoutContext, max_width: f32) ui.LayoutSize {
+    fn remeasureText(self: *Text, c: *ui.LayoutContext, max_width: f32, startX: f32) ui.LayoutSize {
         if (!self.word_wrap) {
             const m = c.measureText(self.font_gid, self.font_size, self.props.text.slice());
             return ui.LayoutSize.init(m.width, m.height);
         } else {
             // Compute text layout. Perform word wrap.
-            c.textLayout(self.font_gid, self.font_size, self.props.text.slice(), max_width, &self.tlo);
+            c.textLayout(self.font_gid, self.font_size, self.props.text.slice(), max_width, startX, &self.tlo);
             return ui.LayoutSize.init(self.tlo.width, self.tlo.height);
         }
     }
@@ -88,6 +176,12 @@ pub const Text = struct {
     }
 
     pub fn layout(self: *Text, c: *ui.LayoutContext) ui.LayoutSize {
+        if (self.cachedLayoutStartX != self.layoutStartX) {
+            if (self.layoutStartX > 0) {
+                log.debug("layout span startx {}", .{self.layoutStartX});
+            }
+            self.needs_relayout = true;
+        }
         if (self.props.text.slice().len > 0) {
             const cstr = c.getSizeConstraints();
             const new_word_wrap = cstr.max_width != ui.ExpandedWidth;
@@ -97,8 +191,10 @@ pub const Text = struct {
             }
 
             if (self.needs_relayout) {
-                self.cached_layout = self.remeasureText(c, cstr.max_width);
+                self.cached_layout = self.remeasureText(c, cstr.max_width, self.layoutStartX);
                 self.cached_line_height = c.getPrimaryFontVMetrics(self.font_gid, self.font_size).height;
+                self.cachedLayoutStartX = self.layoutStartX;
+                self.layoutStartX = 0;
                 self.needs_relayout = false;
             }
             return self.cached_layout;
