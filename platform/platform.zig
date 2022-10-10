@@ -34,6 +34,10 @@ const event_dispatcher = @import("event_dispatcher.zig");
 pub const EventDispatcher = event_dispatcher.EventDispatcher;
 pub const EventResult = event_dispatcher.EventResult;
 
+extern "stdx" fn jsSetSystemCursor(ptr: [*]const u8, len: usize) void;
+extern "stdx" fn jsGetClipboard(len: *usize) [*]const u8;
+extern "stdx" fn jsOpenUrl(ptr: [*]const u8, len: usize) void;
+
 pub fn delay(us: u64) void {
     if (comptime !builtin.target.isWasm()) {
         // TODO: How does this compare to std.time.sleep ?
@@ -75,7 +79,7 @@ pub const FetchResultEvent = struct {
     buf: []const u8,
 };
 
-var system_cursors: [10]?*sdl.SDL_Cursor = .{ null, null, null, null, null, null, null, null, null, null };
+var system_cursors: [10]?*sdl.SDL_Cursor = .{ null } ** 10;
 var cur_system_cursor: SystemCursorType = .default;
 pub fn setSystemCursor(cursor_t: SystemCursorType) void {
     if (cur_system_cursor != cursor_t) {
@@ -113,6 +117,7 @@ pub fn setSystemCursor(cursor_t: SystemCursorType) void {
                 .stop => jsSetSystemCursor2("not-allowed"),
                 .hand => jsSetSystemCursor2("grab"),
                 .wait => jsSetSystemCursor2("wait"),
+                .pointer => jsSetSystemCursor2("pointer"),
             }
         }
         cur_system_cursor = cursor_t;
@@ -122,9 +127,6 @@ pub fn setSystemCursor(cursor_t: SystemCursorType) void {
 fn jsSetSystemCursor2(name: []const u8) void {
     jsSetSystemCursor(name.ptr, name.len);
 }
-
-extern "stdx" fn jsSetSystemCursor(ptr: [*]const u8, len: usize) void;
-extern "stdx" fn jsGetClipboard(len: *usize) [*]const u8;
 
 pub fn allocClipboardText(alloc: std.mem.Allocator) ![]const u8 {
     if (IsWasm) {
@@ -172,4 +174,13 @@ const SystemCursorType = enum(u4) {
     stop = 7,
     hand = 8,
     wait = 9,
+    pointer = 10,
 };
+
+pub fn openUrl(url: []const u8) void {
+    if (IsWasm) {
+        jsOpenUrl(url.ptr, url.len);
+    } else {
+        stdx.unsupported();
+    }
+}

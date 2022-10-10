@@ -519,3 +519,24 @@ pub const TabView = struct {
         self.tab_idx = idx;
     }
 };
+
+pub const Link = struct {
+    props: struct {
+        uri: ui.SlicePtr(u8) = .{},
+        child: ui.FramePtr = .{},
+    },
+
+    pub fn build(self: *Link, ctx: *ui.BuildContext) ui.FramePtr {
+        return u.MouseArea(.{ .onClick = ctx.funcExt(self, onClick) },
+            self.props.child.dupe(),
+        );
+    }
+
+    fn onClick(self: *Link, e: ui.MouseUpEvent) void {
+        _ = e;
+        const uri = self.props.uri.slice();
+        if (std.mem.startsWith(u8, uri, "https://") or std.mem.startsWith(u8, uri, "http://")) {
+            platform.openUrl(uri);
+        }
+    }
+};
