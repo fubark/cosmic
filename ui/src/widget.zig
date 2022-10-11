@@ -162,6 +162,7 @@ pub const EventHandlerMasks = struct {
     pub const hoverchange: u16 = 1 << 6;
     pub const keyup: u16 = 1 << 7;
     pub const keydown: u16 = 1 << 8;
+    pub const mousewheel: u16 = 1 << 9;
 };
 
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.
@@ -198,10 +199,6 @@ pub const Node = struct {
     /// Unmanaged slice of child event ordering. Only defined if has_child_event_ordering = true.
     child_event_ordering: []const *Node,
 
-    // TODO: Allow only one callback. Follow convention of other events.
-    /// Singly linked lists of events attached to this node. Can be NullId.
-    mouse_scroll_list: u32,
-
     /// TODO: Each node tracks it's own theme so that partially building widgets can get the theme easily.
     // theme_id: u32,
 
@@ -232,7 +229,6 @@ pub const Node = struct {
             .layout = undefined,
             .abs_bounds = stdx.math.BBox.initZero(),
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
-            .mouse_scroll_list = NullId,
             // .theme_id = NullId,
             .state_mask = 0,
             .event_handler_mask = 0,

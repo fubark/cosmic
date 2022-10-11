@@ -485,9 +485,10 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
 const Fragment = struct {};
 pub const FragmentVTable = GenWidgetVTable(Fragment);
 
-const EventType = enum(u3) {
+const EventType = enum {
     mouseup,
     mousedown,
+    mousewheel,
     enter_mousedown,
     global_mouseup,
     global_mousemove,
@@ -614,7 +615,7 @@ pub const Module = struct {
             }
             fn onMouseScroll(ctx: ?*anyopaque, e: platform.MouseScrollEvent) void {
                 const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
-                self_.processMouseScrollEvent(e);
+                self_.processMouseWheelEvent(e);
             }
             fn onMouseMove(ctx: ?*anyopaque, e: platform.MouseMoveEvent) void {
                 const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
@@ -801,30 +802,51 @@ pub const Module = struct {
         return !propagate;
     }
 
-    pub fn processMouseScrollEvent(self: *Module, e: platform.MouseScrollEvent) void {
+    pub fn processMouseWheelEvent(self: *Module, e: platform.MouseScrollEvent) void {
         const xf = @intToFloat(f32, e.x);
         const yf = @intToFloat(f32, e.y);
         if (self.root_node) |node| {
-            _ = self.processMouseScrollEventRecurse(node, xf, yf, e);
+            if (node.abs_bounds.containsPt(xf, yf)) {
+                _ = self.processMouseWheelEventRecurse(node, xf, yf, e);
+            }
         }
     }
 
-    fn processMouseScrollEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseScrollEvent) bool {
-        if (node.abs_bounds.containsPt(xf, yf)) {
-            var cur = node.mouse_scroll_list;
-            while (cur != NullId) {
-                const sub = self.common.mouse_scroll_event_subs.getNoCheck(cur);
-                sub.handleEvent(&self.event_ctx, e);
-                cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
-            }
-            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+    /// Returns true to stop propagation.
+    fn processMouseWheelEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseScrollEvent) bool {
+        const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+
+        if (!node.vtable.children_can_overlap) {
+            // Greedy hit check. Skips siblings.
             for (event_children) |child| {
-                if (self.processMouseScrollEventRecurse(child, xf, yf, e)) {
+                if (child.abs_bounds.containsPt(xf, yf)) {
+                    if (self.processMouseWheelEventRecurse(child, xf, yf, e)) {
+                        return true;
+                    }
                     break;
                 }
             }
-            return true;
-        } else return false;
+        } else {
+            // Continues to hit check siblings until `stop` is received.
+            for (event_children) |child| {
+                if (child.abs_bounds.containsPt(xf, yf)) {
+                    if (self.processMouseWheelEventRecurse(child, xf, yf, e)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Bubble up.
+
+        var propagate = true;
+        if (node.hasHandler(ui.EventHandlerMasks.mousewheel)) {
+            const sub = self.common.node_mousewheel_map.get(node).?;
+            if (sub.handleEvent(&self.event_ctx, e) == .stop) {
+                propagate = false;
+            }
+        }
+        return !propagate;
     }
 
     pub fn processMouseMoveEvent(self: *Module, e: platform.MouseMoveEvent) void {
@@ -1310,29 +1332,34 @@ pub const Module = struct {
         const widget_vtable = node.vtable;
 
         // Make sure event handlers are removed.
-        if (node.hasHandler(ui.EventHandlerMasks.keyup)) {
-            self.common.ctx.clearKeyUpHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.keydown)) {
-            self.common.ctx.clearKeyDownHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
-            self.common.ctx.clearEnterMouseDownHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
-            self.common.ctx.clearMouseDownHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
-            self.common.ctx.clearMouseUpHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.global_mouseup)) {
-            self.common.ctx.clearGlobalMouseUpHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.global_mousemove)) {
-            self.common.ctx.clearGlobalMouseMoveHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
-            self.common.ctx.clearHoverChangeHandler(node);
+        if (node.event_handler_mask > 0) {
+            if (node.hasHandler(ui.EventHandlerMasks.keyup)) {
+                self.common.ctx.clearKeyUpHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.keydown)) {
+                self.common.ctx.clearKeyDownHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
+                self.common.ctx.clearEnterMouseDownHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.mousewheel)) {
+                self.common.ctx.clearMouseWheelHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
+                self.common.ctx.clearMouseDownHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
+                self.common.ctx.clearMouseUpHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.global_mouseup)) {
+                self.common.ctx.clearGlobalMouseUpHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.global_mousemove)) {
+                self.common.ctx.clearGlobalMouseMoveHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
+                self.common.ctx.clearHoverChangeHandler(node);
+            }
         }
 
         // TODO: Make faster.
@@ -1827,8 +1854,8 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.setMouseDownHandler(self.node, ctx, cb);
         }
 
-        pub inline fn addMouseScrollHandler(self: Context, ctx: anytype, cb: events.MouseScrollHandler(@TypeOf(ctx))) void {
-            self.common.addMouseScrollHandler(self.node, ctx, cb);
+        pub inline fn setMouseWheelHandler(self: Context, ctx: anytype, cb: events.MouseWheelHandler(@TypeOf(ctx))) void {
+            self.common.setMouseWheelHandler(self.node, ctx, cb);
         }
 
         pub inline fn setKeyDownHandler(self: *Context, ctx: anytype, cb: events.KeyDownHandler(@TypeOf(ctx))) void {
@@ -2165,36 +2192,32 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn addMouseScrollHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseScrollHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), fn (ui.MouseScrollEvent) void).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(platform.MouseScrollEvent){
+    pub fn setMouseWheelHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseWheelHandler(@TypeOf(ctx))) void {
+        const closure = Closure(@TypeOf(ctx), fn (ui.MouseWheelEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
+        const sub = SubscriberRet(platform.MouseScrollEvent, ui.EventResult){
             .closure = closure,
             .node = node,
         };
-        if (self.common.mouse_scroll_event_subs.getLast(node.mouse_scroll_list)) |last_id| {
-            _ = self.common.mouse_scroll_event_subs.insertAfter(last_id, sub) catch unreachable;
+        const res = self.common.node_mousewheel_map.getOrPut(self.alloc, node) catch fatal();
+        if (res.found_existing) {
+            res.value_ptr.deinit(self.alloc);
+            res.value_ptr.* = sub;
         } else {
-            node.mouse_scroll_list = self.common.mouse_scroll_event_subs.add(sub) catch unreachable;
+            res.value_ptr.* = sub;
+            node.setHandlerMask(ui.EventHandlerMasks.mousewheel);
         }
     }
 
-    pub fn removeMouseScrollHandler(self: *CommonContext, node: *ui.Node, comptime Context: type, func: events.MouseScrollHandler(Context)) void {
-        var cur = node.mouse_scroll_list;
-        var prev = NullId;
-        while (cur != NullId) {
-            const sub = self.common.mouse_scroll_event_subs.getNoCheck(cur);
-            if (sub.closure.user_fn == @ptrCast(*const anyopaque, func)) {
-                sub.deinit(self.alloc);
-                if (prev == NullId) {
-                    node.mouse_scroll_list = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
-                    self.common.mouse_scroll_event_subs.removeAssumeNoPrev(cur) catch unreachable;
-                } else {
-                    self.common.mouse_scroll_event_subs.removeAfter(prev) catch unreachable;
-                }
-                // Continue scanning for duplicates.
+    pub fn clearMouseWheelHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_mousewheel_map.getPtr(node)) |sub| {
+            if (!sub.to_remove) {
+                sub.to_remove = true;
+                node.clearHandlerMask(ui.EventHandlerMasks.mousewheel);
+                self.common.to_remove_handlers.append(self.alloc, .{
+                    .event_t = .mousewheel,
+                    .node = node,
+                }) catch fatal();
             }
-            prev = cur;
-            cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
         }
     }
 
@@ -2350,7 +2373,6 @@ pub const ModuleCommon = struct {
 
     /// Mouse handlers.
     global_mouse_up_list: std.ArrayListUnmanaged(*ui.Node),
-    mouse_scroll_event_subs: stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     node_global_mousemove_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseMoveEvent)),
     /// Mouse move events fire far more frequently so iteration should be fast.
     global_mouse_move_list: std.ArrayListUnmanaged(*ui.Node),
@@ -2359,6 +2381,7 @@ pub const ModuleCommon = struct {
     node_enter_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
+    node_mousewheel_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseScrollEvent, ui.EventResult)),
     node_global_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
 
     /// Hover change event is more reliable than MouseEnter and MouseExit.
@@ -2453,11 +2476,11 @@ pub const ModuleCommon = struct {
             .node_enter_mousedown_map = .{},
             .node_mousedown_map = .{},
             .node_mouseup_map = .{},
+            .node_mousewheel_map = .{},
             .node_global_mouseup_map = .{},
             .node_global_mousemove_map = .{},
             .global_mouse_up_list = .{},
             .global_mouse_move_list = .{},
-            .mouse_scroll_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
             .node_hoverchange_map = .{},
             .hovered_nodes = .{},
@@ -2520,14 +2543,6 @@ pub const ModuleCommon = struct {
             self.interval_sessions.deinit();
         }
 
-        {
-            var iter = self.mouse_scroll_event_subs.iterator();
-            while (iter.next()) |it| {
-                it.data.deinit(self.alloc);
-            }
-            self.mouse_scroll_event_subs.deinit();
-        }
-
         self.removeHandlers();
         self.removeNodes();
 
@@ -2555,6 +2570,7 @@ pub const ModuleCommon = struct {
         self.node_mouseup_map.deinit(self.alloc);
         self.node_enter_mousedown_map.deinit(self.alloc);
         self.node_mousedown_map.deinit(self.alloc);
+        self.node_mousewheel_map.deinit(self.alloc);
 
         self.arena_allocators[0].deinit();
         self.arena_allocators[1].deinit();
@@ -2683,6 +2699,11 @@ pub const ModuleCommon = struct {
                     const sub = self.node_mouseup_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_mouseup_map.remove(ref.node);
+                },
+                .mousewheel => {
+                    const sub = self.node_mousewheel_map.get(ref.node).?;
+                    sub.deinit(self.alloc);
+                    _ = self.node_mousewheel_map.remove(ref.node);
                 },
                 .global_mouseup => {
                     const sub = self.node_global_mouseup_map.get(ref.node).?;
@@ -3109,6 +3130,7 @@ test "Widget instance lifecycle." {
             c.setKeyDownHandler({}, onKeyDown);
             c.setMouseDownHandler({}, onMouseDown);
             c.setEnterMouseDownHandler({}, onEnterMouseDown);
+            c.setMouseWheelHandler({}, onMouseWheel);
             c.setMouseUpHandler({}, onMouseUp);
             c.setGlobalMouseMoveHandler(@as(u32, 1), onMouseMove);
             _ = c.addInterval(Duration.initSecsF(1), {}, onInterval);
@@ -3126,6 +3148,7 @@ test "Widget instance lifecycle." {
         }
         fn onMouseUp(_: void, _: ui.MouseUpEvent) void {}
         fn onMouseMove(_: u32, _: ui.MouseMoveEvent) void {}
+        fn onMouseWheel(_: void, _: ui.MouseWheelEvent) void {}
     };
     const S = struct {
         fn bootstrap(build: bool, c: *BuildContext) ui.FramePtr {
@@ -3175,6 +3198,10 @@ test "Widget instance lifecycle." {
     const mousemove_sub = mod.common.node_global_mousemove_map.get(root.?).?;
     try t.eq(mousemove_sub.closure.user_fn, A.onMouseMove);
 
+    try t.eq(mod.common.node_mousewheel_map.size, 1);
+    const mousewheel_sub = mod.common.node_mousewheel_map.get(root.?).?;
+    try t.eq(mousewheel_sub.closure.user_fn, A.onMouseWheel);
+
     try t.eq(mod.common.interval_sessions.size(), 1);
     var iter = mod.common.interval_sessions.iterator();
     const interval_sub = iter.next().?;
@@ -3196,6 +3223,7 @@ test "Widget instance lifecycle." {
     try t.eq(mod.common.node_mouseup_map.size, 0);
     try t.eq(mod.common.node_global_mouseup_map.size, 0);
     try t.eq(mod.common.node_global_mousemove_map.size, 0);
+    try t.eq(mod.common.node_mousewheel_map.size, 0);
     try t.eq(mod.common.interval_sessions.size(), 0);
 }
 

@@ -78,7 +78,7 @@ pub const ScrollView = struct {
         self.dragging_hbar = false;
         self.dragging_vbar = false;
         c.setMouseDownHandler(self, onMouseDown);
-        c.addMouseScrollHandler(self, onMouseScroll);
+        c.setMouseWheelHandler(self, onMouseWheel);
     }
 
     pub fn build(self: *ScrollView, _: *ui.BuildContext) ui.FramePtr {
@@ -160,9 +160,10 @@ pub const ScrollView = struct {
         }
     }
 
-    fn onMouseScroll(self: *ScrollView, e: ui.MouseScrollEvent) void {
+    fn onMouseWheel(self: *ScrollView, e: ui.MouseWheelEvent) ui.EventResult {
         self.scroll_y += e.val.delta_y;
         self.checkScroll();
+        return .stop;
     }
 
     pub fn postPropsUpdate(self: *ScrollView, _: *ui.UpdateContext) void {

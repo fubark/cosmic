@@ -14,7 +14,7 @@ pub const KeyUpEvent = Event(platform.KeyUpEvent);
 pub const MouseDownEvent = Event(platform.MouseDownEvent);
 pub const MouseUpEvent = Event(platform.MouseUpEvent);
 pub const MouseMoveEvent = Event(platform.MouseMoveEvent);
-pub const MouseScrollEvent = Event(platform.MouseScrollEvent);
+pub const MouseWheelEvent = Event(platform.MouseScrollEvent);
 
 pub const HoverChangeEvent = struct {
     ctx: *EventContext,
@@ -94,8 +94,8 @@ pub fn MouseUpHandler(comptime Context: type) type {
     return fn (Context, MouseUpEvent) void;
 }
 
-pub fn MouseScrollHandler(comptime Context: type) type {
-    return fn (Context, MouseScrollEvent) void;
+pub fn MouseWheelHandler(comptime Context: type) type {
+    return fn (Context, MouseWheelEvent) EventResult;
 }
 
 pub fn HoverChangeHandler(comptime Context: type) type {
