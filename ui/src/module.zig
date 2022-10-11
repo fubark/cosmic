@@ -1603,6 +1603,7 @@ pub const RenderContext = struct {
     pub usingnamespace MixinContextNodeReadOps(RenderContext);
     pub usingnamespace MixinContextSharedOps(RenderContext);
     pub usingnamespace MixinContextStyleOps(RenderContext);
+    pub usingnamespace MixinContextFontOps(RenderContext);
     // pub usingnamespace MixinContextReadOps(RenderContext);
 };
 
@@ -3148,7 +3149,9 @@ test "Widget instance lifecycle." {
         }
         fn onMouseUp(_: void, _: ui.MouseUpEvent) void {}
         fn onMouseMove(_: u32, _: ui.MouseMoveEvent) void {}
-        fn onMouseWheel(_: void, _: ui.MouseWheelEvent) void {}
+        fn onMouseWheel(_: void, _: ui.MouseWheelEvent) ui.EventResult {
+            return .default;
+        }
     };
     const S = struct {
         fn bootstrap(build: bool, c: *BuildContext) ui.FramePtr {
