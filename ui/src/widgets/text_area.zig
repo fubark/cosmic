@@ -487,7 +487,7 @@ pub const TextArea = struct {
                 self.selectFrom(prevCaretLine, prevCaretCol);
             }
         } else if (val.code == .ArrowRight) {
-            if (self.caret_col < line.buf.num_chars) {
+            if (self.caret_col < line.buf.numCodepoints()) {
                 self.caret_col += 1;
                 self.postCaretUpdate();
                 self.postCaretActivity();
@@ -522,6 +522,26 @@ pub const TextArea = struct {
                 if (self.caret_col > self.lines.items[self.caret_line].buf.num_chars) {
                     self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
                 }
+                self.postCaretUpdate();
+                self.postCaretActivity();
+            }
+            if (val.isShiftPressed()) {
+                cancelSelect = false;
+                self.selectFrom(prevCaretLine, prevCaretCol);
+            }
+        } else if (val.code == .Home) {
+            if (self.caret_col > 0) {
+                self.caret_col = 0;
+                self.postCaretUpdate();
+                self.postCaretActivity();
+            }
+            if (val.isShiftPressed()) {
+                cancelSelect = false;
+                self.selectFrom(prevCaretLine, prevCaretCol);
+            }
+        } else if (val.code == .End) {
+            if (self.caret_col < line.buf.numCodepoints()) {
+                self.caret_col = line.buf.numCodepoints();
                 self.postCaretUpdate();
                 self.postCaretActivity();
             }
@@ -741,6 +761,7 @@ pub const TextAreaInner = struct {
         const scroll_view = editor.scroll_view.getWidget();
         const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(scroll_view.scroll_y / line_height)));
         const visible_end_idx = std.math.min(editor.lines.items.len, @floatToInt(i32, @ceil((scroll_view.scroll_y + editor.scroll_view.getHeight()) / line_height)));
+        // log.debug("{} {}", .{visible_start_idx, visible_end_idx});
         const line_offset_y = editor.font_line_offset_y;
 
         // Fill selection background before drawing text.
@@ -788,7 +809,6 @@ pub const TextAreaInner = struct {
             }
         }
 
-        // log.warn("{} {}", .{visible_start_idx, visible_end_idx});
         var i: usize = @intCast(usize, visible_start_idx);
         g.setFillColor(style.color);
         while (i < visible_end_idx) : (i += 1) {
