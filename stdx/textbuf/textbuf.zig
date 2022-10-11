@@ -180,17 +180,27 @@ pub const TextBuffer = struct {
             if (i == start_idx) {
                 buf_start_idx = cur_buf_idx;
             }
-            i += 1;
-            cur_buf_idx += @intCast(u32, cp_slice.len);
             if (i == end_idx) {
                 buf_end_idx = cur_buf_idx;
                 break;
             }
+            cur_buf_idx += @intCast(u32, cp_slice.len);
+            i += 1;
+        }
+        if (i == start_idx) {
+            buf_start_idx = cur_buf_idx;
+        }
+        if (i == end_idx) {
+            buf_end_idx = cur_buf_idx;
         }
         return .{
             .buf_start_idx = buf_start_idx,
             .buf_end_idx = buf_end_idx,
         };
+    }
+
+    pub fn numCodepoints(self: TextBuffer) u32 {
+        return self.num_chars;
     }
 };
 
@@ -308,9 +318,11 @@ test "TextBuffer.getSubStr" {
     defer buf.deinit();
     try t.eq(buf.buf.items.len, 7);
 
+    try t.eqStr(buf.getSubStr(0, 0), "");
     try t.eqStr(buf.getSubStr(0, 1), "a");
     try t.eqStr(buf.getSubStr(0, 2), "ab");
     try t.eqStr(buf.getSubStr(0, 3), "ab🫐");
+    try t.eqStr(buf.getSubStr(3, 3), "");
 }
 
 test "TextBuffer.removeSubStr" {
