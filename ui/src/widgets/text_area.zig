@@ -468,46 +468,57 @@ pub const TextArea = struct {
         const prevCaretCol = self.caret_col;
         var cancelSelect = true;
         if (val.code == .Backspace) {
-            if (self.caret_col > 0) {
-                if (line.buf.num_chars == self.caret_col) {
-                    line.buf.removeChar(line.buf.num_chars-1);
-                } else {
-                    line.buf.removeChar(self.caret_col-1);
-                }
-                self.postLineUpdate(self.caret_line);
-
-                self.caret_col -= 1;
-                self.postCaretUpdate();
-                self.postCaretActivity();
-            } else if (self.caret_line > 0) {
-                // Join current line with previous.
-                var prev_line = &self.lines.items[self.caret_line-1];
-                self.caret_col = prev_line.buf.num_chars;
-                _ = prev_line.buf.appendSubStr(line.buf.buf.items) catch @panic("error");
-                line.deinit();
-                _ = self.lines.orderedRemove(self.caret_line);
-                self.postLineUpdate(self.caret_line-1);
-
-                self.caret_line -= 1;
-                self.postCaretUpdate();
-                self.postCaretActivity();
-            }
-        } else if (val.code == .Delete) {
-            if (self.caret_col < line.buf.num_chars) {
-                line.buf.removeChar(self.caret_col);
-                self.postLineUpdate(self.caret_line);
-                self.postCaretActivity();
+            if (self.hasSelection) {
+                self.deleteSelection();
             } else {
-                // Append next line.
-                if (self.caret_line < self.lines.items.len-1) {
-                    _ = line.buf.appendSubStr(self.lines.items[self.caret_line+1].buf.buf.items) catch @panic("error");
-                    self.lines.items[self.caret_line+1].deinit();
-                    _ = self.lines.orderedRemove(self.caret_line+1);
+                if (self.caret_col > 0) {
+                    if (line.buf.num_chars == self.caret_col) {
+                        line.buf.removeChar(line.buf.num_chars-1);
+                    } else {
+                        line.buf.removeChar(self.caret_col-1);
+                    }
                     self.postLineUpdate(self.caret_line);
+
+                    self.caret_col -= 1;
+                    self.postCaretUpdate();
+                    self.postCaretActivity();
+                } else if (self.caret_line > 0) {
+                    // Join current line with previous.
+                    var prev_line = &self.lines.items[self.caret_line-1];
+                    self.caret_col = prev_line.buf.num_chars;
+                    _ = prev_line.buf.appendSubStr(line.buf.buf.items) catch @panic("error");
+                    line.deinit();
+                    _ = self.lines.orderedRemove(self.caret_line);
+                    self.postLineUpdate(self.caret_line-1);
+
+                    self.caret_line -= 1;
+                    self.postCaretUpdate();
                     self.postCaretActivity();
                 }
             }
+        } else if (val.code == .Delete) {
+            if (self.hasSelection) {
+                self.deleteSelection();
+            } else {
+                if (self.caret_col < line.buf.num_chars) {
+                    line.buf.removeChar(self.caret_col);
+                    self.postLineUpdate(self.caret_line);
+                    self.postCaretActivity();
+                } else {
+                    // Append next line.
+                    if (self.caret_line < self.lines.items.len-1) {
+                        _ = line.buf.appendSubStr(self.lines.items[self.caret_line+1].buf.buf.items) catch @panic("error");
+                        self.lines.items[self.caret_line+1].deinit();
+                        _ = self.lines.orderedRemove(self.caret_line+1);
+                        self.postLineUpdate(self.caret_line);
+                        self.postCaretActivity();
+                    }
+                }
+            }
         } else if (val.code == .Enter) {
+            if (self.hasSelection) {
+                self.deleteSelection();
+            }
             self.caretInsertNewLine() catch fatal();
         } else if (val.code == .ArrowLeft) {
             if (self.caret_col > 0) {
