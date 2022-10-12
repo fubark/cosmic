@@ -123,6 +123,7 @@ pub const MouseHoverArea = struct {
 /// Provides mouse events for child widget.
 pub const MouseArea = struct {
     props: struct {
+        hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onClick: stdx.Function(fn (ui.MouseUpEvent) void) = .{},
         child: ui.FramePtr = .{},
     },
@@ -143,6 +144,11 @@ pub const MouseArea = struct {
         var self = node.getWidget(MouseArea);
         if (e.val.button == .left) {
             if (self.pressed) {
+                if (self.props.hitTest.isPresent()) {
+                    if (!self.props.hitTest.call(.{ e.val.x, e.val.y })) {
+                        return;
+                    }
+                }
                 self.pressed = false;
                 if (self.props.onClick.isPresent()) {
                     self.props.onClick.call(.{ e });
@@ -154,10 +160,16 @@ pub const MouseArea = struct {
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(MouseArea);
         if (e.val.button == .left) {
+            if (self.props.hitTest.isPresent()) {
+                if (!self.props.hitTest.call(.{ e.val.x, e.val.y })) {
+                    return .default;
+                }
+            }
             e.ctx.requestFocus(.{ .onBlur = onBlur });
             self.pressed = true;
+            return .stop;
         }
-        return .stop;
+        return .default;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
