@@ -174,6 +174,30 @@ pub const TextArea = struct {
         }
     }
 
+    pub fn allocSelectedText(self: TextArea, alloc: std.mem.Allocator) ![]const u8 {
+        if (self.hasSelection) {
+            var res: std.ArrayListUnmanaged(u8) = .{};
+            var i = self.selectionStart.lineIdx;
+            var line = self.lines.items[i];
+            if (self.selectionEnd.lineIdx == self.selectionStart.lineIdx) {
+                try res.appendSlice(alloc, line.buf.getSubStr(self.selectionStart.colIdx, self.selectionEnd.colIdx));
+                return res.toOwnedSlice(alloc);
+            }
+            try res.appendSlice(alloc, line.buf.getSubStr(self.selectionStart.colIdx, line.buf.numCodepoints()));
+            try res.append(alloc, '\n');
+            i += 1;
+            while (i < self.selectionEnd.lineIdx) {
+                line = self.lines.items[i];
+                try res.appendSlice(alloc, line.buf.buf.items);
+                try res.append(alloc, '\n');
+                i += 1;
+            }
+            line = self.lines.items[i];
+            try res.appendSlice(alloc, line.buf.getSubStr(0, self.selectionEnd.colIdx));
+            return res.toOwnedSlice(alloc);
+        } else return "";
+    }
+
     pub fn allocText(self: TextArea, alloc: std.mem.Allocator) ![]const u8 {
         var res: std.ArrayListUnmanaged(u8) = .{};
         for (self.lines.items) |line| {
@@ -201,6 +225,9 @@ pub const TextArea = struct {
 
     fn onPaste(node: *ui.Node, _: *ui.CommonContext, str: []const u8) void {
         const self = node.getWidget(TextArea);
+        if (self.hasSelection) {
+            self.deleteSelection();
+        }
         self.paste(str);
     }
 
@@ -212,21 +239,30 @@ pub const TextArea = struct {
         var iter = std.mem.split(u8, str, "\n");
         // First line inserts to the caret pos.
         const first = iter.next().?;
-        var num_new_chars = self.lines.items[self.caret_line].buf.insertSubStr(self.caret_col, first) catch fatal();
+
+        // Text after caret is appended to the last inserted line.
+        const line = &self.lines.items[self.caret_line];
+        const afterCaretText = self.alloc.dupe(u8, line.buf.getSubStr(self.caret_col, line.buf.numCodepoints())) catch fatal();
+        defer self.alloc.free(afterCaretText);
+        line.buf.removeSubStr(self.caret_col, line.buf.numCodepoints());
+        var num_new_chars = line.buf.appendSubStr(first) catch fatal();
         self.postLineUpdate(self.caret_line);
         self.caret_col += num_new_chars;
 
-        while (iter.next()) |line| {
+        while (iter.next()) |pline| {
             self.caret_line += 1;
 
             // Insert a new line.
             var new_line = Line.init(self.alloc);
-            num_new_chars = new_line.buf.appendSubStr(line) catch fatal();
+            num_new_chars = new_line.buf.appendSubStr(pline) catch fatal();
             self.lines.insert(self.caret_line, new_line) catch fatal();
             self.postLineUpdate(self.caret_line);
 
             self.caret_col = num_new_chars;
         }
+
+        // Reattach text that was after the caret before the paste.
+        _ = self.lines.items[self.caret_line].buf.appendSubStr(afterCaretText) catch fatal();
 
         self.postCaretUpdate();
         self.postCaretActivity();
@@ -551,9 +587,28 @@ pub const TextArea = struct {
             }
         } else if (val.code == .V and val.isControlPressed()) {
             if (!IsWasm) {
+                if (self.hasSelection) {
+                    self.deleteSelection();
+                }
                 const clipboard = platform.allocClipboardText(self.alloc) catch fatal();
                 defer self.alloc.free(clipboard);
                 self.paste(clipboard);
+            }
+        } else if (val.code == .X and val.isControlPressed()) {
+            // Cut to clipboard.
+            if (self.hasSelection) {
+                const selected = self.allocSelectedText(self.alloc) catch fatal();
+                defer self.alloc.free(selected);
+                platform.setClipboardText(selected) catch fatal();
+                self.deleteSelection();
+            }
+        } else if (val.code == .C and val.isControlPressed()) {
+            // Copy to clipboard.
+            if (self.hasSelection) {
+                const selected = self.allocSelectedText(self.alloc) catch fatal();
+                defer self.alloc.free(selected);
+                platform.setClipboardText(selected) catch fatal();
+                cancelSelect = false;
             }
         } else {
             if (val.getPrintChar()) |ch| {
@@ -572,6 +627,8 @@ pub const TextArea = struct {
                 self.caret_col += 1;
                 self.postCaretUpdate();
                 self.postCaretActivity();
+            } else {
+                cancelSelect = false;
             }
         }
 
@@ -600,7 +657,7 @@ pub const TextArea = struct {
 
     fn selectFrom(self: *TextArea, prevCaretLine: u32, prevCaretCol: u32) void {
         if (self.hasSelection) {
-            if (self.caret_line == self.selectionOrigin.lineIdx and self.caret_col == self.selectionOrigin.lineIdx) {
+            if (self.caret_line == self.selectionOrigin.lineIdx and self.caret_col == self.selectionOrigin.colIdx) {
                 self.hasSelection = false;
             } else {
                 if (self.caret_line < self.selectionOrigin.lineIdx or (self.caret_line == self.selectionOrigin.lineIdx and self.caret_col < self.selectionOrigin.colIdx)) {

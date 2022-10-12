@@ -36,6 +36,7 @@ pub const EventResult = event_dispatcher.EventResult;
 
 extern "stdx" fn jsSetSystemCursor(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsGetClipboard(len: *usize) [*]const u8;
+extern "stdx" fn jsSetClipboardText(ptr: [*]const u8, len: usize) void;
 extern "stdx" fn jsOpenUrl(ptr: [*]const u8, len: usize) void;
 
 pub fn delay(us: u64) void {
@@ -97,6 +98,7 @@ pub fn setSystemCursor(cursor_t: SystemCursorType) void {
                     .stop => sdl.SDL_SYSTEM_CURSOR_NO,
                     .hand => sdl.SDL_SYSTEM_CURSOR_HAND,
                     .wait => sdl.SDL_SYSTEM_CURSOR_WAIT,
+                    .pointer => stdx.unsupported(),
                 };
                 const res = sdl.SDL_CreateSystemCursor(sdl_cursor);
                 if (res == null) {
@@ -140,9 +142,9 @@ pub fn allocClipboardText(alloc: std.mem.Allocator) ![]const u8 {
     }
 }
 
-pub fn setClipboardText(str: [:0]const u8) !void {
+pub fn setClipboardText(str: if (IsWasm) []const u8 else [:0]const u8) !void {
     if (IsWasm) {
-        stdx.unsupported();
+        jsSetClipboardText(str.ptr, str.len);
     } else {
         sdl.ensureVideoInit() catch return error.Unknown;
         const res = sdl.SDL_SetClipboardText(str);
