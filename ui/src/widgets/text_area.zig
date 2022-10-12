@@ -14,7 +14,6 @@ const ui = @import("../ui.zig");
 const u = ui.widgets;
 const log = stdx.log.scoped(.text_area);
 
-// TODO: Mimic features from TextField.
 // TODO: Expose maxLines property.
 // TODO: Expose properties that could be useful for a TextEditor.
 pub const TextArea = struct {
@@ -103,8 +102,8 @@ pub const TextArea = struct {
         self.lines.deinit();
     }
 
-    pub fn build(self: *TextArea, c: *ui.BuildContext) ui.FramePtr {
-        const style = c.getStyle(TextArea);
+    pub fn build(self: *TextArea, ctx: *ui.BuildContext) ui.FramePtr {
+        const style = ctx.getStyle(TextArea);
 
         const sv_style = u.ScrollViewStyle{
             .bgColor = style.bgColor,
@@ -112,9 +111,13 @@ pub const TextArea = struct {
         return u.ScrollView(.{
             .bind = &self.scroll_view,
             .style = sv_style,
-            .onContentMouseDown = c.funcExt(self, onMouseDown) },
+            .childOverlay = u.MouseDragArea(.{
+                .onDragStart = ctx.funcExt(self, onDragStart),
+                .onDragMove = ctx.funcExt(self, onDragMove),
+                .onDragEnd = ctx.funcExt(self, onDragEnd),
+            }, .{}), },
             u.Padding(.{ .padding = style.padding },
-                c.build(TextAreaInner, .{
+                ctx.build(TextAreaInner, .{
                     .bind = &self.inner,
                     .editor = self,
                 }),
@@ -140,20 +143,47 @@ pub const TextArea = struct {
         self.padding = style.padding;
     }
 
-    fn onMouseDown(self: *TextArea, e: platform.MouseDownEvent) ui.EventResult {
+    /// Map mouse pos to caret pos.
+    fn absMouseToCaretLoc(self: *TextArea, x: i16, y: i16) DocLocation {
+        const scroll_view = self.scroll_view.getWidget();
+        const xf = @intToFloat(f32, x) - self.node.abs_bounds.min_x + scroll_view.scroll_x;
+        const yf = @intToFloat(f32, y) - self.node.abs_bounds.min_y + scroll_view.scroll_y;
+        return self.localToCaretLoc(self.ctx, xf, yf);
+    }
+
+    fn onDragStart(self: *TextArea, e: ui.DragStartEvent) void {
         self.requestFocus();
 
-        // Map mouse pos to caret pos.
-        const scroll_view = self.scroll_view.getWidget();
-        const xf = @intToFloat(f32, e.x) - self.node.abs_bounds.min_x + scroll_view.scroll_x;
-        const yf = @intToFloat(f32, e.y) - self.node.abs_bounds.min_y + scroll_view.scroll_y;
-        const loc = self.toCaretLoc(self.ctx, xf, yf);
+        const loc = self.absMouseToCaretLoc(e.x, e.y);
+        self.caret_line = loc.lineIdx;
+        self.caret_col = loc.colIdx;
+        self.selectionOrigin.lineIdx = self.caret_line;
+        self.selectionOrigin.colIdx = self.caret_col;
+        self.postCaretUpdate();
+    }
 
+    fn onDragMove(self: *TextArea, e: ui.DragMoveEvent) void {
+        const prevCaretLine = self.caret_line;
+        const prevCaretCol = self.caret_col;
+
+        const loc = self.absMouseToCaretLoc(e.x, e.y);
         self.caret_line = loc.lineIdx;
         self.caret_col = loc.colIdx;
         self.postCaretUpdate();
 
-        return .stop;
+        self.selectFrom(prevCaretLine, prevCaretCol);
+    }
+
+    fn onDragEnd(self: *TextArea, x: i16, y: i16) void {
+        const prevCaretLine = self.caret_line;
+        const prevCaretCol = self.caret_col;
+
+        const loc = self.absMouseToCaretLoc(x, y);
+        self.caret_line = loc.lineIdx;
+        self.caret_col = loc.colIdx;
+        self.postCaretUpdate();
+
+        self.selectFrom(prevCaretLine, prevCaretCol);
     }
 
     /// Should be called before layout.
@@ -287,7 +317,7 @@ pub const TextArea = struct {
         }
     }
 
-    fn toCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x_: f32, y_: f32) DocLocation {
+    fn localToCaretLoc(self: *TextArea, ctx: *ui.CommonContext, x_: f32, y_: f32) DocLocation {
         // Account for padding.
         const x = x_ - self.padding;
         const y = y_ - self.padding;
@@ -521,16 +551,18 @@ pub const TextArea = struct {
             }
             self.caretInsertNewLine() catch fatal();
         } else if (val.code == .ArrowLeft) {
-            if (self.caret_col > 0) {
-                self.caret_col -= 1;
-                self.postCaretUpdate();
-                self.postCaretActivity();
-            } else {
-                if (self.caret_line > 0) {
-                    self.caret_line -= 1;
-                    self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
+            if (!self.hasSelection) {
+                if (self.caret_col > 0) {
+                    self.caret_col -= 1;
                     self.postCaretUpdate();
                     self.postCaretActivity();
+                } else {
+                    if (self.caret_line > 0) {
+                        self.caret_line -= 1;
+                        self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
+                        self.postCaretUpdate();
+                        self.postCaretActivity();
+                    }
                 }
             }
             if (val.isShiftPressed()) {
@@ -538,16 +570,18 @@ pub const TextArea = struct {
                 self.selectFrom(prevCaretLine, prevCaretCol);
             }
         } else if (val.code == .ArrowRight) {
-            if (self.caret_col < line.buf.numCodepoints()) {
-                self.caret_col += 1;
-                self.postCaretUpdate();
-                self.postCaretActivity();
-            } else {
-                if (self.caret_line < self.lines.items.len-1) {
-                    self.caret_line += 1;
-                    self.caret_col = 0;
+            if (!self.hasSelection) {
+                if (self.caret_col < line.buf.numCodepoints()) {
+                    self.caret_col += 1;
                     self.postCaretUpdate();
                     self.postCaretActivity();
+                } else {
+                    if (self.caret_line < self.lines.items.len-1) {
+                        self.caret_line += 1;
+                        self.caret_col = 0;
+                        self.postCaretUpdate();
+                        self.postCaretActivity();
+                    }
                 }
             }
             if (val.isShiftPressed()) {
