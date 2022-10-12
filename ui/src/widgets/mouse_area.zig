@@ -36,8 +36,8 @@ pub const MouseDragArea = struct {
         }
         if (self.props.onDragStart.isPresent()) {
             const start_e = ui.DragStartEvent{
-                .src_x = @floatToInt(u32, e.ctx.node.abs_bounds.min_x),
-                .src_y = @floatToInt(u32, e.ctx.node.abs_bounds.min_y),
+                .src_x = e.ctx.node.abs_bounds.min_x,
+                .src_y = e.ctx.node.abs_bounds.min_y,
                 .x = e.val.x,
                 .y = e.val.y,
             };

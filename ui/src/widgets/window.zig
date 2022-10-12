@@ -26,8 +26,8 @@ pub const Window = struct {
     height: f32,
 
     /// For dragging window.
-    drag_start_offset_x: i16,
-    drag_start_offset_y: i16,
+    drag_start_offset_x: f32,
+    drag_start_offset_y: f32,
 
     /// For resizing window.
     drag_start_x: i16,
@@ -281,8 +281,8 @@ pub const Window = struct {
     }
 
     fn onDragMoveTitle(self: *Window, e: ui.DragMoveEvent) void {
-        self.x = @intToFloat(f32, e.x - self.drag_start_offset_x);
-        self.y = @intToFloat(f32, e.y - self.drag_start_offset_y);
+        self.x = @intToFloat(f32, e.x) - self.drag_start_offset_x;
+        self.y = @intToFloat(f32, e.y) - self.drag_start_offset_y;
         const root_size = e.ctx.getRootLayoutSize();
         if (self.x < 0) {
             self.x = 0;

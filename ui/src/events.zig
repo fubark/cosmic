@@ -25,19 +25,19 @@ pub const HoverChangeEvent = struct {
 
 pub const DragStartEvent = struct {
     /// Absolute position of the child widget that is wrapped.
-    src_x: u32,
-    src_y: u32,
+    src_x: f32,
+    src_y: f32,
 
     /// Mouse position.
     x: i16,
     y: i16,
 
-    pub fn getSrcOffsetX(self: DragStartEvent) i16 {
-        return self.x - @intCast(i16, self.src_x);
+    pub fn getSrcOffsetX(self: DragStartEvent) f32 {
+        return @intToFloat(f32, self.x) - self.src_x;
     }
 
-    pub fn getSrcOffsetY(self: DragStartEvent) i16 {
-        return self.y - @intCast(i16, self.src_y);
+    pub fn getSrcOffsetY(self: DragStartEvent) f32 {
+        return @intToFloat(f32, self.y) - self.src_y;
     }
 };
 
