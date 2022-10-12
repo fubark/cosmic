@@ -143,6 +143,7 @@ const SlicePtrType = enum {
     rc,
 };
 
+/// TODO: Consider renaming to `Slice`.
 pub fn SlicePtr(comptime T: type) type {
     return struct {
         ptr_t: SlicePtrType = .static,

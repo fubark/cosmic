@@ -114,8 +114,7 @@ pub const Padding = struct {
         }
 
         const cstr = c.getSizeConstraints();
-        const node = c.getNode();
-        const child = node.children.items[0];
+        const child = c.getFirstChild();
 
         const min_width = std.math.max(cstr.min_width - h_pad, 0);
         const min_height = std.math.max(cstr.min_height - v_pad, 0);
