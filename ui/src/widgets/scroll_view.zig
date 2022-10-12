@@ -19,6 +19,9 @@ const ScrollBarVisibility = enum(u2) {
 /// By default, scroll view will stretch to it's child. Must be constrained by parent sizer (eg. Sized, Flex) to trigger scrollbars. 
 pub const ScrollView = struct {
     props: struct {
+        /// Declare an overlay over the child widget but still below the ScrollView.
+        childOverlay: ui.FramePtr = .{},
+
         child: ui.FramePtr = .{},
         show_hscroll: ScrollBarVisibility = .auto,
         show_vscroll: ScrollBarVisibility = .auto,
@@ -77,12 +80,20 @@ pub const ScrollView = struct {
         self.has_hbar = false;
         self.dragging_hbar = false;
         self.dragging_vbar = false;
-        c.setMouseDownHandler(self, onMouseDown);
+        c.setEnterMouseDownHandler(self, onMouseDown);
         c.setMouseWheelHandler(self, onMouseWheel);
     }
 
-    pub fn build(self: *ScrollView, _: *ui.BuildContext) ui.FramePtr {
-        return self.props.child.dupe();
+    pub fn build(self: *ScrollView, ctx: *ui.BuildContext) ui.FramePtr {
+        if (self.props.childOverlay.isPresent()) {
+            const children = ctx.list(&.{
+                self.props.childOverlay.dupe(),
+                self.props.child.dupe(),
+            });
+            return ctx.fragment(children);
+        } else {
+            return self.props.child.dupe();
+        }
     }
 
     fn onMouseDown(self: *ScrollView, e: ui.MouseDownEvent) ui.EventResult {
@@ -204,15 +215,16 @@ pub const ScrollView = struct {
 
     /// Take up the same amount of space as it's child and respects parent's constraints.
     /// Updates scroll width and height.
-    pub fn layout(self: *ScrollView, c: *ui.LayoutContext) ui.LayoutSize {
+    pub fn layout(self: *ScrollView, ctx: *ui.LayoutContext) ui.LayoutSize {
         self.scroll_height = 0;
         self.scroll_width = 0;
 
-        const cstr = c.getSizeConstraints();
+        const cstr = ctx.getSizeConstraints();
+        const hasChildOverlay = self.props.childOverlay.isPresent();
 
         if (self.props.child.isPresent()) {
-            const node = c.getNode();
-            const child = node.children.items[0];
+            const node = ctx.getNode();
+            const child = if (!hasChildOverlay) node.children.items[0] else node.children.items[1];
             var child_size: ui.LayoutSize = undefined;
             if (!self.props.enable_hscroll) {
                 const child_cstr = ui.SizeConstraints{
@@ -221,9 +233,9 @@ pub const ScrollView = struct {
                     .max_width = if (self.has_vbar) cstr.max_width - BarSize else cstr.max_width,
                     .max_height = ui.ExpandedHeight,
                 };
-                child_size = c.computeLayout2(child, child_cstr);
+                child_size = ctx.computeLayout2(child, child_cstr);
             } else {
-                child_size = c.computeLayoutWithMax(child, ui.ExpandedWidth, ui.ExpandedHeight);
+                child_size = ctx.computeLayoutWithMax(child, ui.ExpandedWidth, ui.ExpandedHeight);
             }
             if (child_size.height > self.scroll_height) {
                 self.scroll_height = child_size.height;
@@ -231,7 +243,7 @@ pub const ScrollView = struct {
             if (child_size.width > self.scroll_width) {
                 self.scroll_width = child_size.width;
             }
-            c.setLayout(child, ui.Layout.init(-self.scroll_x, -self.scroll_y, child_size.width, child_size.height));
+            ctx.setLayout(child, ui.Layout.init(-self.scroll_x, -self.scroll_y, child_size.width, child_size.height));
         }
 
         // Natural size is child's size.
@@ -249,7 +261,14 @@ pub const ScrollView = struct {
         self.computeEffScrollDims(res.width, res.height);
         if (!prev_has_vbar and self.has_vbar) {
             // Recompute layout when turning on the vbar.
-            return self.layout(c);
+            return self.layout(ctx);
+        }
+
+        if (hasChildOverlay) {
+            // Child overlay gets the same size as the ScrollView.
+            const child = ctx.getFirstChild();
+            const childSize = ctx.computeLayoutExact(child, res.width, res.height);
+            ctx.setLayout(child, ui.Layout.init(0, 0, childSize.width, childSize.height));
         }
 
         return res;
