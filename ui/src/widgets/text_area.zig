@@ -22,6 +22,7 @@ pub const TextArea = struct {
         initValue: []const u8,
         width: f32 = 400,
         height: f32 = 300,
+        onFocus: stdx.Function(fn () void) = .{},
         onBlur: stdx.Function(fn () void) = .{},
         onKeyDown: stdx.Function(fn (ui.WidgetRef(TextArea), platform.KeyDownEvent) ui.EventResult) = .{},
     },
@@ -220,6 +221,9 @@ pub const TextArea = struct {
         self.ctx.requestFocus(self.node, .{ .onBlur = onBlur, .onPaste = onPaste });
         const inner = self.inner.getWidget();
         inner.setFocused();
+        if (self.props.onFocus.isPresent()) {
+            self.props.onFocus.call(.{});
+        }
         // std.crypto.hash.Md5.hash(self.buf.items, &self.last_buf_hash, .{});
     }
 
