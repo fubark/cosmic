@@ -67,7 +67,7 @@ pub const FileDialog = struct {
             }
         };
         return u.Sized(.{ .width = 500, .height = 400 },
-            u.Column(.{ .expand_child_width = true }, &.{
+            u.Column(.{ .expandChildWidth = true }, &.{
                 u.Flex(.{},
                     u.ScrollList(.{ .bind = &self.scroll_list, .bg_color = Color.init(50, 50, 50, 255) },
                         c.tempRange(self.files.items.len, self, S.buildItem),

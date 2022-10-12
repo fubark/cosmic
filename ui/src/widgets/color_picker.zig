@@ -202,7 +202,7 @@ const ColorPickerPopover = struct {
             }
         };
         return u.Sized(.{ .width = 200 },
-            u.Column(.{ .expand_child_width = true }, &.{
+            u.Column(.{ .expandChildWidth = true }, &.{
                 u.Stretch(.{
                     .method = .WidthAndKeepRatio,
                     .aspect_ratio = 1,

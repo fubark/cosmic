@@ -27,7 +27,7 @@ pub const Menu = struct {
                 const self_ = stdx.mem.ptrCastAlign(*Menu, ptr);
                 return u.Container(.{ .bgColor = graphics.Color.Green, .width = 150 }, 
                     ctx.build(u.ColumnT, .{
-                        .expand_child_width = true,
+                        .expandChildWidth = true,
                         .children = self_.props.children.dupe(),
                     }),
                 );

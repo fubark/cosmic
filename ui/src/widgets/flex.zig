@@ -15,7 +15,7 @@ pub const Column = struct {
         valign: ui.VAlign = .top,
 
         /// Prefers child to take up max width of available space.
-        expand_child_width: bool = false,
+        expandChildWidth: bool = false,
         spacing: f32 = 0,
 
         /// Whether the columns's height will expand to the max height of available space.
@@ -40,7 +40,7 @@ pub const Column = struct {
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.height -= total_spacing;
 
-        const min_width = if (self.props.expand_child_width) vacant_size.width else 0;
+        const min_width = if (self.props.expandChildWidth) vacant_size.width else 0;
 
         // First pass computes non expanding children.
         var has_expanding_children = false;
@@ -172,6 +172,8 @@ pub const Row = struct {
 
         spacing: f32 = 0,
 
+        expandChildHeight: bool = false,
+
         /// Whether the row's width will shrink to the total width of it's children or expand to the parent container's width.
         /// Expands to the parent container's width by default.
         expand: bool = false,
@@ -192,6 +194,8 @@ pub const Row = struct {
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.width -= total_spacing;
 
+        const min_height = if (self.props.expandChildHeight) vacant_size.height else 0;
+
         // First pass computes non expanding children.
         var has_expanding_children = false;
         var flex_sum: u32 = 0;
@@ -210,7 +214,7 @@ pub const Row = struct {
                     continue;
                 }
             }
-            var child_size = c.computeLayoutWithMax(it, vacant_size.width, vacant_size.height);
+            var child_size = c.computeLayout(it, 0, min_height, vacant_size.width, vacant_size.height);
             c.setLayout(it, ui.Layout.init(cur_x, 0, child_size.width, child_size.height));
             cur_x += child_size.width + self.props.spacing;
             vacant_size.width -= child_size.width;
@@ -241,7 +245,7 @@ pub const Row = struct {
                 }
 
                 max_child_size.width = flex_unit_size * @intToFloat(f32, flex);
-                var child_size = c.computeLayout(it, max_child_size.width, 0, max_child_size.width, max_child_size.height);
+                var child_size = c.computeLayout(it, max_child_size.width, min_height, max_child_size.width, max_child_size.height);
                 c.setLayout(it, ui.Layout.init(cur_x, 0, child_size.width, child_size.height));
                 cur_x += child_size.width + self.props.spacing;
                 if (child_size.height > max_child_height) {

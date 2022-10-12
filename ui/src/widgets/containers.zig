@@ -507,7 +507,7 @@ pub const TabView = struct {
         if (self.props.buildTab.isPresent()) {
             tabs = ctx.tempRange(self.props.numTabs, self, S.buildTab);
         }
-        return u.Column(.{ .expand_child_width = true }, &.{
+        return u.Column(.{ .expandChildWidth = true }, &.{
             u.Row(.{}, tabs),
             u.Flex(.{}, content),
         });

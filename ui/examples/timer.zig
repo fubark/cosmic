@@ -77,7 +77,7 @@ pub const App = struct {
 
         return u.Center(.{}, 
             u.Sized(.{ .width = 400 },
-                u.Column(.{ .expand_child_width = true, .spacing = 20 }, &.{
+                u.Column(.{ .expandChildWidth = true, .spacing = 20 }, &.{
                     u.Row(.{}, &.{
                         u.Text(.{
                             .text = "Elapsed Time: ",
