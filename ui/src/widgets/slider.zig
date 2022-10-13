@@ -21,8 +21,8 @@ pub fn SliderBase(comptime is_float: bool) type {
             init_val: Value = 0,
             min_val: Value = 0,
             max_val: Value = if (is_float) 1 else 100,
-            onChangeEnd: ?Function(fn (Value) void) = null,
-            onChange: ?Function(fn (Value) void) = null,
+            onChangeEnd: Function(fn (Value) void) = .{},
+            onChange: Function(fn (Value) void) = .{},
             thumb_color: Color = Color.Blue,
             display_value: bool = true,
         },
@@ -57,11 +57,11 @@ pub fn SliderBase(comptime is_float: bool) type {
                 self.pressed = false;
                 self.updateValueFromMouseX(node, e.val.x);
                 if (self.drag_start_value != self.value) {
-                    if (self.props.onChange) |cb| {
-                        cb.call(.{ self.value });
+                    if (self.props.onChange.isPresent()) {
+                        self.props.onChange.call(.{ self.value });
                     }
-                    if (self.props.onChangeEnd) |cb| {
-                        cb.call(.{ self.value });
+                    if (self.props.onChangeEnd.isPresent()) {
+                        self.props.onChangeEnd.call(.{ self.value });
                     }
                 }
             }
@@ -101,8 +101,8 @@ pub fn SliderBase(comptime is_float: bool) type {
             var self = node.getWidget(Self);
             self.updateValueFromMouseX(node, e.val.x);
             if (self.last_value != self.value) {
-                if (self.props.onChange) |cb| {
-                    cb.call(.{ self.value });
+                if (self.props.onChange.isPresent()) {
+                    self.props.onChange.call(.{ self.value });
                 }
             }
             self.last_value = self.value;

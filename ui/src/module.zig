@@ -428,6 +428,8 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                             @field(props, field.name).destroy();
                         } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
                             @field(props, field.name).destroy();
+                        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "Function")) {
+                            @field(props, field.name).deinit(mod.build_ctx.dynamic_alloc);
                         }
                     }
                     mod.build_ctx.dynamic_alloc.destroy(props);
@@ -521,7 +523,7 @@ pub const Module = struct {
             .trace = undefined,
         };
         self.common.init(alloc, self, g);
-        self.build_ctx.init(alloc, self.common.arena_alloc, self);
+        self.build_ctx.init(alloc, alloc, self);
         self.render_ctx = RenderContext.init(&self.common.ctx, g);
         self.update_ctx = .{
             .common = &self.common.ctx,
@@ -965,20 +967,6 @@ pub const Module = struct {
         self.common.removeNodes();
 
         // TODO: check if we have to update
-
-        // Reset the builder buffer before we call any Component.build
-        self.build_ctx.resetBuffer();
-        if (self.common.use_first_arena) {
-            self.common.arena_allocators[0].deinit();
-            self.common.arena_allocators[0].state = .{};
-            self.common.arena_alloc = self.common.arena_allocs[0];
-        } else {
-            self.common.arena_allocators[1].deinit();
-            self.common.arena_allocators[1].state = .{};
-            self.common.arena_alloc = self.common.arena_allocs[1];
-        }
-        self.build_ctx.arena_alloc = self.common.arena_alloc;
-        self.common.use_first_arena = !self.common.use_first_arena;
 
         defer {
             for (self.common.build_owned_frames.items) |ptr| {
@@ -2322,16 +2310,6 @@ pub const ModuleCommon = struct {
     alloc: std.mem.Allocator,
     mod: *Module,
 
-    /// Arena allocators that get freed after two update cycles.
-    /// Allocations should survive two update cycles so that nodes that have been discarded from tree diff still have valid props memory.
-    /// Two are needed to alternate on each engine update.
-    /// TODO: Since frames are ref counted now, revisit to see if this can be removed since it adds unnecessary complexity.
-    arena_allocators: [2]std.heap.ArenaAllocator,
-    arena_allocs: [2]std.mem.Allocator,
-    use_first_arena: bool,
-    /// The current arena allocator.
-    arena_alloc: std.mem.Allocator,
-
     build_owned_frames: std.ArrayListUnmanaged(ui.FramePtr),
 
     slice_rcs: stdx.ds.PooledHandleList(u32, u32),
@@ -2431,10 +2409,6 @@ pub const ModuleCommon = struct {
         self.* = .{
             .alloc = alloc,
             .mod = mod,
-            .arena_allocators = .{ std.heap.ArenaAllocator.init(alloc), std.heap.ArenaAllocator.init(alloc) },
-            .arena_allocs = undefined,
-            .use_first_arena = true,
-            .arena_alloc = undefined,
             .build_owned_frames = .{},
             .slice_rcs = stdx.ds.PooledHandleList(u32, u32).init(alloc),
 
@@ -2494,9 +2468,6 @@ pub const ModuleCommon = struct {
             .to_remove_handlers = .{},
             .to_remove_nodes = .{},
         };
-        self.arena_allocs[0] = self.arena_allocators[0].allocator();
-        self.arena_allocs[1] = self.arena_allocators[1].allocator();
-        self.arena_alloc = self.arena_allocs[0];
     }
 
     fn deinit(self: *ModuleCommon) void {
@@ -2545,9 +2516,6 @@ pub const ModuleCommon = struct {
         self.node_mousedown_map.deinit(self.alloc);
         self.node_mousewheel_map.deinit(self.alloc);
 
-        self.arena_allocators[0].deinit();
-        self.arena_allocators[1].deinit();
-
         self.build_owned_frames.deinit(self.alloc);
 
         if (builtin.mode == .Debug) {
@@ -2557,6 +2525,19 @@ pub const ModuleCommon = struct {
             }
         }
         self.slice_rcs.deinit();
+    }
+
+    pub fn initRcSlice(self: *ModuleCommon, comptime T: type, slice: []const T) !ui.SlicePtr(T) {
+        const id = try self.slice_rcs.add(1);
+        return ui.SlicePtr(T){
+            .ptr_t = .rc,
+            .inner = .{
+                .rc = .{
+                    .slice = slice,
+                    .refId = id,
+                },
+            },
+        };
     }
 
     pub fn dupeRcSlice(self: *ModuleCommon, comptime T: type, slice: []const T) !ui.SlicePtr(T) {
@@ -3338,13 +3319,13 @@ test "Props memory should still be valid at node destroy time." {
 
     const A = struct {
         props: *const struct {
-            str: []const u8,
+            str: ui.SlicePtr(u8),
             buf: []u8,
         },
 
         pub fn deinit(self: *@This(), _: *ui.DeinitContext) void {
             // str should still point to valid memory.
-            std.mem.copy(u8, self.props.buf, self.props.str);
+            std.mem.copy(u8, self.props.buf, self.props.str.slice());
         }
     };
 
@@ -3353,7 +3334,7 @@ test "Props memory should still be valid at node destroy time." {
             if (opts.decl) {
                 return c.build(A, .{
                     .id = .root,
-                    .str = c.fmt("foo", .{}),
+                    .str = c.fmt("foo", .{}) catch fatal(),
                     .buf = opts.buf,
                 });
             } else {
@@ -3372,7 +3353,7 @@ test "Props memory should still be valid at node destroy time." {
     var root = mod.getNodeByTag(.root).?;
     try t.eq(root.vtable, GenWidgetVTable(A));
     const widget = root.getWidget(A);
-    try t.eqStr(widget.props.str, "foo");
+    try t.eqStr(widget.props.str.slice(), "foo");
 
     try mod.preUpdate(Options{ .buf = &buf, .decl = false }, S.bootstrap);
     try t.eqStr(buf[0..3], "foo");

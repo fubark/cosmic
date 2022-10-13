@@ -28,7 +28,6 @@ pub const BuildContext = struct {
 
     /// Temporary frame id buffer.
     frameid_buf: std.ArrayListUnmanaged(ui.FramePtr),
-    u8_buf: std.ArrayList(u8),
 
     // Current node.
     node: *ui.Node,
@@ -45,7 +44,6 @@ pub const BuildContext = struct {
             .common = &mod.common.ctx,
             .frames = stdx.ds.RcPooledHandleList(ui.FrameId, ui.Frame).init(alloc),
             .frame_lists = stdx.ds.RcPooledHandleList(ui.FrameListId, stdx.ds.SLLUnmanaged(ui.FramePtr)).init(alloc),
-            .u8_buf = std.ArrayList(u8).init(alloc),
             .frameid_buf = .{},
             .node = undefined,
             .frame_id = undefined,
@@ -68,7 +66,6 @@ pub const BuildContext = struct {
         self.frames.deinit();
         self.frame_lists.deinit();
         self.frameid_buf.deinit(self.alloc);
-        self.u8_buf.deinit();
     }
 
     /// Creates a closure in arena buffer, and returns an iface.
@@ -78,7 +75,7 @@ pub const BuildContext = struct {
             @compileError("Expected first param to be: " ++ @typeName(@TypeOf(ctx)));
         }
         const InnerFn = stdx.meta.FnAfterFirstParam(@TypeOf(user_fn));
-        const c = stdx.Closure(@TypeOf(ctx), InnerFn).init(self.mod.common.arena_alloc, ctx, user_fn).iface();
+        const c = stdx.Closure(@TypeOf(ctx), InnerFn).init(self.dynamic_alloc, ctx, user_fn).iface();
         return Function(InnerFn).initClosureIface(c);
     }
 
@@ -144,18 +141,15 @@ pub const BuildContext = struct {
         }
     }
 
-    pub fn resetBuffer(self: *BuildContext) void {
-        self.u8_buf.clearRetainingCapacity();
-    }
-
     pub fn prepareCall(self: *BuildContext, frame_id: ui.FrameId, node: *ui.Node) void {
         self.frame_id = frame_id;
         self.node = node;
     }
 
     /// Uses arena allocator to format text.
-    pub fn fmt(self: *BuildContext, comptime format: []const u8, args: anytype) []const u8 {
-        return std.fmt.allocPrint(self.arena_alloc, format, args) catch fatal();
+    pub fn fmt(self: *BuildContext, comptime format: []const u8, args: anytype) !ui.SlicePtr(u8) {
+        const slice = try std.fmt.allocPrint(self.arena_alloc, format, args);
+        return try self.common.common.initRcSlice(u8, slice);
     }
 
     /// Short-hand for createFrame.
