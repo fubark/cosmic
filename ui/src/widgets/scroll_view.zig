@@ -18,7 +18,7 @@ const ScrollBarVisibility = enum(u2) {
 
 /// By default, scroll view will stretch to it's child. Must be constrained by parent sizer (eg. Sized, Flex) to trigger scrollbars. 
 pub const ScrollView = struct {
-    props: struct {
+    props: *const struct {
         /// Declare an overlay over the child widget but still below the ScrollView.
         childOverlay: ui.FramePtr = .{},
 

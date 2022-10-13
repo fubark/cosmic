@@ -15,7 +15,7 @@ fn SliderOptionBase(comptime is_float: bool) type {
     const Inner = if (is_float) w.SliderFloatT else w.SliderT;
     const InnerProps = ui.WidgetProps(Inner);
     return struct {
-        props: struct {
+        props: *const struct {
             label: []const u8 = "Slider",
             slider: InnerProps,
         },
@@ -51,7 +51,7 @@ fn SliderOptionBase(comptime is_float: bool) type {
 
 // TODO: Use .spread like SliderOption
 pub const SwitchOption = struct {
-    props: struct {
+    props: *const struct {
         label: []const u8 = "Switch",
         init_val: bool = false,
         onChange: ?stdx.Function(fn (bool) void) = null,

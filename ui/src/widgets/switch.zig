@@ -8,7 +8,7 @@ const w = ui.widgets;
 const log = stdx.log.scoped(.switch_);
 
 pub const Switch = struct {
-    props: struct {
+    props: *const struct {
         label: ?[]const u8 = null,
         init_val: bool = false,
         onChange: ?stdx.Function(fn (bool) void) = null,

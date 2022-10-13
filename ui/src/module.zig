@@ -164,7 +164,7 @@ fn updateWidgetStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame:
 pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
     const gen = struct {
 
-        fn create(mod: *Module, node: *ui.Node, frame: ui.Frame) *anyopaque {
+        fn create(mod: *Module, node: *ui.Node, framePtr: ui.FramePtr, frame: ui.Frame) *anyopaque {
             const ctx = &mod.init_ctx;
 
             const new: *Widget = if (@sizeOf(Widget) > 0) b: {
@@ -178,18 +178,10 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     if (frame.props) |ptr| {
                         const Props = WidgetProps(Widget);
                         const props = stdx.mem.ptrCastAlign(*const Props, ptr);
-                        new.props = props.*;
 
-                        // Dupe ref counted props.
-                        inline for (comptime std.meta.fields(Props)) |field| {
-                            if (field.field_type == ui.FramePtr) {
-                                _ = @field(props, field.name).dupe();
-                            } else if (field.field_type == ui.FrameListPtr) {
-                                _ = @field(props, field.name).dupe();
-                            } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
-                                _ = @field(props, field.name).dupeRef();
-                            }
-                        }
+                        // Copy frame props pointer and own a reference to the frame.
+                        new.props = props;
+                        node.frame = framePtr.dupe();
                     }
                 }
             }
@@ -223,25 +215,12 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn updateProps(mod: *Module, node: *ui.Node, frame: ui.Frame, ctx: *UpdateContext) void {
+        fn updateProps(mod: *Module, node: *ui.Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *UpdateContext) void {
             const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
             if (comptime WidgetHasProps(Widget)) {
                 if (frame.props) |ptr| {
                     const Props = WidgetProps(Widget);
                     const props = stdx.mem.ptrCastAlign(*const Props, ptr);
-
-                    if (@hasField(Widget, "props")) {
-                        inline for (comptime std.meta.fields(Props)) |field| {
-                            if (field.field_type == ui.FramePtr) {
-                                ctx.handleFrameUpdate(@field(widget.props, field.name), @field(props, field.name));
-                            } else if (field.field_type == ui.FrameListPtr) {
-                                ctx.handleFrameListUpdate(@field(widget.props, field.name), @field(props, field.name));
-                            } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
-                                const T = std.meta.Child(@TypeOf(@field(widget.props, field.name).inner.static));
-                                ctx.handleSlicePtrUpdate(T, @field(widget.props, field.name), @field(props, field.name));
-                            }
-                        }
-                    }
 
                     if (@hasDecl(Widget, "prePropsUpdate")) {
                         if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext, *const Props) void, @TypeOf(Widget.prePropsUpdate))) {
@@ -250,7 +229,10 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                         widget.prePropsUpdate(ctx, props);
                     }
 
-                    widget.props = props.*;
+                    widget.props = props;
+                    // Update ref counts.
+                    ctx.handleFrameUpdate(node.frame, framePtr);
+                    node.frame = framePtr;
                 }
             }
 
@@ -394,18 +376,8 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
 
             if (@hasField(Widget, "props")) {
-                const Props = WidgetProps(Widget);
-
-                // Release ref counted props.
-                inline for (comptime std.meta.fields(Props)) |field| {
-                    if (field.field_type == ui.FramePtr) {
-                        @field(widget.props, field.name).destroy();
-                    } else if (field.field_type == ui.FrameListPtr) {
-                        @field(widget.props, field.name).destroy();
-                    } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
-                        @field(widget.props, field.name).destroy();
-                    }
-                }
+                // Release frame reference.
+                node.frame.destroy();
             }
 
             const Style = WidgetComputedStyle(Widget);
@@ -1129,7 +1101,7 @@ pub const Module = struct {
 
         if (frame.props != null or frame.style != null) {
             self.update_ctx.node = node;
-            widget_vtable.updateProps(self, node, frame, &self.update_ctx);
+            widget_vtable.updateProps(self, node, frame_ptr, frame, &self.update_ctx);
         }
 
         defer {
@@ -1432,7 +1404,7 @@ pub const Module = struct {
         }
 
         self.init_ctx.prepareForNode(new_node);
-        const new_widget = widget_vtable.create(self, new_node, frame);
+        const new_widget = widget_vtable.create(self, new_node, frame_ptr, frame);
 
         // Bind to ref after initializing the widget.
         if (frame.widget_bind) |bind| {
@@ -2976,7 +2948,7 @@ const TestModule = struct {
 
 test "Node removal also removes the children." {
     const A = struct {
-        props: struct {
+        props: *const struct {
             child: ui.FramePtr,
         },
         fn build(self: *@This(), _: *BuildContext) ui.FramePtr {
@@ -3061,7 +3033,7 @@ test "BuildContext.list() will skip over a null FramePtr item." {
 
 test "Don't allow nested fragment frames." {
     const A = struct {
-        props: struct { child: ui.FramePtr },
+        props: *const struct { child: ui.FramePtr },
         fn build(self: *@This(), _: *BuildContext) ui.FramePtr {
             return self.props.child.dupe();
         }
@@ -3090,7 +3062,7 @@ test "Don't allow nested fragment frames." {
 
 test "BuildContext.range" {
     const A = struct {
-        props: struct {
+        props: *const struct {
             children: ui.FrameListPtr,
         },
         fn build(self: *@This(), c: *BuildContext) ui.FramePtr {
@@ -3309,7 +3281,7 @@ test "Diff matches child with key." {
     const C = struct {};
     const B = struct {};
     const A = struct {
-        props: struct {
+        props: *const struct {
             children: ui.FrameListPtr = .{},
         },
         fn build(self: *@This(), c: *BuildContext) ui.FramePtr {
@@ -3365,7 +3337,7 @@ test "Props memory should still be valid at node destroy time." {
     };
 
     const A = struct {
-        props: struct {
+        props: *const struct {
             str: []const u8,
             buf: []u8,
         },
@@ -3501,7 +3473,7 @@ test "NodeRefMap binding." {
 
 // test "BuildContext.build disallows using a prop that's not declared in Widget.props" {
 //     const Foo = struct {
-//         props: struct {
+//         props: *const struct {
 //             bar: usize,
 //         };
 //     };
@@ -3545,13 +3517,20 @@ pub fn WidgetHasProps(comptime Widget: type) bool {
     if (!@hasField(Widget, "props")) {
         return false;
     }
-    const PropsField = std.meta.fieldInfo(Widget, .props);
-    return @typeInfo(PropsField.field_type) == .Struct;
+    const Props = stdx.meta.FieldType(Widget, .props);
+    if (@typeInfo(Props) == .Pointer and @typeInfo(Props).Pointer.is_const) {
+        const Child = @typeInfo(Props).Pointer.child;
+        if (@typeInfo(Child) == .Struct) {
+            return true;
+        }
+    }
+    return false;
 }
 
 pub fn WidgetProps(comptime Widget: type) type {
     if (WidgetHasProps(Widget)) {
-        return std.meta.fieldInfo(Widget, .props).field_type;
+        const Props = stdx.meta.FieldType(Widget, .props);
+        return std.meta.Child(Props);
     } else {
         return void;
         // @compileError(@typeName(Widget) ++ " doesn't have props field.");

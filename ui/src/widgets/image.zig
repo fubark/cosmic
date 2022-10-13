@@ -9,7 +9,7 @@ const w = ui.widgets;
 const NullId = std.math.maxInt(u32);
 
 pub const Image = struct {
-    props: struct {
+    props: *const struct {
         imageId: graphics.ImageId = NullId,
         tint: graphics.Color = graphics.Color.White,
         width: ?f32 = null,

@@ -4,7 +4,7 @@ const ui = @import("../ui.zig");
 const u = ui.widgets;
 
 pub const Menu = struct {
-    props: struct {
+    props: *const struct {
         openLabel: ui.FramePtr = .{},
         children: ui.FrameListPtr = .{},
     },

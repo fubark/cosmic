@@ -128,7 +128,7 @@ Once it kicks off the event loop, it will start updating and rendering the ui gi
 Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postPropsUpdate, postUpdate, layout, render, renderCustom`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
 ```zig
 pub const Counter = struct {
-    props: struct {
+    props: *const struct {
         // A prop with a default value.
         text_color: Color = Color.Blue,
 

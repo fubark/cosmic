@@ -179,6 +179,9 @@ pub const Node = struct {
     /// Pointer to the widget instance.
     widget: *anyopaque,
 
+    /// If the Widget has props, the node owns a reference to the Frame that contains the props.
+    frame: ui.FramePtr,
+
     /// Is only defined if has_widget_id = true.
     id: WidgetUserId,
 
@@ -223,6 +226,7 @@ pub const Node = struct {
             .key = key,
             .parent = parent,
             .widget = widget,
+            .frame = .{},
             .bind = null,
             .children = std.ArrayList(*Node).init(alloc),
             .child_event_ordering = undefined,
@@ -346,13 +350,13 @@ pub const Node = struct {
 pub const WidgetVTable = struct {
 
     /// Creates a new Widget on the heap and returns the pointer.
-    create: fn (mod: *ui.Module, node: *Node, frame: ui.Frame) *anyopaque,
+    create: fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame) *anyopaque,
 
     /// Runs post init on an existing Widget.
     postInit: fn (widget_ptr: *anyopaque, init_ctx: *ui.InitContext) void,
 
     /// Updates the props on an existing Widget.
-    updateProps: fn (mod: *ui.Module, node: *Node, frame: ui.Frame, ctx: *ui.UpdateContext) void,
+    updateProps: fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *ui.UpdateContext) void,
 
     /// Runs post update.
     postUpdate: fn (node: *Node, ctx: *ui.UpdateContext) void,

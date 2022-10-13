@@ -10,7 +10,7 @@ const module = @import("../module.zig");
 
 /// Lays out children vertically.
 pub const Column = struct {
-    props: struct {
+    props: *const struct {
         bg_color: ?Color = null,
         valign: ui.VAlign = .top,
 
@@ -164,7 +164,7 @@ pub const Column = struct {
 };
 
 pub const Row = struct {
-    props: struct {
+    props: *const struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
         valign: ui.VAlign = .top,
@@ -304,7 +304,7 @@ pub const Row = struct {
 
 /// Interpreted by Column or Row as a flexible widget. The flex property is used determine how it fits in the parent container.
 pub const Flex = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr = .{},
 
         /// Flex properties are used by the parent.

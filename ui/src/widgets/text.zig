@@ -10,7 +10,7 @@ const log = stdx.log.scoped(.text);
 
 /// Lays out Text/TextSpan children inline.
 pub const TextSpan = struct {
-    props: struct {
+    props: *const struct {
         children: ui.FrameListPtr = .{},
     },
 
@@ -94,7 +94,7 @@ pub const TextSpan = struct {
 };
 
 pub const Text = struct {
-    props: struct {
+    props: *const struct {
         text: ui.SlicePtr(u8) = .{},
     },
 
@@ -242,7 +242,7 @@ pub const Text = struct {
 
 /// Since Text can be laid out inline the hit test should only consider the region where there is text.
 pub const TextLink = struct {
-    props: struct {
+    props: *const struct {
         uri: ui.SlicePtr(u8) = .{},
         text: ui.SlicePtr(u8) = .{},
     },

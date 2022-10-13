@@ -16,7 +16,7 @@ const NullId = std.math.maxInt(u32);
 
 /// Handles a single line of text input.
 pub const TextField = struct {
-    props: struct {
+    props: *const struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
         focused_border_color: Color = Color.Blue,
@@ -239,7 +239,7 @@ pub const TextField = struct {
 };
 
 pub const TextFieldInner = struct {
-    props: struct {
+    props: *const struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
         font_id: graphics.FontId = NullId,

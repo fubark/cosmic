@@ -7,7 +7,7 @@ const log = stdx.log.scoped(.mouse_area);
 /// Provides drag events for a child widget.
 /// Once dragging has started, it gets drag focus and will receive dragmove and dragend events outside of its bounds.
 pub const MouseDragArea = struct {
-    props: struct {
+    props: *const struct {
         hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onDragStart: stdx.Function(fn (ui.DragStartEvent) void) = .{},
         onDragMove: stdx.Function(fn (ui.DragMoveEvent) void) = .{},
@@ -72,7 +72,7 @@ pub const MouseDragArea = struct {
 
 /// Provides mouse over events for a child widget.
 pub const MouseHoverArea = struct {
-    props: struct {
+    props: *const struct {
         hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onHoverChange: stdx.Function(fn (ui.HoverChangeEvent) void) = .{},
         onHoverMove: stdx.Function(fn (i16, i16) void) = .{},
@@ -122,7 +122,7 @@ pub const MouseHoverArea = struct {
 
 /// Provides mouse events for child widget.
 pub const MouseArea = struct {
-    props: struct {
+    props: *const struct {
         hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onClick: stdx.Function(fn (ui.MouseUpEvent) void) = .{},
         child: ui.FramePtr = .{},

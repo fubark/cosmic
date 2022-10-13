@@ -12,7 +12,7 @@ const log = stdx.log.scoped(.button);
 const NullId = std.math.maxInt(u32);
 
 pub const IconButton = struct {
-    props: struct {
+    props: *const struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         icon: ui.IconT,
         halign: ui.HAlign = .center,
@@ -54,7 +54,7 @@ pub const IconButton = struct {
 };
 
 pub const TextButton = struct {
-    props: struct {
+    props: *const struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         text: []const u8 = "",
         icon: ui.IconT = ui.Icon(NullId, .{}),
@@ -120,7 +120,7 @@ pub const ButtonMods = packed union {
 
 /// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
 pub const Button = struct {
-    props: struct {
+    props: *const struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
         child: ui.FramePtr = .{},
         halign: ui.HAlign = .center,

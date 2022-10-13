@@ -8,7 +8,7 @@ const u = ui.widgets;
 const log = stdx.log.scoped(.window);
 
 pub const Window = struct {
-    props: struct {
+    props: *const struct {
         bgColor: Color = Color.DarkGray,
         title: []const u8 = "",
         initX: f32 = 0,

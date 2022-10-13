@@ -10,7 +10,7 @@ const NullId = std.math.maxInt(u32);
 const log = stdx.log.scoped(.list);
 
 pub const ScrollList = struct {
-    props: struct {
+    props: *const struct {
         children: ui.FrameListPtr = .{},
         bg_color: Color = Color.White,
     },
@@ -42,7 +42,7 @@ pub const ScrollList = struct {
 
 /// Fills maximum space and lays out children in a column.
 pub const List = struct {
-    props: struct {
+    props: *const struct {
         children: ui.FrameListPtr = .{},
         bg_color: Color = Color.White,
     },

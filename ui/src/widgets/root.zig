@@ -16,7 +16,7 @@ const RootOverlayHandle = struct {
 
 /// The Root widget allows the user's root widget to be wrapped by a container that can provide additional functionality such as modals and popovers.
 pub const Root = struct {
-    props: struct {
+    props: *const struct {
         user_root: ui.FramePtr = .{},
     },
 
@@ -276,7 +276,7 @@ const OverlayType = enum(u2) {
 /// An overlay that positions the child modal in a specific alignment over the overlay bounds.
 /// Clicking outside of the child modal will close the modal.
 pub const ModalOverlay = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr,
         valign: ui.VAlign = .center,
         halign: ui.HAlign = .center,
@@ -351,7 +351,7 @@ pub const ModalOverlay = struct {
 /// An overlay that positions the child popover adjacent to a source widget.
 /// Clicking outside of the child popover will close the popover.
 pub const PopoverOverlay = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr,
         src_node: *ui.Node,
         placement: PopoverPlacement,

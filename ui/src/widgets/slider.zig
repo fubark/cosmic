@@ -17,7 +17,7 @@ pub const SliderFloat = SliderBase(true);
 pub fn SliderBase(comptime is_float: bool) type {
     const Value = if (is_float) f32 else i32;
     return struct {
-        props: struct {
+        props: *const struct {
             init_val: Value = 0,
             min_val: Value = 0,
             max_val: Value = if (is_float) 1 else 100,

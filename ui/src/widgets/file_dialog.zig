@@ -8,7 +8,7 @@ const u = ui.widgets;
 const log = stdx.log.scoped(.file_dialog);
 
 pub const FileDialog = struct {
-    props: struct {
+    props: *const struct {
         init_cwd: []const u8,
         onResult: stdx.Function(fn (path: []const u8) void) = .{},
         onRequestClose: stdx.Function(fn () void) = .{},

@@ -11,7 +11,7 @@ const log = stdx.log.scoped(.color_picker);
 
 // TODO: Split this into ColorPicker and ColorPickerOption.
 pub const ColorPicker = struct {
-    props: struct {
+    props: *const struct {
         label: []const u8 = "Color",
         fontSize: f32 = 16,
         init_val: Color = Color.White,
@@ -92,7 +92,7 @@ pub const ColorPicker = struct {
 };
 
 const ColorPickerPopover = struct {
-    props: struct {
+    props: *const struct {
         init_val: Color,
         popoverId: u32,
         onPreviewChange: Function(fn (Color) void) = .{},

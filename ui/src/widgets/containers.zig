@@ -10,7 +10,7 @@ const log = stdx.log.scoped(.containers);
 
 /// Provides a border around a child widget.
 pub const Border = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr = .{},
     },
 
@@ -87,7 +87,7 @@ pub const Border = struct {
 
 /// Provides padding around a child widget.
 pub const Padding = struct {
-    props: struct {
+    props: *const struct {
         padTop: ?f32 = null,
         padRight: ?f32 = null,
         padBottom: ?f32 = null,
@@ -127,7 +127,7 @@ pub const Padding = struct {
 };
 
 pub const Sized = struct {
-    props: struct {
+    props: *const struct {
         /// If width is not provided, this container will shrink to the child's width.
         width: ?f32 = null,
 
@@ -182,7 +182,7 @@ fn sizedWrapChildLayout(ctx: *ui.LayoutContext, m_width: ?f32, m_height: ?f32, c
 }
 
 pub const Center = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr = .{},
         vcenter: bool = true,
         hcenter: bool = true,
@@ -218,7 +218,7 @@ pub const Center = struct {
 /// Respects parent constraints and keeps the child's aspect ratio.
 /// Only child widgets that support resize work.
 pub const KeepAspectRatio = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr = .{},
     },
 
@@ -263,7 +263,7 @@ const StretchMethod = enum(u3) {
 /// When method = WidthAndKeepRatio, the width is stretched and the height is adjusted to keep the aspect ratio.
 /// When method = HeightAndKeepRatio, the height is stretched and the width is adjusted to keep the aspect ratio.
 pub const Stretch = struct {
-    props: struct {
+    props: *const struct {
         child: ui.FramePtr = .{},
         method: StretchMethod = .Both,
 
@@ -305,7 +305,7 @@ pub const Stretch = struct {
 //       A higher z-index would raise the child up.
 /// Stacks children over each other. The first child will be rendered first and receive input events last.
 pub const ZStack = struct {
-    props: struct {
+    props: *const struct {
         children: ui.FrameListPtr = .{},
     },
 
@@ -382,7 +382,7 @@ pub const ZStack = struct {
 };
 
 pub const Container = struct {
-    props: struct {
+    props: *const struct {
         bgColor: Color = Color.Transparent,
 
         /// If width is not provided, this container will shrink to the child's width.
@@ -428,7 +428,7 @@ pub const Container = struct {
 
 /// Takes up max available space and positions child to relative itself.
 pub const Positioned = struct {
-    props: struct {
+    props: *const struct {
         /// Relative x from parent.
         x: f32,
         /// Relative y from parent.
@@ -460,7 +460,7 @@ pub const Positioned = struct {
 };
 
 pub const TabView = struct {
-    props: struct {
+    props: *const struct {
         numTabs: u32 = 0,
         buildTab: stdx.Function(fn (*ui.BuildContext, idx: u32, active: bool) ui.FramePtr) = .{},
         buildContent: stdx.Function(fn (*ui.BuildContext, idx: u32) ui.FramePtr) = .{},
@@ -521,7 +521,7 @@ pub const TabView = struct {
 };
 
 pub const Link = struct {
-    props: struct {
+    props: *const struct {
         uri: ui.SlicePtr(u8) = .{},
         child: ui.FramePtr = .{},
     },
@@ -543,7 +543,7 @@ pub const Link = struct {
 
 /// Constrained wrapper over a child widget.
 pub const Constrained = struct {
-    props: struct {
+    props: *const struct {
         minWidth: ?f32 = null,
         minHeight: ?f32 = null,
         maxWidth: ?f32 = null,

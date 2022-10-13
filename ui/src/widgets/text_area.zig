@@ -17,7 +17,7 @@ const log = stdx.log.scoped(.text_area);
 // TODO: Expose maxLines property.
 // TODO: Expose properties that could be useful for a TextEditor.
 pub const TextArea = struct {
-    props: struct {
+    props: *const struct {
         initValue: []const u8,
         width: f32 = 400,
         height: f32 = 300,
@@ -763,7 +763,7 @@ const Line = struct {
 };
 
 pub const TextAreaInner = struct {
-    props: struct {
+    props: *const struct {
         editor: *TextArea,
     },
 
