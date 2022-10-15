@@ -19,48 +19,11 @@ const complete_tree = @import("complete_tree.zig");
 pub const CompleteTreeArray = complete_tree.CompleteTreeArray;
 pub const DynamicArrayList = @import("dynamic_array_list.zig").DynamicArrayList;
 pub const BitArrayList = @import("bit_array_list.zig").BitArrayList;
-const box = @import("box.zig");
-pub const Box = box.Box;
-pub const SizedBox = box.SizedBox;
 pub const RbTree = @import("rb_tree.zig").RbTree;
 pub const Queue = @import("queue.zig").Queue;
 const linked_list = @import("linked_list.zig");
 pub const SinglyLinkedList = linked_list.SinglyLinkedList;
 pub const SLLUnmanaged = linked_list.SLLUnmanaged;
-
-// Shared opaque type.
-pub const Opaque = opaque {
-    pub fn fromPtr(comptime T: type, ptr: T) *Opaque {
-        return @ptrCast(*Opaque, ptr);
-    }
-
-    pub fn toPtr(comptime T: type, ptr: *Opaque) T {
-        return @intToPtr(T, @ptrToInt(ptr));
-    }
-};
-
-/// Slice that holds indexes instead of pointers. Use to reference slice in a growing memory buffer.
-pub fn IndexSlice(comptime T: type) type {
-    return struct {
-        start: T,
-        end: T,
-
-        pub fn init(start: T, end: T) @This() {
-            return .{
-                .start = start,
-                .end = end,
-            };
-        }
-
-        pub fn len(self: @This()) T {
-            return self.end - self.start;
-        }
-
-        pub fn isEmpty(self: @This()) bool {
-            return self.start == self.end;
-        }
-    };
-}
 
 // std.StringHashMap except key is duped and managed.
 pub fn OwnedKeyStringHashMap(comptime T: type) type {
@@ -138,57 +101,4 @@ test "OwnedKeyStringHashMap.put doesn't dupe an existing key" {
 // TODO: Might want a better interface for a hash set. https://github.com/ziglang/zig/issues/6919
 pub fn AutoHashSet(comptime Key: type) type {
     return std.AutoHashMap(Key, void);
-}
-
-pub const SizedPtr = struct {
-    const Self = @This();
-
-    ptr: *Opaque,
-    size: u32,
-
-    pub fn init(ptr: anytype) Self {
-        const Ptr = @TypeOf(ptr);
-        return .{
-            .ptr = Opaque.fromPtr(Ptr, ptr),
-            .size = @sizeOf(@typeInfo(Ptr).Pointer.child),
-        };
-    }
-
-    pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
-        const slice = Opaque.toPtr([*]u8, self.ptr)[0..self.size];
-        alloc.free(slice);
-    }
-};
-
-/// The ptr or slice inside should be freed depending on the flag.
-/// Use case: Sometimes a branching condition returns heap or non-heap memory. The deinit logic can just skip non-heap memory.
-pub fn MaybeOwned(comptime PtrOrSlice: type) type {
-    return struct {
-        inner: PtrOrSlice,
-        owned: bool,
-
-        pub fn initOwned(inner: PtrOrSlice) @This() {
-            return .{
-                .inner = inner,
-                .owned = true,
-            };
-        }
-
-        pub fn initUnowned(inner: PtrOrSlice) @This() {
-            return .{
-                .inner = inner,
-                .owned = false,
-            };
-        }
-
-        pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
-            if (self.owned) {
-                if (@typeInfo(PtrOrSlice) == .Pointer and @typeInfo(PtrOrSlice).Pointer.size == .Slice) {
-                    alloc.free(self.inner);
-                } else {
-                    alloc.destroy(self.inner);
-                }
-            }
-        }
-    };
 }
