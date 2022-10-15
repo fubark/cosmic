@@ -177,6 +177,14 @@ pub const BuildContext = struct {
                 frame.fragment_children.destroy();
             }
             frame.vtable.deinitFrame(self.mod, frame);
+
+            if (frame.node_binds != null) {
+                var mb_cur = frame.node_binds;
+                while (mb_cur) |cur| {
+                    mb_cur = cur.next;
+                    self.arena_alloc.destroy(cur);
+                }
+            }
         }
         if (builtin.mode == .Debug) {
             if (ref_count == 0) {

@@ -316,7 +316,7 @@ pub const ScrollView = struct {
         // Draw bottom right corner.
         if (self.has_vbar and self.has_hbar) {
             if (!style.gutterColor.isTransparent()) {
-                g.setFillColor(Color.Green);
+                g.setFillColor(Color.DarkGray);
                 g.fillRect(bounds.max_x - BarSize, bounds.max_y - BarSize, BarSize, BarSize);
             }
         }

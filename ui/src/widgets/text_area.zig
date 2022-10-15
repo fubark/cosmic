@@ -71,7 +71,6 @@ pub const TextArea = struct {
 
     pub fn init(self: *TextArea, c: *ui.InitContext) void {
         const style = c.getStyle(TextArea);
-        const props = self.props;
 
         self.font_gid = c.getFontGroupByFamily(style.fontFamily);
         self.font_size = style.fontSize;
@@ -91,8 +90,12 @@ pub const TextArea = struct {
         self.selectionStart = undefined;
         self.selectionEnd = undefined;
 
-        self.setText(props.initValue);
         c.setKeyDownHandler(self, onKeyDown);
+    }
+
+    pub fn postInit(self: *TextArea, _: *ui.InitContext) void {
+        // setText in post to allow parent to bind this instance.
+        self.setText(self.props.initValue);
     }
 
     pub fn deinit(self: *TextArea, _: *ui.DeinitContext) void {
