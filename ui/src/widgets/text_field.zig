@@ -162,7 +162,7 @@ pub const TextField = struct {
                 } else {
                     self.buf.removeChar(inner.caret_idx-1);
                 }
-                // self.postLineUpdate(self.caret_line);
+                // self.postLineUpdate(self.caretLoc.lineIdx);
                 inner.caret_idx -= 1;
                 inner.keepCaretFixedInView();
                 inner.resetCaretAnim();
@@ -200,7 +200,7 @@ pub const TextField = struct {
                 } else {
                     self.buf.insertCodepoint(inner.caret_idx, ch) catch @panic("error");
                 }
-                // self.postLineUpdate(self.caret_line);
+                // self.postLineUpdate(self.caretLoc.lineIdx);
                 inner.caret_idx += 1;
                 inner.keepCaretInView();
                 inner.resetCaretAnim();

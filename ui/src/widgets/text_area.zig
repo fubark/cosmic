@@ -14,6 +14,12 @@ const ui = @import("../ui.zig");
 const u = ui.widgets;
 const log = stdx.log.scoped(.text_area);
 
+const EventType = enum {
+    insert,
+    remove,
+    replace,
+};
+
 // TODO: Expose maxLines property.
 // TODO: Expose properties that could be useful for a TextEditor.
 pub const TextArea = struct {
@@ -24,12 +30,13 @@ pub const TextArea = struct {
         onFocus: stdx.Function(fn () void) = .{},
         onBlur: stdx.Function(fn () void) = .{},
         onKeyDown: stdx.Function(fn (ui.WidgetRef(TextArea), platform.KeyDownEvent) ui.EventResult) = .{},
+        onEvent: stdx.Function(fn (Event) void) = .{},
+        onRenderLines: stdx.Function(fn (*graphics.Graphics, stdx.math.BBox, *const ComputedStyle, []const Line, visibleStartIdx: u32, visibleEndIdx: u32, lineOffsetY: f32, lineHeight: f32) void) = .{},
     },
 
     lines: std.ArrayList(Line),
 
-    caret_line: u32,
-    caret_col: u32,
+    caretLoc: DocLocation,
     inner: ui.WidgetRef(TextAreaInner),
     scroll_view: ui.WidgetRef(u.ScrollViewT),
 
@@ -77,8 +84,8 @@ pub const TextArea = struct {
         self.needs_remeasure_font = true;
 
         self.lines = std.ArrayList(Line).init(c.alloc);
-        self.caret_line = 0;
-        self.caret_col = 0;
+        self.caretLoc.lineIdx = 0;
+        self.caretLoc.colIdx = 0;
         self.inner = .{};
         self.scroll_view = .{};
         self.ctx = c.common;
@@ -158,39 +165,34 @@ pub const TextArea = struct {
         self.requestFocus();
 
         const loc = self.absMouseToCaretLoc(e.x, e.y);
-        self.caret_line = loc.lineIdx;
-        self.caret_col = loc.colIdx;
-        self.selectionOrigin.lineIdx = self.caret_line;
-        self.selectionOrigin.colIdx = self.caret_col;
+        self.caretLoc.lineIdx = loc.lineIdx;
+        self.caretLoc.colIdx = loc.colIdx;
+        self.selectionOrigin.lineIdx = self.caretLoc.lineIdx;
+        self.selectionOrigin.colIdx = self.caretLoc.colIdx;
         self.postCaretUpdate();
     }
 
     fn onDragMove(self: *TextArea, e: ui.DragMoveEvent) void {
-        const prevCaretLine = self.caret_line;
-        const prevCaretCol = self.caret_col;
+        const prevCaretLoc = self.caretLoc;
 
-        const loc = self.absMouseToCaretLoc(e.x, e.y);
-        self.caret_line = loc.lineIdx;
-        self.caret_col = loc.colIdx;
+        self.caretLoc = self.absMouseToCaretLoc(e.x, e.y);
         self.postCaretUpdate();
 
-        self.selectFrom(prevCaretLine, prevCaretCol);
+        self.selectFrom(prevCaretLoc);
     }
 
     fn onDragEnd(self: *TextArea, x: i16, y: i16) void {
-        const prevCaretLine = self.caret_line;
-        const prevCaretCol = self.caret_col;
+        const prevCaretLoc = self.caretLoc;
 
-        const loc = self.absMouseToCaretLoc(x, y);
-        self.caret_line = loc.lineIdx;
-        self.caret_col = loc.colIdx;
+        self.caretLoc = self.absMouseToCaretLoc(x, y);
         self.postCaretUpdate();
 
-        self.selectFrom(prevCaretLine, prevCaretCol);
+        self.selectFrom(prevCaretLoc);
     }
 
     /// Should be called before layout.
     pub fn setText(self: *TextArea, text: []const u8) void {
+        const endLine = self.lines.items.len;
         self.clear();
 
         var iter = std.mem.split(u8, text, "\n");
@@ -206,6 +208,10 @@ pub const TextArea = struct {
             const line = Line.init(self.alloc);
             self.lines.append(line) catch unreachable;
         }
+
+        self.fireReplaceEvent(DocLocation.init(0, 0),
+            DocLocation.init(@intCast(u32, endLine), 0),
+            DocLocation.init(@intCast(u32, self.lines.items.len), 0));
     }
 
     pub fn allocSelectedText(self: TextArea, alloc: std.mem.Allocator) ![]const u8 {
@@ -278,28 +284,28 @@ pub const TextArea = struct {
         const first = iter.next().?;
 
         // Text after caret is appended to the last inserted line.
-        const line = &self.lines.items[self.caret_line];
-        const afterCaretText = self.alloc.dupe(u8, line.buf.getSubStr(self.caret_col, line.buf.numCodepoints())) catch fatal();
+        const line = &self.lines.items[self.caretLoc.lineIdx];
+        const afterCaretText = self.alloc.dupe(u8, line.buf.getSubStr(self.caretLoc.colIdx, line.buf.numCodepoints())) catch fatal();
         defer self.alloc.free(afterCaretText);
-        line.buf.removeSubStr(self.caret_col, line.buf.numCodepoints());
+        line.buf.removeSubStr(self.caretLoc.colIdx, line.buf.numCodepoints());
         var num_new_chars = line.buf.appendSubStr(first) catch fatal();
-        self.postLineUpdate(self.caret_line);
-        self.caret_col += num_new_chars;
+        self.postLineUpdate(self.caretLoc.lineIdx);
+        self.caretLoc.colIdx += num_new_chars;
 
         while (iter.next()) |pline| {
-            self.caret_line += 1;
+            self.caretLoc.lineIdx += 1;
 
             // Insert a new line.
             var new_line = Line.init(self.alloc);
             num_new_chars = new_line.buf.appendSubStr(pline) catch fatal();
-            self.lines.insert(self.caret_line, new_line) catch fatal();
-            self.postLineUpdate(self.caret_line);
+            self.lines.insert(self.caretLoc.lineIdx, new_line) catch fatal();
+            self.postLineUpdate(self.caretLoc.lineIdx);
 
-            self.caret_col = num_new_chars;
+            self.caretLoc.colIdx = num_new_chars;
         }
 
         // Reattach text that was after the caret before the paste.
-        _ = self.lines.items[self.caret_line].buf.appendSubStr(afterCaretText) catch fatal();
+        _ = self.lines.items[self.caretLoc.lineIdx].buf.appendSubStr(afterCaretText) catch fatal();
 
         self.postCaretUpdate();
         self.postCaretActivity();
@@ -385,11 +391,11 @@ pub const TextArea = struct {
     }
 
     fn getCaretBottomY(self: *TextArea) f32 {
-        return @intToFloat(f32, self.caret_line + 1) * @intToFloat(f32, self.font_line_height) + self.padding;
+        return @intToFloat(f32, self.caretLoc.lineIdx + 1) * @intToFloat(f32, self.font_line_height) + self.padding;
     }
 
     fn getCaretTopY(self: *TextArea) f32 {
-        return @intToFloat(f32, self.caret_line) * @intToFloat(f32, self.font_line_height) + self.padding;
+        return @intToFloat(f32, self.caretLoc.lineIdx) * @intToFloat(f32, self.font_line_height) + self.padding;
     }
 
     fn getCaretX(self: *TextArea) f32 {
@@ -444,47 +450,59 @@ pub const TextArea = struct {
     }
 
     pub fn getCaretLineBuffer(self: *TextArea) *const stdx.textbuf.TextBuffer {
-        return &self.lines.items[self.caret_line].buf;
+        return &self.lines.items[self.caretLoc.lineIdx].buf;
     }
 
     pub fn getCodepointBeforeCaret(self: *TextArea) ?u21 {
-        if (self.caret_col > 0) {
-            return self.lines.items[self.caret_line].buf.getCodepointAt(self.caret_col - 1);
+        if (self.caretLoc.colIdx > 0) {
+            return self.lines.items[self.caretLoc.lineIdx].buf.getCodepointAt(self.caretLoc.colIdx - 1);
         } else return null;
     }
 
     /// Assume no new lines.
-    pub fn caretInsert(self: *TextArea, str: []const u8) !void {
-        const line = &self.lines.items[self.caret_line];
-        if (self.caret_col == line.buf.num_chars) {
-            self.caret_col += try line.buf.appendSubStr(str);
+    pub fn modelInsertFromCaret(self: *TextArea, str: []const u8) !void {
+        const line = &self.lines.items[self.caretLoc.lineIdx];
+        if (self.caretLoc.colIdx == line.buf.num_chars) {
+            self.caretLoc.colIdx += try line.buf.appendSubStr(str);
         } else {
-            self.caret_col += try line.buf.insertSubStr(self.caret_col, str);
+            self.caretLoc.colIdx += try line.buf.insertSubStr(self.caretLoc.colIdx, str);
         }
-        self.postLineUpdate(self.caret_line);
+        self.postLineUpdate(self.caretLoc.lineIdx);
 
         self.postCaretUpdate();
         self.postCaretActivity();
     }
 
-    pub fn caretInsertNewLine(self: *TextArea) !void {
-        const new_line = Line.init(self.ctx.alloc);
-        try self.lines.insert(self.caret_line + 1, new_line);
-        // Requery current line since insert could have resized array.
-        const cur_line = &self.lines.items[self.caret_line];
-        if (self.caret_col < cur_line.buf.num_chars) {
-            // Move text after caret to the new line.
-            const after_text = cur_line.buf.getSubStr(self.caret_col, cur_line.buf.num_chars);
-            _ = try self.lines.items[self.caret_line+1].buf.appendSubStr(after_text);
-            cur_line.buf.removeSubStr(self.caret_col, cur_line.buf.num_chars);
-            self.postLineUpdate(self.caret_line);
-        }
-        self.postLineUpdate(self.caret_line + 1);
+    pub fn insertFromCaret(self: *TextArea, str: []const u8) !void {
+        const prev = self.caretLoc;
+        try self.modelInsertFromCaret(str);
+        self.fireInsertEvent(prev, self.caretLoc);
+    }
 
-        self.caret_line += 1;
-        self.caret_col = 0;
+    fn modelInsertNewLineFromCaret(self: *TextArea) !void {
+        const new_line = Line.init(self.ctx.alloc);
+        try self.lines.insert(self.caretLoc.lineIdx + 1, new_line);
+        // Requery current line since insert could have resized array.
+        const cur_line = &self.lines.items[self.caretLoc.lineIdx];
+        if (self.caretLoc.colIdx < cur_line.buf.num_chars) {
+            // Move text after caret to the new line.
+            const after_text = cur_line.buf.getSubStr(self.caretLoc.colIdx, cur_line.buf.num_chars);
+            _ = try self.lines.items[self.caretLoc.lineIdx+1].buf.appendSubStr(after_text);
+            cur_line.buf.removeSubStr(self.caretLoc.colIdx, cur_line.buf.num_chars);
+            self.postLineUpdate(self.caretLoc.lineIdx);
+        }
+        self.postLineUpdate(self.caretLoc.lineIdx + 1);
+
+        self.caretLoc.lineIdx += 1;
+        self.caretLoc.colIdx = 0;
         self.postCaretUpdate();
         self.postCaretActivity();
+    }
+
+    pub fn insertNewLineFromCaret(self: *TextArea) !void {
+        const prev = self.caretLoc;
+        try self.modelInsertNewLineFromCaret();
+        self.fireInsertEvent(prev, self.caretLoc);
     }
 
     fn onKeyDown(self: *TextArea, e: ui.KeyDownEvent) void {
@@ -496,73 +514,95 @@ pub const TextArea = struct {
             }
         }
 
-        var line = &self.lines.items[self.caret_line];
-        const prevCaretLine = self.caret_line;
-        const prevCaretCol = self.caret_col;
+        var line = &self.lines.items[self.caretLoc.lineIdx];
+        const prevCaretLoc = self.caretLoc;
         var cancelSelect = true;
         if (val.code == .Backspace) {
             if (self.hasSelection) {
+                const start = self.selectionStart;
+                const end = self.selectionEnd;
                 self.deleteSelection();
+                self.fireRemoveEvent(start, end);
             } else {
-                if (self.caret_col > 0) {
-                    if (line.buf.num_chars == self.caret_col) {
+                if (self.caretLoc.colIdx > 0) {
+                    const prev = self.caretLoc;
+                    if (line.buf.num_chars == self.caretLoc.colIdx) {
                         line.buf.removeChar(line.buf.num_chars-1);
                     } else {
-                        line.buf.removeChar(self.caret_col-1);
+                        line.buf.removeChar(self.caretLoc.colIdx-1);
                     }
-                    self.postLineUpdate(self.caret_line);
+                    self.postLineUpdate(self.caretLoc.lineIdx);
 
-                    self.caret_col -= 1;
+                    self.caretLoc.colIdx -= 1;
                     self.postCaretUpdate();
                     self.postCaretActivity();
-                } else if (self.caret_line > 0) {
+                    self.fireRemoveEvent(self.caretLoc, prev);
+                } else if (self.caretLoc.lineIdx > 0) {
                     // Join current line with previous.
-                    var prev_line = &self.lines.items[self.caret_line-1];
-                    self.caret_col = prev_line.buf.num_chars;
+                    const prev = self.caretLoc;
+                    var prev_line = &self.lines.items[self.caretLoc.lineIdx-1];
+                    self.caretLoc.colIdx = prev_line.buf.num_chars;
                     _ = prev_line.buf.appendSubStr(line.buf.buf.items) catch @panic("error");
                     line.deinit();
-                    _ = self.lines.orderedRemove(self.caret_line);
-                    self.postLineUpdate(self.caret_line-1);
+                    _ = self.lines.orderedRemove(self.caretLoc.lineIdx);
+                    self.postLineUpdate(self.caretLoc.lineIdx-1);
 
-                    self.caret_line -= 1;
+                    self.caretLoc.lineIdx -= 1;
                     self.postCaretUpdate();
                     self.postCaretActivity();
+                    self.fireRemoveEvent(self.caretLoc, prev);
                 }
             }
         } else if (val.code == .Delete) {
             if (self.hasSelection) {
+                const start = self.selectionStart;
+                const end = self.selectionEnd;
                 self.deleteSelection();
+                self.fireRemoveEvent(start, end);
             } else {
-                if (self.caret_col < line.buf.num_chars) {
-                    line.buf.removeChar(self.caret_col);
-                    self.postLineUpdate(self.caret_line);
+                if (self.caretLoc.colIdx < line.buf.num_chars) {
+                    line.buf.removeChar(self.caretLoc.colIdx);
+                    self.postLineUpdate(self.caretLoc.lineIdx);
                     self.postCaretActivity();
+                    var end = self.caretLoc;
+                    end.colIdx += 1;
+                    self.fireRemoveEvent(self.caretLoc, end);
                 } else {
                     // Append next line.
-                    if (self.caret_line < self.lines.items.len-1) {
-                        _ = line.buf.appendSubStr(self.lines.items[self.caret_line+1].buf.buf.items) catch @panic("error");
-                        self.lines.items[self.caret_line+1].deinit();
-                        _ = self.lines.orderedRemove(self.caret_line+1);
-                        self.postLineUpdate(self.caret_line);
+                    if (self.caretLoc.lineIdx < self.lines.items.len-1) {
+                        _ = line.buf.appendSubStr(self.lines.items[self.caretLoc.lineIdx+1].buf.buf.items) catch @panic("error");
+                        self.lines.items[self.caretLoc.lineIdx+1].deinit();
+                        _ = self.lines.orderedRemove(self.caretLoc.lineIdx+1);
+                        self.postLineUpdate(self.caretLoc.lineIdx);
                         self.postCaretActivity();
+                        var end = self.caretLoc;
+                        end.lineIdx += 1;
+                        self.fireRemoveEvent(self.caretLoc, end);
                     }
                 }
             }
         } else if (val.code == .Enter) {
             if (self.hasSelection) {
+                const start = self.selectionStart;
+                const end = self.selectionEnd;
                 self.deleteSelection();
+                self.modelInsertNewLineFromCaret() catch fatal();
+                self.fireReplaceEvent(start, end, self.caretLoc);
+            } else {
+                const prev = self.caretLoc;
+                self.modelInsertNewLineFromCaret() catch fatal();
+                self.fireInsertEvent(prev, self.caretLoc);
             }
-            self.caretInsertNewLine() catch fatal();
         } else if (val.code == .ArrowLeft) {
             if (!self.hasSelection) {
-                if (self.caret_col > 0) {
-                    self.caret_col -= 1;
+                if (self.caretLoc.colIdx > 0) {
+                    self.caretLoc.colIdx -= 1;
                     self.postCaretUpdate();
                     self.postCaretActivity();
                 } else {
-                    if (self.caret_line > 0) {
-                        self.caret_line -= 1;
-                        self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
+                    if (self.caretLoc.lineIdx > 0) {
+                        self.caretLoc.lineIdx -= 1;
+                        self.caretLoc.colIdx = self.lines.items[self.caretLoc.lineIdx].buf.num_chars;
                         self.postCaretUpdate();
                         self.postCaretActivity();
                     }
@@ -570,18 +610,18 @@ pub const TextArea = struct {
             }
             if (val.isShiftPressed()) {
                 cancelSelect = false;
-                self.selectFrom(prevCaretLine, prevCaretCol);
+                self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .ArrowRight) {
             if (!self.hasSelection) {
-                if (self.caret_col < line.buf.numCodepoints()) {
-                    self.caret_col += 1;
+                if (self.caretLoc.colIdx < line.buf.numCodepoints()) {
+                    self.caretLoc.colIdx += 1;
                     self.postCaretUpdate();
                     self.postCaretActivity();
                 } else {
-                    if (self.caret_line < self.lines.items.len-1) {
-                        self.caret_line += 1;
-                        self.caret_col = 0;
+                    if (self.caretLoc.lineIdx < self.lines.items.len-1) {
+                        self.caretLoc.lineIdx += 1;
+                        self.caretLoc.colIdx = 0;
                         self.postCaretUpdate();
                         self.postCaretActivity();
                     }
@@ -589,53 +629,53 @@ pub const TextArea = struct {
             }
             if (val.isShiftPressed()) {
                 cancelSelect = false;
-                self.selectFrom(prevCaretLine, prevCaretCol);
+                self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .ArrowUp) {
-            if (self.caret_line > 0) {
-                self.caret_line -= 1;
-                if (self.caret_col > self.lines.items[self.caret_line].buf.num_chars) {
-                    self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
+            if (self.caretLoc.lineIdx > 0) {
+                self.caretLoc.lineIdx -= 1;
+                if (self.caretLoc.colIdx > self.lines.items[self.caretLoc.lineIdx].buf.num_chars) {
+                    self.caretLoc.colIdx = self.lines.items[self.caretLoc.lineIdx].buf.num_chars;
                 }
                 self.postCaretUpdate();
                 self.postCaretActivity();
             }
             if (val.isShiftPressed()) {
                 cancelSelect = false;
-                self.selectFrom(prevCaretLine, prevCaretCol);
+                self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .ArrowDown) {
-            if (self.caret_line < self.lines.items.len-1) {
-                self.caret_line += 1;
-                if (self.caret_col > self.lines.items[self.caret_line].buf.num_chars) {
-                    self.caret_col = self.lines.items[self.caret_line].buf.num_chars;
+            if (self.caretLoc.lineIdx < self.lines.items.len-1) {
+                self.caretLoc.lineIdx += 1;
+                if (self.caretLoc.colIdx > self.lines.items[self.caretLoc.lineIdx].buf.num_chars) {
+                    self.caretLoc.colIdx = self.lines.items[self.caretLoc.lineIdx].buf.num_chars;
                 }
                 self.postCaretUpdate();
                 self.postCaretActivity();
             }
             if (val.isShiftPressed()) {
                 cancelSelect = false;
-                self.selectFrom(prevCaretLine, prevCaretCol);
+                self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .Home) {
-            if (self.caret_col > 0) {
-                self.caret_col = 0;
+            if (self.caretLoc.colIdx > 0) {
+                self.caretLoc.colIdx = 0;
                 self.postCaretUpdate();
                 self.postCaretActivity();
             }
             if (val.isShiftPressed()) {
                 cancelSelect = false;
-                self.selectFrom(prevCaretLine, prevCaretCol);
+                self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .End) {
-            if (self.caret_col < line.buf.numCodepoints()) {
-                self.caret_col = line.buf.numCodepoints();
+            if (self.caretLoc.colIdx < line.buf.numCodepoints()) {
+                self.caretLoc.colIdx = line.buf.numCodepoints();
                 self.postCaretUpdate();
                 self.postCaretActivity();
             }
             if (val.isShiftPressed()) {
                 cancelSelect = false;
-                self.selectFrom(prevCaretLine, prevCaretCol);
+                self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .V and val.isControlPressed()) {
             if (!IsWasm) {
@@ -651,34 +691,49 @@ pub const TextArea = struct {
             if (self.hasSelection) {
                 const selected = self.allocSelectedText(self.alloc) catch fatal();
                 defer self.alloc.free(selected);
-                platform.setClipboardText(selected) catch fatal();
+                platform.setClipboardText(self.alloc, selected) catch fatal();
+                const start = self.selectionStart;
+                const end = self.selectionEnd;
                 self.deleteSelection();
+                self.fireRemoveEvent(start, end);
             }
         } else if (val.code == .C and val.isControlPressed()) {
             // Copy to clipboard.
             if (self.hasSelection) {
                 const selected = self.allocSelectedText(self.alloc) catch fatal();
                 defer self.alloc.free(selected);
-                platform.setClipboardText(selected) catch fatal();
+                platform.setClipboardText(self.alloc, selected) catch fatal();
                 cancelSelect = false;
             }
         } else {
             if (val.getPrintChar()) |ch| {
+                var start: DocLocation = undefined;
+                var end: DocLocation = undefined;
+                var hadSelection = self.hasSelection;
                 if (self.hasSelection) {
                     // Remove selection first.
+                    start = self.selectionStart;
+                    end = self.selectionEnd;
                     self.deleteSelection();
-                    line = &self.lines.items[self.caret_line];
+                    line = &self.lines.items[self.caretLoc.lineIdx];
                 }
-                if (self.caret_col == line.buf.num_chars) {
+                if (self.caretLoc.colIdx == line.buf.num_chars) {
                     line.buf.appendCodepoint(ch) catch @panic("error");
                 } else {
-                    line.buf.insertCodepoint(self.caret_col, ch) catch @panic("error");
+                    line.buf.insertCodepoint(self.caretLoc.colIdx, ch) catch @panic("error");
                 }
-                self.postLineUpdate(self.caret_line);
+                self.postLineUpdate(self.caretLoc.lineIdx);
 
-                self.caret_col += 1;
+                const prev = self.caretLoc;
+                self.caretLoc.colIdx += 1;
                 self.postCaretUpdate();
                 self.postCaretActivity();
+                
+                if (hadSelection) {
+                    self.fireReplaceEvent(start, end, self.caretLoc);
+                } else {
+                    self.fireInsertEvent(prev, self.caretLoc);
+                }
             } else {
                 cancelSelect = false;
             }
@@ -686,6 +741,52 @@ pub const TextArea = struct {
 
         if (cancelSelect and self.hasSelection) {
             self.hasSelection = false;
+        }
+    }
+
+    fn fireInsertEvent(self: *TextArea, start: DocLocation, end: DocLocation) void {
+        if (self.props.onEvent.isPresent()) {
+            const event = Event{
+                .eventT = .insert,
+                .inner = .{
+                    .insert = .{
+                        .start = start,
+                        .end = end,
+                    },
+                },
+            };
+            self.props.onEvent.call(.{ event });
+        }
+    }
+
+    fn fireRemoveEvent(self: *TextArea, start: DocLocation, end: DocLocation) void {
+        if (self.props.onEvent.isPresent()) {
+            const event = Event{
+                .eventT = .remove,
+                .inner = .{
+                    .remove = .{
+                        .start = start,
+                        .end = end,
+                    },
+                },
+            };
+            self.props.onEvent.call(.{ event });
+        }
+    }
+
+    fn fireReplaceEvent(self: *TextArea, start: DocLocation, end: DocLocation, newEnd: DocLocation) void {
+        if (self.props.onEvent.isPresent()) {
+            const event = Event{
+                .eventT = .replace,
+                .inner = .{
+                    .replace = .{
+                        .start = start,
+                        .end = end,
+                        .newEnd = newEnd,
+                    },
+                },
+            };
+            self.props.onEvent.call(.{ event });
         }
     }
 
@@ -699,70 +800,83 @@ pub const TextArea = struct {
                 const lastLine = self.lines.items[self.selectionEnd.lineIdx];
                 const lastSegment = lastLine.buf.getSubStr(self.selectionEnd.colIdx, lastLine.buf.numCodepoints());
                 _ = line.buf.appendSubStr(lastSegment) catch fatal();
+                for (self.lines.items[self.selectionStart.lineIdx+1..self.selectionEnd.lineIdx+1]) |line_| {
+                    line_.deinit();
+                }
                 self.lines.replaceRange(self.selectionStart.lineIdx+1, self.selectionEnd.lineIdx - self.selectionStart.lineIdx, &.{}) catch fatal();
             }
-            self.caret_line = self.selectionStart.lineIdx;
-            self.caret_col = self.selectionStart.colIdx;
+            self.caretLoc.lineIdx = self.selectionStart.lineIdx;
+            self.caretLoc.colIdx = self.selectionStart.colIdx;
             self.hasSelection = false;
         }
     }
 
-    fn selectFrom(self: *TextArea, prevCaretLine: u32, prevCaretCol: u32) void {
+    fn selectFrom(self: *TextArea, prevCaretLoc: DocLocation) void {
         if (self.hasSelection) {
-            if (self.caret_line == self.selectionOrigin.lineIdx and self.caret_col == self.selectionOrigin.colIdx) {
+            if (self.caretLoc.lineIdx == self.selectionOrigin.lineIdx and self.caretLoc.colIdx == self.selectionOrigin.colIdx) {
                 self.hasSelection = false;
             } else {
-                if (self.caret_line < self.selectionOrigin.lineIdx or (self.caret_line == self.selectionOrigin.lineIdx and self.caret_col < self.selectionOrigin.colIdx)) {
-                    self.selectionStart.lineIdx = self.caret_line;
-                    self.selectionStart.colIdx = self.caret_col;
-                    self.selectionEnd.lineIdx = self.selectionOrigin.lineIdx;
-                    self.selectionEnd.colIdx = self.selectionOrigin.colIdx;
+                if (self.caretLoc.lineIdx < self.selectionOrigin.lineIdx or (self.caretLoc.lineIdx == self.selectionOrigin.lineIdx and self.caretLoc.colIdx < self.selectionOrigin.colIdx)) {
+                    self.selectionStart = self.caretLoc;
+                    self.selectionEnd = self.selectionOrigin;
                 } else {
-                    self.selectionStart.lineIdx = self.selectionOrigin.lineIdx;
-                    self.selectionStart.colIdx = self.selectionOrigin.colIdx;
-                    self.selectionEnd.lineIdx = self.caret_line;
-                    self.selectionEnd.colIdx = self.caret_col;
+                    self.selectionStart = self.selectionOrigin;
+                    self.selectionEnd = self.caretLoc;
                 }
             }
         } else {
             self.hasSelection = true;
-            self.selectionOrigin.lineIdx = prevCaretLine;
-            self.selectionOrigin.colIdx = prevCaretCol;
-            if (self.caret_line < prevCaretLine or (self.caret_line == prevCaretLine and self.caret_col < prevCaretCol)) {
-                self.selectionStart.lineIdx = self.caret_line;
-                self.selectionStart.colIdx = self.caret_col;
-                self.selectionEnd.lineIdx = prevCaretLine;
-                self.selectionEnd.colIdx = prevCaretCol;
+            self.selectionOrigin = prevCaretLoc;
+            if (self.caretLoc.lineIdx < prevCaretLoc.lineIdx or (self.caretLoc.lineIdx == prevCaretLoc.lineIdx and self.caretLoc.colIdx < prevCaretLoc.colIdx)) {
+                self.selectionStart = self.caretLoc;
+                self.selectionEnd = prevCaretLoc;
             } else {
-                self.selectionStart.lineIdx = prevCaretLine;
-                self.selectionStart.colIdx = prevCaretCol;
-                self.selectionEnd.lineIdx = self.caret_line;
-                self.selectionEnd.colIdx = self.caret_col;
+                self.selectionStart = prevCaretLoc;
+                self.selectionEnd = self.caretLoc;
             }
         }
     }
-};
 
-const Line = struct {
-    buf: stdx.textbuf.TextBuffer,
+    pub const Line = struct {
+        buf: stdx.textbuf.TextBuffer,
 
-    /// Computed width.
-    width: f32,
+        /// Computed width.
+        width: f32,
 
-    /// Whether this line should be measured during layout.
-    needs_measure: bool,
+        /// Whether this line should be measured during layout.
+        needs_measure: bool,
 
-    fn init(alloc: std.mem.Allocator) Line {
-        return .{
-            .buf = stdx.textbuf.TextBuffer.init(alloc, "") catch @panic("error"),
-            .needs_measure = false,
-            .width = 0,
-        };
-    }
+        fn init(alloc: std.mem.Allocator) Line {
+            return .{
+                .buf = stdx.textbuf.TextBuffer.init(alloc, "") catch @panic("error"),
+                .needs_measure = false,
+                .width = 0,
+            };
+        }
 
-    fn deinit(self: Line) void {
-        self.buf.deinit();
-    }
+        fn deinit(self: Line) void {
+            self.buf.deinit();
+        }
+    };
+
+    pub const Event = struct {
+        eventT: EventType,
+        inner: union {
+            insert: struct {
+                start: DocLocation,
+                end: DocLocation,
+            },
+            remove: struct {
+                start: DocLocation,
+                end: DocLocation,
+            },
+            replace: struct {
+                start: DocLocation,
+                end: DocLocation,
+                newEnd: DocLocation,
+            },
+        },
+    };
 };
 
 pub const TextAreaInner = struct {
@@ -804,8 +918,8 @@ pub const TextAreaInner = struct {
     }
 
     fn postCaretUpdate(self: *TextAreaInner) void {
-        const line = self.editor.lines.items[self.editor.caret_line];
-        self.to_caret_str = line.buf.getSubStr(0, self.editor.caret_col);
+        const line = self.editor.lines.items[self.editor.caretLoc.lineIdx];
+        self.to_caret_str = line.buf.getSubStr(0, self.editor.caretLoc.colIdx);
         self.to_caret_needs_measure = true;
     }
 
@@ -868,8 +982,8 @@ pub const TextAreaInner = struct {
         const style = ctx.common.getNodeStyle(TextArea, self.props.editor.node);
         // TODO: Use binary search when word wrap is enabled and we can't determine the first visible line with O(1)
         const scroll_view = editor.scroll_view.getWidget();
-        const visible_start_idx = std.math.max(0, @floatToInt(i32, @floor(scroll_view.scroll_y / line_height)));
-        const visible_end_idx = std.math.min(editor.lines.items.len, @floatToInt(i32, @ceil((scroll_view.scroll_y + editor.scroll_view.getHeight()) / line_height)));
+        const visible_start_idx = @intCast(u32, std.math.max(0, @floatToInt(i32, @floor(scroll_view.scroll_y / line_height))));
+        const visible_end_idx = std.math.min(@intCast(u32, editor.lines.items.len), @floatToInt(i32, @ceil((scroll_view.scroll_y + editor.scroll_view.getHeight()) / line_height)));
         // log.debug("{} {}", .{visible_start_idx, visible_end_idx});
         const line_offset_y = editor.font_line_offset_y;
 
@@ -918,20 +1032,23 @@ pub const TextAreaInner = struct {
             }
         }
 
-        var i: usize = @intCast(usize, visible_start_idx);
-        g.setFillColor(style.color);
-        while (i < visible_end_idx) : (i += 1) {
-            const line = editor.lines.items[i];
-            g.fillText(bounds.min_x, bounds.min_y + line_offset_y + @intToFloat(f32, i) * line_height, line.buf.buf.items);
+        if (editor.props.onRenderLines.isPresent()) {
+            editor.props.onRenderLines.call(.{ g, bounds, style, editor.lines.items, visible_start_idx, visible_end_idx, line_offset_y, line_height });
+        } else {
+            var i: usize = @intCast(usize, visible_start_idx);
+            g.setFillColor(style.color);
+            while (i < visible_end_idx) : (i += 1) {
+                const line = editor.lines.items[i];
+                g.fillText(bounds.min_x, bounds.min_y + line_offset_y + @intToFloat(f32, i) * line_height, line.buf.buf.items);
+            }
         }
 
         if (self.focused) {
             // Draw caret.
             if (self.caret_anim_show_toggle) {
                 g.setFillColor(style.color);
-                // log.warn("width {d:2}", .{width});
                 const height = self.editor.font_vmetrics.height;
-                g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caret_line) * line_height, 1, height);
+                g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caretLoc.lineIdx) * line_height, 1, height);
             }
         }
     }
@@ -940,4 +1057,8 @@ pub const TextAreaInner = struct {
 const DocLocation = struct {
     lineIdx: u32,
     colIdx: u32,
+
+    fn init(lineIdx: u32, colIdx: u32) DocLocation {
+        return .{ .lineIdx = lineIdx, .colIdx = colIdx };
+    }
 };
