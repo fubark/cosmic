@@ -200,3 +200,17 @@ pub const TextGlyphIterator = struct {
         }
     }
 };
+
+pub const TextRun = struct {
+    str: []const u8,
+    segments: []const TextRunSegment,
+};
+
+pub const TextRunSegment = struct {
+    color: graphics.Color,
+    fontGroupId: graphics.FontGroupId,
+    fontSize: f32,
+    /// start/end pos of the TextRun string.
+    start: u32,
+    end: u32,
+};

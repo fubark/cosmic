@@ -56,6 +56,8 @@ pub const TextMeasure = text_.TextMeasure;
 pub const TextMetrics = text_.TextMetrics;
 pub const TextGlyphIterator = text_.TextGlyphIterator;
 pub const TextLayout = text_.TextLayout;
+pub const TextRun = text_.TextRun;
+pub const TextRunSegment = text_.TextRunSegment;
 
 const FontRendererBackendType = enum(u1) {
     /// Default renderer for desktop.
@@ -1022,6 +1024,13 @@ pub const Graphics = struct {
             .OpenGL, .Vulkan =>  {
                 gpu.Graphics.setTextBaseline(&self.impl, baseline);
             },
+            else => stdx.unsupported(),
+        }
+    }
+
+    pub fn fillTextRun(self: *Graphics, x: f32, y: f32, run: TextRun) void {
+        switch (Backend) {
+            .OpenGL, .Vulkan => gpu.Graphics.fillTextRun(&self.impl, x, y, run),
             else => stdx.unsupported(),
         }
     }

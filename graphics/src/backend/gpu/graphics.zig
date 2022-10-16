@@ -31,12 +31,8 @@ const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const BlendMode = graphics.BlendMode;
-const VMetrics = graphics.font.VMetrics;
-const TextMetrics = graphics.TextMetrics;
-const Font = graphics.font.Font;
 pub const font_cache = @import("font_cache.zig");
 pub const FontCache = font_cache.FontCache;
-const ImageId = graphics.ImageId;
 const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.FontId;
@@ -535,16 +531,48 @@ pub const Graphics = struct {
         self.ps.text_baseline = baseline;
     }
 
-    pub fn measureText(self: *Graphics, str: []const u8, res: *TextMetrics) void {
+    pub fn measureText(self: *Graphics, str: []const u8, res: *graphics.TextMetrics) void {
         text_renderer.measureText(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, str, res, true);
     }
 
-    pub fn measureFontText(self: *Graphics, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
+    pub fn measureFontText(self: *Graphics, group_id: FontGroupId, size: f32, str: []const u8, res: *graphics.TextMetrics) void {
         text_renderer.measureText(self, group_id, size, self.dpr_ceil, str, res, true);
     }
 
     pub inline fn textGlyphIter(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
         return text_renderer.textGlyphIter(self, font_gid, size, self.dpr_ceil, str);
+    }
+
+    pub fn fillTextRun(self: *Graphics, x: f32, y: f32, run: graphics.TextRun) void {
+        self.fillTextRunExt(x, y, run, .{
+            .@"align" = self.ps.text_align,
+            .baseline = self.ps.text_baseline,
+        });
+    }
+
+    pub fn fillTextRunExt(self: *Graphics, x: f32, y: f32, run: graphics.TextRun, opts: graphics.TextOptions) void {
+        var vert: TexShaderVertex = undefined;
+        var vdata: VertexData(4, 6) = undefined;
+
+        const start = self.getFillTextStartPos(x, y, run.str, opts);
+        const firstSegment = run.segments[0];
+        var iter = text_renderer.RenderTextIterator.init(self, firstSegment.fontGroupId, firstSegment.fontSize, self.dpr_ceil, start.x, start.y, run.str[firstSegment.start..firstSegment.end]);
+        while (iter.nextCodepointQuad(true)) {
+            self.pushCodepointQuad(&vdata, &vert, iter.quad, firstSegment.color);
+        }
+        for (run.segments[1..]) |segment| {
+            const lastCp = iter.quad.cp;
+            iter = text_renderer.RenderTextIterator.init(self, segment.fontGroupId, segment.fontSize, self.dpr_ceil, iter.x, iter.y, run.str[segment.start..segment.end]);
+
+            const fgroup = self.font_cache.getFontGroup(segment.fontGroupId);
+            const glyph_info = self.font_cache.getOrLoadFontGroupGlyph(self, fgroup, iter.iter.inner.render_font_size, lastCp);
+            iter.iter.inner.prev_glyph_id_opt = glyph_info.glyph.glyph_id;
+            iter.iter.inner.prev_glyph_font = glyph_info.font;
+
+            while (iter.nextCodepointQuad(true)) {
+                self.pushCodepointQuad(&vdata, &vert, iter.quad, segment.color);
+            }
+        }
     }
 
     pub inline fn fillText(self: *Graphics, x: f32, y: f32, str: []const u8) void {
@@ -557,66 +585,71 @@ pub const Graphics = struct {
     pub fn fillTextExt(self: *Graphics, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
-
         var vdata: VertexData(4, 6) = undefined;
 
-        var start_x = x;
-        var start_y = y;
+        const start = self.getFillTextStartPos(x, y, str, opts);
+        var iter = text_renderer.RenderTextIterator.init(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, start.x, start.y, str);
+        while (iter.nextCodepointQuad(true)) {
+            self.pushCodepointQuad(&vdata, &vert, iter.quad, self.ps.fill_color);
+        }
+    }
 
+    fn getFillTextStartPos(self: *Graphics, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) Vec2 {
+        var res = Vec2.init(x, y);
         if (opts.@"align" != .Left) {
-            var metrics: TextMetrics = undefined;
+            var metrics: graphics.TextMetrics = undefined;
             self.measureText(str, &metrics);
             switch (opts.@"align") {
                 .Left => {},
-                .Right => start_x = x-metrics.width,
-                .Center => start_x = x-metrics.width/2,
+                .Right => res.x = x-metrics.width,
+                .Center => res.x = x-metrics.width/2,
             }
         }
         if (opts.baseline != .Top) {
             const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.ps.font_gid, self.ps.font_size);
             switch (opts.baseline) {
                 .Top => {},
-                .Middle => start_y = y - vmetrics.height / 2,
-                .Alphabetic => start_y = y - vmetrics.ascender,
-                .Bottom => start_y = y - vmetrics.height,
+                .Middle => res.y = y - vmetrics.height / 2,
+                .Alphabetic => res.y = y - vmetrics.ascender,
+                .Bottom => res.y = y - vmetrics.height,
             }
         }
-        var iter = text_renderer.RenderTextIterator.init(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, start_x, start_y, str);
+        return res;
+    }
 
-        while (iter.nextCodepointQuad(true)) {
-            self.setCurrentTexture(iter.quad.image);
+    fn pushCodepointQuad(self: *Graphics, vdata: *VertexData(4, 6), vert: *TexShaderVertex, quad: text_renderer.TextureQuad, color: Color) void {
+        self.setCurrentTexture(quad.image);
 
-            if (iter.quad.is_color_bitmap) {
-                vert.setColor(Color.White);
-            } else {
-                vert.setColor(self.ps.fill_color);
-            }
-
-            // top left
-            vert.setXY(iter.quad.x0, iter.quad.y0);
-            vert.setUV(iter.quad.u0, iter.quad.v0);
-            vdata.verts[0] = vert;
-
-            // top right
-            vert.setXY(iter.quad.x1, iter.quad.y0);
-            vert.setUV(iter.quad.u1, iter.quad.v0);
-            vdata.verts[1] = vert;
-
-            // bottom right
-            vert.setXY(iter.quad.x1, iter.quad.y1);
-            vert.setUV(iter.quad.u1, iter.quad.v1);
-            vdata.verts[2] = vert;
-
-            // bottom left
-            vert.setXY(iter.quad.x0, iter.quad.y1);
-            vert.setUV(iter.quad.u0, iter.quad.v1);
-            vdata.verts[3] = vert;
-
-            // indexes
-            vdata.setRect(0, 0, 1, 2, 3);
-
-            self.pushVertexData(4, 6, &vdata);
+        if (quad.is_color_bitmap) {
+            vert.setColor(Color.White);
+        } else {
+            vert.setColor(color);
         }
+
+        // top left
+        vert.setXY(quad.x0, quad.y0);
+        vert.setUV(quad.u0, quad.v0);
+        vdata.verts[0] = vert.*;
+
+        // top right
+        vert.setXY(quad.x1, quad.y0);
+        vert.setUV(quad.u1, quad.v0);
+        vdata.verts[1] = vert.*;
+
+        // bottom right
+        vert.setXY(quad.x1, quad.y1);
+        vert.setUV(quad.u1, quad.v1);
+        vdata.verts[2] = vert.*;
+
+        // bottom left
+        vert.setXY(quad.x0, quad.y1);
+        vert.setUV(quad.u0, quad.v1);
+        vdata.verts[3] = vert.*;
+
+        // indexes
+        vdata.setRect(0, 0, 1, 2, 3);
+
+        self.pushVertexData(4, 6, vdata);
     }
 
     pub inline fn setCurrentTexture(self: *Graphics, image_tex: image.ImageTex) void {
@@ -2045,7 +2078,7 @@ pub const Graphics = struct {
         self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawSubImage(self: *Graphics, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawSubImage(self: *Graphics, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: graphics.ImageId) void {
         const img = self.image_store.images.get(image_id);
         self.batcher.beginTex(image.ImageDesc{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2084,7 +2117,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId, tint: Color) void {
+    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: graphics.ImageId, tint: Color) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2140,7 +2173,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId, tint: Color) void {
+    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: graphics.ImageId, tint: Color) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2209,7 +2242,7 @@ pub const Graphics = struct {
 
     /// Binds an image to the write buffer. 
     /// Note this doesn't bind a paint state. If the image has it's own paint state, it should be set just before this call.
-    pub fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
+    pub fn bindOffscreenImage(self: *Graphics, image_id: graphics.ImageId) void {
         self.endCmd();
         var img = self.image_store.images.getPtrNoCheck(image_id);
         if (img.fbo_id == null) {
