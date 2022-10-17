@@ -2310,6 +2310,7 @@ pub const ModuleCommon = struct {
     alloc: std.mem.Allocator,
     mod: *Module,
 
+    textRunSegmentsBuf: std.ArrayListUnmanaged(graphics.TextRunSegment),
     build_owned_frames: std.ArrayListUnmanaged(ui.FramePtr),
 
     slice_rcs: stdx.ds.PooledHandleList(u32, u32),
@@ -2369,6 +2370,7 @@ pub const ModuleCommon = struct {
     default_text_style: u.TextT.ComputedStyle,
     defTextLinkStyle: u.TextLinkT.ComputedStyle,
     default_text_area_style: u.TextAreaT.ComputedStyle,
+    defTextEditorStyle: u.TextEditorT.ComputedStyle,
     default_window_style: u.WindowT.ComputedStyle,
     default_scroll_view_style: u.ScrollViewT.ComputedStyle,
     default_tab_view_style: u.TabViewT.ComputedStyle,
@@ -2411,6 +2413,7 @@ pub const ModuleCommon = struct {
             .mod = mod,
             .build_owned_frames = .{},
             .slice_rcs = stdx.ds.PooledHandleList(u32, u32).init(alloc),
+            .textRunSegmentsBuf = .{},
 
             .g = g,
             .text_measures = stdx.ds.PooledHandleList(TextMeasureId, TextMeasure).init(alloc),
@@ -2454,6 +2457,7 @@ pub const ModuleCommon = struct {
             .defTextLinkStyle = .{},
             .default_window_style = .{},
             .default_text_area_style = .{},
+            .defTextEditorStyle = .{},
             .default_scroll_view_style = .{},
             .default_tab_view_style = .{},
             .default_border_style = .{},
@@ -2525,6 +2529,8 @@ pub const ModuleCommon = struct {
             }
         }
         self.slice_rcs.deinit();
+
+        self.textRunSegmentsBuf.deinit(self.alloc);
     }
 
     pub fn initRcSlice(self: *ModuleCommon, comptime T: type, slice: []const T) !ui.SlicePtr(T) {
@@ -2587,6 +2593,7 @@ pub const ModuleCommon = struct {
             u.TextLinkT.ComputedStyle => &self.defTextLinkStyle,
             u.WindowT.ComputedStyle => &self.default_window_style,
             u.TextAreaT.ComputedStyle => &self.default_text_area_style,
+            u.TextEditorT.ComputedStyle => &self.defTextEditorStyle,
             u.IconButtonT.ComputedStyle => &self.default_icon_button_style,
             u.ScrollViewT.ComputedStyle => &self.default_scroll_view_style,
             u.TabViewT.ComputedStyle => &self.default_tab_view_style,
