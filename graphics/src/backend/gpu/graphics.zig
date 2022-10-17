@@ -327,9 +327,9 @@ pub const Graphics = struct {
                 gl.scissor(
                     @floatToInt(c_int, rect.x),
                     // clip-y starts at bottom.
-                    @floatToInt(c_int, @intToFloat(f32, self.height) - (rect.y + rect.height)),
+                    @floatToInt(c_int, @intToFloat(f32, self.height) - (rect.y + rect.height) + 1),
                     @floatToInt(c_int, rect.width),
-                    @floatToInt(c_int, rect.height)
+                    @floatToInt(c_int, rect.height - 1)
                 );
                 self.inner.renderer.setScissorTest(true);
             },
