@@ -119,7 +119,7 @@ pub const cs_graphics = struct {
         /// @param width
         /// @param height
         pub inline fn rectOutline(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
-            Graphics.drawRect(self, x, y, width, height);
+            Graphics.strokeRect(self, x, y, width, height);
         }
 
         /// Paints a round rectangle with the current fill color.
@@ -139,7 +139,7 @@ pub const cs_graphics = struct {
         /// @param height
         /// @param radius
         pub inline fn roundRectOutline(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
-            self.drawRoundRect(x, y, width, height, radius);
+            self.strokeRoundRect(x, y, width, height, radius);
         }
 
         /// Shifts the origin x units to the right and y units down.
@@ -251,7 +251,7 @@ pub const cs_graphics = struct {
         /// @param startRad
         /// @param sweepRad
         pub inline fn circleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
-            self.drawCircleArc(x, y, radius, start_rad, sweep_rad);
+            self.strokeCircleArc(x, y, radius, start_rad, sweep_rad);
         }
 
         /// Paints a circle arc in degrees with the current stroke color.
@@ -261,7 +261,7 @@ pub const cs_graphics = struct {
         /// @param startDeg
         /// @param sweepDeg
         pub inline fn circleArcDeg(self: *Graphics, x: f32, y: f32, radius: f32, start_deg: f32, sweep_deg: f32) void {
-            self.drawCircleArcDeg(x, y, radius, start_deg, sweep_deg);
+            self.strokeCircleArcDeg(x, y, radius, start_deg, sweep_deg);
         }
 
         /// Paints a circle with the current fill color.
@@ -277,7 +277,7 @@ pub const cs_graphics = struct {
         /// @param y
         /// @param radius
         pub inline fn circleOutline(self: *Graphics, x: f32, y: f32, radius: f32) void {
-            self.drawCircle(x, y, radius);
+            self.strokeCircle(x, y, radius);
         }
 
         /// Paints a ellipse with the current fill color.
@@ -295,7 +295,7 @@ pub const cs_graphics = struct {
         /// @param hRadius
         /// @param vRadius
         pub inline fn ellipseOutline(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
-            self.drawEllipse(x, y, h_radius, v_radius);
+            self.strokeEllipse(x, y, h_radius, v_radius);
         }
 
         /// Paints a ellipse sector in radians with the current fill color.
@@ -328,7 +328,7 @@ pub const cs_graphics = struct {
         /// @param startRad
         /// @param sweepRad
         pub inline fn ellipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
-            self.drawEllipseArc(x, y, h_radius, v_radius, start_rad, sweep_rad);
+            self.strokeEllipseArc(x, y, h_radius, v_radius, start_rad, sweep_rad);
         }
 
         /// Paints a ellipse arc in degrees with the current stroke color.
@@ -339,14 +339,14 @@ pub const cs_graphics = struct {
         /// @param startDeg
         /// @param sweepDeg
         pub inline fn ellipseArcDeg(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_deg: f32, sweep_deg: f32) void {
-            self.drawEllipseArcDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
+            self.strokeEllipseArcDeg(x, y, h_radius, v_radius, start_deg, sweep_deg);
         }
 
         /// Paints a point with the current stroke color.
         /// @param x
         /// @param y
         pub inline fn point(self: *Graphics, x: f32, y: f32) void {
-            self.drawPoint(x, y);
+            self.strokePoint(x, y);
         }
 
         /// Paints a line with the current stroke color.
@@ -355,7 +355,7 @@ pub const cs_graphics = struct {
         /// @param x2
         /// @param y2
         pub inline fn line(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
-            self.drawLine(x1, y1, x2, y2);
+            self.strokeLine(x1, y1, x2, y2);
         }
 
         /// Paints a cubic bezier curve with the current stroke color.
@@ -368,7 +368,7 @@ pub const cs_graphics = struct {
         /// @param x2
         /// @param y2
         pub inline fn cubicBezierCurve(self: *Graphics, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
-            self.drawCubicBezierCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2);
+            self.strokeCubicBezierCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2);
         }
 
         /// Paints a quadratic bezier curve with the current stroke color.
@@ -379,7 +379,7 @@ pub const cs_graphics = struct {
         /// @param x2
         /// @param y2
         pub inline fn quadraticBezierCurve(self: *Graphics, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
-            self.drawQuadraticBezierCurve(x1, y1, cx, cy, x2, y2);
+            self.strokeQuadraticBezierCurve(x1, y1, cx, cy, x2, y2);
         }
 
         /// Paints a triangle with the current fill color.
@@ -435,7 +435,7 @@ pub const cs_graphics = struct {
             }) {
                 rt.vec2_buf.items[vec_idx] = Vec2.init(pts[i], pts[i + 1]);
             }
-            g.drawPolygon(rt.vec2_buf.items);
+            g.strokePolygon(rt.vec2_buf.items);
         }
 
         /// Compiles svg content string into a draw list handle.

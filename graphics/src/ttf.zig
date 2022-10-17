@@ -3,7 +3,6 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 
 const string = stdx.string;
-const ds = stdx.ds;
 const algo = stdx.algo;
 const log = stdx.log.scoped(.ttf);
 
@@ -145,7 +144,7 @@ pub const OpenTypeFont = struct {
     cff_offset: ?usize,
     glyph_map_format: u16,
     glyph_mapper: GlyphMapperIface,
-    glyph_mapper_box: ds.SizedBox,
+    glyph_mapper_box: stdx.SizedBox,
 
     num_glyphs: usize,
 
@@ -597,13 +596,13 @@ pub const OpenTypeFont = struct {
                             // loaded_glyph_map = true;
                             continue;
                         } else if (format == 12) {
-                            const mapper = ds.Box(SegmentedCoverageGlyphMapper).create(alloc) catch unreachable;
+                            const mapper = stdx.Box(SegmentedCoverageGlyphMapper).create(alloc) catch unreachable;
                             mapper.ptr.init(data, st_offset);
                             self.glyph_mapper = GlyphMapperIface.init(mapper.ptr);
                             self.glyph_mapper_box = mapper.toSized();
                             loaded_glyph_map = true;
                         } else if (format == 4) {
-                            const mapper = ds.Box(SegmentGlyphMapper).create(alloc) catch unreachable;
+                            const mapper = stdx.Box(SegmentGlyphMapper).create(alloc) catch unreachable;
                             mapper.ptr.init(data, st_offset);
                             self.glyph_mapper = GlyphMapperIface.init(mapper.ptr);
                             self.glyph_mapper_box = mapper.toSized();
