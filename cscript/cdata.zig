@@ -208,6 +208,7 @@ pub const EncodeDictContext = struct {
     fn encodeValue(self: *EncodeDictContext, val: anytype) !void {
         const T = @TypeOf(val);
         switch (T) {
+            bool,
             u32 => {
                 _ = try self.writer.print("{}\n", .{val});
             },
@@ -340,6 +341,21 @@ pub const DecodeDictIR = struct {
                 return try std.fmt.parseInt(u32, token_s, 10);
             } else return error.NotANumber;
         } else return error.NoSuchEntry;
+    }
+
+    pub fn getBool(self: DecodeDictIR, key: []const u8) !bool {
+        return self.getBoolOpt(key) orelse return error.NoSuchEntry;
+    }
+
+    pub fn getBoolOpt(self: DecodeDictIR, key: []const u8) !?bool {
+        if (self.map.get(key)) |val_id| {
+            const val_n = self.res.nodes.items[val_id];
+            if (val_n.node_t == .true_literal) {
+                return true;
+            } else if (val_n.node_t == .false_literal) {
+                return false;
+            } else return error.NotABool;
+        } else return null;
     }
 
     pub fn decodeList(self: DecodeDictIR, key: []const u8) !DecodeListIR {
