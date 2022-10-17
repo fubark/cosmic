@@ -209,9 +209,10 @@ pub const TextArea = struct {
             self.lines.append(line) catch unreachable;
         }
 
+        const lastLineLen = self.lines.items[self.lines.items.len-1].buf.numCodepoints();
         self.fireReplaceEvent(DocLocation.init(0, 0),
             DocLocation.init(@intCast(u32, endLine), 0),
-            DocLocation.init(@intCast(u32, self.lines.items.len), 0));
+            DocLocation.init(@intCast(u32, self.lines.items.len-1), lastLineLen));
     }
 
     pub fn allocSelectedText(self: TextArea, alloc: std.mem.Allocator) ![]const u8 {
@@ -269,9 +270,15 @@ pub const TextArea = struct {
     fn onPaste(node: *ui.Node, _: *ui.CommonContext, str: []const u8) void {
         const self = node.getWidget(TextArea);
         if (self.hasSelection) {
+            const start = self.selectionStart;
+            const end = self.selectionEnd;
             self.deleteSelection();
+            self.fireReplaceEvent(start, end, self.caretLoc);
+        } else {
+            const prev = self.caretLoc;
+            self.paste(str);
+            self.fireInsertEvent(prev, self.caretLoc);
         }
-        self.paste(str);
     }
 
     fn paste(self: *TextArea, str: []const u8) void {
@@ -474,6 +481,9 @@ pub const TextArea = struct {
     }
 
     pub fn insertFromCaret(self: *TextArea, str: []const u8) !void {
+        if (str.len == 0) {
+            return;
+        }
         const prev = self.caretLoc;
         try self.modelInsertFromCaret(str);
         self.fireInsertEvent(prev, self.caretLoc);
@@ -522,6 +532,8 @@ pub const TextArea = struct {
                 const start = self.selectionStart;
                 const end = self.selectionEnd;
                 self.deleteSelection();
+                self.postCaretUpdate();
+                self.postCaretActivity();
                 self.fireRemoveEvent(start, end);
             } else {
                 if (self.caretLoc.colIdx > 0) {
@@ -558,6 +570,8 @@ pub const TextArea = struct {
                 const start = self.selectionStart;
                 const end = self.selectionEnd;
                 self.deleteSelection();
+                self.postCaretUpdate();
+                self.postCaretActivity();
                 self.fireRemoveEvent(start, end);
             } else {
                 if (self.caretLoc.colIdx < line.buf.num_chars) {
@@ -594,18 +608,16 @@ pub const TextArea = struct {
                 self.fireInsertEvent(prev, self.caretLoc);
             }
         } else if (val.code == .ArrowLeft) {
-            if (!self.hasSelection) {
-                if (self.caretLoc.colIdx > 0) {
-                    self.caretLoc.colIdx -= 1;
+            if (self.caretLoc.colIdx > 0) {
+                self.caretLoc.colIdx -= 1;
+                self.postCaretUpdate();
+                self.postCaretActivity();
+            } else {
+                if (self.caretLoc.lineIdx > 0) {
+                    self.caretLoc.lineIdx -= 1;
+                    self.caretLoc.colIdx = self.lines.items[self.caretLoc.lineIdx].buf.num_chars;
                     self.postCaretUpdate();
                     self.postCaretActivity();
-                } else {
-                    if (self.caretLoc.lineIdx > 0) {
-                        self.caretLoc.lineIdx -= 1;
-                        self.caretLoc.colIdx = self.lines.items[self.caretLoc.lineIdx].buf.num_chars;
-                        self.postCaretUpdate();
-                        self.postCaretActivity();
-                    }
                 }
             }
             if (val.isShiftPressed()) {
@@ -613,18 +625,16 @@ pub const TextArea = struct {
                 self.selectFrom(prevCaretLoc);
             }
         } else if (val.code == .ArrowRight) {
-            if (!self.hasSelection) {
-                if (self.caretLoc.colIdx < line.buf.numCodepoints()) {
-                    self.caretLoc.colIdx += 1;
+            if (self.caretLoc.colIdx < line.buf.numCodepoints()) {
+                self.caretLoc.colIdx += 1;
+                self.postCaretUpdate();
+                self.postCaretActivity();
+            } else {
+                if (self.caretLoc.lineIdx < self.lines.items.len-1) {
+                    self.caretLoc.lineIdx += 1;
+                    self.caretLoc.colIdx = 0;
                     self.postCaretUpdate();
                     self.postCaretActivity();
-                } else {
-                    if (self.caretLoc.lineIdx < self.lines.items.len-1) {
-                        self.caretLoc.lineIdx += 1;
-                        self.caretLoc.colIdx = 0;
-                        self.postCaretUpdate();
-                        self.postCaretActivity();
-                    }
                 }
             }
             if (val.isShiftPressed()) {
@@ -680,11 +690,16 @@ pub const TextArea = struct {
         } else if (val.code == .V and val.isControlPressed()) {
             if (!IsWasm) {
                 if (self.hasSelection) {
+                    const start = self.selectionStart;
+                    const end = self.selectionEnd;
                     self.deleteSelection();
+                    self.fireReplaceEvent(start, end, self.caretLoc);
+                } else {
+                    const clipboard = platform.allocClipboardText(self.alloc) catch fatal();
+                    defer self.alloc.free(clipboard);
+                    self.paste(clipboard);
+                    self.fireInsertEvent(prevCaretLoc, self.caretLoc);
                 }
-                const clipboard = platform.allocClipboardText(self.alloc) catch fatal();
-                defer self.alloc.free(clipboard);
-                self.paste(clipboard);
             }
         } else if (val.code == .X and val.isControlPressed()) {
             // Cut to clipboard.
@@ -695,6 +710,8 @@ pub const TextArea = struct {
                 const start = self.selectionStart;
                 const end = self.selectionEnd;
                 self.deleteSelection();
+                self.postCaretUpdate();
+                self.postCaretActivity();
                 self.fireRemoveEvent(start, end);
             }
         } else if (val.code == .C and val.isControlPressed()) {
@@ -805,8 +822,7 @@ pub const TextArea = struct {
                 }
                 self.lines.replaceRange(self.selectionStart.lineIdx+1, self.selectionEnd.lineIdx - self.selectionStart.lineIdx, &.{}) catch fatal();
             }
-            self.caretLoc.lineIdx = self.selectionStart.lineIdx;
-            self.caretLoc.colIdx = self.selectionStart.colIdx;
+            self.caretLoc = self.selectionStart;
             self.hasSelection = false;
         }
     }
@@ -825,14 +841,17 @@ pub const TextArea = struct {
                 }
             }
         } else {
-            self.hasSelection = true;
-            self.selectionOrigin = prevCaretLoc;
             if (self.caretLoc.lineIdx < prevCaretLoc.lineIdx or (self.caretLoc.lineIdx == prevCaretLoc.lineIdx and self.caretLoc.colIdx < prevCaretLoc.colIdx)) {
                 self.selectionStart = self.caretLoc;
                 self.selectionEnd = prevCaretLoc;
             } else {
                 self.selectionStart = prevCaretLoc;
                 self.selectionEnd = self.caretLoc;
+            }
+            if (self.selectionEnd.lineIdx > self.selectionStart.lineIdx or self.selectionEnd.colIdx > self.selectionStart.colIdx) {
+                // Must be selecting at least one codepoint
+                self.hasSelection = true;
+                self.selectionOrigin = prevCaretLoc;
             }
         }
     }
@@ -876,6 +895,15 @@ pub const TextArea = struct {
                 newEnd: DocLocation,
             },
         },
+    };
+
+    pub const DocLocation = struct {
+        lineIdx: u32,
+        colIdx: u32,
+
+        pub fn init(lineIdx: u32, colIdx: u32) DocLocation {
+            return .{ .lineIdx = lineIdx, .colIdx = colIdx };
+        }
     };
 };
 
@@ -1048,17 +1076,8 @@ pub const TextAreaInner = struct {
             if (self.caret_anim_show_toggle) {
                 g.setFillColor(style.color);
                 const height = self.editor.font_vmetrics.height;
-                g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caretLoc.lineIdx) * line_height, 1, height);
+                g.fillRect(@round(bounds.min_x + self.to_caret_width), bounds.min_y + line_offset_y + @intToFloat(f32, self.editor.caretLoc.lineIdx) * line_height, 2, height);
             }
         }
-    }
-};
-
-const DocLocation = struct {
-    lineIdx: u32,
-    colIdx: u32,
-
-    fn init(lineIdx: u32, colIdx: u32) DocLocation {
-        return .{ .lineIdx = lineIdx, .colIdx = colIdx };
     }
 };
