@@ -2,6 +2,9 @@ const parser = @import("parser.zig");
 pub const Parser = parser.Parser;
 pub const ParseResultView = parser.ResultView;
 pub const ParseResult = parser.Result;
+pub const Tokenizer = parser.Tokenizer;
+pub const TokenizeState = parser.TokenizeState;
+pub const TokenType = parser.TokenType;
 
 const compiler = @import("compiler.zig");
 pub const JsTargetCompiler = compiler.JsTargetCompiler;

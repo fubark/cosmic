@@ -43,6 +43,7 @@ pub const Parser = struct {
     /// Context vars.
     src: std.ArrayListUnmanaged(u8),
     next_pos: u32,
+    savePos: u32,
     tokens: std.ArrayListUnmanaged(Token),
     nodes: std.ArrayListUnmanaged(Node),
     last_err: []const u8,
@@ -58,11 +59,26 @@ pub const Parser = struct {
     /// Variable dependencies.
     deps: std.StringHashMapUnmanaged(NodeId),
 
+    tokenizeOpts: TokenizeOptions,
+
+    /// For custom functions.
+    user: struct {
+        ctx: *anyopaque,
+        advanceChar: fn (*anyopaque) void,
+        peekChar: fn (*anyopaque) u8,
+        peekCharAhead: fn (*anyopaque, u32) ?u8,
+        isAtEndChar: fn (*anyopaque) bool,
+        getSubStrFromDelta: fn (*anyopaque, u32) []const u8,
+        savePos: fn (*anyopaque) void,
+        restorePos: fn (*anyopaque) void,
+    },
+
     pub fn init(alloc: std.mem.Allocator) Parser {
         return .{
             .alloc = alloc,
             .src = .{},
             .next_pos = undefined,
+            .savePos = undefined,
             .tokens = .{},
             .nodes = .{},
             .last_err = "",
@@ -73,6 +89,8 @@ pub const Parser = struct {
             .func_decls = .{},
             .name = "",
             .deps = .{},
+            .user = undefined,
+            .tokenizeOpts = .{},
         };
     }
 
@@ -102,7 +120,10 @@ pub const Parser = struct {
         self.name = "";
         self.deps.clearRetainingCapacity();
 
-        self.tokenize() catch |err| {
+        const tokenizeOpts = TokenizeOptions{
+            .ignoreErrors = false,
+        };
+        Tokenizer(.{ .user = false }).tokenize(self, tokenizeOpts) catch |err| {
             log.debug("tokenize error: {}", .{err});
             return ResultView{
                 .has_error = true,
@@ -1815,283 +1836,6 @@ pub const Parser = struct {
         return @intCast(NodeId, id);
     }
 
-    fn tokenize(self: *Parser) !void {
-        self.tokens.clearRetainingCapacity();
-        self.next_pos = 0;
-
-        while (!self.isAtEndChar()) {
-            // First parse indent spaces.
-            while (!self.isAtEndChar()) {
-                const ch = self.peekChar();
-                switch (ch) {
-                    ' ' => {
-                        const start = self.next_pos;
-                        self.advanceChar();
-                        var count: u32 = 1;
-                        while (true) {
-                            const ch_ = self.peekChar();
-                            if (ch_ == ' ') {
-                                count += 1;
-                                self.advanceChar();
-                            } else break;
-                        }
-                        self.pushIndentToken(count, start);
-                    },
-                    '\n' => {
-                        self.pushToken(.new_line, self.next_pos);
-                        self.advanceChar();
-                    },
-                    else => break,
-                }
-            }
-            while (!self.isAtEndChar()) {
-                const start = self.next_pos;
-                const ch = self.consumeChar();
-                switch (ch) {
-                    '(' => self.pushToken(.left_paren, start),
-                    ')' => self.pushToken(.right_paren, start),
-                    '{' => self.pushToken(.left_brace, start),
-                    '}' => self.pushToken(.right_brace, start),
-                    '[' => self.pushToken(.left_bracket, start),
-                    ']' => self.pushToken(.right_bracket, start),
-                    ',' => self.pushToken(.comma, start),
-                    '.' => {
-                        if (self.peekChar() == '.') {
-                            self.advanceChar();
-                            self.pushToken(.dot_dot, start);
-                        } else {
-                            self.pushToken(.dot, start);
-                        }
-                    },
-                    ':' => self.pushToken(.colon, start),
-                    '@' => self.pushToken(.at, start),
-                    '-' => self.pushOpToken(.minus, start),
-                    '%' => self.pushOpToken(.percent, start),
-                    '+' => {
-                        if (self.peekChar() == '=') {
-                            self.advanceChar();
-                            self.pushToken(.plus_equal, start);
-                        } else {
-                            self.pushOpToken(.plus, start);
-                        }
-                    },
-                    '*' => {
-                        if (self.peekChar() == '*') {
-                            self.advanceChar();
-                            self.pushOpToken(.star_star, start);
-                        } else {
-                            self.pushOpToken(.star, start);
-                        }
-                    },
-                    '/' => {
-                        if (self.peekChar() == '/') {
-                            // Single line comment. Ignore chars until eol.
-                            while (!self.isAtEndChar()) {
-                                _ = self.consumeChar();
-                                if (self.peekChar() == '\n') {
-                                    // Don't consume new line or the current indentation could augment with the next line.
-                                    break;
-                                }
-                            }
-                        } else {
-                            self.pushOpToken(.slash, start);
-                        }
-                    },
-                    '!' => {
-                        if (self.isNextChar('=')) {
-                            self.pushLogicOpToken(.bang_equal, start);
-                            self.advanceChar();
-                        } else {
-                            self.pushLogicOpToken(.bang, start);
-                        }
-                    },
-                    '=' => {
-                        if (!self.isAtEndChar()) {
-                            switch (self.peekChar()) {
-                                '=' => {
-                                    self.advanceChar();
-                                    self.pushLogicOpToken(.equal_equal, start);
-                                },
-                                '>' => {
-                                    self.advanceChar();
-                                    self.pushToken(.equal_greater, start);
-                                },
-                                else => {
-                                    self.pushToken(.equal, start);
-                                }
-                            }
-                        } else {
-                            self.pushToken(.equal, start);
-                        }
-                    },
-                    '<' => {
-                        if (self.isNextChar('=')) {
-                            self.pushLogicOpToken(.less_equal, start);
-                            self.advanceChar();
-                        } else {
-                            self.pushLogicOpToken(.less, start);
-                        }
-                    },
-                    '>' => {
-                        if (self.isNextChar('=')) {
-                            self.pushLogicOpToken(.greater_equal, start);
-                            self.advanceChar();
-                        } else {
-                            self.pushLogicOpToken(.greater, start);
-                        }
-                    },
-                    ' ',
-                    '\r',
-                    '\t' => continue,
-                    '\n' => {
-                        self.pushToken(.new_line, start);
-                        break;
-                    },
-                    '`' => {
-                        while (true) {
-                            if (self.isAtEndChar()) {
-                                return error.UnterminatedString;
-                            }
-                            const ch_ = self.consumeChar();
-                            switch (ch_) {
-                                '`' => {
-                                    self.pushStringToken(start, self.next_pos);
-                                    break;
-                                },
-                                '\\' => {
-                                    // Escape the next character.
-                                    if (self.isAtEndChar()) {
-                                        return error.UnterminatedString;
-                                    }
-                                    _ = self.consumeChar();
-                                    continue;
-                                },
-                                else => {},
-                            }
-                        }
-                    },
-                    '\'' => {
-                        while (true) {
-                            if (self.isAtEndChar()) {
-                                return error.UnterminatedString;
-                            }
-                            const ch_ = self.consumeChar();
-                            switch (ch_) {
-                                '\'' => {
-                                    self.pushStringToken(start, self.next_pos);
-                                    break;
-                                },
-                                '\\' => {
-                                    // Escape the next character.
-                                    if (self.isAtEndChar()) {
-                                        return error.UnterminatedString;
-                                    }
-                                    _ = self.consumeChar();
-                                    continue;
-                                },
-                                '\n' => {
-                                    return error.UnterminatedString;
-                                },
-                                else => {},
-                            }
-                        }
-                    },
-                    else => {
-                        if (std.ascii.isAlpha(ch)) {
-                            self.tokenizeKeywordOrIdent(start);
-                            continue;
-                        }
-                        if (ch >= '0' and ch <= '9') {
-                            self.tokenizeNumber(start);
-                            continue;
-                        }
-                        self.last_err = std.fmt.allocPrint(self.alloc, "unknown character: {c} ({}) at {}", .{ch, ch, start}) catch fatal();
-                        return error.UnknownChar;
-                    },
-                }
-            }
-        }
-    }
-
-    fn tokenizeKeywordOrIdent(self: *Parser, start: u32) void {
-        // Consume alpha.
-        while (true) {
-            if (self.isAtEndChar()) {
-                if (keywords.get(self.src.items[start..self.next_pos])) |token_t| {
-                    self.pushToken(token_t, start);
-                } else {
-                    self.pushIdentToken(start, self.next_pos);
-                }
-                return;
-            }
-            const ch = self.peekChar();
-            if (std.ascii.isAlpha(ch)) {
-                self.advanceChar();
-                continue;
-            } else break;
-        }
-
-        // Consume alpha, numeric, underscore.
-        while (true) {
-            if (self.isAtEndChar()) {
-                if (keywords.get(self.src.items[start..self.next_pos])) |token_t| {
-                    self.pushToken(token_t, start);
-                } else {
-                    self.pushIdentToken(start, self.next_pos);
-                }
-                return;
-            }
-            const ch = self.peekChar();
-            if (std.ascii.isAlNum(ch)) {
-                self.advanceChar();
-                continue;
-            }
-            if (ch == '_') {
-                self.advanceChar();
-                continue;
-            }
-            if (keywords.get(self.src.items[start..self.next_pos])) |token_t| {
-                self.pushToken(token_t, start);
-            } else {
-                self.pushIdentToken(start, self.next_pos);
-            }
-            return;
-        }
-    }
-
-    fn tokenizeNumber(self: *Parser, start: u32) void {
-        while (true) {
-            if (self.isAtEndChar()) {
-                self.pushNumberToken(start, self.next_pos);
-                return;
-            }
-            const ch = self.peekChar();
-            if (ch >= '0' and ch <= '9') {
-                self.advanceChar();
-                continue;
-            } else break;
-        }
-        // Check for decimal.
-        if (self.next_pos < self.src.items.len - 1) {
-            const ch = self.peekChar();
-            const ch2 = self.src.items[self.next_pos + 1];
-            if (ch == '.' and ch2 >= '0' and ch2 <= '9') {
-                self.next_pos += 2;
-                while (true) {
-                    if (self.isAtEndChar()) {
-                        break;
-                    }
-                    const ch_ = self.peekChar();
-                    if (ch_ >= '0' and ch_ <= '9') {
-                        self.advanceChar();
-                        continue;
-                    } else break;
-                }
-            }
-        }
-        self.pushNumberToken(start, self.next_pos);
-    }
-
     inline fn pushIdentToken(self: *Parser, start_pos: u32, end_pos: u32) void {
         self.tokens.append(self.alloc, .{
             .token_t = .ident,
@@ -2162,31 +1906,6 @@ pub const Parser = struct {
         }) catch fatal();
     }
 
-    inline fn isAtEndChar(self: Parser) bool {
-        return self.src.items.len == self.next_pos;
-    }
-
-    inline fn isNextChar(self: Parser, ch: u8) bool {
-        if (self.isAtEndChar()) {
-            return false;
-        }
-        return self.src.items[self.next_pos] == ch;
-    }
-
-    inline fn consumeChar(self: *Parser) u8 {
-        const ch = self.src.items[self.next_pos];
-        self.next_pos += 1;
-        return ch;
-    }
-
-    inline fn peekChar(self: Parser) u8 {
-        return self.src.items[self.next_pos];
-    }
-
-    inline fn advanceChar(self: *Parser) void {
-        self.next_pos += 1;
-    }
-
     /// When n=0, this is equivalent to peekToken.
     inline fn peekTokenAhead(self: Parser, n: u32) Token {
         if (self.next_pos + n < self.tokens.items.len) {
@@ -2250,7 +1969,7 @@ const LogicOpType = enum(u3) {
     equal_equal = 6,
 };
 
-const TokenType = enum {
+pub const TokenType = enum {
     ident,
     number,
     string,
@@ -2288,6 +2007,8 @@ const TokenType = enum {
     pass_k,
     none_k,
     func_k,
+    // Error token, returned if ignoreErrors = true.
+    err,
     /// Used to indicate no token.
     none,
 };
@@ -2683,3 +2404,473 @@ pub fn logSrcPos(src: []const u8, start: u32, len: u32) void {
         log.debug("{s}", .{ src[start..start+len] });
     }
 }
+
+pub const TokenizeState = enum {
+    start,
+    token,
+    end,
+};
+
+const TokenizerConfig = struct {
+    /// Use provided functions to read buffer and advance position.
+    user: bool,
+};
+
+/// Made generic in case there is a need to use a different src buffer. TODO: substring still needs to be abstracted into user fn.
+pub fn Tokenizer(comptime Config: TokenizerConfig) type {
+    return struct {
+        inline fn isAtEndChar(p: *const Parser) bool {
+            if (Config.user) {
+                return p.user.isAtEndChar(p.user.ctx);
+            } else {
+                return p.src.items.len == p.next_pos;
+            }
+        }
+
+        inline fn savePos(p: *Parser) void {
+            if (Config.user) {
+                p.user.savePos(p.user.ctx);
+            } else {
+                p.savePos = p.next_pos;
+            }
+        }
+
+        inline fn restorePos(p: *Parser) void {
+            if (Config.user) {
+                p.user.restorePos(p.user.ctx);
+            } else {
+                p.next_pos = p.savePos;
+            }
+        }
+
+        inline fn isNextChar(p: *const Parser, ch: u8) bool {
+            if (isAtEndChar(p)) {
+                return false;
+            }
+            return peekChar(p) == ch;
+        }
+
+        inline fn consumeChar(p: *Parser) u8 {
+            const ch = peekChar(p);
+            advanceChar(p);
+            return ch;
+        }
+
+        inline fn peekChar(p: *const Parser) u8 {
+            if (Config.user) {
+                return p.user.peekChar(p.user.ctx);
+            } else {
+                return p.src.items[p.next_pos];
+            }
+        }
+
+        inline fn getSubStrFrom(p: *const Parser, start: u32) []const u8 {
+            if (Config.user) {
+                return p.user.getSubStrFromDelta(p.user.ctx, p.next_pos - start);
+            } else {
+                return p.src.items[start..p.next_pos];
+            }
+        }
+
+        inline fn peekCharAhead(p: *const Parser, steps: u32) ?u8 {
+            if (Config.user) {
+                return p.user.peekCharAhead(p.user.ctx, steps);
+            } else {
+                if (p.next_pos < p.src.items.len - steps) {
+                    return p.src.items[p.next_pos + steps];
+                } else return null;
+            }
+        }
+
+        inline fn advanceChar(p: *Parser) void {
+            if (Config.user) {
+                p.user.advanceChar(p.user.ctx);
+            } else {
+                p.next_pos += 1;
+            }
+        }
+
+        /// Returns true if a token was parsed.
+        /// Returns false if the end was reached or a character was skipped.
+        fn tokenizeOne(p: *Parser, parsedNewLine: *bool) !bool {
+            parsedNewLine.* = false;
+            const start = p.next_pos;
+            const ch = consumeChar(p);
+            switch (ch) {
+                '(' => p.pushToken(.left_paren, start),
+                ')' => p.pushToken(.right_paren, start),
+                '{' => p.pushToken(.left_brace, start),
+                '}' => p.pushToken(.right_brace, start),
+                '[' => p.pushToken(.left_bracket, start),
+                ']' => p.pushToken(.right_bracket, start),
+                ',' => p.pushToken(.comma, start),
+                '.' => {
+                    if (peekChar(p) == '.') {
+                        advanceChar(p);
+                        p.pushToken(.dot_dot, start);
+                    } else {
+                        p.pushToken(.dot, start);
+                    }
+                },
+                ':' => p.pushToken(.colon, start),
+                '@' => p.pushToken(.at, start),
+                '-' => p.pushOpToken(.minus, start),
+                '%' => p.pushOpToken(.percent, start),
+                '+' => {
+                    if (peekChar(p) == '=') {
+                        advanceChar(p);
+                        p.pushToken(.plus_equal, start);
+                    } else {
+                        p.pushOpToken(.plus, start);
+                    }
+                },
+                '*' => {
+                    if (peekChar(p) == '*') {
+                        advanceChar(p);
+                        p.pushOpToken(.star_star, start);
+                    } else {
+                        p.pushOpToken(.star, start);
+                    }
+                },
+                '/' => {
+                    if (peekChar(p) == '/') {
+                        // Single line comment. Ignore chars until eol.
+                        while (!isAtEndChar(p)) {
+                            _ = consumeChar(p);
+                            if (peekChar(p) == '\n') {
+                                // Don't consume new line or the current indentation could augment with the next line.
+                                return tokenizeOne(p, parsedNewLine);
+                            }
+                        }
+                        return false;
+                    } else {
+                        p.pushOpToken(.slash, start);
+                    }
+                },
+                '!' => {
+                    if (isNextChar(p, '=')) {
+                        p.pushLogicOpToken(.bang_equal, start);
+                        advanceChar(p);
+                    } else {
+                        p.pushLogicOpToken(.bang, start);
+                    }
+                },
+                '=' => {
+                    if (!isAtEndChar(p)) {
+                        switch (peekChar(p)) {
+                            '=' => {
+                                advanceChar(p);
+                                p.pushLogicOpToken(.equal_equal, start);
+                            },
+                            '>' => {
+                                advanceChar(p);
+                                p.pushToken(.equal_greater, start);
+                            },
+                            else => {
+                                p.pushToken(.equal, start);
+                            }
+                        }
+                    } else {
+                        p.pushToken(.equal, start);
+                    }
+                },
+                '<' => {
+                    if (isNextChar(p, '=')) {
+                        p.pushLogicOpToken(.less_equal, start);
+                        advanceChar(p);
+                    } else {
+                        p.pushLogicOpToken(.less, start);
+                    }
+                },
+                '>' => {
+                    if (isNextChar(p, '=')) {
+                        p.pushLogicOpToken(.greater_equal, start);
+                        advanceChar(p);
+                    } else {
+                        p.pushLogicOpToken(.greater, start);
+                    }
+                },
+                ' ',
+                '\r',
+                '\t' => {
+                    // Consume whitespace.
+                    while (!isAtEndChar(p)) {
+                        var ch2 = peekChar(p);
+                        switch (ch2) {
+                            ' ',
+                            '\r',
+                            '\t' => advanceChar(p),
+                            else => return tokenizeOne(p, parsedNewLine),
+                        }
+                    }
+                    return false;
+                },
+                '\n' => {
+                    p.pushToken(.new_line, start);
+                    parsedNewLine.* = true;
+                },
+                '`' => {
+                    savePos(p);
+                    while (true) {
+                        if (isAtEndChar(p)) {
+                            if (p.tokenizeOpts.ignoreErrors) {
+                                restorePos(p);
+                                p.pushToken(.err, start);
+                                return true;
+                            } else return error.UnterminatedString;
+                        }
+                        const ch_ = consumeChar(p);
+                        switch (ch_) {
+                            '`' => {
+                                p.pushStringToken(start, p.next_pos);
+                                break;
+                            },
+                            '\\' => {
+                                // Escape the next character.
+                                if (isAtEndChar(p)) {
+                                    if (p.tokenizeOpts.ignoreErrors) {
+                                        restorePos(p);
+                                        p.pushToken(.err, start);
+                                        return true;
+                                    } else return error.UnterminatedString;
+                                }
+                                _ = consumeChar(p);
+                                continue;
+                            },
+                            else => {},
+                        }
+                    }
+                },
+                '\'' => {
+                    savePos(p);
+                    while (true) {
+                        if (isAtEndChar(p)) {
+                            if (p.tokenizeOpts.ignoreErrors) {
+                                restorePos(p);
+                                p.pushToken(.err, start);
+                                return true;
+                            } else return error.UnterminatedString;
+                        }
+                        const ch_ = consumeChar(p);
+                        switch (ch_) {
+                            '\'' => {
+                                p.pushStringToken(start, p.next_pos);
+                                break;
+                            },
+                            '\\' => {
+                                // Escape the next character.
+                                if (isAtEndChar(p)) {
+                                    if (p.tokenizeOpts.ignoreErrors) {
+                                        restorePos(p);
+                                        p.pushToken(.err, start);
+                                        return true;
+                                    } else return error.UnterminatedString;
+                                }
+                                _ = consumeChar(p);
+                                continue;
+                            },
+                            '\n' => {
+                                if (p.tokenizeOpts.ignoreErrors) {
+                                    restorePos(p);
+                                    p.pushToken(.err, start);
+                                    return true;
+                                } else return error.UnterminatedString;
+                            },
+                            else => {},
+                        }
+                    }
+                },
+                else => {
+                    if (std.ascii.isAlpha(ch)) {
+                        tokenizeKeywordOrIdent(p, start);
+                        return true;
+                    }
+                    if (ch >= '0' and ch <= '9') {
+                        tokenizeNumber(p, start);
+                        return true;
+                    }
+                    if (p.tokenizeOpts.ignoreErrors) {
+                        p.pushToken(.err, start);
+                        return true;
+                    } else {
+                        p.last_err = std.fmt.allocPrint(p.alloc, "unknown character: {c} ({}) at {}", .{ch, ch, start}) catch fatal();
+                        return error.UnknownChar;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// Returns true if an indent or new line token was parsed.
+        fn tokenizeIndentOne(p: *Parser) bool {
+            const ch = peekChar(p);
+            switch (ch) {
+                ' ' => {
+                    const start = p.next_pos;
+                    advanceChar(p);
+                    var count: u32 = 1;
+                    while (true) {
+                        const ch_ = peekChar(p);
+                        if (ch_ == ' ') {
+                            count += 1;
+                            advanceChar(p);
+                        } else break;
+                    }
+                    p.pushIndentToken(count, start);
+                    return true;
+                },
+                '\n' => {
+                    p.pushToken(.new_line, p.next_pos);
+                    advanceChar(p);
+                    return true;
+                },
+                else => return false,
+            }
+        }
+
+        /// Step tokenizer with provided state.
+        pub fn tokenizeStep(p: *Parser, state: TokenizeState) anyerror!TokenizeState {
+            if (isAtEndChar(p)) {
+                return .end;
+            }
+            switch (state) {
+                .start => {
+                    if (tokenizeIndentOne(p)) {
+                        return .start;
+                    } else {
+                        return try tokenizeStep(p, .token);
+                    }
+                },
+                .token => {
+                    var parsedNewLine: bool = undefined;
+                    if (try tokenizeOne(p, &parsedNewLine)) {
+                        if (!parsedNewLine) {
+                            return .token;
+                        } else {
+                            return .start;
+                        }
+                    } else {
+                        while (!isAtEndChar(p)) {
+                            if (try tokenizeOne(p, &parsedNewLine)) {
+                                if (!parsedNewLine) {
+                                    return .token;
+                                } else {
+                                    return .start;
+                                }
+                            }
+                        }
+                        return .end;
+                    }
+                },
+                .end => return error.AtEnd,
+            }
+        }
+
+        fn tokenize(p: *Parser, opts: TokenizeOptions) !void {
+            p.tokenizeOpts = opts;
+            p.tokens.clearRetainingCapacity();
+            p.next_pos = 0;
+
+            var parsedNewLine = false;
+            while (!isAtEndChar(p)) {
+                // First parse indent spaces.
+                while (!isAtEndChar(p)) {
+                    if (!tokenizeIndentOne(p)) {
+                        break;
+                    }
+                }
+                while (!isAtEndChar(p)) {
+                    if (try tokenizeOne(p, &parsedNewLine)) {
+                        if (parsedNewLine) {
+                            break;
+                        }
+                    } else break;
+                }
+            }
+        }
+
+        fn tokenizeKeywordOrIdent(p: *Parser, start: u32) void {
+            // Consume alpha.
+            while (true) {
+                if (isAtEndChar(p)) {
+                    if (keywords.get(getSubStrFrom(p, start))) |token_t| {
+                        p.pushToken(token_t, start);
+                    } else {
+                        p.pushIdentToken(start, p.next_pos);
+                    }
+                    return;
+                }
+                const ch = peekChar(p);
+                if (std.ascii.isAlpha(ch)) {
+                    advanceChar(p);
+                    continue;
+                } else break;
+            }
+
+            // Consume alpha, numeric, underscore.
+            while (true) {
+                if (isAtEndChar(p)) {
+                    if (keywords.get(getSubStrFrom(p, start))) |token_t| {
+                        p.pushToken(token_t, start);
+                    } else {
+                        p.pushIdentToken(start, p.next_pos);
+                    }
+                    return;
+                }
+                const ch = peekChar(p);
+                if (std.ascii.isAlNum(ch)) {
+                    advanceChar(p);
+                    continue;
+                }
+                if (ch == '_') {
+                    advanceChar(p);
+                    continue;
+                }
+                if (keywords.get(getSubStrFrom(p, start))) |token_t| {
+                    p.pushToken(token_t, start);
+                } else {
+                    p.pushIdentToken(start, p.next_pos);
+                }
+                return;
+            }
+        }
+
+        fn tokenizeNumber(p: *Parser, start: u32) void {
+            while (true) {
+                if (isAtEndChar(p)) {
+                    p.pushNumberToken(start, p.next_pos);
+                    return;
+                }
+                const ch = peekChar(p);
+                if (ch >= '0' and ch <= '9') {
+                    advanceChar(p);
+                    continue;
+                } else break;
+            }
+            // Check for decimal.
+            if (peekCharAhead(p, 1)) |ch2| {
+                const ch = peekChar(p);
+                if (ch == '.' and ch2 >= '0' and ch2 <= '9') {
+                    advanceChar(p);
+                    advanceChar(p);
+                    while (true) {
+                        if (isAtEndChar(p)) {
+                            break;
+                        }
+                        const ch_ = peekChar(p);
+                        if (ch_ >= '0' and ch_ <= '9') {
+                            advanceChar(p);
+                            continue;
+                        } else break;
+                    }
+                }
+            }
+            p.pushNumberToken(start, p.next_pos);
+        }
+    };
+}
+
+const TokenizeOptions = struct {
+    /// Used for syntax highlighting.
+    ignoreErrors: bool = false,
+};
