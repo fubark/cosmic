@@ -70,56 +70,66 @@ test "Closure" {
 pub fn ClosureIface(comptime Fn: type) type {
     stdx.meta.assertFunctionType(Fn);
 
+    const Params = stdx.meta.FnParamsTuple(Fn);
+    const Return = stdx.meta.FnReturn(Fn);
+
     // The compiler crashes when a created @Type is not used. Declaring a dummy var somehow makes the compiler aware of it.
     var dummy: stdx.meta.FnParamsTuple(Fn) = undefined;
     _ = dummy;
     return struct {
-        const Self = @This();
+        capturePtr: *anyopaque,
+        /// Also useful for equality comparison.
+        userFnPtr: *const anyopaque,
+        vtable: *const VTable,
 
-        capture_ptr: *anyopaque,
-        call_fn: fn (user_fn: *const anyopaque, capture: *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn),
-        deinit_fn: fn (std.mem.Allocator, *anyopaque) void,
+        const VTable = struct {
+            call: fn (capturePtr: *anyopaque, userFnPtr: *const anyopaque, args: Params) Return,
+            deinit: fn (capturePtr: *anyopaque, std.mem.Allocator) void,
+        };
 
-        // Also useful for equality comparison.
-        user_fn: *const anyopaque,
+        const ClosureIfaceT = @This();
 
-        pub fn init(closure: anytype) Self {
+        pub fn init(closure: anytype) ClosureIfaceT {
             const CapturePtr = @TypeOf(closure.capture);
             const UserFn = @TypeOf(closure.user_fn);
+
             const gen = struct {
-                fn call(user_fn_ptr: *const anyopaque, ptr: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-                    const user_fn = @ptrCast(UserFn, user_fn_ptr);
+                fn call(capturePtr: *anyopaque, userFnPtr: *const anyopaque, args: Params) Return {
+                    const userFn = @ptrCast(UserFn, userFnPtr);
                     if (@sizeOf(CapturePtr) == 0) {
                         // *void
-                        return @call(.{}, user_fn, .{{}} ++ args);
+                        return @call(.{}, userFn, .{{}} ++ args);
                     } else {
-                        const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
-                        return @call(.{}, user_fn, .{capture.*} ++ args);
+                        const captured = stdx.mem.ptrCastAlign(CapturePtr, capturePtr);
+                        return @call(.{}, userFn, .{captured.*} ++ args);
                     }
                 }
-                fn deinit(alloc: std.mem.Allocator, ptr: *anyopaque) void {
+                fn deinit(capturePtr: *anyopaque, alloc: std.mem.Allocator) void {
                     if (@sizeOf(CapturePtr) > 0) {
+                        const captured = stdx.mem.ptrCastAlign(CapturePtr, capturePtr);
                         // not *void
-                        const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
-                        alloc.destroy(capture);
+                        alloc.destroy(captured);
                     }
                 }
             };
-            return .{
+            const vtable = VTable{
+                .call = gen.call,
+                .deinit = gen.deinit,
+            };
+            return ClosureIfaceT{
                 // Check for *void.
-                .capture_ptr = if (@sizeOf(CapturePtr) == 0) undefined else @ptrCast(*anyopaque, closure.capture),
-                .user_fn = closure.user_fn,
-                .call_fn = gen.call,
-                .deinit_fn = gen.deinit,
+                .capturePtr = if (@sizeOf(CapturePtr) == 0) undefined else @ptrCast(*anyopaque, closure.capture),
+                .userFnPtr = closure.user_fn,
+                .vtable = &vtable,
             };
         }
 
-        pub fn call(self: Self, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-            return self.call_fn(self.user_fn, self.capture_ptr, args);
+        pub fn call(self: ClosureIfaceT, args: Params) Return {
+            return self.vtable.call(self.capturePtr, self.userFnPtr, args);
         }
 
-        pub fn deinit(self: Self, alloc: std.mem.Allocator) void {
-            self.deinit_fn(alloc, self.capture_ptr);
+        pub fn deinit(self: ClosureIfaceT, alloc: std.mem.Allocator) void {
+            self.vtable.deinit(self.capturePtr, alloc);
         }
     };
 }

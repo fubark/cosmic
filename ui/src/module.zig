@@ -3132,37 +3132,37 @@ test "Widget instance lifecycle." {
 
     try t.eq(mod.common.node_keyup_map.size, 1);
     const keyup_sub = mod.common.node_keyup_map.get(root.?).?;
-    try t.eq(keyup_sub.closure.user_fn, A.onKeyUp);
+    try t.eq(keyup_sub.closure.userFnPtr, A.onKeyUp);
 
     try t.eq(mod.common.node_keydown_map.size, 1);
     const keydown_sub = mod.common.node_keydown_map.get(root.?).?;
-    try t.eq(keydown_sub.closure.user_fn, A.onKeyDown);
+    try t.eq(keydown_sub.closure.userFnPtr, A.onKeyDown);
 
     try t.eq(mod.common.node_mousedown_map.size, 1);
     const mousedown_sub = mod.common.node_mousedown_map.get(root.?).?;
-    try t.eq(mousedown_sub.closure.user_fn, A.onMouseDown);
+    try t.eq(mousedown_sub.closure.userFnPtr, A.onMouseDown);
 
     try t.eq(mod.common.node_enter_mousedown_map.size, 1);
     const enter_mousedown_sub = mod.common.node_enter_mousedown_map.get(root.?).?;
-    try t.eq(enter_mousedown_sub.closure.user_fn, A.onEnterMouseDown);
+    try t.eq(enter_mousedown_sub.closure.userFnPtr, A.onEnterMouseDown);
 
     try t.eq(mod.common.node_mouseup_map.size, 1);
     const mouseup_sub = mod.common.node_mouseup_map.get(root.?).?;
-    try t.eq(mouseup_sub.closure.user_fn, A.onMouseUp);
+    try t.eq(mouseup_sub.closure.userFnPtr, A.onMouseUp);
 
     try t.eq(mod.common.node_global_mousemove_map.size, 1);
     const mousemove_sub = mod.common.node_global_mousemove_map.get(root.?).?;
-    try t.eq(mousemove_sub.closure.user_fn, A.onMouseMove);
+    try t.eq(mousemove_sub.closure.userFnPtr, A.onMouseMove);
 
     try t.eq(mod.common.node_mousewheel_map.size, 1);
     const mousewheel_sub = mod.common.node_mousewheel_map.get(root.?).?;
-    try t.eq(mousewheel_sub.closure.user_fn, A.onMouseWheel);
+    try t.eq(mousewheel_sub.closure.userFnPtr, A.onMouseWheel);
 
     try t.eq(mod.common.interval_sessions.size(), 1);
     var iter = mod.common.interval_sessions.iterator();
     const interval_sub = iter.next().?;
     try t.eq(interval_sub.node, root.?);
-    try t.eq(interval_sub.closure.user_fn, A.onInterval);
+    try t.eq(interval_sub.closure.userFnPtr, A.onInterval);
 
     try tmod.preUpdate(false, S.bootstrap);
     // Run preupdate again to remove marked event handlers.
