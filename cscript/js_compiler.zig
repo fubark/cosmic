@@ -718,7 +718,6 @@ pub const JsTargetCompiler = struct {
         try self.genExpression(node);
     }
 
-
     fn genExpression(self: *JsTargetCompiler, node: parser.Node) anyerror!void {
         // log.debug("gen expr {}", .{node.node_t});
         switch (node.node_t) {

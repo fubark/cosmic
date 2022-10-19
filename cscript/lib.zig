@@ -2,6 +2,7 @@ const std = @import("std");
 
 const stdx = @import("../stdx/lib.zig");
 const qjs = @import("../lib/qjs/lib.zig");
+const config = @import("config.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "cscript",
@@ -10,12 +11,14 @@ pub const pkg = std.build.Pkg{
 
 pub const Options = struct {
     add_dep_pkgs: bool = true,
+    engine: config.Engine = .vm,
 };
 
 pub fn getPackage(b: *std.build.Builder, opts: Options) std.build.Pkg {
-    _ = opts;
     var ret = pkg;
     const build_options = b.addOptions();
+    build_options.addOption(config.Engine, "csEngine", opts.engine);
+
     ret.dependencies = b.allocator.dupe(std.build.Pkg, &.{
         stdx.pkg, qjs.pkg,
         build_options.getPackage("build_options"),

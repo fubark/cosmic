@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const t = stdx.testing;

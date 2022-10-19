@@ -272,6 +272,10 @@ pub const JsValue = struct {
         }
     }
 
+    pub fn isInt32(self: JsValue, engine: JsEngine) bool {
+        return self.getTag(engine) == .int32;
+    }
+
     pub fn isNull(self: JsValue) bool {
         if (IsWasm) {
             stdx.unsupported();
