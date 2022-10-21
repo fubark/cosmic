@@ -16,17 +16,17 @@ pub const EncodeListContext = struct {
         try self.writer.writeByteNTimes(' ', self.cur_indent * 4);
     }
     
-    pub fn encodeDict(self: *EncodeListContext, val: anytype, encode_dict: fn (*EncodeDictContext, @TypeOf(val)) anyerror!void) !void {
+    pub fn encodeMap(self: *EncodeListContext, val: anytype, encode_map: fn (*EncodeMapContext, @TypeOf(val)) anyerror!void) !void {
         try self.indent();
         _ = try self.writer.write("{\n");
 
-        var dict_ctx = EncodeDictContext{
+        var map_ctx = EncodeMapContext{
             .writer = self.writer,
             .tmp_buf = self.tmp_buf,
             .cur_indent = self.cur_indent + 1,
             .user_ctx = self.user_ctx,
         };
-        try encode_dict(&dict_ctx, val);
+        try encode_map(&map_ctx, val);
 
         try self.indent();
         _ = try self.writer.write("}\n");
@@ -43,33 +43,33 @@ pub const EncodeValueContext = struct {
         try self.writer.writeByteNTimes(' ', self.cur_indent * 4);
     }
 
-    pub fn encodeAsDict(self: *EncodeValueContext, val: anytype, encode_dict: fn (*EncodeDictContext, @TypeOf(val)) anyerror!void) !void {
+    pub fn encodeAsMap(self: *EncodeValueContext, val: anytype, encode_map: fn (*EncodeMapContext, @TypeOf(val)) anyerror!void) !void {
         _ = try self.writer.write("{\n");
 
-        var dict_ctx = EncodeDictContext{
+        var map_ctx = EncodeMapContext{
             .writer = self.writer,
             .tmp_buf = self.tmp_buf,
             .cur_indent = self.cur_indent + 1,
             .user_ctx = self.user_ctx,
         };
-        try encode_dict(&dict_ctx, val);
+        try encode_map(&map_ctx, val);
 
         try self.indent();
         _ = try self.writer.write("}");
     }
 };
 
-pub const EncodeDictContext = struct {
+pub const EncodeMapContext = struct {
     writer: std.ArrayListUnmanaged(u8).Writer,
     tmp_buf: *std.ArrayList(u8),
     cur_indent: u32,
     user_ctx: ?*anyopaque,
 
-    fn indent(self: *EncodeDictContext) !void {
+    fn indent(self: *EncodeMapContext) !void {
         try self.writer.writeByteNTimes(' ', self.cur_indent * 4);
     }
 
-    pub fn encodeSlice(self: *EncodeDictContext, key: []const u8, slice: anytype, encode_value: fn (*EncodeValueContext, anytype) anyerror!void) !void {
+    pub fn encodeSlice(self: *EncodeMapContext, key: []const u8, slice: anytype, encode_value: fn (*EncodeValueContext, anytype) anyerror!void) !void {
         try self.indent();
         _ = try self.writer.print("{s}: [\n", .{key});
 
@@ -91,7 +91,7 @@ pub const EncodeDictContext = struct {
         _ = try self.writer.write("]\n");
     }
 
-    pub fn encodeAsList(self: *EncodeDictContext, key: []const u8, val: anytype, encode_list: fn (*EncodeListContext, @TypeOf(val)) anyerror!void) !void {
+    pub fn encodeAsList(self: *EncodeMapContext, key: []const u8, val: anytype, encode_list: fn (*EncodeListContext, @TypeOf(val)) anyerror!void) !void {
         try self.indent();
         _ = try self.writer.print("{s}: [\n", .{key});
 
@@ -107,69 +107,69 @@ pub const EncodeDictContext = struct {
         _ = try self.writer.write("]\n");
     }
 
-    pub fn encodeAsDict(self: *EncodeDictContext, key: []const u8, val: anytype, encode_dict: fn (*EncodeDictContext, @TypeOf(val)) anyerror!void) !void {
+    pub fn encodeAsMap(self: *EncodeMapContext, key: []const u8, val: anytype, encode_map: fn (*EncodeMapContext, @TypeOf(val)) anyerror!void) !void {
         try self.indent();
         _ = try self.writer.print("{s}: {{\n", .{key});
 
-        var dict_ctx = EncodeDictContext{
+        var map_ctx = EncodeMapContext{
             .writer = self.writer,
             .tmp_buf = self.tmp_buf,
             .cur_indent = self.cur_indent + 1,
             .user_ctx = self.user_ctx,
         };
-        try encode_dict(&dict_ctx, val);
+        try encode_map(&map_ctx, val);
 
         try self.indent();
         _ = try self.writer.write("}\n");
     }
 
-    pub fn encodeAsDict2(self: *EncodeDictContext, key: []const u8, val: anytype, encode_dict: fn (*EncodeDictContext, anytype) anyerror!void) !void {
+    pub fn encodeAsMap2(self: *EncodeMapContext, key: []const u8, val: anytype, encode_map: fn (*EncodeMapContext, anytype) anyerror!void) !void {
         try self.indent();
         _ = try self.writer.print("{s}: ", .{ key });
 
         _ = try self.writer.write("{\n");
 
-        var dict_ctx = EncodeDictContext{
+        var map_ctx = EncodeMapContext{
             .writer = self.writer,
             .tmp_buf = self.tmp_buf,
             .cur_indent = self.cur_indent + 1,
             .user_ctx = self.user_ctx,
         };
-        try encode_dict(&dict_ctx, val);
+        try encode_map(&map_ctx, val);
 
         try self.indent();
         _ = try self.writer.write("}\n");
     }
 
-    pub fn encode(self: *EncodeDictContext, key: []const u8, val: anytype) !void {
+    pub fn encode(self: *EncodeMapContext, key: []const u8, val: anytype) !void {
         try self.indent();
         _ = try self.writer.print("{s}: ", .{key});
         try self.encodeValue(val);
     }
 
-    pub fn encodeString(self: *EncodeDictContext, key: []const u8, val: []const u8) !void {
+    pub fn encodeString(self: *EncodeMapContext, key: []const u8, val: []const u8) !void {
         try self.indent();
         _ = try self.writer.print("{s}: ", .{key});
         try self.encodeString_(val);
     }
 
-    pub fn encodeAnyToDict(self: *EncodeDictContext, key: anytype, val: anytype, encode_dict: fn (*EncodeDictContext, @TypeOf(val)) anyerror!void) !void {
+    pub fn encodeAnyToMap(self: *EncodeMapContext, key: anytype, val: anytype, encode_map: fn (*EncodeMapContext, @TypeOf(val)) anyerror!void) !void {
         try self.encodeAnyKey_(key);
         _ = try self.writer.write("{\n");
 
-        var dict_ctx = EncodeDictContext{
+        var map_ctx = EncodeMapContext{
             .writer = self.writer,
             .tmp_buf = self.tmp_buf,
             .cur_indent = self.cur_indent + 1,
             .user_ctx = self.user_ctx,
         };
-        try encode_dict(&dict_ctx, val);
+        try encode_map(&map_ctx, val);
 
         try self.indent();
         _ = try self.writer.write("}\n");
     }
 
-    fn encodeAnyKey_(self: *EncodeDictContext, key: anytype) !void {
+    fn encodeAnyKey_(self: *EncodeMapContext, key: anytype) !void {
         try self.indent();
         const T = @TypeOf(key);
         switch (T) {
@@ -184,12 +184,12 @@ pub const EncodeDictContext = struct {
         }
     }
 
-    pub fn encodeAnyToString(self: *EncodeDictContext, key: anytype, val: []const u8) !void {
+    pub fn encodeAnyToString(self: *EncodeMapContext, key: anytype, val: []const u8) !void {
         try self.encodeAnyKey_(key);
         try self.encodeString_(val);
     }
 
-    fn encodeString_(self:* EncodeDictContext, str: []const u8) !void {
+    fn encodeString_(self:* EncodeMapContext, str: []const u8) !void {
         self.tmp_buf.clearRetainingCapacity();
         if (std.mem.indexOfScalar(u8, str, '\n') == null) {
             _ = stdx.mem.replaceIntoList(u8, str, "'", "\\'", self.tmp_buf);
@@ -200,12 +200,12 @@ pub const EncodeDictContext = struct {
         }
     }
 
-    pub fn encodeAnyToValue(self: *EncodeDictContext, key: anytype, val: anytype) !void {
+    pub fn encodeAnyToValue(self: *EncodeMapContext, key: anytype, val: anytype) !void {
         try self.encodeAnyKey_(key);
         try self.encodeValue(val);
     }
 
-    fn encodeValue(self: *EncodeDictContext, val: anytype) !void {
+    fn encodeValue(self: *EncodeMapContext, val: anytype) !void {
         const T = @TypeOf(val);
         switch (T) {
             bool,
@@ -266,34 +266,34 @@ pub const DecodeListIR = struct {
         self.alloc.free(self.arr);
     }
 
-    pub fn decodeDict(self: DecodeListIR, idx: u32) !DecodeDictIR {
+    pub fn decodeMap(self: DecodeListIR, idx: u32) !DecodeMapIR {
         if (idx < self.arr.len) {
-            return try DecodeDictIR.init(self.alloc, self.res, self.arr[idx]);
+            return try DecodeMapIR.init(self.alloc, self.res, self.arr[idx]);
         } else return error.NoSuchEntry;
     }
 };
 
-pub const DecodeDictIR = struct {
+pub const DecodeMapIR = struct {
     alloc: std.mem.Allocator,
     res: parser_.ResultView,
 
     /// Preserve order of entries.
     map: std.StringArrayHashMapUnmanaged(parser_.NodeId),
 
-    fn init(alloc: std.mem.Allocator, res: parser_.ResultView, dict_id: parser_.NodeId) !DecodeDictIR {
-        const dict = res.nodes.items[dict_id];
-        if (dict.node_t != .dict_literal) {
-            return error.NotADict;
+    fn init(alloc: std.mem.Allocator, res: parser_.ResultView, map_id: parser_.NodeId) !DecodeMapIR {
+        const map = res.nodes.items[map_id];
+        if (map.node_t != .map_literal) {
+            return error.NotAMap;
         }
 
-        var new = DecodeDictIR{
+        var new = DecodeMapIR{
             .alloc = alloc,
             .res = res,
             .map = .{},
         };
 
         // Parse literal into map.
-        var entry_id = dict.head.child_head;
+        var entry_id = map.head.child_head;
         while (entry_id != NullId) {
             const entry = res.nodes.items[entry_id];
             const key = res.nodes.items[entry.head.left_right.left];
@@ -310,15 +310,15 @@ pub const DecodeDictIR = struct {
         return new;
     }
 
-    pub fn deinit(self: *DecodeDictIR) void {
+    pub fn deinit(self: *DecodeMapIR) void {
         self.map.deinit(self.alloc);
     }
 
-    pub fn iterator(self: DecodeDictIR) std.StringArrayHashMapUnmanaged(parser_.NodeId).Iterator {
+    pub fn iterator(self: DecodeMapIR) std.StringArrayHashMapUnmanaged(parser_.NodeId).Iterator {
         return self.map.iterator();
     }
     
-    pub fn allocString(self: DecodeDictIR, key: []const u8) ![]const u8 {
+    pub fn allocString(self: DecodeMapIR, key: []const u8) ![]const u8 {
         if (self.map.get(key)) |val_id| {
             const val_n = self.res.nodes.items[val_id];
             if (val_n.node_t == .string) {
@@ -333,7 +333,7 @@ pub const DecodeDictIR = struct {
         } else return error.NoSuchEntry;
     }
 
-    pub fn getU32(self: DecodeDictIR, key: []const u8) !u32 {
+    pub fn getU32(self: DecodeMapIR, key: []const u8) !u32 {
         if (self.map.get(key)) |val_id| {
             const val_n = self.res.nodes.items[val_id];
             if (val_n.node_t == .number) {
@@ -343,11 +343,11 @@ pub const DecodeDictIR = struct {
         } else return error.NoSuchEntry;
     }
 
-    pub fn getBool(self: DecodeDictIR, key: []const u8) !bool {
+    pub fn getBool(self: DecodeMapIR, key: []const u8) !bool {
         return self.getBoolOpt(key) orelse return error.NoSuchEntry;
     }
 
-    pub fn getBoolOpt(self: DecodeDictIR, key: []const u8) !?bool {
+    pub fn getBoolOpt(self: DecodeMapIR, key: []const u8) !?bool {
         if (self.map.get(key)) |val_id| {
             const val_n = self.res.nodes.items[val_id];
             if (val_n.node_t == .true_literal) {
@@ -358,15 +358,15 @@ pub const DecodeDictIR = struct {
         } else return null;
     }
 
-    pub fn decodeList(self: DecodeDictIR, key: []const u8) !DecodeListIR {
+    pub fn decodeList(self: DecodeMapIR, key: []const u8) !DecodeListIR {
         if (self.map.get(key)) |val_id| {
             return DecodeListIR.init(self.alloc, self.res, val_id);
         } else return error.NoSuchEntry;
     }
 
-    pub fn decodeDict(self: DecodeDictIR, key: []const u8) !DecodeDictIR {
+    pub fn decodeMap(self: DecodeMapIR, key: []const u8) !DecodeMapIR {
         if (self.map.get(key)) |val_id| {
-            return try DecodeDictIR.init(self.alloc, self.res, val_id);
+            return try DecodeMapIR.init(self.alloc, self.res, val_id);
         } else return error.NoSuchEntry;
     }
 };
@@ -374,7 +374,7 @@ pub const DecodeDictIR = struct {
 const NullId = std.math.maxInt(u32);
 
 // Currently uses cscript parser.
-pub fn decodeDict(alloc: std.mem.Allocator, parser: *Parser, ctx: anytype, out: anytype, decode_dict: fn (DecodeDictIR, @TypeOf(ctx), @TypeOf(out)) anyerror!void, cdata: []const u8) !void {
+pub fn decodeMap(alloc: std.mem.Allocator, parser: *Parser, ctx: anytype, out: anytype, decode_map: fn (DecodeMapIR, @TypeOf(ctx), @TypeOf(out)) anyerror!void, cdata: []const u8) !void {
     const res = try parser.parse(cdata);
     if (res.has_error) {
         log.debug("Parse Error: {s}", .{res.err_msg});
@@ -383,16 +383,16 @@ pub fn decodeDict(alloc: std.mem.Allocator, parser: *Parser, ctx: anytype, out: 
 
     const root = res.nodes.items[res.root_id];
     if (root.head.child_head == NullId) {
-        return error.NotADict;
+        return error.NotAMap;
     }
     const first_stmt = res.nodes.items[root.head.child_head];
     if (first_stmt.node_t != .expr_stmt) {
-        return error.NotADict;
+        return error.NotAMap;
     }
 
-    var dict = try DecodeDictIR.init(alloc, res, first_stmt.head.child_head);
-    defer dict.deinit();
-    try decode_dict(dict, ctx, out);
+    var map = try DecodeMapIR.init(alloc, res, first_stmt.head.child_head);
+    defer map.deinit();
+    try decode_map(map, ctx, out);
 }
 
 const TestRoot = struct {
@@ -427,25 +427,25 @@ test "encode" {
     };
 
     const S = struct {
-        fn encodeRoot(ctx: *EncodeDictContext, val: TestRoot) !void {
+        fn encodeRoot(ctx: *EncodeMapContext, val: TestRoot) !void {
             try ctx.encodeString("name", val.name);
             try ctx.encodeSlice("list", val.list, encodeValue);
-            try ctx.encodeAsDict("map", val.map, encodeMap);
+            try ctx.encodeAsMap("map", val.map, encodeMap);
         }
-        fn encodeMap(ctx: *EncodeDictContext, val: []const TestMapItem) !void {
+        fn encodeMap(ctx: *EncodeMapContext, val: []const TestMapItem) !void {
             for (val) |it| {
                 try ctx.encodeAnyToString(it.id, it.val);
             }
         }
-        fn encodeItem(ctx: *EncodeDictContext, val: TestListItem) !void {
+        fn encodeItem(ctx: *EncodeMapContext, val: TestListItem) !void {
             try ctx.encode("field", val.field);
         }
         fn encodeValue(ctx: *EncodeValueContext, val: anytype) !void {
             const T = @TypeOf(val);
             if (T == TestRoot) {
-                try ctx.encodeAsDict(val, encodeRoot);
+                try ctx.encodeAsMap(val, encodeRoot);
             } else if (T == TestListItem) {
-                try ctx.encodeAsDict(val, encodeItem);
+                try ctx.encodeAsMap(val, encodeItem);
             } else {
                 stdx.panicFmt("unsupported: {s}", .{@typeName(T)});
             }
@@ -478,31 +478,31 @@ test "encode" {
     );
 }
 
-test "decodeDict" {
+test "decodeMap" {
     const S = struct {
-        fn decodeRoot(dict: DecodeDictIR, _: void, root: *TestRoot) !void {
-            root.name = try dict.allocString("name");
+        fn decodeRoot(map: DecodeMapIR, _: void, root: *TestRoot) !void {
+            root.name = try map.allocString("name");
 
             var list: std.ArrayListUnmanaged(TestListItem) = .{};
-            var list_ir = try dict.decodeList("list");
+            var list_ir = try map.decodeList("list");
             defer list_ir.deinit();
             var i: u32 = 0;
             while (i < list_ir.arr.len) : (i += 1) {
                 var item: TestListItem = undefined;
-                var item_dict = try list_ir.decodeDict(i);
-                defer item_dict.deinit();
-                item.field = try item_dict.getU32("field");
+                var item_map = try list_ir.decodeMap(i);
+                defer item_map.deinit();
+                item.field = try item_map.getU32("field");
                 try list.append(t.alloc, item);
             }
             root.list = list.toOwnedSlice(t.alloc);
 
             var map_items: std.ArrayListUnmanaged(TestMapItem) = .{};
-            var map_dict = try dict.decodeDict("map");
-            defer map_dict.deinit();
-            var iter = map_dict.iterator();
+            var map_ = try map.decodeMap("map");
+            defer map_.deinit();
+            var iter = map_.iterator();
             while (iter.next()) |entry| {
                 const key = try std.fmt.parseInt(u32, entry.key_ptr.*, 10);
-                const value = try map_dict.allocString(entry.key_ptr.*);
+                const value = try map_.allocString(entry.key_ptr.*);
                 try map_items.append(t.alloc, .{ .id = key, .val = value });
             }
             root.map = map_items.toOwnedSlice(t.alloc);
@@ -513,7 +513,7 @@ test "decodeDict" {
     defer parser.deinit();
 
     var root: TestRoot = undefined;
-    try decodeDict(t.alloc, &parser, {}, &root, S.decodeRoot, 
+    try decodeMap(t.alloc, &parser, {}, &root, S.decodeRoot, 
         \\{
         \\    name: 'project'
         \\    list: [

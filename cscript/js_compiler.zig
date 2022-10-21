@@ -747,7 +747,7 @@ pub const JsTargetCompiler = struct {
                 const token = self.tokens[node.start_token];
                 _ = try self.writer.write(self.src[token.start_pos..token.data.end_pos]);
             },
-            .dict_literal => {
+            .map_literal => {
                 _ = try self.writer.write("{");
 
                 var entry_id = node.head.child_head;

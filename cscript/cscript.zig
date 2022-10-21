@@ -31,9 +31,9 @@ pub const QJS = interpreter.QJS;
 
 const cdata = @import("cdata.zig");
 pub const encodeCDATA = cdata.encode;
-pub const decodeCDATAdict = cdata.decodeDict;
+pub const decodeCDATAmap = cdata.decodeMap;
 pub const EncodeValueContext = cdata.EncodeValueContext;
-pub const EncodeDictContext = cdata.EncodeDictContext;
+pub const EncodeMapContext = cdata.EncodeMapContext;
 pub const EncodeListContext = cdata.EncodeListContext;
-pub const DecodeDictIR = cdata.DecodeDictIR;
+pub const DecodeMapIR = cdata.DecodeMapIR;
 pub const DecodeListIR = cdata.DecodeListIR;

@@ -971,7 +971,7 @@ pub const Parser = struct {
         return err;
     }
 
-    fn parseDictEntry(self: *Parser, key_node_t: NodeType) !NodeId {
+    fn parseMapEntry(self: *Parser, key_node_t: NodeType) !NodeId {
         const start = self.next_pos;
         self.advanceToken();
         var token = self.peekToken();
@@ -981,10 +981,10 @@ pub const Parser = struct {
         self.advanceToken();
         var dummy = false;
         const val_id = (try self.parseExpression(false, &dummy)) orelse {
-            return self.reportTokenError(error.SyntaxError, "Expected dictionary value.", token);
+            return self.reportTokenError(error.SyntaxError, "Expected map value.", token);
         };
         const key_id = self.pushNode(key_node_t, start);
-        const entry_id = self.pushNode(.dict_entry, start);
+        const entry_id = self.pushNode(.map_entry, start);
         self.nodes.items[entry_id].head = .{
             .left_right = .{
                 .left = key_id,
@@ -1067,7 +1067,7 @@ pub const Parser = struct {
         } else return self.reportTokenError(error.SyntaxError, "Expected closing bracket.", token);
     }
 
-    fn parseDictLiteral(self: *Parser) !NodeId {
+    fn parseMapLiteral(self: *Parser) !NodeId {
         const start = self.next_pos;
         // Assume first token is left brace.
         self.advanceToken();
@@ -1079,21 +1079,21 @@ pub const Parser = struct {
             var token = self.peekToken();
             switch (token.token_t) {
                 .ident => {
-                    first_entry = try self.parseDictEntry(.ident);
+                    first_entry = try self.parseMapEntry(.ident);
                     last_entry = first_entry;
                 },
                 .string => {
-                    first_entry = try self.parseDictEntry(.string);
+                    first_entry = try self.parseMapEntry(.string);
                     last_entry = first_entry;
                 },
                 .number => {
-                    first_entry = try self.parseDictEntry(.number);
+                    first_entry = try self.parseMapEntry(.number);
                     last_entry = first_entry;
                 },
                 .right_brace => {
                     break :outer;
                 },
-                else => return self.reportTokenError(error.SyntaxError, "Expected dictionary key.", token),
+                else => return self.reportTokenError(error.SyntaxError, "Expected map key.", token),
             }
 
             while (true) {
@@ -1108,30 +1108,30 @@ pub const Parser = struct {
                 token = self.peekToken();
                 switch (token.token_t) {
                     .ident => {
-                        const entry_id = try self.parseDictEntry(.ident);
+                        const entry_id = try self.parseMapEntry(.ident);
                         self.nodes.items[last_entry].next = entry_id;
                         last_entry = entry_id;
                     },
                     .string => {
-                        const entry_id = try self.parseDictEntry(.string);
+                        const entry_id = try self.parseMapEntry(.string);
                         self.nodes.items[last_entry].next = entry_id;
                         last_entry = entry_id;
                     },
                     .number => {
-                        const entry_id = try self.parseDictEntry(.number);
+                        const entry_id = try self.parseMapEntry(.number);
                         self.nodes.items[last_entry].next = entry_id;
                         last_entry = entry_id;
                     },
                     .right_brace => {
                         break :outer;
                     },
-                    else => return self.reportTokenError(error.SyntaxError, "Expected dictionary key.", token),
+                    else => return self.reportTokenError(error.SyntaxError, "Expected map key.", token),
                 }
             }
         }
 
-        const dict_id = self.pushNode(.dict_literal, start);
-        self.nodes.items[dict_id].head = .{
+        const map_id = self.pushNode(.map_literal, start);
+        self.nodes.items[map_id].head = .{
             .child_head = first_entry,
         };
 
@@ -1139,7 +1139,7 @@ pub const Parser = struct {
         const token = self.peekToken();
         if (token.token_t == .right_brace) {
             self.advanceToken();
-            return dict_id;
+            return map_id;
         } else return self.reportTokenError(error.SyntaxError, "Expected closing brace.", token);
     }
 
@@ -1444,9 +1444,9 @@ pub const Parser = struct {
                 }
             },
             .left_brace => b: {
-                // Dictionary literal.
-                const dict_id = try self.parseDictLiteral();
-                break :b dict_id;
+                // Map literal.
+                const map_id = try self.parseMapLiteral();
+                break :b map_id;
             },
             .left_bracket => b: {
                 // Array literal.
@@ -2066,8 +2066,8 @@ const NodeType = enum {
     lambda_assign_decl,
     lambda_single, // Single line.
     lambda_multi,  // Multi line.
-    dict_literal,
-    dict_entry,
+    map_literal,
+    map_entry,
     arr_literal,
 };
 

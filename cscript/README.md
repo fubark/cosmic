@@ -70,13 +70,13 @@ list[..3]   // [ 1, 2, 3 ] From start of list to end index.
 list[2..+2] // [ 3, 4 ]    From start index to start index + length.
 ```
 
-### Dictionaries
+### Maps
 ```cscript
-dict = { a: 123, b: func () => 5 }
-cs.log dict.a
-cs.log dict['a']
+map = { a: 123, b: func () => 5 }
+cs.log map.a
+cs.log map['a']
 
-// Dictionaries entries can be separated by the new line.
+// Map entries can be separated by the new line.
 map = {
     foo: 1
     bar: 2
@@ -155,20 +155,20 @@ for list as n, i:
 for list as _, i:
     cs.log i 
 ```
-Iterating dictionaries.
+Iterating maps.
 ```cscript
-dict = { a: 123, b: 234 }
+map = { a: 123, b: 234 }
 
 // Iterate on values.
-for dict as v:
+for map as v:
     cs.log v
 
 // Iterate on values and keys.
-for dict as v, k:
+for map as v, k:
     cs.log v, k
 
 // Iterate on just keys.
-for dict as _, k:
+for map as _, k:
     cs.log k
 ```
 
