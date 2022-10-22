@@ -42,6 +42,8 @@ pub inline fn fatal() noreturn {
     panic("error");
 }
 
+pub const Stack = ds.Stack;
+
 const utils = @import("utils.zig");
 pub const Box = utils.Box;
 pub const SizedBox = utils.SizedBox;

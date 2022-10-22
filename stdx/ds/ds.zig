@@ -24,6 +24,7 @@ pub const Queue = @import("queue.zig").Queue;
 const linked_list = @import("linked_list.zig");
 pub const SinglyLinkedList = linked_list.SinglyLinkedList;
 pub const SLLUnmanaged = linked_list.SLLUnmanaged;
+pub const Stack = @import("stack.zig").Stack;
 
 // std.StringHashMap except key is duped and managed.
 pub fn OwnedKeyStringHashMap(comptime T: type) type {

@@ -133,6 +133,10 @@ pub const TextBuffer = struct {
         return null;
     }
 
+    pub inline fn string(self: TextBuffer) []const u8 {
+        return self.buf.items;
+    }
+
     pub fn getSubStr(self: TextBuffer, start_idx: u32, end_idx: u32) []const u8 {
         const range = self.getBufferRange(start_idx, end_idx);
         return self.buf.items[range.buf_start_idx..range.buf_end_idx];
