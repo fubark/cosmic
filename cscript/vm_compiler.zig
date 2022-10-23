@@ -66,6 +66,7 @@ pub const VMcompiler = struct {
                 .hasError = true,
             };
         };
+        self.buf.mainLocalSize = self.curBlock.vars.size;
 
         return ResultView{
             .buf = self.buf,
@@ -229,11 +230,16 @@ pub const VMcompiler = struct {
                 // TODO: Check last statement to skip adding ret.
                 try self.endLocals();
                 try self.buf.pushOp(.ret);
+
+                // Reserve another local for the call return info.
+                _ = self.curBlock.allocValue();
+
+                const numLocals = self.curBlock.vars.size + 1;
                 self.popBlock();
 
                 self.buf.setOpArgs1(jumpOpStart + 1, @intCast(u8, self.buf.ops.items.len - jumpOpStart));
 
-                const sym = cs.FuncSymbolEntry.initFunc(opStart);
+                const sym = cs.FuncSymbolEntry.initFunc(opStart, numLocals);
                 try self.vm.setFuncSym(symId, sym);
             },
             .for_inf_stmt => {
@@ -426,7 +432,7 @@ pub const VMcompiler = struct {
                         return NumberType;
                     },
                     .minus => {
-                        // Generating pushMinus1 for fib.cy increases performance ~3-4%.
+                        // Generating pushMinus1 for fib.cy increases performance ~10-12%.
                         var leftVar: u8 = 255;
                         if (left.node_t == .ident) {
                             const token = self.tokens[left.start_token];
@@ -435,9 +441,9 @@ pub const VMcompiler = struct {
                                 leftVar = info.localOffset;
                             }
                         }
-                        // if (leftVar == 255) {
+                        if (leftVar == 255) {
                             _ = try self.genExpr(left, discardTopExprReg);
-                        // }
+                        }
                         var rightVar: u8 = 255;
                         if (right.node_t == .ident) {
                             const token = self.tokens[right.start_token];
@@ -446,20 +452,20 @@ pub const VMcompiler = struct {
                                 rightVar = info.localOffset;
                             }
                         }
-                        // if (rightVar == 255) {
+                        if (rightVar == 255) {
                             _ = try self.genExpr(right, discardTopExprReg);
-                        // }
+                        }
 
                         if (!discardTopExprReg) {
-                            // if (leftVar != rightVar) {
-                            //     try self.buf.pushOp2(.pushMinus1, leftVar, rightVar);
-                            // } else {
-                            //     if (leftVar == 255) {
+                            if (leftVar != rightVar) {
+                                try self.buf.pushOp2(.pushMinus1, leftVar, rightVar);
+                            } else {
+                                if (leftVar == 255) {
                                     try self.buf.pushOp(.pushMinus);
-                            //     } else {
-                            //         try self.buf.pushOp2(.pushMinus2, leftVar, leftVar);
-                            //     }
-                            // }
+                                } else {
+                                    try self.buf.pushOp2(.pushMinus2, leftVar, leftVar);
+                                }
+                            }
                         }
                         return NumberType;
                     },

@@ -7,19 +7,8 @@ const debug = builtin.mode == .Debug;
 
 const log = stdx.log.scoped(.vm);
 
-const StackFrame = struct {
-    /// Points to start of this frame on the stack.
-    framePtr: u32,
-    keepReturn: bool,
-
-    /// Saved pc value. Used to restore the pc after a function call.
-    pc: u32,
-
-    fn deinit(self: *StackFrame, alloc: std.mem.Allocator) void {
-        _ = self;
-        _ = alloc;
-    }
-};
+const KeepReturnMask: u32 = 1 << 31;
+const FramePtrMask: u32 = 0x7fffffff;
 
 pub const VM = struct {
     alloc: std.mem.Allocator,
@@ -29,20 +18,16 @@ pub const VM = struct {
     /// [Eval context]
 
     /// Program counter. Index to the next instruction op in `ops`.
-    pc: u32,
+    pc: usize,
+    /// Current stack frame ptr. Previous stack frame info is saved as a Value after all the reserved locals.
+    framePtr: usize,
+
     ops: []const OpData,
     consts: []const Const,
     strBuf: []const u8,
 
     /// Value stack.
     stack: stdx.Stack(Value),
-
-    /// Call stack.
-    stackFrames: stdx.Stack(StackFrame),
-    curFrame: *StackFrame,
-
-    /// Stack based registers.
-    registers: stdx.Stack(Value),
 
     /// Symbol table used to lookup object fields and methods.
     /// First, the SymbolId indexes into the table for a SymbolMap to lookup the final SymbolEntry by StructId.
@@ -72,10 +57,8 @@ pub const VM = struct {
             .consts = undefined,
             .strBuf = undefined,
             .stack = .{},
-            .stackFrames = .{},
             .pc = 0,
-            .curFrame = undefined,
-            .registers = .{},
+            .framePtr = 0,
             .symbols = .{},
             .symSignatures = .{},
             .funcSyms = .{},
@@ -86,9 +69,7 @@ pub const VM = struct {
             .panicMsg = "",
         };
         self.compiler.init(self);
-        try self.stack.ensureTotalCapacity(self.alloc, 50);
-        try self.stackFrames.ensureTotalCapacity(self.alloc, 50);
-        try self.registers.ensureTotalCapacity(self.alloc, 25);
+        try self.stack.ensureTotalCapacity(self.alloc, 100);
 
         // Init compile time builtins.
         const resize = try self.ensureStructSym("resize");
@@ -100,8 +81,6 @@ pub const VM = struct {
         self.parser.deinit();
         self.compiler.deinit();
         self.stack.deinit(self.alloc);
-        self.stackFrames.deinit(self.alloc);
-        self.registers.deinit(self.alloc);
 
         for (self.symbols.items) |*map| {
             if (map.mapT == .manyStructs) {
@@ -181,8 +160,6 @@ pub const VM = struct {
 
     pub fn dumpInfo(self: *VM) void {
         log.info("value stack cap: {}", .{self.stack.buf.len});
-        log.info("register stack cap: {}", .{self.registers.buf.len});
-        log.info("call stack cap: {}", .{self.stackFrames.buf.len});
     }
 
     pub fn dumpByteCode(self: *VM, buf: ByteCodeBuffer) void {
@@ -192,25 +169,33 @@ pub const VM = struct {
         }
     }
 
-    pub inline fn pushStackFrame(self: *VM) !void {
-        try self.stackFrames.push(self.alloc, .{
-            .framePtr = @intCast(u32, self.stack.top),
-            // Usually return values are needed right after the function call
-            .keepReturn = true,
-            .pc = self.pc,
-        });
-        self.curFrame = &self.stackFrames.buf[self.stackFrames.top-1];
-    }
+    pub fn popStackFrame(self: *VM, comptime retTop: bool) void {
+        @setRuntimeSafety(false);
 
-    pub inline fn popStackFrame(self: *VM) void {
-        var last = self.stackFrames.pop();
-        self.stack.top = last.framePtr;
-        last.deinit(self.alloc);
-        if (self.stackFrames.top > 0) {
-            self.curFrame = &self.stackFrames.buf[self.stackFrames.top-1];
-
+        if (retTop) {
+            const retInfo = self.stack.buf[self.stack.top-2];
+            if (retInfo.two[0] & KeepReturnMask == KeepReturnMask) {
+                // Copy return value to retInfo.
+                self.stack.buf[self.framePtr] = self.stack.buf[self.stack.top-1];
+                self.stack.top = self.framePtr + 1;
+            } else {
+                self.stack.top = self.framePtr;
+            }
+            self.framePtr = retInfo.two[0] & FramePtrMask;
             // Restore pc.
-            self.pc = self.curFrame.pc;
+            self.pc = retInfo.two[1];
+        } else {
+            const retInfo = self.stack.buf[self.stack.top-1];
+            if (retInfo.two[0] & KeepReturnMask == KeepReturnMask) {
+                // Insert none value instead.
+                self.stack.buf[self.framePtr] = Value.initNone();
+                self.stack.top = self.framePtr + 1;
+            } else {
+                self.stack.top = self.framePtr;
+            }
+            self.framePtr = retInfo.two[0] & FramePtrMask;
+            // Restore pc.
+            self.pc = retInfo.two[1];
         }
     }
 
@@ -220,15 +205,15 @@ pub const VM = struct {
         }
 
         self.stack.clearRetainingCapacity();
-        self.stackFrames.clearRetainingCapacity();
-        self.registers.clearRetainingCapacity();
         self.ops = buf.ops.items;
         self.consts = buf.consts.items;
         self.strBuf = buf.strBuf.items;
         self.pc = 0;
+        self.framePtr = 0;
 
-        try self.pushStackFrame();
-        defer self.popStackFrame();
+        try self.stack.ensureTotalCapacity(self.alloc, buf.mainLocalSize);
+        self.stack.top = buf.mainLocalSize;
+
         const res = try self.evalStackFrame(trace);
         return res;
     }
@@ -272,26 +257,26 @@ pub const VM = struct {
         return Value.initPtr(list);
     }
 
-    inline fn getStackFrameValue(self: *VM, offset: u8) Value {
-        @setRuntimeSafety(debug);
-        return self.stack.buf[self.curFrame.framePtr + offset];
+    inline fn getStackFrameValue(self: VM, offset: u8) Value {
+        @setRuntimeSafety(false);
+        return self.stack.buf[self.framePtr + offset];
     }
 
-    inline fn setStackFrameValue(self: *VM, offset: u8, val: Value) void {
-        @setRuntimeSafety(debug);
-        self.stack.buf[self.curFrame.framePtr + offset] = val;
+    inline fn setStackFrameValue(self: VM, offset: u8, val: Value) void {
+        @setRuntimeSafety(false);
+        self.stack.buf[self.framePtr + offset] = val;
     }
 
     inline fn popRegister(self: *VM) Value {
-        return self.registers.pop();
+        return self.stack.pop();
     }
 
     inline fn pushRegister(self: *VM, val: Value) !void {
-        if (self.registers.top == self.registers.buf.len) {
-            return self.registers.growTotalCapacity(self.alloc, self.registers.top + 1);
+        if (self.stack.top == self.stack.buf.len) {
+            return self.stack.growTotalCapacity(self.alloc, self.stack.top + 1);
         }
-        self.registers.buf[self.registers.top] = val;
-        self.registers.top += 1;
+        self.stack.buf[self.stack.top] = val;
+        self.stack.top += 1;
     }
 
     fn addStruct(self: *VM, name: []const u8) !StructId {
@@ -440,26 +425,26 @@ pub const VM = struct {
         }
     }
 
-    fn callSym(self: *VM, symId: SymbolId, args: []const Value, keepReturn: bool) !void {
+    /// Current stack top is already pointing past the last arg. 
+    fn callSym(self: *VM, symId: SymbolId, numArgs: u8, keepReturn: bool) !void {
         @setRuntimeSafety(debug);
         const sym = self.funcSyms.items[symId];
         switch (sym.entryT) {
             .func => {
-                // Save pc.
-                self.curFrame.pc = self.pc;
-
-                try self.pushStackFrame();
-                if (!keepReturn) {
-                    self.curFrame.keepReturn = false;
+                const reqSize = self.stack.top + (sym.inner.func.numLocals - numArgs);
+                // numLocals includes the function params as well as the return info value.
+                if (reqSize >= self.stack.buf.len) {
+                    try self.stack.growTotalCapacity(self.alloc, reqSize);
                 }
 
+                // Push return pc address and previous current framePtr onto the stack.
+                const retInfo = Value{
+                    .two = .{ @intCast(u32, self.framePtr) | (@as(u32, @boolToInt(keepReturn)) << 31), @intCast(u32, self.pc) },
+                };
                 self.pc = sym.inner.func.pc;
-
-                // Write args to new frame stack.
-                if (self.stack.top + args.len >= self.stack.buf.len) {
-                    try self.stack.growTotalCapacity(self.alloc, self.stack.top + args.len);
-                }
-                self.stack.pushSliceNoCheck(args);
+                self.framePtr = self.stack.top - numArgs;
+                self.stack.top = reqSize;
+                self.stack.buf[self.stack.top-1] = retInfo;
             },
             .none => stdx.panic("Symbol doesn't exist."),
             else => stdx.panic("unsupported callsym"),
@@ -568,18 +553,18 @@ pub const VM = struct {
                 },
                 .pushAdd => {
                     self.pc += 1;
-                    self.registers.top -= 1;
-                    const left = self.registers.buf[self.registers.top-1];
-                    const right = self.registers.buf[self.registers.top];
-                    self.registers.buf[self.registers.top-1] = evalAdd(left, right);
+                    self.stack.top -= 1;
+                    const left = self.stack.buf[self.stack.top-1];
+                    const right = self.stack.buf[self.stack.top];
+                    self.stack.buf[self.stack.top-1] = evalAdd(left, right);
                     continue;
                 },
                 .pushMinus => {
                     self.pc += 1;
-                    self.registers.top -= 1;
-                    const left = self.registers.buf[self.registers.top-1];
-                    const right = self.registers.buf[self.registers.top];
-                    self.registers.buf[self.registers.top-1] = evalMinus(left, right);
+                    self.stack.top -= 1;
+                    const left = self.stack.buf[self.stack.top-1];
+                    const right = self.stack.buf[self.stack.top];
+                    self.stack.buf[self.stack.top-1] = evalMinus(left, right);
                     continue;
                 },
                 .pushMinus1 => {
@@ -588,14 +573,14 @@ pub const VM = struct {
                     self.pc += 3;
 
                     if (leftOffset == NullStackOffsetU8) {
-                        const left = self.registers.buf[self.registers.top-1];
+                        const left = self.stack.buf[self.stack.top-1];
                         const right = self.getStackFrameValue(rightOffset);
-                        self.registers.buf[self.registers.top-1] = evalMinus(left, right);
+                        self.stack.buf[self.stack.top-1] = evalMinus(left, right);
                         continue;
                     } else {
                         const left = self.getStackFrameValue(leftOffset);
-                        const right = self.registers.buf[self.registers.top-1];
-                        self.registers.buf[self.registers.top-1] = evalMinus(left, right);
+                        const right = self.stack.buf[self.stack.top-1];
+                        self.stack.buf[self.stack.top-1] = evalMinus(left, right);
                         continue;
                     }
                 },
@@ -612,10 +597,10 @@ pub const VM = struct {
                 .pushList => {
                     const numElems = self.ops[self.pc+1].arg;
                     self.pc += 2;
-                    const top = self.registers.top;
-                    const elems = self.registers.buf[top-numElems..top];
+                    const top = self.stack.top;
+                    const elems = self.stack.buf[top-numElems..top];
                     const list = try self.allocList(elems);
-                    self.registers.top = top-numElems;
+                    self.stack.top = top-numElems;
                     try self.pushRegister(list);
                     continue;
                 },
@@ -646,7 +631,7 @@ pub const VM = struct {
                     const offset = self.ops[self.pc+1].arg;
                     self.pc += 2;
                     const val = self.popRegister();
-                    const reqSize = self.curFrame.framePtr + offset + 1;
+                    const reqSize = self.framePtr + offset + 1;
                     if (self.stack.top < reqSize) {
                         try self.stack.ensureTotalCapacity(self.alloc, reqSize);
                         self.stack.top = reqSize;
@@ -724,9 +709,9 @@ pub const VM = struct {
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    const top = self.registers.top;
-                    const vals = self.registers.buf[top-numArgs..top];
-                    self.registers.top = top-numArgs;
+                    const top = self.stack.top;
+                    const vals = self.stack.buf[top-numArgs..top];
+                    self.stack.top = top-numArgs;
 
                     self.callObjSym(vals[0], symId, vals[1..]);
                     continue;
@@ -736,11 +721,7 @@ pub const VM = struct {
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    const top = self.registers.top;
-                    const vals = self.registers.buf[top-numArgs..top];
-                    self.registers.top = top-numArgs;
-
-                    try self.callSym(symId, vals, false);
+                    try self.callSym(symId, numArgs, false);
                     // try @call(.{ .modifier = .always_inline }, self.callSym, .{ symId, vals, false });
                     continue;
                 },
@@ -749,30 +730,20 @@ pub const VM = struct {
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    const top = self.registers.top;
-                    const vals = self.registers.buf[top-numArgs..top];
-                    self.registers.top = top-numArgs;
-
-                    try self.callSym(symId, vals, true);
+                    try self.callSym(symId, numArgs, true);
                     // try @call(.{ .modifier = .always_inline }, self.callSym, .{ symId, vals, true });
                     continue;
                 },
                 .retTop => {
-                    if (!self.curFrame.keepReturn) {
-                        _ = self.popRegister();
-                    }
-                    self.popStackFrame();
+                    self.popStackFrame(true);
                     continue;
                 },
                 .ret => {
-                    if (self.curFrame.keepReturn) {
-                        try self.pushRegister(Value.initNone());
-                    }
-                    self.popStackFrame();
+                    self.popStackFrame(false);
                     continue;
                 },
                 .end => {
-                    if (self.registers.top == 0) {
+                    if (self.stack.top == 0) {
                         return Value.initNone();
                     } else {
                         return self.popRegister();
@@ -921,6 +892,8 @@ pub const Const = packed union {
 /// Holds vm instructions.
 pub const ByteCodeBuffer = struct {
     alloc: std.mem.Allocator,
+    /// The number of local vars in the main block to reserve space for.
+    mainLocalSize: u32,
     ops: std.ArrayListUnmanaged(OpData),
     consts: std.ArrayListUnmanaged(Const),
     /// Contiguous constant strings in a buffer.
@@ -931,6 +904,7 @@ pub const ByteCodeBuffer = struct {
     pub fn init(alloc: std.mem.Allocator) ByteCodeBuffer {
         return .{
             .alloc = alloc,
+            .mainLocalSize = 0,
             .ops = .{},
             .consts = .{},
             .strBuf = .{},
@@ -1142,7 +1116,8 @@ pub const FuncSymbolEntry = struct {
     inner: packed union {
         nativeFunc: *const anyopaque,
         func: packed struct {
-            pc: u32,
+            pc: usize,
+            numLocals: u32,
         },
     },
 
@@ -1155,12 +1130,13 @@ pub const FuncSymbolEntry = struct {
         };
     }
 
-    pub fn initFunc(pc: u32) FuncSymbolEntry {
+    pub fn initFunc(pc: usize, numLocals: u32) FuncSymbolEntry {
         return .{
             .entryT = .func,
             .inner = .{
                 .func = .{
                     .pc = pc,
+                    .numLocals = numLocals,
                 },
             },
         };
