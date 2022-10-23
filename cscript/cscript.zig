@@ -19,9 +19,14 @@ const js_compiler = @import("js_compiler.zig");
 pub const JsTargetCompiler = js_compiler.JsTargetCompiler;
 pub const JsTargetResultView = js_compiler.ResultView;
 
+const value = @import("value.zig");
+pub const Value = value.Value;
+pub const TagFalse = value.TagFalse;
+pub const TagTrue = value.TagTrue;
+pub const TagNone = value.TagNone;
+
 const vm = @import("vm.zig");
 pub const VM = vm.VM;
-pub const Value = vm.Value;
 pub const ByteCodeBuffer = vm.ByteCodeBuffer;
 pub const Const = vm.Const;
 pub const FuncSymbolEntry = vm.FuncSymbolEntry;
