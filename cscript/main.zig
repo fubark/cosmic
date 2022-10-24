@@ -1,11 +1,22 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const mi = @import("mimalloc");
 const cs = @import("cscript.zig");
 const log = stdx.log.scoped(.main);
 
 pub fn main() !void {
+    // var miAlloc: mi.Allocator = undefined;
+    // miAlloc.init();
+    // defer miAlloc.deinit();
+    // const alloc = miAlloc.allocator();
+
     const alloc = stdx.heap.getDefaultAllocator();
     defer stdx.heap.deinitDefaultAllocator();
+
+    // var traceAlloc: stdx.heap.TraceAllocator = undefined;
+    // traceAlloc.init(miAlloc.allocator());
+    // traceAlloc.init(child);
+    // const alloc = traceAlloc.allocator();
 
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
@@ -20,6 +31,12 @@ pub fn main() !void {
         defer vm.deinit();
 
         const res = try vm.eval(src, false);
-        log.info("{}", .{res.asF64()});
+
+        if (@fabs(std.math.round(res.asF64()) - res.asF64()) < 1e8) {
+            log.info("{d:.0}", .{std.math.round(res.asF64())});
+        } else {
+            log.info("{d:.10}", .{res.asF64()});
+        }
     }
+    // traceAlloc.dump();
 }

@@ -159,7 +159,8 @@ pub const VM = struct {
     }
 
     pub fn dumpInfo(self: *VM) void {
-        log.info("value stack cap: {}", .{self.stack.buf.len});
+        log.info("stack cap: {}", .{self.stack.buf.len});
+        log.info("stack top: {}", .{self.stack.top});
     }
 
     pub fn dumpByteCode(self: *VM, buf: ByteCodeBuffer) void {
@@ -170,7 +171,7 @@ pub const VM = struct {
     }
 
     pub fn popStackFrame(self: *VM, comptime retTop: bool) void {
-        @setRuntimeSafety(false);
+        @setRuntimeSafety(debug);
 
         if (retTop) {
             const retInfo = self.stack.buf[self.stack.top-2];
@@ -214,8 +215,12 @@ pub const VM = struct {
         try self.stack.ensureTotalCapacity(self.alloc, buf.mainLocalSize);
         self.stack.top = buf.mainLocalSize;
 
-        const res = try self.evalStackFrame(trace);
-        return res;
+        try self.evalStackFrame(trace);
+        if (self.stack.top == buf.mainLocalSize) {
+            return Value.initNone();
+        } else {
+            return self.popRegister();
+        }
     }
 
     fn sliceList(self: *VM, listV: Value, startV: Value, endV: Value) !Value {
@@ -258,22 +263,24 @@ pub const VM = struct {
     }
 
     inline fn getStackFrameValue(self: VM, offset: u8) Value {
-        @setRuntimeSafety(false);
+        @setRuntimeSafety(debug);
         return self.stack.buf[self.framePtr + offset];
     }
 
     inline fn setStackFrameValue(self: VM, offset: u8, val: Value) void {
-        @setRuntimeSafety(false);
+        @setRuntimeSafety(debug);
         self.stack.buf[self.framePtr + offset] = val;
     }
 
     inline fn popRegister(self: *VM) Value {
+        @setRuntimeSafety(debug);
         return self.stack.pop();
     }
 
     inline fn pushRegister(self: *VM, val: Value) !void {
+        @setRuntimeSafety(debug);
         if (self.stack.top == self.stack.buf.len) {
-            return self.stack.growTotalCapacity(self.alloc, self.stack.top + 1);
+            try self.stack.growTotalCapacity(self.alloc, self.stack.top + 1);
         }
         self.stack.buf[self.stack.top] = val;
         self.stack.top += 1;
@@ -415,7 +422,8 @@ pub const VM = struct {
         }
     }
 
-    inline fn callSymEntry(self: *VM, entry: SymbolEntry, objPtr: *anyopaque, args: []const Value) void {
+    inline fn callSymEntry(self: *VM, entry: SymbolEntry, objPtr: *anyopaque, args: []const Value, comptime keepReturn: bool) void {
+        @setRuntimeSafety(debug);
         switch (entry.entryT) {
             .nativeFunc => {
                 const func = @ptrCast(fn (*VM, *anyopaque, []const Value) void, entry.inner.nativeFunc);
@@ -426,7 +434,8 @@ pub const VM = struct {
     }
 
     /// Current stack top is already pointing past the last arg. 
-    fn callSym(self: *VM, symId: SymbolId, numArgs: u8, keepReturn: bool) !void {
+    /// keepReturn as comptime seems to make functions calls faster.
+    fn callSym(self: *VM, symId: SymbolId, numArgs: u8, comptime keepReturn: bool) !void {
         @setRuntimeSafety(debug);
         const sym = self.funcSyms.items[symId];
         switch (sym.entryT) {
@@ -466,7 +475,7 @@ pub const VM = struct {
         }
     }
 
-    fn evalStackFrame(self: *VM, comptime trace: bool) !cs.Value {
+    fn evalStackFrame(self: *VM, comptime trace: bool) anyerror!void {
         @setRuntimeSafety(debug);
         while (true) {
             if (trace) {
@@ -709,11 +718,7 @@ pub const VM = struct {
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    const top = self.stack.top;
-                    const vals = self.stack.buf[top-numArgs..top];
-                    self.stack.top = top-numArgs;
-
-                    self.callObjSym(vals[0], symId, vals[1..]);
+                    self.callObjSym(symId, numArgs, false);
                     continue;
                 },
                 .callSym => {
@@ -743,11 +748,7 @@ pub const VM = struct {
                     continue;
                 },
                 .end => {
-                    if (self.stack.top == 0) {
-                        return Value.initNone();
-                    } else {
-                        return self.popRegister();
-                    }
+                    return;
                 },
             }
         }

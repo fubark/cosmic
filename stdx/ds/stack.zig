@@ -1,4 +1,7 @@
 const std = @import("std");
+const stdx = @import("../stdx.zig");
+const builtin = @import("builtin");
+const debug = builtin.mode == .Debug;
 
 /// Stack has more performant operations than std.ArrayList by using a top var.
 pub fn Stack(comptime T: type) type {
@@ -13,6 +16,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn push(self: *StackT, alloc: std.mem.Allocator, val: T) !void {
+            @setRuntimeSafety(debug);
             if (self.top == self.buf.len) {
                 try self.growTotalCapacity(alloc, self.top + 1);
             }
@@ -21,6 +25,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub fn pushSliceNoCheck(self: *StackT, vals: []const T) void {
+            @setRuntimeSafety(debug);
             var i: u32 = 0;
             while (i < vals.len) : (i += 1) {
                 self.buf[self.top + i] = vals[i];
@@ -29,6 +34,7 @@ pub fn Stack(comptime T: type) type {
         }
 
         pub inline fn pop(self: *StackT) T {
+            @setRuntimeSafety(debug);
             self.top -= 1;
             return self.buf[self.top];
         }
