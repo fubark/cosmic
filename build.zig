@@ -35,6 +35,7 @@ const backend = @import("platform/backend.zig");
 const cgltf = @import("lib/cgltf/lib.zig");
 const jolt = @import("lib/jolt/lib.zig");
 const glslang = @import("lib/glslang/lib.zig");
+const mimalloc = @import("lib/mimalloc/lib.zig");
 
 const GitRepoStep = @import("GitRepoStep.zig");
 
@@ -413,6 +414,7 @@ const BuildContext = struct {
     link_qjs: bool = false,
     link_net: bool,
     link_mock: bool,
+    link_mimalloc: bool = false,
     mode: std.builtin.Mode,
     target: std.zig.CrossTarget,
     // This is only used to detect running a linux binary in WSL.
@@ -658,6 +660,10 @@ const BuildContext = struct {
             zlib.buildAndLink(step);
             uv.buildAndLink(step, .{ .lib_path = LibUvPath });
             h2o.buildAndLink(step, .{ .lib_path = LibH2oPath });
+        }
+        mimalloc.addPackage(step);
+        if (self.link_mimalloc) {
+            mimalloc.buildAndLink(step, .{});
         }
         sdl.addPackage(step);
         stb.addStbttPackage(step);
