@@ -612,3 +612,89 @@ test "WasmDefaultAllocator.growMemory large allocation/free." {
     try t.eq(wgpa.num_free_pages, 4);
     try t.eq(wgpa.countFreePages(), 4);
 }
+
+pub const TraceAllocator = struct {
+    allocMem: usize,
+    freedMem: usize,
+    resizeMem: usize,
+    peakMem: usize,
+    child: std.mem.Allocator,
+
+    const vtable = std.mem.Allocator.VTable{
+        .alloc = alloc,
+        .resize = resize,
+        .free = free,
+    };
+
+    pub fn init(self: *TraceAllocator, child: std.mem.Allocator) void {
+        self.* = .{
+            .allocMem = 0,
+            .freedMem = 0,
+            .resizeMem = 0,
+            .peakMem = 0,
+            .child = child,
+        };
+    }
+
+    pub fn deinit(self: *TraceAllocator) void {
+        _ = self;
+    }
+
+    pub fn allocator(self: *TraceAllocator) std.mem.Allocator {
+        return std.mem.Allocator{
+            .ptr = self,
+            .vtable = &vtable,
+        };
+    }
+
+    fn alloc(
+        ptr: *anyopaque,
+        len: usize,
+        alignment: u29,
+        len_align: u29,
+        ret_addr: usize,
+    ) std.mem.Allocator.Error![]u8 {
+        const self = @ptrCast(*TraceAllocator, @alignCast(@sizeOf(usize), ptr));
+        const res = try self.child.rawAlloc(len, alignment, len_align, ret_addr);
+        self.allocMem += res.len;
+        if (self.allocMem - self.freedMem > self.peakMem) {
+            self.peakMem = self.allocMem - self.freedMem;
+        }
+        return res;
+    }
+
+    fn resize(
+        ptr: *anyopaque,
+        buf: []u8,
+        buf_align: u29,
+        new_len: usize,
+        len_align: u29,
+        ret_addr: usize,
+    ) ?usize {
+        const self = @ptrCast(*TraceAllocator, @alignCast(@sizeOf(usize), ptr));
+        if (self.child.rawResize(buf, buf_align, new_len, len_align, ret_addr)) |newSize| {
+            if (newSize > buf.len) {
+                self.resizeMem += newSize - buf.len;
+            }
+            return newSize;
+        } else return null;
+    }
+
+    fn free(
+        ptr: *anyopaque,
+        buf: []u8,
+        buf_align: u29,
+        ret_addr: usize,
+    ) void {
+        const self = @ptrCast(*TraceAllocator, @alignCast(@sizeOf(usize), ptr));
+        self.child.rawFree(buf, buf_align, ret_addr);
+        self.freedMem += buf.len;
+    }
+
+    fn dump(self: TraceAllocator) void {
+        log.info("alloc: {}", .{self.allocMem});
+        log.info("freed: {}", .{self.freedMem});
+        log.info("peak: {}", .{self.peakMem});
+        log.info("resize: {}", .{self.resizeMem});
+    }
+};
