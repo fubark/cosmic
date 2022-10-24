@@ -3,8 +3,10 @@ const stdx = @import("stdx");
 const cs = @import("cscript.zig");
 
 const NullId = std.math.maxInt(u32);
+const NullByteId = std.math.maxInt(u8);
 const log = stdx.log.scoped(.vm_compiler);
-const f64Neg1 = cs.Value.initF64(-1);
+const f64NegOne = cs.Value.initF64(-1);
+const f64One = cs.Value.initF64(1);
 
 pub const VMcompiler = struct {
     alloc: std.mem.Allocator,
@@ -132,6 +134,30 @@ pub const VMcompiler = struct {
         }
     }
 
+    fn reserveLocalVar(self: *VMcompiler, name: []const u8, vtype: Type) !u8 {
+        const offset = self.curBlock.reserveLocal();
+        try self.curBlock.vars.put(self.alloc, name, .{
+            .vtype = vtype,
+            .localOffset = offset,
+            .rcCandidate = vtype.rcCandidate,
+        });
+        return offset;
+    }
+
+    fn genSetVar(self: *VMcompiler, name: []const u8, vtype: Type, node: cs.Node) !u8 {
+        if (self.getScopedVarInfo(name)) |info| {
+            if (info.vtype.typeT != .any and vtype.typeT != info.vtype.typeT) {
+                return self.reportError("Type mismatch: Expected {}", .{info.vtype.typeT}, node);
+            }
+            try self.buf.pushOp1(.set, info.localOffset);
+            return info.localOffset;
+        } else {
+            const offset = try self.reserveLocalVar(name, vtype);
+            try self.buf.pushOp1(.setNew, offset);
+            return offset;
+        }
+    }
+
     /// discardTopExprReg is usually true since statements aren't expressions and evaluating child expressions
     /// would just grow the register stack unnecessarily. However, the last main statement requires the
     /// resulting expr to persist to return from `eval`.
@@ -157,7 +183,7 @@ pub const VMcompiler = struct {
                     if (self.getScopedVarInfo(varName)) |info| {
                         const right = self.nodes[node.head.left_right.right];
                         const rtype = try self.genExpr(right, false);
-                        if (info.vtype.typeT != .any and rtype.typeT != info.vtype.typeT) {
+                        if (info.vtype.typeT != .number and info.vtype.typeT != .any and rtype.typeT != info.vtype.typeT) {
                             return self.reportError("Type mismatch: Expected {}", .{info.vtype.typeT}, node);
                         }
                         try self.buf.pushOp1(.addSet, info.localOffset);
@@ -173,22 +199,8 @@ pub const VMcompiler = struct {
                     const varName = self.src[identToken.start_pos .. identToken.data.end_pos];
 
                     const right = self.nodes[node.head.left_right.right];
-                    if (self.getScopedVarInfo(varName)) |info| {
-                        const rtype = try self.genExpr(right, false);
-                        if (info.vtype.typeT != .any and rtype.typeT != info.vtype.typeT) {
-                            return self.reportError("Type mismatch: Expected {}", .{info.vtype.typeT}, node);
-                        }
-                        try self.buf.pushOp1(.set, info.localOffset);
-                    } else {
-                        const rtype = try self.genExpr(right, false);
-                        const offset = self.curBlock.allocValue();
-                        try self.curBlock.vars.put(self.alloc, varName, .{
-                            .vtype = rtype,
-                            .localOffset = offset,
-                            .rcCandidate = rtype.rcCandidate,
-                        });
-                        try self.buf.pushOp1(.setNew, offset);
-                    }
+                    const rtype = try self.genExpr(right, false);
+                    _ = try self.genSetVar(varName, rtype, node);
                 } else if (left.node_t == .arr_access_expr) {
                     const accessLeft = self.nodes[left.head.left_right.left];
                     _ = try self.genExpr(accessLeft, false);
@@ -218,12 +230,7 @@ pub const VMcompiler = struct {
                     for (self.funcParams[func.params.start..func.params.end]) |param| {
                         const paramName = self.src[param.name.start..param.name.end];
                         const paramT = AnyType;
-                        const offset = self.curBlock.allocValue();
-                        try self.curBlock.vars.put(self.alloc, paramName, .{
-                            .vtype = paramT,
-                            .localOffset = offset,
-                            .rcCandidate = paramT.rcCandidate,
-                        });
+                        _ = try self.reserveLocalVar(paramName, paramT);
                     }
                 }
                 try self.genStatements(node.head.func.body_head, false);
@@ -232,7 +239,7 @@ pub const VMcompiler = struct {
                 try self.buf.pushOp(.ret);
 
                 // Reserve another local for the call return info.
-                _ = self.curBlock.allocValue();
+                _ = self.curBlock.reserveLocal();
 
                 const numLocals = self.curBlock.vars.size + 1;
                 self.popBlock();
@@ -264,6 +271,65 @@ pub const VMcompiler = struct {
                     self.buf.setOpArgs1(jump.pc + 1, @intCast(u8, self.buf.ops.items.len - jump.pc));
                 }
                 self.jumpStack.items.len = self.curBlock.jumpStackSave;
+            },
+            .for_iter_stmt => {
+                const iterable = self.nodes[node.head.for_iter_stmt.iterable];
+                _ = try self.genExpr(iterable, false);
+
+                var local: u8 = NullByteId;
+                const as_clause = self.nodes[node.head.for_iter_stmt.as_clause];
+                const ident = self.nodes[as_clause.head.as_iter_clause.value];
+                const ident_token = self.tokens[ident.start_token];
+                const asName = self.src[ident_token.start_pos..ident_token.data.end_pos];
+                if (self.getScopedVarInfo(asName)) |info| {
+                    local = info.localOffset;
+                } else {
+                    local = try self.reserveLocalVar(asName, AnyType);
+                }
+
+                const forOpStart = self.buf.ops.items.len;
+                try self.buf.pushOp2(.forIter, local, 0);
+
+                try self.genStatements(node.head.for_iter_stmt.body_head, false);
+                try self.buf.pushOp(.cont);
+                self.buf.setOpArgs1(forOpStart+2, @intCast(u8, self.buf.ops.items.len - forOpStart));
+            },
+            .for_range_stmt => {
+                var local: u8 = NullByteId;
+                if (node.head.for_range_stmt.as_clause != NullId) {
+                    const asClause = self.nodes[node.head.for_range_stmt.as_clause];
+                    const ident = self.nodes[asClause.head.as_range_clause.ident];
+                    const ident_token = self.tokens[ident.start_token];
+                    const asName = self.src[ident_token.start_pos..ident_token.data.end_pos];
+                    if (self.getScopedVarInfo(asName)) |info| {
+                        local = info.localOffset;
+                    } else {
+                        local = try self.reserveLocalVar(asName, NumberType);
+                    }
+                    // inc = as_clause.head.as_range_clause.inc;
+                    // if (as_clause.head.as_range_clause.step != NullId) {
+                    //     step = self.nodes[as_clause.head.as_range_clause.step];
+                    // }
+                }
+
+                // Push range start/end.
+                const range_clause = self.nodes[node.head.for_range_stmt.range_clause];
+                const left_range = self.nodes[range_clause.head.left_right.left];
+                _ = try self.genExpr(left_range, false);
+                const right_range = self.nodes[range_clause.head.left_right.right];
+                _ = try self.genExpr(right_range, false);
+
+                // Push step.
+                const stepConst = try self.buf.pushConst(.{ .val = f64One.val });
+                try self.buf.pushOp1(.pushConst, @intCast(u8, stepConst));
+
+                // Push for range op with asLocal.
+                const forOpStart = self.buf.ops.items.len;
+                try self.buf.pushOp2(.forRange, local, 0);
+
+                try self.genStatements(node.head.for_range_stmt.body_head, false);
+                try self.buf.pushOp(.cont);
+                self.buf.setOpArgs1(forOpStart+2, @intCast(u8, self.buf.ops.items.len - forOpStart));
             },
             .if_stmt => {
                 const cond = self.nodes[node.head.left_right.left];
@@ -375,7 +441,7 @@ pub const VMcompiler = struct {
                 }
                 if (node.head.arr_range_expr.right == NullId) {
                     if (!discardTopExprReg) {
-                        const idx = try self.buf.pushConst(.{ .val = f64Neg1.val });
+                        const idx = try self.buf.pushConst(.{ .val = f64NegOne.val });
                         try self.buf.pushOp1(.pushConst, @intCast(u8, idx));
                     }
                 } else {
@@ -622,7 +688,7 @@ const Block = struct {
         self.vars.deinit(alloc);
     }
 
-    fn allocValue(self: *Block) u8 {
+    fn reserveLocal(self: *Block) u8 {
         const idx = self.stackLen;
         self.stackLen += 1;
         if (idx <= std.math.maxInt(u8)) {

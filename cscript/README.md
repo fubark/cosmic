@@ -125,18 +125,18 @@ running = true
 for running: // Keep looping until `running` is false.
     pass
 ```
-`for` loops can iterate over a range that starts at a number (inclusive) to a target number (exclusive). Note that by default the looping counter is incremented by one:
+`for` loops can iterate over a range that starts at a number (inclusive) to a target number (exclusive). The range can be given a custom step.
 ```cscript
 for 0..100 as i:
     cs.log i    // 0, 1, 2, ... , 99
 
-for 0..100 as i += 10:
+for 0..100.step(10) as i:
     cs.log i    // 0, 10, 20, ... , 90
 
-for 100..0 as i -= 1:
+for 100..0.step(-1) as i:
     cs.log i    // 100, 99, 98, ... , 1
 
-for 100..=0 as i -= 1:
+for 100..=0.step(-1) as i:
     cs.log i    // 100, 99, 98, ... , 0
 ```
 Iterating lists.

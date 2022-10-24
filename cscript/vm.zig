@@ -21,6 +21,7 @@ pub const VM = struct {
     pc: usize,
     /// Current stack frame ptr. Previous stack frame info is saved as a Value after all the reserved locals.
     framePtr: usize,
+    contFlag: bool,
 
     ops: []const OpData,
     consts: []const Const,
@@ -43,6 +44,8 @@ pub const VM = struct {
     /// Structs.
     structs: std.ArrayListUnmanaged(Struct),
     listS: StructId,
+    iteratorObjSym: SymbolId,
+    nextObjSym: SymbolId,
 
     panicMsg: []const u8,
 
@@ -59,12 +62,15 @@ pub const VM = struct {
             .stack = .{},
             .pc = 0,
             .framePtr = 0,
+            .contFlag = false,
             .symbols = .{},
             .symSignatures = .{},
             .funcSyms = .{},
             .funcSymSignatures = .{},
             .structs = .{},
             .listS = undefined,
+            .iteratorObjSym = undefined,
+            .nextObjSym = undefined,
             .opCounts = undefined,
             .panicMsg = "",
         };
@@ -75,6 +81,12 @@ pub const VM = struct {
         const resize = try self.ensureStructSym("resize");
         self.listS = try self.addStruct("List");
         try self.addStructSym(self.listS, resize, SymbolEntry.initNativeFunc(nativeListResize));
+        self.iteratorObjSym = try self.ensureStructSym("iterator");
+        try self.addStructSym(self.listS, self.iteratorObjSym, SymbolEntry.initNativeFunc(nativeListIterator));
+        self.nextObjSym = try self.ensureStructSym("next");
+        try self.addStructSym(self.listS, self.nextObjSym, SymbolEntry.initNativeFunc(nativeListNext));
+        const add = try self.ensureStructSym("add");
+        try self.addStructSym(self.listS, add, SymbolEntry.initNativeFunc(nativeListAdd));
     }
 
     pub fn deinit(self: *VM) void {
@@ -227,22 +239,22 @@ pub const VM = struct {
         if (listV.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, listV.asPointer());
             if (obj.structId == self.listS) {
-                const list = stdx.mem.ptrCastAlign(*Rc(std.ArrayListUnmanaged(Value)), listV.asPointer());
+                const list = stdx.mem.ptrCastAlign(*Rc(List), listV.asPointer());
                 var start = @floatToInt(i32, startV.toF64());
                 if (start < 0) {
-                    start = @intCast(i32, list.val.items.len) + start + 1;
+                    start = @intCast(i32, list.val.inner.items.len) + start + 1;
                 }
                 var end = @floatToInt(i32, endV.toF64());
                 if (end < 0) {
-                    end = @intCast(i32, list.val.items.len) + end + 1;
+                    end = @intCast(i32, list.val.inner.items.len) + end + 1;
                 }
-                if (start < 0 or start > list.val.items.len) {
+                if (start < 0 or start > list.val.inner.items.len) {
                     return self.panic("Index out of bounds");
                 }
-                if (end < start or end > list.val.items.len) {
+                if (end < start or end > list.val.inner.items.len) {
                     return self.panic("Index out of bounds");
                 }
-                return self.allocList(list.val.items[@intCast(u32, start)..@intCast(u32, end)]);
+                return self.allocList(list.val.inner.items[@intCast(u32, start)..@intCast(u32, end)]);
             } else {
                 try stdx.panic("expected list");
             }
@@ -252,13 +264,16 @@ pub const VM = struct {
     }
 
     fn allocList(self: *VM, elems: []const Value) !Value {
-        const list = try self.alloc.create(Rc(std.ArrayListUnmanaged(Value)));
+        const list = try self.alloc.create(Rc(List));
         list.* = .{
             .structId = self.listS,
             .rc = 1,
-            .val = .{},
+            .val = .{
+                .inner = .{},
+                .nextIterIdx = 0,
+            },
         };
-        try list.val.appendSlice(self.alloc, elems);
+        try list.val.inner.appendSlice(self.alloc, elems);
         return Value.initPtr(list);
     }
 
@@ -351,10 +366,10 @@ pub const VM = struct {
         if (left.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, left.asPointer());
             if (obj.structId == self.listS) {
-                const list = stdx.mem.ptrCastAlign(*Rc(std.ArrayListUnmanaged(Value)), left.asPointer());
+                const list = stdx.mem.ptrCastAlign(*Rc(List), left.asPointer());
                 const idx = @floatToInt(u32, index.toF64());
-                if (idx < list.val.items.len) {
-                    return list.val.items[idx];
+                if (idx < list.val.inner.items.len) {
+                    return list.val.inner.items[idx];
                 } else {
                     return error.OutOfBounds;
                 }
@@ -371,13 +386,43 @@ pub const VM = struct {
         return error.Panic;
     }
 
-    fn nativeListResize(self: *VM, ptr: *anyopaque, args: []const Value) void {
+    fn nativeListAdd(self: *VM, ptr: *anyopaque, args: []const Value) Value {
+        @setRuntimeSafety(debug);
+        if (args.len == 0) {
+            stdx.panic("Args mismatch");
+        }
+        const list = stdx.mem.ptrCastAlign(*Rc(List), ptr);
+        list.val.inner.append(self.alloc, args[0]) catch stdx.fatal();
+        return Value.initNone();
+    }
+
+    fn nativeListNext(self: *VM, ptr: *anyopaque, args: []const Value) Value {
+        @setRuntimeSafety(debug);
+        _ = self;
+        _ = args;
+        const list = stdx.mem.ptrCastAlign(*Rc(List), ptr);
+        if (list.val.nextIterIdx < list.val.inner.items.len) {
+            defer list.val.nextIterIdx += 1;
+            return list.val.inner.items[list.val.nextIterIdx];
+        } else return Value.initNone();
+    }
+
+    fn nativeListIterator(self: *VM, ptr: *anyopaque, args: []const Value) Value {
+        _ = self;
+        _ = args;
+        const list = stdx.mem.ptrCastAlign(*Rc(List), ptr);
+        list.val.nextIterIdx = 0;
+        return Value.initPtr(ptr);
+    }
+
+    fn nativeListResize(self: *VM, ptr: *anyopaque, args: []const Value) Value {
         if (args.len == 0) {
             stdx.panic("Args mismatch");
         }
         const list = stdx.mem.ptrCastAlign(*Rc(std.ArrayListUnmanaged(Value)), ptr);
         const size = @floatToInt(u32, args[0].toF64());
         list.val.resize(self.alloc, size) catch stdx.fatal();
+        return Value.initNone();
     }
 
     fn setIndex(self: *VM, left: Value, index: Value, right: Value) !void {
@@ -426,8 +471,15 @@ pub const VM = struct {
         @setRuntimeSafety(debug);
         switch (entry.entryT) {
             .nativeFunc => {
-                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) void, entry.inner.nativeFunc);
-                func(self, objPtr, args);
+                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) Value, entry.inner.nativeFunc);
+                if (keepReturn) {
+                    const res = func(self, objPtr, args);
+                    self.stack.buf[self.stack.top - args.len - 1] = res;
+                    self.stack.top -= args.len;
+                } else {
+                    _ = func(self, objPtr, args);
+                    self.stack.top -= args.len + 1;
+                }
             },
             else => stdx.panicFmt("unsupported {}", .{entry.entryT}),
         }
@@ -460,14 +512,18 @@ pub const VM = struct {
         }
     }
 
-    fn callObjSym(self: *VM, recv: Value, symId: SymbolId, args: []const Value) void {
+    fn callObjSym(self: *VM, symId: SymbolId, numArgs: u8, comptime keepReturn: bool) void {
+        @setRuntimeSafety(debug);
+        // numArgs includes the receiver.
+        const recv = self.stack.buf[self.stack.top - numArgs];
         if (recv.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, recv.asPointer());
             const map = self.symbols.items[symId];
             switch (map.mapT) {
                 .oneStruct => {
                     if (obj.structId == map.inner.oneStruct.id) {
-                        self.callSymEntry(map.inner.oneStruct.sym, recv.asPointer().?, args);
+                        const args = self.stack.buf[self.stack.top - numArgs + 1..self.stack.top];
+                        self.callSymEntry(map.inner.oneStruct.sym, recv.asPointer().?, args, keepReturn);
                     } else stdx.panic("Symbol does not exist for receiver.");
                 },
                 else => stdx.panicFmt("unsupported {}", .{map.mapT}),
@@ -738,6 +794,81 @@ pub const VM = struct {
                     try self.callSym(symId, numArgs, true);
                     // try @call(.{ .modifier = .always_inline }, self.callSym, .{ symId, vals, true });
                     continue;
+                },
+                .forIter => {
+                    const local = self.ops[self.pc+1].arg;
+                    const endPc = self.pc + self.ops[self.pc+2].arg;
+                    const innerPc = self.pc + 3;
+
+                    self.callObjSym(self.iteratorObjSym, 1, true);
+                    const iter = self.popRegister();
+                    if (local == 255) {
+                        while (true) {
+                            try self.pushRegister(iter);
+                            self.callObjSym(self.nextObjSym, 1, true);
+                            const next = self.popRegister();
+                            if (next.isNone()) {
+                                break;
+                            }
+                            self.pc = innerPc;
+                            _ = try self.evalStackFrame(trace);
+                            if (!self.contFlag) {
+                                break;
+                            }
+                        }
+                    } else {
+                        while (true) {
+                            try self.pushRegister(iter);
+                            self.callObjSym(self.nextObjSym, 1, true);
+                            const next = self.popRegister();
+                            if (next.isNone()) {
+                                break;
+                            }
+                            self.setStackFrameValue(local, next);
+                            self.pc = innerPc;
+                            _ = try self.evalStackFrame(trace);
+                            if (!self.contFlag) {
+                                break;
+                            }
+                        }
+                    }
+                    self.pc = endPc;
+                },
+                .forRange => {
+                    const local = self.ops[self.pc+1].arg;
+                    const endPc = self.pc + self.ops[self.pc+2].arg;
+                    const innerPc = self.pc + 3;
+
+                    const step = self.popRegister().toF64();
+                    const rangeEnd = self.popRegister().toF64();
+                    var i = self.popRegister().toF64();
+
+                    // defer stdx.panicFmt("forrange {}", .{self.stack.top});
+
+                    if (local == 255) {
+                        while (i < rangeEnd) : (i += step) {
+                            self.pc = innerPc;
+                            _ = try self.evalStackFrame(trace);
+                            if (!self.contFlag) {
+                                break;
+                            }
+                        }
+                    } else {
+                        while (i < rangeEnd) : (i += step) {
+                            self.setStackFrameValue(local, .{ .val = @bitCast(u64, i) });
+                            self.pc = innerPc;
+                            _ = try self.evalStackFrame(trace);
+                            if (!self.contFlag) {
+                                break;
+                            }
+                        }
+                    }
+                    self.pc = endPc;
+                    continue;
+                },
+                .cont => {
+                    self.contFlag = true;
+                    return;
                 },
                 .retTop => {
                     self.popStackFrame(true);
@@ -1035,6 +1166,9 @@ pub const OpCode = enum(u8) {
     pushMinus,
     pushMinus1,
     pushMinus2,
+    cont,
+    forRange,
+    forIter,
 
     /// Returns the top register or None back to eval.
     end,
@@ -1159,4 +1293,9 @@ const SymbolId = u32;
 pub const OpCount = struct {
     code: u32,
     count: u32,
+};
+
+const List = struct {
+    inner: std.ArrayListUnmanaged(Value),
+    nextIterIdx: u32,
 };
