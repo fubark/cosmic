@@ -7,9 +7,6 @@ const debug = builtin.mode == .Debug;
 
 const log = stdx.log.scoped(.vm);
 
-const KeepReturnMask: u32 = 1 << 31;
-const FramePtrMask: u32 = 0x7fffffff;
-
 pub const VM = struct {
     alloc: std.mem.Allocator,
     parser: cs.Parser,
@@ -80,13 +77,13 @@ pub const VM = struct {
         // Init compile time builtins.
         const resize = try self.ensureStructSym("resize");
         self.listS = try self.addStruct("List");
-        try self.addStructSym(self.listS, resize, SymbolEntry.initNativeFunc(nativeListResize));
+        try self.addStructSym(self.listS, resize, SymbolEntry.initNativeFunc1(nativeListResize));
         self.iteratorObjSym = try self.ensureStructSym("iterator");
-        try self.addStructSym(self.listS, self.iteratorObjSym, SymbolEntry.initNativeFunc(nativeListIterator));
+        try self.addStructSym(self.listS, self.iteratorObjSym, SymbolEntry.initNativeFunc1(nativeListIterator));
         self.nextObjSym = try self.ensureStructSym("next");
-        try self.addStructSym(self.listS, self.nextObjSym, SymbolEntry.initNativeFunc(nativeListNext));
+        try self.addStructSym(self.listS, self.nextObjSym, SymbolEntry.initNativeFunc1(nativeListNext));
         const add = try self.ensureStructSym("add");
-        try self.addStructSym(self.listS, add, SymbolEntry.initNativeFunc(nativeListAdd));
+        try self.addStructSym(self.listS, add, SymbolEntry.initNativeFunc1(nativeListAdd));
     }
 
     pub fn deinit(self: *VM) void {
@@ -182,33 +179,91 @@ pub const VM = struct {
         }
     }
 
-    pub fn popStackFrame(self: *VM, comptime retTop: bool) void {
+    pub fn popStackFrame(self: *VM, comptime numRetVals: u2) void {
         @setRuntimeSafety(debug);
 
-        if (retTop) {
-            const retInfo = self.stack.buf[self.stack.top-2];
-            if (retInfo.two[0] & KeepReturnMask == KeepReturnMask) {
-                // Copy return value to retInfo.
-                self.stack.buf[self.framePtr] = self.stack.buf[self.stack.top-1];
-                self.stack.top = self.framePtr + 1;
-            } else {
-                self.stack.top = self.framePtr;
-            }
-            self.framePtr = retInfo.two[0] & FramePtrMask;
-            // Restore pc.
-            self.pc = retInfo.two[1];
-        } else {
-            const retInfo = self.stack.buf[self.stack.top-1];
-            if (retInfo.two[0] & KeepReturnMask == KeepReturnMask) {
-                // Insert none value instead.
-                self.stack.buf[self.framePtr] = Value.initNone();
-                self.stack.top = self.framePtr + 1;
-            } else {
-                self.stack.top = self.framePtr;
-            }
-            self.framePtr = retInfo.two[0] & FramePtrMask;
-            // Restore pc.
-            self.pc = retInfo.two[1];
+        // If there are fewer return values than required from the function call, 
+        // fill the missing slots with the none value.
+        switch (numRetVals) {
+            0 => {
+                const retInfo = self.stack.buf[self.stack.top-1];
+                const reqNumArgs = retInfo.retInfo.numRetVals;
+                if (reqNumArgs == 0) {
+                    self.stack.top = self.framePtr;
+                    // Restore pc.
+                    self.framePtr = retInfo.retInfo.framePtr;
+                    self.pc = retInfo.retInfo.pc;
+                    return;
+                } else {
+                    switch (reqNumArgs) {
+                        0 => unreachable,
+                        1 => {
+                            self.stack.buf[self.framePtr] = Value.initNone();
+                            self.stack.top = self.framePtr + 1;
+                        },
+                        2 => {
+                            // Only start checking for space after 2 since function calls should have at least one slot after framePtr.
+                            self.stack.ensureTotalCapacity(self.alloc, self.stack.top + 1) catch stdx.fatal();
+                            self.stack.buf[self.framePtr] = Value.initNone();
+                            self.stack.buf[self.framePtr+1] = Value.initNone();
+                            self.stack.top = self.framePtr + 2;
+                        },
+                        3 => {
+                            self.stack.ensureTotalCapacity(self.alloc, self.stack.top + 2) catch stdx.fatal();
+                            self.stack.buf[self.framePtr] = Value.initNone();
+                            self.stack.buf[self.framePtr+1] = Value.initNone();
+                            self.stack.buf[self.framePtr+2] = Value.initNone();
+                            self.stack.top = self.framePtr + 3;
+                        },
+                    }
+                    // Restore pc.
+                    self.framePtr = retInfo.retInfo.framePtr;
+                    self.pc = retInfo.retInfo.pc;
+                    return;
+                }
+            },
+            1 => {
+                const retInfo = self.stack.buf[self.stack.top-2];
+                const reqNumArgs = retInfo.retInfo.numRetVals;
+                if (reqNumArgs == 1) {
+                    // Copy return value to retInfo.
+                    self.stack.buf[self.framePtr] = self.stack.buf[self.stack.top-1];
+                    self.stack.top = self.framePtr + 1;
+
+                    // Restore pc.
+                    self.framePtr = retInfo.retInfo.framePtr;
+                    self.pc = retInfo.retInfo.pc;
+                    return;
+                } else {
+                    switch (reqNumArgs) {
+                        0 => {
+                            self.stack.top = self.framePtr;
+                        },
+                        1 => unreachable,
+                        2 => {
+                            self.stack.buf[self.framePtr+1] = Value.initNone();
+                            self.stack.top = self.framePtr + 2;
+                        },
+                        3 => {
+                            // Only start checking for space at 3 since function calls should have at least two slot after framePtr.
+                            // self.stack.ensureTotalCapacity(self.alloc, self.stack.top + 1) catch stdx.fatal();
+                            self.stack.buf[self.framePtr+1] = Value.initNone();
+                            self.stack.buf[self.framePtr+2] = Value.initNone();
+                            self.stack.top = self.framePtr + 3;
+                        },
+                    }
+                    // Restore pc.
+                    self.framePtr = retInfo.retInfo.framePtr;
+                    self.pc = retInfo.retInfo.pc;
+                    return;
+                }
+            },
+            2 => {
+                unreachable;
+            },
+            3 => {
+                unreachable;
+            },
         }
     }
 
@@ -467,44 +522,21 @@ pub const VM = struct {
         }
     }
 
-    inline fn callSymEntry(self: *VM, entry: SymbolEntry, objPtr: *anyopaque, args: []const Value, comptime keepReturn: bool) void {
-        @setRuntimeSafety(debug);
-        switch (entry.entryT) {
-            .nativeFunc => {
-                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) Value, entry.inner.nativeFunc);
-                if (keepReturn) {
-                    const res = func(self, objPtr, args);
-                    self.stack.buf[self.stack.top - args.len - 1] = res;
-                    self.stack.top -= args.len;
-                } else {
-                    _ = func(self, objPtr, args);
-                    self.stack.top -= args.len + 1;
-                }
-            },
-            else => stdx.panicFmt("unsupported {}", .{entry.entryT}),
-        }
-    }
-
     /// Current stack top is already pointing past the last arg. 
-    /// keepReturn as comptime seems to make functions calls faster.
-    fn callSym(self: *VM, symId: SymbolId, numArgs: u8, comptime keepReturn: bool) !void {
+    fn callSym(self: *VM, symId: SymbolId, numArgs: u8, retInfo: Value) !void {
         @setRuntimeSafety(debug);
         const sym = self.funcSyms.items[symId];
         switch (sym.entryT) {
             .func => {
-                const reqSize = self.stack.top + (sym.inner.func.numLocals - numArgs);
-                // numLocals includes the function params as well as the return info value.
-                if (reqSize >= self.stack.buf.len) {
-                    try self.stack.growTotalCapacity(self.alloc, reqSize);
-                }
-
-                // Push return pc address and previous current framePtr onto the stack.
-                const retInfo = Value{
-                    .two = .{ @intCast(u32, self.framePtr) | (@as(u32, @boolToInt(keepReturn)) << 31), @intCast(u32, self.pc) },
-                };
                 self.pc = sym.inner.func.pc;
                 self.framePtr = self.stack.top - numArgs;
-                self.stack.top = reqSize;
+                // numLocals includes the function params as well as the return info value.
+                self.stack.top = self.framePtr + sym.inner.func.numLocals;
+
+                if (self.stack.top > self.stack.buf.len) {
+                    try self.stack.growTotalCapacity(self.alloc, self.stack.top);
+                }
+                // Push return pc address and previous current framePtr onto the stack.
                 self.stack.buf[self.stack.top-1] = retInfo;
             },
             .none => stdx.panic("Symbol doesn't exist."),
@@ -512,23 +544,86 @@ pub const VM = struct {
         }
     }
 
-    fn callObjSym(self: *VM, symId: SymbolId, numArgs: u8, comptime keepReturn: bool) void {
+    inline fn callSymEntry(self: *VM, entry: SymbolEntry, argStart: usize, objPtr: *anyopaque, numArgs: u8, comptime reqNumRetVals: u2) void {
+        _ = numArgs;
+        @setRuntimeSafety(debug);
+        switch (entry.entryT) {
+            .nativeFunc1 => {
+                const args = self.stack.buf[argStart + 1..self.stack.top];
+                const res = entry.inner.nativeFunc1(self, objPtr, args);
+                if (reqNumRetVals == 1) {
+                    self.stack.buf[argStart] = res;
+                    self.stack.top = argStart + 1;
+                } else {
+                    switch (reqNumRetVals) {
+                        0 => {
+                            self.stack.top = argStart;
+                        },
+                        1 => stdx.panic("not possible"),
+                        2 => {
+                            stdx.panic("unsupported require 2 ret vals");
+                        },
+                        3 => {
+                            stdx.panic("unsupported require 3 ret vals");
+                        },
+                    }
+                }
+            },
+            .nativeFunc2 => {
+                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) cs.ValuePair, entry.inner.nativeFunc2);
+                const args = self.stack.buf[argStart + 1..self.stack.top];
+                const res = func(self, objPtr, args);
+                if (reqNumRetVals == 2) {
+                    self.stack.buf[argStart] = res.left;
+                    self.stack.buf[argStart + 1] = res.right;
+                    self.stack.top = argStart + 1;
+                } else {
+                    switch (reqNumRetVals) {
+                        0 => {
+                            self.stack.top = argStart;
+                        },
+                        1 => unreachable,
+                        2 => {
+                            unreachable;
+                        },
+                        3 => {
+                            unreachable;
+                        },
+                    }
+                }
+            },
+            else => stdx.panicFmt("unsupported {}", .{entry.entryT}),
+        }
+    }
+
+    fn callObjSym(self: *VM, symId: SymbolId, numArgs: u8, comptime reqNumRetVals: u2) void {
         @setRuntimeSafety(debug);
         // numArgs includes the receiver.
-        const recv = self.stack.buf[self.stack.top - numArgs];
+        const argStart = self.stack.top - numArgs;
+        const recv = self.stack.buf[argStart];
         if (recv.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, recv.asPointer());
             const map = self.symbols.items[symId];
             switch (map.mapT) {
                 .oneStruct => {
                     if (obj.structId == map.inner.oneStruct.id) {
-                        const args = self.stack.buf[self.stack.top - numArgs + 1..self.stack.top];
-                        self.callSymEntry(map.inner.oneStruct.sym, recv.asPointer().?, args, keepReturn);
+                        self.callSymEntry(map.inner.oneStruct.sym, argStart, recv.asPointer().?, numArgs, reqNumRetVals);
                     } else stdx.panic("Symbol does not exist for receiver.");
                 },
                 else => stdx.panicFmt("unsupported {}", .{map.mapT}),
             } 
         }
+    }
+
+    inline fn buildReturnInfo(self: VM, comptime numRetVals: u2) Value {
+        @setRuntimeSafety(debug);
+        return Value{
+            .retInfo = .{
+                .pc = @intCast(u32, self.pc),
+                .framePtr = @intCast(u30, self.framePtr),
+                .numRetVals = numRetVals,
+            },
+        };
     }
 
     fn evalStackFrame(self: *VM, comptime trace: bool) anyerror!void {
@@ -774,24 +869,26 @@ pub const VM = struct {
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    self.callObjSym(symId, numArgs, false);
+                    self.callObjSym(symId, numArgs, 0);
                     continue;
                 },
-                .callSym => {
+                .pushCallSym0 => {
                     const symId = self.ops[self.pc+1].arg;
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    try self.callSym(symId, numArgs, false);
+                    const retInfo = self.buildReturnInfo(0);
+                    try self.callSym(symId, numArgs, retInfo);
                     // try @call(.{ .modifier = .always_inline }, self.callSym, .{ symId, vals, false });
                     continue;
                 },
-                .pushCallSym => {
+                .pushCallSym1 => {
                     const symId = self.ops[self.pc+1].arg;
                     const numArgs = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    try self.callSym(symId, numArgs, true);
+                    const retInfo = self.buildReturnInfo(1);
+                    try self.callSym(symId, numArgs, retInfo);
                     // try @call(.{ .modifier = .always_inline }, self.callSym, .{ symId, vals, true });
                     continue;
                 },
@@ -800,12 +897,13 @@ pub const VM = struct {
                     const endPc = self.pc + self.ops[self.pc+2].arg;
                     const innerPc = self.pc + 3;
 
-                    self.callObjSym(self.iteratorObjSym, 1, true);
+                    self.callObjSym(self.iteratorObjSym, 1, 1);
                     const iter = self.popRegister();
                     if (local == 255) {
                         while (true) {
                             try self.pushRegister(iter);
-                            self.callObjSym(self.nextObjSym, 1, true);
+                            // const retInfo2 = self.buildReturnInfo(1);
+                            self.callObjSym(self.nextObjSym, 1, 1);
                             const next = self.popRegister();
                             if (next.isNone()) {
                                 break;
@@ -819,7 +917,8 @@ pub const VM = struct {
                     } else {
                         while (true) {
                             try self.pushRegister(iter);
-                            self.callObjSym(self.nextObjSym, 1, true);
+                            // const retInfo2 = self.buildReturnInfo(1);
+                            self.callObjSym(self.nextObjSym, 1, 1);
                             const next = self.popRegister();
                             if (next.isNone()) {
                                 break;
@@ -870,12 +969,16 @@ pub const VM = struct {
                     self.contFlag = true;
                     return;
                 },
-                .retTop => {
-                    self.popStackFrame(true);
+                .ret2 => {
+                    self.popStackFrame(2);
                     continue;
                 },
-                .ret => {
-                    self.popStackFrame(false);
+                .ret1 => {
+                    self.popStackFrame(1);
+                    continue;
+                },
+                .ret0 => {
+                    self.popStackFrame(0);
                     continue;
                 },
                 .end => {
@@ -1153,10 +1256,11 @@ pub const OpCode = enum(u8) {
     callStr,
     /// Num args includes the receiver.
     callObjSym,
-    callSym,
-    pushCallSym,
-    retTop,
-    ret,
+    pushCallSym0,
+    pushCallSym1,
+    ret2,
+    ret1,
+    ret0,
     addSet,
     pushCompare,
     pushLess,
@@ -1217,24 +1321,35 @@ const SymbolMap = struct {
 
 const SymbolEntryType = enum {
     func,
-    nativeFunc,
+    nativeFunc1,
+    nativeFunc2,
     field,
 };
 
 const SymbolEntry = struct {
     entryT: SymbolEntryType,
     inner: packed union {
-        nativeFunc: *const anyopaque,
+        nativeFunc1: fn (*VM, *anyopaque, []const Value) Value,
+        nativeFunc2: fn (*VM, *anyopaque, []const Value) cs.ValuePair,
         func: packed struct {
             pc: u32,
         },
     },
 
-    fn initNativeFunc(func: *const anyopaque) SymbolEntry {
+    fn initNativeFunc1(func: fn (*VM, *anyopaque, []const Value) Value) SymbolEntry {
         return .{
-            .entryT = .nativeFunc,
+            .entryT = .nativeFunc1,
             .inner = .{
-                .nativeFunc = func,
+                .nativeFunc1 = func,
+            },
+        };
+    }
+
+    fn initNativeFunc2(func: fn (*VM, *anyopaque, []const Value) cs.ValuePair) SymbolEntry {
+        return .{
+            .entryT = .nativeFunc2,
+            .inner = .{
+                .nativeFunc2 = func,
             },
         };
     }

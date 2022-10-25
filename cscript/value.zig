@@ -24,6 +24,11 @@ pub const TagFalse = 1;
 pub const TagTrue = 2;
 pub const TagError = 3;
 
+pub const ValuePair = struct {
+    left: Value,
+    right: Value,
+};
+
 /// NaN tagging over a f64 value.
 /// Represents a f64 value if not a quiet nan.
 /// Otherwise, the sign bit represents either a pointer value or a special value (true, false, none, etc).
@@ -32,6 +37,12 @@ pub const Value = packed union {
     val: u64,
     /// Split into two 4-byte words. Must consider endian.
     two: [2]u32,
+    /// Call frame return info.
+    retInfo: packed struct {
+        pc: u32,
+        framePtr: u30,
+        numRetVals: u2,
+    },
 
     pub inline fn asI32(self: Value) i32 {
         return @floatToInt(i32, self.asF64());

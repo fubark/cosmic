@@ -236,7 +236,7 @@ pub const VMcompiler = struct {
                 try self.genStatements(node.head.func.body_head, false);
                 // TODO: Check last statement to skip adding ret.
                 try self.endLocals();
-                try self.buf.pushOp(.ret);
+                try self.buf.pushOp(.ret0);
 
                 // Reserve another local for the call return info.
                 _ = self.curBlock.reserveLocal();
@@ -369,7 +369,7 @@ pub const VMcompiler = struct {
                     try self.buf.pushOp(.end);
                 } else {
                     try self.endLocals();
-                    try self.buf.pushOp(.retTop);
+                    try self.buf.pushOp(.ret1);
                 }
             },
             else => return self.reportError("Unsupported node", .{}, node),
@@ -641,9 +641,9 @@ pub const VMcompiler = struct {
 
                             const symId = try self.vm.ensureFuncSym(name);
                             if (discardTopExprReg) {
-                                try self.buf.pushOp2(.callSym, @intCast(u8, symId), @intCast(u8, numArgs));
+                                try self.buf.pushOp2(.pushCallSym0, @intCast(u8, symId), @intCast(u8, numArgs));
                             } else {
-                                try self.buf.pushOp2(.pushCallSym, @intCast(u8, symId), @intCast(u8, numArgs));
+                                try self.buf.pushOp2(.pushCallSym1, @intCast(u8, symId), @intCast(u8, numArgs));
                             }
                             return AnyType;
                         }
