@@ -38,6 +38,10 @@ pub const VM = struct {
     funcSyms: std.ArrayListUnmanaged(FuncSymbolEntry),
     funcSymSignatures: std.StringHashMapUnmanaged(SymbolId),
 
+    /// Struct fields symbol table.
+    fieldSyms: std.ArrayListUnmanaged(FieldSymbolMap),
+    fieldSymSignatures: std.StringHashMapUnmanaged(SymbolId),
+
     /// Structs.
     structs: std.ArrayListUnmanaged(Struct),
     iteratorObjSym: SymbolId,
@@ -68,6 +72,8 @@ pub const VM = struct {
             .symSignatures = .{},
             .funcSyms = .{},
             .funcSymSignatures = .{},
+            .fieldSyms = .{},
+            .fieldSymSignatures = .{},
             .structs = .{},
             .iteratorObjSym = undefined,
             .pairIteratorObjSym = undefined,
@@ -111,6 +117,9 @@ pub const VM = struct {
 
         self.funcSyms.deinit(self.alloc);
         self.funcSymSignatures.deinit(self.alloc);
+
+        self.fieldSyms.deinit(self.alloc);
+        self.fieldSymSignatures.deinit(self.alloc);
 
         self.structs.deinit(self.alloc);
         self.alloc.free(self.panicMsg);
@@ -466,6 +475,21 @@ pub const VM = struct {
         }
     }
 
+    pub fn ensureFieldSym(self: *VM, name: []const u8) !SymbolId {
+        const res = try self.fieldSymSignatures.getOrPut(self.alloc, name);
+        if (!res.found_existing) {
+            const id = @intCast(u32, self.fieldSyms.items.len);
+            try self.fieldSyms.append(self.alloc, .{
+                .mapT = .empty,
+                .inner = undefined,
+            });
+            res.value_ptr.* = id;
+            return id;
+        } else {
+            return res.value_ptr.*;
+        }
+    }
+
     pub fn ensureStructSym(self: *VM, name: []const u8) !SymbolId {
         const res = try self.symSignatures.getOrPut(self.alloc, name);
         if (!res.found_existing) {
@@ -647,6 +671,23 @@ pub const VM = struct {
                 }
             }
         }
+    }
+
+    fn pushField(self: VM, symId: SymbolId, recv: Value) void {
+        @setRuntimeSafety(debug);
+        if (recv.isPointer()) {
+            const obj = stdx.mem.ptrCastAlign(*GenericObject, recv.asPointer());
+            const map = self.fieldSyms.items[symId];
+            switch (map.mapT) {
+                .oneStruct => {
+                    if (obj.structId == map.inner.oneStruct.id) {
+                        stdx.panic("TODO: get field");
+                    } else stdx.panic("Symbol does not exist.");
+                },
+                .empty => stdx.panic("Symbol does not exist."),
+                else => stdx.panicFmt("unsupported {}", .{map.mapT}),
+            } 
+        } else stdx.panic("Symbol does not exist.");
     }
 
     /// Current stack top is already pointing past the last arg. 
@@ -1034,6 +1075,14 @@ pub const VM = struct {
                     // try @call(.{ .modifier = .always_inline }, self.callSym, .{ symId, vals, true });
                     continue;
                 },
+                .pushField => {
+                    const symId = self.ops[self.pc+1].arg;
+                    self.pc += 2;
+
+                    const recv = self.popRegister();
+                    self.pushField(symId, recv);
+                    continue;
+                },
                 .forIter => {
                     const local = self.ops[self.pc+1].arg;
                     const endPc = self.pc + self.ops[self.pc+2].arg;
@@ -1419,6 +1468,7 @@ pub const OpCode = enum(u8) {
     ret2,
     ret1,
     ret0,
+    pushField,
     addSet,
     pushCompare,
     pushLess,
@@ -1458,6 +1508,16 @@ const SymbolMapType = enum {
     empty,
 };
 
+const FieldSymbolMap = struct {
+    mapT: SymbolMapType,
+    inner: union {
+        oneStruct: struct {
+            id: StructId,
+            fieldIdx: u32,
+        },
+    },
+};
+
 const SymbolMap = struct {
     mapT: SymbolMapType,
     inner: union {
@@ -1481,7 +1541,6 @@ const SymbolEntryType = enum {
     func,
     nativeFunc1,
     nativeFunc2,
-    field,
 };
 
 const SymbolEntry = struct {

@@ -503,6 +503,23 @@ pub const VMcompiler = struct {
                 }
                 return ListType;
             },
+            .access_expr => {
+                const left = self.nodes[node.head.left_right.left];
+                _ = try self.genExpr(left, discardTopExprReg);
+
+                // right should be an ident.
+                const right = self.nodes[node.head.left_right.right];
+                const token = self.tokens[right.start_token];
+
+                const name = self.src[token.start_pos .. token.data.end_pos];
+                const symId = try self.vm.ensureFieldSym(name);
+
+                if (!discardTopExprReg) {
+                    try self.buf.pushOp1(.pushField, @intCast(u8, symId));
+                }
+
+                return AnyType;
+            },
             .arr_access_expr => {
                 const left = self.nodes[node.head.left_right.left];
                 _ = try self.genExpr(left, discardTopExprReg);
