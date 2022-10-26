@@ -32,8 +32,8 @@ pub fn main() !void {
 
         const res = try vm.eval(src, false);
 
-        if (@fabs(std.math.round(res.asF64()) - res.asF64()) < 1e8) {
-            log.info("{d:.0}", .{std.math.round(res.asF64())});
+        if (cs.Value.floatCanBeInteger(res.asF64())) {
+            log.info("{d:.0}", .{@floatToInt(u64, res.asF64())});
         } else {
             log.info("{d:.10}", .{res.asF64()});
         }

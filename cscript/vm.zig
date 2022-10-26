@@ -40,13 +40,17 @@ pub const VM = struct {
 
     /// Structs.
     structs: std.ArrayListUnmanaged(Struct),
-    listS: StructId,
     iteratorObjSym: SymbolId,
+    pairIteratorObjSym: SymbolId,
     nextObjSym: SymbolId,
 
     panicMsg: []const u8,
 
     opCounts: []OpCount,
+
+    /// Reserved symbols known at comptime.
+    const ListS: StructId = 0;
+    const MapS: StructId = 1;
 
     pub fn init(self: *VM, alloc: std.mem.Allocator) !void {
         self.* = .{
@@ -65,8 +69,8 @@ pub const VM = struct {
             .funcSyms = .{},
             .funcSymSignatures = .{},
             .structs = .{},
-            .listS = undefined,
             .iteratorObjSym = undefined,
+            .pairIteratorObjSym = undefined,
             .nextObjSym = undefined,
             .opCounts = undefined,
             .panicMsg = "",
@@ -76,14 +80,20 @@ pub const VM = struct {
 
         // Init compile time builtins.
         const resize = try self.ensureStructSym("resize");
-        self.listS = try self.addStruct("List");
-        try self.addStructSym(self.listS, resize, SymbolEntry.initNativeFunc1(nativeListResize));
+        var id = try self.addStruct("List");
+        std.debug.assert(id == ListS);
+        try self.addStructSym(ListS, resize, SymbolEntry.initNativeFunc1(nativeListResize));
         self.iteratorObjSym = try self.ensureStructSym("iterator");
-        try self.addStructSym(self.listS, self.iteratorObjSym, SymbolEntry.initNativeFunc1(nativeListIterator));
+        try self.addStructSym(ListS, self.iteratorObjSym, SymbolEntry.initNativeFunc1(nativeListIterator));
         self.nextObjSym = try self.ensureStructSym("next");
-        try self.addStructSym(self.listS, self.nextObjSym, SymbolEntry.initNativeFunc1(nativeListNext));
+        try self.addStructSym(ListS, self.nextObjSym, SymbolEntry.initNativeFunc1(nativeListNext));
         const add = try self.ensureStructSym("add");
-        try self.addStructSym(self.listS, add, SymbolEntry.initNativeFunc1(nativeListAdd));
+        try self.addStructSym(ListS, add, SymbolEntry.initNativeFunc1(nativeListAdd));
+
+        id = try self.addStruct("Map");
+        std.debug.assert(id == MapS);
+        const remove = try self.ensureStructSym("remove");
+        try self.addStructSym(MapS, remove, SymbolEntry.initNativeFunc1(nativeMapRemove));
     }
 
     pub fn deinit(self: *VM) void {
@@ -293,7 +303,7 @@ pub const VM = struct {
     fn sliceList(self: *VM, listV: Value, startV: Value, endV: Value) !Value {
         if (listV.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, listV.asPointer());
-            if (obj.structId == self.listS) {
+            if (obj.structId == ListS) {
                 const list = stdx.mem.ptrCastAlign(*Rc(List), listV.asPointer());
                 var start = @floatToInt(i32, startV.toF64());
                 if (start < 0) {
@@ -318,10 +328,85 @@ pub const VM = struct {
         }
     }
 
+    fn allocEmptyMap(self: *VM) !Value {
+        const map = try self.alloc.create(Rc(Map));
+        map.* = .{
+            .structId = MapS,
+            .rc = 1,
+            .val = .{
+                .inner = .{},
+                .nextIterIdx = 0,
+            },
+        };
+        return Value.initPtr(map);
+    }
+
+    fn toMapKey(val: Value) MapKey {
+        if (val.isNumber()) {
+            return .{
+                .keyT = .number,
+                .inner = .{
+                    .number = val.val,
+                },
+            };
+        } else {
+            switch (val.getTag()) {
+                cs.TagConstString => {
+                    const slice = val.asConstStr();
+                    return .{
+                        .keyT = .constStr,
+                        .inner = .{
+                            .constStr = .{
+                                .start = slice.start,
+                                .end = slice.end,
+                            },
+                        },
+                    };
+                },
+                else => stdx.panic("unsupported dynamic tag"),
+            }
+        }
+    }
+
+    fn allocMap(self: *VM, keys: []const Const, vals: []const Value) !Value {
+        @setRuntimeSafety(debug);
+        const map = try self.alloc.create(Rc(Map));
+        map.* = .{
+            .structId = MapS,
+            .rc = 1,
+            .val = .{
+                .inner = .{},
+                .nextIterIdx = 0,
+            },
+        };
+
+        const ctx = MapContext{ .vm = self };
+        for (keys) |key, i| {
+            const val = vals[i];
+
+            const keyVal = Value{ .val = key.val };
+            const mapKey = toMapKey(keyVal);
+
+            const res = try map.val.inner.getOrPutContext(self.alloc, mapKey, ctx);
+            if (res.found_existing) {
+                // TODO: Handle reference count.
+                res.value_ptr.* = val;
+            } else {
+                res.value_ptr.* = val;
+            }
+        }
+
+        const res = Value.initPtr(map);
+        log.debug("allocmap {}", .{res.isPointer()});
+
+        return res;
+    }
+
     fn allocList(self: *VM, elems: []const Value) !Value {
+        @setRuntimeSafety(debug);
         const list = try self.alloc.create(Rc(List));
         list.* = .{
-            .structId = self.listS,
+            .structId = ListS,
             .rc = 1,
             .val = .{
                 .inner = .{},
@@ -418,18 +503,30 @@ pub const VM = struct {
     }
 
     fn getIndex(self: *VM, left: Value, index: Value) !Value {
+        @setRuntimeSafety(debug);
         if (left.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, left.asPointer());
-            if (obj.structId == self.listS) {
-                const list = stdx.mem.ptrCastAlign(*Rc(List), left.asPointer());
-                const idx = @floatToInt(u32, index.toF64());
-                if (idx < list.val.inner.items.len) {
-                    return list.val.inner.items[idx];
-                } else {
-                    return error.OutOfBounds;
-                }
-            } else {
-                return stdx.panic("expected list");
+            switch (obj.structId) {
+                ListS => {
+                    const list = stdx.mem.ptrCastAlign(*Rc(List), left.asPointer());
+                    const idx = @floatToInt(u32, index.toF64());
+                    if (idx < list.val.inner.items.len) {
+                        return list.val.inner.items[idx];
+                    } else {
+                        return error.OutOfBounds;
+                    }
+                },
+                MapS => {
+                    const map = stdx.mem.ptrCastAlign(*Rc(Map), left.asPointer());
+                    const mapKey = toMapKey(index);
+                    const ctx = MapContext{ .vm = self };
+                    if (map.val.inner.getContext(mapKey, ctx)) |val| {
+                        return val;
+                    } else return Value.initNone();
+                },
+                else => {
+                    return stdx.panic("expected map or list");
+                },
             }
         } else {
             return stdx.panic("expected pointer");
@@ -439,6 +536,18 @@ pub const VM = struct {
     fn panic(self: *VM, msg: []const u8) error{Panic, OutOfMemory} {
         self.panicMsg = try self.alloc.dupe(u8, msg);
         return error.Panic;
+    }
+
+    fn nativeMapRemove(self: *VM, ptr: *anyopaque, args: []const Value) Value {
+        @setRuntimeSafety(debug);
+        if (args.len == 0) {
+            stdx.panic("Args mismatch");
+        }
+        const ctx = MapContext{ .vm = self };
+        const map = stdx.mem.ptrCastAlign(*Rc(Map), ptr);
+        const key = toMapKey(args[0]);
+        _ = map.val.inner.removeContext(key, ctx);
+        return Value.initNone();
     }
 
     fn nativeListAdd(self: *VM, ptr: *anyopaque, args: []const Value) Value {
@@ -481,24 +590,34 @@ pub const VM = struct {
     }
 
     fn setIndex(self: *VM, left: Value, index: Value, right: Value) !void {
+        @setRuntimeSafety(debug);
         if (left.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, left.asPointer());
-            if (obj.structId == self.listS) {
-                const list = stdx.mem.ptrCastAlign(*Rc(std.ArrayListUnmanaged(Value)), left.asPointer());
-                const idx = @floatToInt(u32, index.toF64());
-                if (idx < list.val.items.len) {
-                    list.val.items[idx] = right;
-                } else {
-                    // var i: u32 = @intCast(u32, list.val.items.len);
-                    // try list.val.resize(self.alloc, idx + 1);
-                    // while (i < idx) : (i += 1) {
-                    //     list.val.items[i] = Value.none();
-                    // }
-                    // list.val.items[idx] = right;
-                    return self.panic("Index out of bounds.");
-                }
-            } else {
-                return stdx.panic("expected list");
+            switch (obj.structId) {
+                ListS => {
+                    const list = stdx.mem.ptrCastAlign(*Rc(List), left.asPointer());
+                    const idx = @floatToInt(u32, index.toF64());
+                    if (idx < list.val.inner.items.len) {
+                        list.val.inner.items[idx] = right;
+                    } else {
+                        // var i: u32 = @intCast(u32, list.val.items.len);
+                        // try list.val.resize(self.alloc, idx + 1);
+                        // while (i < idx) : (i += 1) {
+                        //     list.val.items[i] = Value.none();
+                        // }
+                        // list.val.items[idx] = right;
+                        return self.panic("Index out of bounds.");
+                    }
+                },
+                MapS => {
+                    const map = stdx.mem.ptrCastAlign(*Rc(Map), left.asPointer());
+                    const key = toMapKey(index);
+                    const ctx = MapContext{ .vm = self };
+                    try map.val.inner.putContext(self.alloc, key, right, ctx);
+                },
+                else => {
+                    return stdx.panic("unsupported struct");
+                },
             }
         } else {
             return stdx.panic("expected pointer");
@@ -511,12 +630,20 @@ pub const VM = struct {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, val.asPointer());
             obj.rc -= 1;
             if (obj.rc == 0) {
-                if (obj.structId == self.listS) {
-                    const list = stdx.mem.ptrCastAlign(*Rc(std.ArrayListUnmanaged(Value)), val.asPointer());
-                    list.val.deinit(self.alloc);
-                    self.alloc.destroy(list);
-                } else {
-                    return stdx.panic("expected list");
+                switch (obj.structId) {
+                    ListS => {
+                        const list = stdx.mem.ptrCastAlign(*Rc(List), val.asPointer());
+                        list.val.inner.deinit(self.alloc);
+                        self.alloc.destroy(list);
+                    },
+                    MapS => {
+                        const map = stdx.mem.ptrCastAlign(*Rc(Map), val.asPointer());
+                        map.val.inner.deinit(self.alloc);
+                        self.alloc.destroy(map);
+                    },
+                    else => {
+                        return stdx.panic("unsupported struct type");
+                    },
                 }
             }
         }
@@ -732,7 +859,7 @@ pub const VM = struct {
                     const rightOffset = self.ops[self.pc+2].arg;
                     self.pc += 3;
 
-                    if (leftOffset == NullStackOffsetU8) {
+                    if (leftOffset == NullByteId) {
                         const left = self.stack.buf[self.stack.top-1];
                         const right = self.getStackFrameValue(rightOffset);
                         self.stack.buf[self.stack.top-1] = evalMinus(left, right);
@@ -764,6 +891,26 @@ pub const VM = struct {
                     try self.pushRegister(list);
                     continue;
                 },
+                .pushMapEmpty => {
+                    self.pc += 1;
+
+                    const map = try self.allocEmptyMap();
+                    try self.pushRegister(map);
+                    continue;
+                },
+                .pushMap => {
+                    const numEntries = self.ops[self.pc+1].arg;
+                    const startConst = self.ops[self.pc+2].arg;
+                    self.pc += 3;
+
+                    const keys = self.consts[startConst..startConst+numEntries];
+                    const vals = self.stack.buf[self.stack.top-numEntries..self.stack.top];
+                    self.stack.top = self.stack.top-numEntries+1;
+
+                    const map = try self.allocMap(keys, vals);
+                    self.stack.buf[self.stack.top-1] = map;
+                    continue;
+                },
                 .pushSlice => {
                     self.pc += 1;
                     const end = self.popRegister();
@@ -791,11 +938,6 @@ pub const VM = struct {
                     const offset = self.ops[self.pc+1].arg;
                     self.pc += 2;
                     const val = self.popRegister();
-                    const reqSize = self.framePtr + offset + 1;
-                    if (self.stack.top < reqSize) {
-                        try self.stack.ensureTotalCapacity(self.alloc, reqSize);
-                        self.stack.top = reqSize;
-                    }
                     self.setStackFrameValue(offset, val);
                     continue;
                 },
@@ -1124,6 +1266,8 @@ pub const Const = packed union {
     two: [2]u32,
 };
 
+const ConstStringTag: u2 = 0b00;
+
 /// Holds vm instructions.
 pub const ByteCodeBuffer = struct {
     alloc: std.mem.Allocator,
@@ -1189,8 +1333,20 @@ pub const ByteCodeBuffer = struct {
         self.ops.items[start+2] = .{ .arg = arg2 };
     }
 
+    pub fn pushOperands(self: *ByteCodeBuffer, operands: []const OpData) !void {
+        try self.ops.appendSlice(self.alloc, operands);
+    }
+
     pub fn setOpArgs1(self: *ByteCodeBuffer, idx: usize, arg: u8) void {
         self.ops.items[idx].arg = arg;
+    }
+
+    pub fn pushStringConst(self: *ByteCodeBuffer, str: []const u8) !u32 {
+        const slice = try self.getStringConst(str);
+        const idx = @intCast(u32, self.consts.items.len);
+        const val = Value.initConstStr(slice.start, @intCast(u16, slice.end - slice.start));
+        try self.consts.append(self.alloc, .{ .val = val.val });
+        return idx;
     }
 
     pub fn getStringConst(self: *ByteCodeBuffer, str: []const u8) !stdx.IndexSlice(u32) {
@@ -1240,6 +1396,8 @@ pub const OpCode = enum(u8) {
     pushAdd,
     /// Pops specifc number of registers to allocate a new list on the heap. Pointer to new list is pushed onto the stack.
     pushList,
+    pushMap,
+    pushMapEmpty,
     pushSlice,
     /// Pops top register, if value evals to false, jumps the pc forward by an offset.
     jumpNotCond,
@@ -1274,11 +1432,11 @@ pub const OpCode = enum(u8) {
     forRange,
     forIter,
 
-    /// Returns the top register or None back to eval.
+    /// Indicates the end of the main script.
     end,
 };
 
-const NullStackOffsetU8 = 255;
+const NullByteId = std.math.maxInt(u8);
 
 pub fn Rc(comptime T: type) type {
     return struct {
@@ -1413,4 +1571,67 @@ pub const OpCount = struct {
 const List = struct {
     inner: std.ArrayListUnmanaged(Value),
     nextIterIdx: u32,
+};
+
+const MapKeyType = enum {
+    constStr,
+    heapStr,
+    number,
+};
+
+const MapKey = struct {
+    keyT: MapKeyType,
+    inner: packed union {
+        constStr: packed struct {
+            start: u32,
+            end: u32,
+        },
+        heapStr: Value,
+        number: u64,
+    },
+};
+
+const Map = struct {
+    inner: std.HashMapUnmanaged(MapKey, Value, MapContext, std.hash_map.default_max_load_percentage),
+    nextIterIdx: u32,
+};
+
+pub const MapContext = struct {
+    vm: *VM,
+
+    pub fn hash(self: MapContext, key: MapKey) u64 {
+        switch (key.keyT) {
+            .constStr => return std.hash.Wyhash.hash(0, self.vm.strBuf[key.inner.constStr.start..key.inner.constStr.end]),
+            .heapStr => stdx.panic("unsupported heapStr"),
+            .number => {
+                return std.hash.Wyhash.hash(0, std.mem.asBytes(&key.inner.number));
+            },
+        }
+    }
+
+    pub fn eql(self: MapContext, a: MapKey, b: MapKey) bool {
+        switch (a.keyT) {
+            .constStr => {
+                if (b.keyT == .constStr) {
+                    const aStr = self.vm.strBuf[a.inner.constStr.start..a.inner.constStr.end];
+                    const bStr = self.vm.strBuf[b.inner.constStr.start..b.inner.constStr.end];
+                    return std.mem.eql(u8, aStr, bStr);
+                } else if (b.keyT == .heapStr) {
+                    stdx.panic("unsupported heapStr");
+                } else {
+                    return false;
+                }
+            },
+            .heapStr => {
+                stdx.panic("unsupported heapStr");
+            },
+            .number => {
+                if (b.keyT != .number) {
+                    return false;
+                } else {
+                    return a.inner.number == b.inner.number;
+                }
+            },
+        }
+    }
 };

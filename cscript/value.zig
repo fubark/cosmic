@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const endian = builtin.target.cpu.arch.endian();
 const stdx = @import("stdx");
@@ -8,7 +9,7 @@ const log = stdx.log.scoped(.value);
 const SignMask: u64 = 1 << 63;
 
 /// Quiet NaN mask.
-const QNANmask: u64 = 0x7ffc000000000000;
+const QNANmask: u64 = 0x7ff8000000000000;
 
 /// QNAN + Sign bit indicates a pointer value.
 const PointerMask: u64 = QNANmask | SignMask;
@@ -17,12 +18,15 @@ const TrueMask: u64 = QNANmask | (TagTrue << 32);
 const FalseMask: u64 = QNANmask | (TagFalse << 32);
 const NoneMask: u64 = QNANmask | (TagNone << 32);
 const ErrorMask: u64 = QNANmask | (TagError << 32);
+const ConstStringMask: u64 = QNANmask | (TagConstString << 32);
 
 const TagMask: u32 = (1 << 3) - 1;
+const BeforeTagMask: u32 = 0xffff << 3;
 pub const TagNone = 0;
 pub const TagFalse = 1;
 pub const TagTrue = 2;
 pub const TagError = 3;
+pub const TagConstString = 4;
 
 pub const ValuePair = struct {
     left: Value,
@@ -122,11 +126,11 @@ pub const Value = packed union {
         return self.val == TrueMask;
     }
 
-    pub inline fn getTag(self: Value) u2 {
+    pub inline fn getTag(self: Value) u3 {
         if (endian == .Little) {
-            return @intCast(u2, self.two[1] & TagMask);
+            return @intCast(u3, self.two[1] & TagMask);
         } else {
-            return @intCast(u2, self.two[0] & TagMask);
+            return @intCast(u3, self.two[0] & TagMask);
         }
     }
 
@@ -147,11 +151,32 @@ pub const Value = packed union {
     }
 
     pub inline fn initBool(b: bool) Value {
-        return if (b) .{ .val = TrueMask} else .{ .val = FalseMask };
+        return if (b) .{ .val = TrueMask } else .{ .val = FalseMask };
     }
 
     pub inline fn initPtr(ptr: ?*anyopaque) Value {
         return .{ .val = PointerMask | @ptrToInt(ptr) };
+    }
+
+    pub inline fn initConstStr(start: u32, len: u16) Value {
+        return .{ .val = ConstStringMask | (@as(u64, len) << 35) | start };
+    }
+
+    pub inline fn asConstStr(self: Value) stdx.IndexSlice(u32) {
+        if (endian == .Little) {
+            const len = (self.two[1] & BeforeTagMask) >> 3;
+            const start = self.two[0];
+            return stdx.IndexSlice(u32).init(start, start + len);
+        } else {
+            const len = self.two[0] & BeforeTagMask >> 3;
+            const start = self.two[1];
+            return stdx.IndexSlice(u32).init(start, start + len);
+        }
+    }
+
+    pub fn floatCanBeInteger(val: f64) bool {
+        @setRuntimeSafety(debug);
+        return @fabs(std.math.floor(val) - val) < std.math.f64_epsilon;
     }
 
     pub inline fn initError(id: u32) Value {

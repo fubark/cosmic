@@ -22,6 +22,7 @@ pub const VMcompiler = struct {
     funcParams: []const cs.FunctionParam,
     blocks: std.ArrayListUnmanaged(Block),
     jumpStack: std.ArrayListUnmanaged(Jump),
+    operandStack: std.ArrayListUnmanaged(cs.OpData),
     curBlock: *Block,
 
     pub fn init(self: *VMcompiler, vm: *cs.VM) void {
@@ -36,6 +37,7 @@ pub const VMcompiler = struct {
             .funcParams = undefined,
             .blocks = .{},
             .jumpStack = .{},
+            .operandStack = .{},
             .curBlock = undefined,
             .src = undefined,
         };
@@ -46,6 +48,7 @@ pub const VMcompiler = struct {
         self.blocks.deinit(self.alloc);
         self.buf.deinit();
         self.jumpStack.deinit(self.alloc);
+        self.operandStack.deinit(self.alloc);
     }
 
     pub fn compile(self: *VMcompiler, ast: cs.ParseResultView) !ResultView {
@@ -405,6 +408,43 @@ pub const VMcompiler = struct {
                 }
                 return ListType;
             },
+            .map_literal => {
+                const operandStart = self.operandStack.items.len;
+                defer self.operandStack.items.len = operandStart;
+
+                var i: u32 = 0;
+                var entry_id = node.head.child_head;
+                while (entry_id != NullId) : (i += 1) {
+                    var entry = self.nodes[entry_id];
+                    const key = self.nodes[entry.head.left_right.left];
+
+                    if (!discardTopExprReg) {
+                        switch (key.node_t) {
+                            .ident => {
+                                const token = self.tokens[key.start_token];
+                                const name = self.src[token.start_pos..token.data.end_pos];
+                                const idx = try self.buf.pushStringConst(name);
+                                try self.operandStack.append(self.alloc, .{ .arg = @intCast(u8, idx) });
+                            },
+                            else => stdx.panicFmt("unsupported key {}", .{key.node_t}),
+                        }
+                    }
+
+                    const val = self.nodes[entry.head.left_right.right];
+                    _ = try self.genExpr(val, discardTopExprReg);
+                    entry_id = entry.next;
+                }
+
+                if (!discardTopExprReg) {
+                    if (i == 0) {
+                        try self.buf.pushOp(.pushMapEmpty);
+                    } else {
+                        try self.buf.pushOp1(.pushMap, @intCast(u8, i));
+                        try self.buf.pushOperands(self.operandStack.items[operandStart..]);
+                    }
+                }
+                return MapType;
+            },
             .number => {
                 if (!discardTopExprReg) {
                     const token = self.tokens[node.start_token];
@@ -414,6 +454,15 @@ pub const VMcompiler = struct {
                     try self.buf.pushOp1(.pushConst, @intCast(u8, idx));
                 }
                 return NumberType;
+            },
+            .string => {
+                if (!discardTopExprReg) {
+                    const token = self.tokens[node.start_token];
+                    const literal = self.src[token.start_pos+1..token.data.end_pos-1];
+                    const idx = try self.buf.pushStringConst(literal);
+                    try self.buf.pushOp1(.pushConst, @intCast(u8, idx));
+                }
+                return ConstStringType;
             },
             .ident => {
                 const token = self.tokens[node.start_token];
@@ -710,6 +759,7 @@ const TypeTag = enum {
     boolean,
     number,
     list,
+    string,
 };
 
 const Type = struct {
@@ -732,7 +782,17 @@ const NumberType = Type{
     .rcCandidate = false,
 };
 
+const ConstStringType = Type{
+    .typeT = .string,
+    .rcCandidate = false,
+};
+
 const ListType = Type{
+    .typeT = .list,
+    .rcCandidate = true,
+};
+
+const MapType = Type{
     .typeT = .list,
     .rcCandidate = true,
 };

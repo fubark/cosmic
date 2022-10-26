@@ -21,9 +21,11 @@ pub const JsTargetResultView = js_compiler.ResultView;
 
 const value = @import("value.zig");
 pub const Value = value.Value;
+pub const ValuePair = value.ValuePair;
 pub const TagFalse = value.TagFalse;
 pub const TagTrue = value.TagTrue;
 pub const TagNone = value.TagNone;
+pub const TagConstString = value.TagConstString;
 
 const vm = @import("vm.zig");
 pub const VM = vm.VM;
