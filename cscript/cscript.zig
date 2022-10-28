@@ -34,8 +34,9 @@ pub const Const = vm.Const;
 pub const FuncSymbolEntry = vm.FuncSymbolEntry;
 pub const Rc = vm.Rc;
 pub const OpCode = vm.OpCode;
-pub const OpCount = vm.OpCount;
 pub const OpData = vm.OpData;
+pub const TraceInfo = vm.TraceInfo;
+pub const OpCount = vm.OpCount;
 
 const interpreter = @import("interpreter.zig");
 pub const JsEngine = interpreter.JsEngine;

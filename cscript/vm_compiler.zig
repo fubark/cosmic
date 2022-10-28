@@ -101,6 +101,13 @@ pub const VMcompiler = struct {
         }
     }
 
+    fn getScopedVarInfoPtr(self: *VMcompiler, varName: []const u8) ?*VarInfo {
+        if (self.curBlock.vars.getPtr(varName)) |info| {
+            return info;
+        }
+        return null;
+    }
+
     fn getScopedVarInfo(self: *VMcompiler, varName: []const u8) ?VarInfo {
         if (self.curBlock.vars.get(varName)) |info| {
             return info;
@@ -138,7 +145,7 @@ pub const VMcompiler = struct {
     }
 
     fn reserveLocalVar(self: *VMcompiler, name: []const u8, vtype: Type) !u8 {
-        const offset = self.curBlock.reserveLocal();
+        const offset = try self.curBlock.reserveLocal();
         try self.curBlock.vars.put(self.alloc, name, .{
             .vtype = vtype,
             .localOffset = offset,
@@ -147,12 +154,19 @@ pub const VMcompiler = struct {
         return offset;
     }
 
-    fn genSetVar(self: *VMcompiler, name: []const u8, vtype: Type, node: cs.Node) !u8 {
-        if (self.getScopedVarInfo(name)) |info| {
-            if (info.vtype.typeT != .any and vtype.typeT != info.vtype.typeT) {
-                return self.reportError("Type mismatch: Expected {}", .{info.vtype.typeT}, node);
+    fn genSetVar(self: *VMcompiler, name: []const u8, vtype: Type) !u8 {
+        if (self.getScopedVarInfoPtr(name)) |info| {
+            if (info.vtype.rcCandidate) {
+                try self.buf.pushOp1(.releaseSet, info.localOffset);
+            } else {
+                try self.buf.pushOp1(.set, info.localOffset);
             }
-            try self.buf.pushOp1(.set, info.localOffset);
+            if (info.vtype.typeT != vtype.typeT) {
+                info.vtype = vtype;
+                if (!info.rcCandidate and vtype.rcCandidate) {
+                    info.rcCandidate = true;
+                }
+            }
             return info.localOffset;
         } else {
             const offset = try self.reserveLocalVar(name, vtype);
@@ -202,8 +216,8 @@ pub const VMcompiler = struct {
                     const varName = self.src[identToken.start_pos .. identToken.data.end_pos];
 
                     const right = self.nodes[node.head.left_right.right];
-                    const rtype = try self.genExpr(right, false);
-                    _ = try self.genSetVar(varName, rtype, node);
+                    const rtype = try self.genMaybeRetainExpr(right, false);
+                    _ = try self.genSetVar(varName, rtype);
                 } else if (left.node_t == .arr_access_expr) {
                     const accessLeft = self.nodes[left.head.left_right.left];
                     _ = try self.genExpr(accessLeft, false);
@@ -242,7 +256,7 @@ pub const VMcompiler = struct {
                 try self.buf.pushOp(.ret0);
 
                 // Reserve another local for the call return info.
-                _ = self.curBlock.reserveLocal();
+                _ = try self.curBlock.reserveLocal();
 
                 const numLocals = self.curBlock.vars.size + 1;
                 self.popBlock();
@@ -363,6 +377,15 @@ pub const VMcompiler = struct {
                     }
                 }
             },
+            .return_stmt => {
+                if (self.blocks.items.len == 1) {
+                    try self.endLocals();
+                    try self.buf.pushOp(.end);
+                } else {
+                    try self.endLocals();
+                    try self.buf.pushOp(.ret0);
+                }
+            },
             .return_expr_stmt => {
                 const expr = self.nodes[node.head.child_head];
                 _ = try self.genExpr(expr, false);
@@ -376,6 +399,26 @@ pub const VMcompiler = struct {
                 }
             },
             else => return self.reportError("Unsupported node", .{}, node),
+        }
+    }
+
+    fn genMaybeRetainExpr(self: *VMcompiler, node: cs.Node, comptime discardTopExprReg: bool) anyerror!Type {
+        if (node.node_t == .ident) {
+            const token = self.tokens[node.start_token];
+            const name = self.src[token.start_pos..token.data.end_pos];
+            if (self.getScopedVarInfo(name)) |info| {
+                if (info.vtype.rcCandidate) {
+                    try self.buf.pushOp1(.loadRetain, info.localOffset);
+                } else {
+                    try self.buf.pushOp1(.load, info.localOffset);
+                }
+                return info.vtype;
+            } else {
+                try self.buf.pushOp(.pushNone);
+                return AnyType;
+            }
+        } else {
+            return self.genExpr(node, discardTopExprReg);
         }
     }
 
@@ -677,7 +720,7 @@ pub const VMcompiler = struct {
                             var arg_id = node.head.func_call.arg_head;
                             while (arg_id != NullId) : (numArgs += 1) {
                                 const arg = self.nodes[arg_id];
-                                _ = try self.genExpr(arg, false);
+                                _ = try self.genMaybeRetainExpr(arg, false);
                                 arg_id = arg.next;
                             }
 
@@ -754,20 +797,27 @@ const Block = struct {
         self.vars.deinit(alloc);
     }
 
-    fn reserveLocal(self: *Block) u8 {
+    fn reserveLocal(self: *Block) !u8 {
         const idx = self.stackLen;
         self.stackLen += 1;
         if (idx <= std.math.maxInt(u8)) {
             return @intCast(u8, idx);
-        } else stdx.panic("idx too big");
+        } else {
+            log.debug("Exceeded max local count.", .{});
+            return error.CompileError;
+        }
     }
 };
 
 const VarInfo = struct {
+    /// The current type of the local in the traversed block.
+    /// This is updated when there is a variable reassignment or a child block returns.
     vtype: Type,
     /// Stack offset from frame it was declared in.
     localOffset: u8,
-    /// Is possibly referencing an object that has ref count.
+    /// Maybe points to a ref counted object throughout the local's lifetime.
+    /// Once this is true, it can not be reverted to false.
+    /// The end of the block will emit release ops for any locals that are rc candidates.
     rcCandidate: bool,
 };
 

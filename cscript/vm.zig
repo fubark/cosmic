@@ -27,6 +27,10 @@ pub const VM = struct {
     /// Value stack.
     stack: stdx.Stack(Value),
 
+    /// Object heap pages.
+    heapPages: std.ArrayListUnmanaged(*HeapPage),
+    heapFreeHead: ?*HeapObject,
+
     /// Symbol table used to lookup object fields and methods.
     /// First, the SymbolId indexes into the table for a SymbolMap to lookup the final SymbolEntry by StructId.
     symbols: std.ArrayListUnmanaged(SymbolMap),
@@ -50,7 +54,7 @@ pub const VM = struct {
 
     panicMsg: []const u8,
 
-    opCounts: []OpCount,
+    trace: *TraceInfo,
 
     /// Reserved symbols known at comptime.
     const ListS: StructId = 0;
@@ -65,6 +69,8 @@ pub const VM = struct {
             .consts = undefined,
             .strBuf = undefined,
             .stack = .{},
+            .heapPages = .{},
+            .heapFreeHead = null,
             .pc = 0,
             .framePtr = 0,
             .contFlag = false,
@@ -78,11 +84,14 @@ pub const VM = struct {
             .iteratorObjSym = undefined,
             .pairIteratorObjSym = undefined,
             .nextObjSym = undefined,
-            .opCounts = undefined,
+            .trace = undefined,
             .panicMsg = "",
         };
         self.compiler.init(self);
         try self.stack.ensureTotalCapacity(self.alloc, 100);
+
+        // Initialize heap.
+        self.heapFreeHead = try self.growHeapPages(1);
 
         // Init compile time builtins.
         const resize = try self.ensureStructSym("resize");
@@ -121,8 +130,67 @@ pub const VM = struct {
         self.fieldSyms.deinit(self.alloc);
         self.fieldSymSignatures.deinit(self.alloc);
 
+        for (self.heapPages.items) |page| {
+            self.alloc.destroy(page);
+        }
+        self.heapPages.deinit(self.alloc);
+
         self.structs.deinit(self.alloc);
         self.alloc.free(self.panicMsg);
+    }
+
+    /// Returns the first free HeapObject.
+    fn growHeapPages(self: *VM, numPages: usize) !*HeapObject {
+        var idx = self.heapPages.items.len;
+        try self.heapPages.resize(self.alloc, self.heapPages.items.len + numPages);
+
+        // Allocate first page.
+        var page = try self.alloc.create(HeapPage);
+        self.heapPages.items[idx] = page;
+        // First HeapObject at index 0 is reserved so that freeObject can get the previous slot without a bounds check.
+        page.objects[0].common = .{
+            .structId = 0, // Non-NullId so freeObject doesn't think it's a free span.
+        };
+        const first = &page.objects[1];
+        first.freeSpan = .{
+            .structId = NullId,
+            .len = page.objects.len - 1,
+            .start = first,
+            .next = null,
+        };
+        // The rest initialize as free spans so checkMemory doesn't think they are retained objects.
+        std.mem.set(HeapObject, page.objects[2..], .{
+            .common = .{
+                .structId = NullId,
+            }
+        });
+        page.objects[page.objects.len-1].freeSpan.start = first;
+        var last = first;
+        idx += 1;
+        while (idx < self.heapPages.items.len) : (idx += 1) {
+            page = try self.alloc.create(HeapPage);
+            self.heapPages.items[idx] = page;
+
+            page.objects[0].common = .{
+                .structId = 0,
+            };
+            const ptr = &page.objects[1];
+            ptr.freeSpan = .{
+                .structId = NullId,
+                .len = page.objects.len - 1,
+                .start = ptr,
+                .next = null,
+            };
+            std.mem.set(HeapObject, page.objects[2..], .{
+                .common = .{
+                    .structId = NullId,
+                }
+            });
+            page.objects[page.objects.len-1].freeSpan.start = ptr;
+            last.freeSpan.next = ptr;
+            last = ptr;
+        }
+        return first;
     }
 
     pub fn eval(self: *VM, src: []const u8, comptime trace: bool) !Value {
@@ -147,14 +215,18 @@ pub const VM = struct {
         if (trace) {
             const numOps = @enumToInt(cs.OpCode.end) + 1;
             var opCounts: [numOps]cs.OpCount = undefined;
-            self.opCounts = &opCounts;
+            self.trace.opCounts = &opCounts;
             var i: u32 = 0;
             while (i < numOps) : (i += 1) {
-                self.opCounts[i] = .{
+                self.trace.opCounts[i] = .{
                     .code = i,
                     .count = 0,
                 };
             }
+            self.trace.numReleases = 0;
+            self.trace.numRetains = 0;
+            self.trace.numRetainCycles = 0;
+            self.trace.numRetainCycleRoots = 0;
         }
         tt = stdx.debug.trace();
         defer {
@@ -166,13 +238,13 @@ pub const VM = struct {
                         return a.count > b.count;
                     }
                 };
-                std.sort.sort(cs.OpCount, self.opCounts, {}, S.opCountLess);
+                std.sort.sort(cs.OpCount, self.trace.opCounts, {}, S.opCountLess);
                 var i: u32 = 0;
                 const numOps = @enumToInt(cs.OpCode.end) + 1;
                 while (i < numOps) : (i += 1) {
-                    if (self.opCounts[i].count > 0) {
-                        const op = std.meta.intToEnum(cs.OpCode, self.opCounts[i].code) catch continue;
-                        log.info("{} {}", .{op, self.opCounts[i].count});
+                    if (self.trace.opCounts[i].count > 0) {
+                        const op = std.meta.intToEnum(cs.OpCode, self.trace.opCounts[i].code) catch continue;
+                        log.info("{} {}", .{op, self.trace.opCounts[i].count});
                     }
                 }
             }
@@ -303,32 +375,37 @@ pub const VM = struct {
 
         try self.evalStackFrame(trace);
         if (self.stack.top == buf.mainLocalSize) {
+            self.stack.top = 0;
             return Value.initNone();
-        } else {
+        } else if (self.stack.top == buf.mainLocalSize + 1) {
+            defer self.stack.top = 0;
             return self.popRegister();
+        } else {
+            log.debug("unexpected stack top: {}", .{self.stack.top});
+            return error.BadTop;
         }
     }
 
     fn sliceList(self: *VM, listV: Value, startV: Value, endV: Value) !Value {
         if (listV.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*GenericObject, listV.asPointer());
-            if (obj.structId == ListS) {
-                const list = stdx.mem.ptrCastAlign(*Rc(List), listV.asPointer());
+            const obj = stdx.mem.ptrCastAlign(*HeapObject, listV.asPointer().?);
+            if (obj.retainedCommon.structId == ListS) {
+                const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                 var start = @floatToInt(i32, startV.toF64());
                 if (start < 0) {
-                    start = @intCast(i32, list.val.inner.items.len) + start + 1;
+                    start = @intCast(i32, list.items.len) + start + 1;
                 }
                 var end = @floatToInt(i32, endV.toF64());
                 if (end < 0) {
-                    end = @intCast(i32, list.val.inner.items.len) + end + 1;
+                    end = @intCast(i32, list.items.len) + end + 1;
                 }
-                if (start < 0 or start > list.val.inner.items.len) {
+                if (start < 0 or start > list.items.len) {
                     return self.panic("Index out of bounds");
                 }
-                if (end < start or end > list.val.inner.items.len) {
+                if (end < start or end > list.items.len) {
                     return self.panic("Index out of bounds");
                 }
-                return self.allocList(list.val.inner.items[@intCast(u32, start)..@intCast(u32, end)]);
+                return self.allocList(list.items[@intCast(u32, start)..@intCast(u32, end)]);
             } else {
                 try stdx.panic("expected list");
             }
@@ -411,19 +488,64 @@ pub const VM = struct {
         return res;
     }
 
+    fn freeObject(self: *VM, obj: *HeapObject) void {
+        const prev = &(@ptrCast([*]HeapObject, obj) - 1)[0];
+        if (prev.common.structId == NullId) {
+            // Left is a free span. Extend length.
+            prev.freeSpan.start.freeSpan.len += 1;
+            obj.freeSpan.start = prev.freeSpan.start;
+        } else {
+            // Add single slot free span.
+            obj.freeSpan = .{
+                .structId = NullId,
+                .len = 1,
+                .start = obj,
+                .next = self.heapFreeHead,
+            };
+            self.heapFreeHead = obj;
+        }
+    }
+
+    fn allocObject(self: *VM) !*HeapObject {
+        if (self.heapFreeHead == null) {
+            self.heapFreeHead = try self.growHeapPages(std.math.max(1, (self.heapPages.items.len * 15) / 10));
+        }
+        const ptr = self.heapFreeHead.?;
+        if (ptr.freeSpan.len == 1) {
+            // This is the only free slot, move to the next free span.
+            self.heapFreeHead = ptr.freeSpan.next;
+            return ptr;
+        } else {
+            const next = &@ptrCast([*]HeapObject, ptr)[1];
+            next.freeSpan = .{
+                .structId = NullId,
+                .len = ptr.freeSpan.len - 1,
+                .start = next,
+                .next = ptr.freeSpan.next,
+            };
+            const last = &@ptrCast([*]HeapObject, ptr)[ptr.freeSpan.len-1];
+            last.freeSpan.start = next;
+            self.heapFreeHead = next;
+            return ptr;
+        }
+    }
+
     fn allocList(self: *VM, elems: []const Value) !Value {
         @setRuntimeSafety(debug);
-        const list = try self.alloc.create(Rc(List));
-        list.* = .{
+        const obj = try self.allocObject();
+        obj.retainedList = .{
             .structId = ListS,
             .rc = 1,
-            .val = .{
-                .inner = .{},
-                .nextIterIdx = 0,
+            .list = .{
+                .ptr = undefined,
+                .len = 0,
+                .cap = 0,
             },
+            .nextIterIdx = 0,
         };
-        try list.val.inner.appendSlice(self.alloc, elems);
-        return Value.initPtr(list);
+        const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+        try list.appendSlice(self.alloc, elems);
+        return Value.initPtr(obj);
     }
 
     inline fn getStackFrameValue(self: VM, offset: u8) Value {
@@ -526,16 +648,51 @@ pub const VM = struct {
         }
     }
 
+    fn setIndex(self: *VM, left: Value, index: Value, right: Value) !void {
+        @setRuntimeSafety(debug);
+        if (left.isPointer()) {
+            const obj = stdx.mem.ptrCastAlign(*HeapObject, left.asPointer().?);
+            switch (obj.retainedCommon.structId) {
+                ListS => {
+                    const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                    const idx = @floatToInt(u32, index.toF64());
+                    if (idx < list.items.len) {
+                        list.items[idx] = right;
+                    } else {
+                        // var i: u32 = @intCast(u32, list.val.items.len);
+                        // try list.val.resize(self.alloc, idx + 1);
+                        // while (i < idx) : (i += 1) {
+                        //     list.val.items[i] = Value.none();
+                        // }
+                        // list.val.items[idx] = right;
+                        return self.panic("Index out of bounds.");
+                    }
+                },
+                MapS => {
+                    const map = stdx.mem.ptrCastAlign(*Rc(Map), left.asPointer());
+                    const key = toMapKey(index);
+                    const ctx = MapContext{ .vm = self };
+                    try map.val.inner.putContext(self.alloc, key, right, ctx);
+                },
+                else => {
+                    return stdx.panic("unsupported struct");
+                },
+            }
+        } else {
+            return stdx.panic("expected pointer");
+        }
+    }
+
     fn getIndex(self: *VM, left: Value, index: Value) !Value {
         @setRuntimeSafety(debug);
         if (left.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*GenericObject, left.asPointer());
-            switch (obj.structId) {
+            const obj = stdx.mem.ptrCastAlign(*HeapObject, left.asPointer().?);
+            switch (obj.retainedCommon.structId) {
                 ListS => {
-                    const list = stdx.mem.ptrCastAlign(*Rc(List), left.asPointer());
+                    const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                     const idx = @floatToInt(u32, index.toF64());
-                    if (idx < list.val.inner.items.len) {
-                        return list.val.inner.items[idx];
+                    if (idx < list.items.len) {
+                        return list.items[idx];
                     } else {
                         return error.OutOfBounds;
                     }
@@ -579,8 +736,9 @@ pub const VM = struct {
         if (args.len == 0) {
             stdx.panic("Args mismatch");
         }
-        const list = stdx.mem.ptrCastAlign(*Rc(List), ptr);
-        list.val.inner.append(self.alloc, args[0]) catch stdx.fatal();
+        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
+        const inner = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &list.retainedList.list);
+        inner.append(self.alloc, args[0]) catch stdx.fatal();
         return Value.initNone();
     }
 
@@ -588,18 +746,18 @@ pub const VM = struct {
         @setRuntimeSafety(debug);
         _ = self;
         _ = args;
-        const list = stdx.mem.ptrCastAlign(*Rc(List), ptr);
-        if (list.val.nextIterIdx < list.val.inner.items.len) {
-            defer list.val.nextIterIdx += 1;
-            return list.val.inner.items[list.val.nextIterIdx];
+        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
+        if (list.retainedList.nextIterIdx < list.retainedList.list.len) {
+            defer list.retainedList.nextIterIdx += 1;
+            return list.retainedList.list.ptr[list.retainedList.nextIterIdx];
         } else return Value.initNone();
     }
 
     fn nativeListIterator(self: *VM, ptr: *anyopaque, args: []const Value) Value {
         _ = self;
         _ = args;
-        const list = stdx.mem.ptrCastAlign(*Rc(List), ptr);
-        list.val.nextIterIdx = 0;
+        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
+        list.retainedList.nextIterIdx = 0;
         return Value.initPtr(ptr);
     }
 
@@ -607,58 +765,125 @@ pub const VM = struct {
         if (args.len == 0) {
             stdx.panic("Args mismatch");
         }
-        const list = stdx.mem.ptrCastAlign(*Rc(std.ArrayListUnmanaged(Value)), ptr);
+        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
+        const inner = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &list.retainedList.list);
         const size = @floatToInt(u32, args[0].toF64());
-        list.val.resize(self.alloc, size) catch stdx.fatal();
+        inner.resize(self.alloc, size) catch stdx.fatal();
         return Value.initNone();
     }
 
-    fn setIndex(self: *VM, left: Value, index: Value, right: Value) !void {
-        @setRuntimeSafety(debug);
-        if (left.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*GenericObject, left.asPointer());
-            switch (obj.structId) {
-                ListS => {
-                    const list = stdx.mem.ptrCastAlign(*Rc(List), left.asPointer());
-                    const idx = @floatToInt(u32, index.toF64());
-                    if (idx < list.val.inner.items.len) {
-                        list.val.inner.items[idx] = right;
-                    } else {
-                        // var i: u32 = @intCast(u32, list.val.items.len);
-                        // try list.val.resize(self.alloc, idx + 1);
-                        // while (i < idx) : (i += 1) {
-                        //     list.val.items[i] = Value.none();
-                        // }
-                        // list.val.items[idx] = right;
-                        return self.panic("Index out of bounds.");
-                    }
-                },
-                MapS => {
-                    const map = stdx.mem.ptrCastAlign(*Rc(Map), left.asPointer());
-                    const key = toMapKey(index);
-                    const ctx = MapContext{ .vm = self };
-                    try map.val.inner.putContext(self.alloc, key, right, ctx);
-                },
-                else => {
-                    return stdx.panic("unsupported struct");
-                },
+    /// Performs an iteration over the heap pages to check whether there are retain cycles.
+    pub fn checkMemory(self: *VM, comptime trace: bool) !bool {
+        var nodes: std.AutoHashMapUnmanaged(*HeapObject, RcNode) = .{};
+        defer nodes.deinit(self.alloc);
+
+        var cycleRoots: std.ArrayListUnmanaged(*HeapObject) = .{};
+        defer cycleRoots.deinit(self.alloc);
+
+        // No concept of root vars yet. Just report any existing retained objects.
+        // First construct the graph.
+        for (self.heapPages.items) |page| {
+            for (page.objects[1..]) |*obj| {
+                if (obj.common.structId != NullId) {
+                    try nodes.put(self.alloc, obj, .{
+                        .visited = false,
+                        .entered = false,
+                    });
+                }
             }
-        } else {
-            return stdx.panic("expected pointer");
         }
+        const S = struct {
+            fn visit(alloc: std.mem.Allocator, graph: *std.AutoHashMapUnmanaged(*HeapObject, RcNode), cycleRoots_: *std.ArrayListUnmanaged(*HeapObject), obj: *HeapObject, node: *RcNode) bool {
+                if (node.visited) {
+                    return false;
+                }
+                if (node.entered) {
+                    return true;
+                }
+                node.entered = true;
+
+                switch (obj.retainedCommon.structId) {
+                    ListS => {
+                        const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                        for (list.items) |it| {
+                            if (it.isPointer()) {
+                                const ptr = stdx.mem.ptrCastAlign(*HeapObject, it.asPointer().?);
+                                if (visit(alloc, graph, cycleRoots_, ptr, graph.getPtr(ptr).?)) {
+                                    cycleRoots_.append(alloc, obj) catch stdx.fatal();
+                                    return true;
+                                }
+                            }
+                        }
+                    },
+                    else => {
+                    },
+                }
+                node.entered = false;
+                node.visited = true;
+                return false;
+            }
+        };
+        var iter = nodes.iterator();
+        while (iter.next()) |*entry| {
+            if (S.visit(self.alloc, &nodes, &cycleRoots, entry.key_ptr.*, entry.value_ptr)) {
+                if (trace) {
+                    self.trace.numRetainCycles = 1;
+                    self.trace.numRetainCycleRoots = @intCast(u32, cycleRoots.items.len);
+                }
+                for (cycleRoots.items) |root| {
+                    // Force release.
+                    self.forceRelease(root, trace);
+                }
+                return false;
+            }
+        }
+        return true;
     }
 
-    pub fn release(self: *VM, val: Value) void {
+    pub inline fn retain(self: *VM, val: Value) void {
+        _ = self;
         @setRuntimeSafety(debug);
         if (val.isPointer()) {
             const obj = stdx.mem.ptrCastAlign(*GenericObject, val.asPointer());
-            obj.rc -= 1;
-            if (obj.rc == 0) {
-                switch (obj.structId) {
+            obj.rc += 1;
+        }
+    }
+
+    pub fn forceRelease(self: *VM, obj: *HeapObject, comptime trace: bool) void {
+        if (trace) {
+            self.trace.numReleases += 1;
+        }
+        switch (obj.retainedCommon.structId) {
+            ListS => {
+                const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                list.deinit(self.alloc);
+                self.freeObject(obj);
+            },
+            MapS => {
+                const map = stdx.mem.ptrCastAlign(*Rc(Map), &obj.retainedList);
+                map.val.inner.deinit(self.alloc);
+                self.alloc.destroy(map);
+            },
+            else => {
+                return stdx.panic("unsupported struct type");
+            },
+        }
+    }
+
+    pub fn release(self: *VM, val: Value, comptime trace: bool) void {
+        @setRuntimeSafety(debug);
+        if (val.isPointer()) {
+            const obj = stdx.mem.ptrCastAlign(*HeapObject, val.asPointer().?);
+            obj.retainedCommon.rc -= 1;
+            if (trace) {
+                self.trace.numReleases += 1;
+            }
+            if (obj.retainedCommon.rc == 0) {
+                switch (obj.retainedCommon.structId) {
                     ListS => {
-                        const list = stdx.mem.ptrCastAlign(*Rc(List), val.asPointer());
-                        list.val.inner.deinit(self.alloc);
-                        self.alloc.destroy(list);
+                        const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                        list.deinit(self.alloc);
+                        self.freeObject(obj);
                     },
                     MapS => {
                         const map = stdx.mem.ptrCastAlign(*Rc(Map), val.asPointer());
@@ -770,12 +995,12 @@ pub const VM = struct {
         const argStart = self.stack.top - numArgs;
         const recv = self.stack.buf[argStart];
         if (recv.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*GenericObject, recv.asPointer());
+            const obj = stdx.mem.ptrCastAlign(*HeapObject, recv.asPointer().?);
             const map = self.symbols.items[symId];
             switch (map.mapT) {
                 .oneStruct => {
-                    if (obj.structId == map.inner.oneStruct.id) {
-                        self.callSymEntry(map.inner.oneStruct.sym, argStart, recv.asPointer().?, numArgs, reqNumRetVals);
+                    if (obj.retainedCommon.structId == map.inner.oneStruct.id) {
+                        self.callSymEntry(map.inner.oneStruct.sym, argStart, obj, numArgs, reqNumRetVals);
                     } else stdx.panic("Symbol does not exist for receiver.");
                 },
                 else => stdx.panicFmt("unsupported {}", .{map.mapT}),
@@ -799,7 +1024,8 @@ pub const VM = struct {
         while (true) {
             if (trace) {
                 const op = self.ops[self.pc].code;
-                self.opCounts[@enumToInt(op)].count += 1;
+                self.trace.opCounts[@enumToInt(op)].count += 1;
+                self.trace.totalOpCounts += 1;
             }
             log.debug("op: {}", .{self.ops[self.pc].code});
             switch (self.ops[self.pc].code) {
@@ -928,6 +1154,9 @@ pub const VM = struct {
                     const top = self.stack.top;
                     const elems = self.stack.buf[top-numElems..top];
                     const list = try self.allocList(elems);
+                    if (trace) {
+                        self.trace.numRetains += 1;
+                    }
                     self.stack.top = top-numElems;
                     try self.pushRegister(list);
                     continue;
@@ -936,6 +1165,9 @@ pub const VM = struct {
                     self.pc += 1;
 
                     const map = try self.allocEmptyMap();
+                    if (trace) {
+                        self.trace.numRetains += 1;
+                    }
                     try self.pushRegister(map);
                     continue;
                 },
@@ -968,6 +1200,15 @@ pub const VM = struct {
                     self.setStackFrameValue(offset, evalAdd(self.getStackFrameValue(offset), val));
                     continue;
                 },
+                .releaseSet => {
+                    const offset = self.ops[self.pc+1].arg;
+                    self.pc += 2;
+                    const val = self.popRegister();
+                    const existing = self.getStackFrameValue(offset);
+                    self.release(existing, trace);
+                    self.setStackFrameValue(offset, val);
+                    continue;
+                },
                 .set => {
                     const offset = self.ops[self.pc+1].arg;
                     self.pc += 2;
@@ -995,6 +1236,17 @@ pub const VM = struct {
                     self.pc += 2;
                     const val = self.getStackFrameValue(offset);
                     try self.pushRegister(val);
+                    continue;
+                },
+                .loadRetain => {
+                    const offset = self.ops[self.pc+1].arg;
+                    self.pc += 2;
+                    const val = self.getStackFrameValue(offset);
+                    try self.pushRegister(val);
+                    self.retain(val);
+                    if (trace) {
+                        self.trace.numRetains += 1;
+                    }
                     continue;
                 },
                 .pushIndex => {
@@ -1026,7 +1278,7 @@ pub const VM = struct {
                 .release => {
                     const offset = self.ops[self.pc+1].arg;
                     self.pc += 2;
-                    self.release(self.getStackFrameValue(offset));
+                    self.release(self.getStackFrameValue(offset), trace);
                     continue;
                 },
                 .pushCall => {
@@ -1434,12 +1686,14 @@ pub const OpCode = enum(u8) {
     pushNot,
     /// Pops top register and copies value to address relative to the local frame.
     set,
+    releaseSet,
     /// Same as set except it also does a ensure capacity on the stack.
     setNew,
     /// Pops right, index, left registers, sets right value to address of left[index].
     setIndex,
     /// Loads a value from address relative to the local frame onto the register stack.
     load,
+    loadRetain,
     pushIndex,
     /// Pops top two registers, performs addition, and pushes result onto stack.
     pushAdd,
@@ -1487,6 +1741,7 @@ pub const OpCode = enum(u8) {
 };
 
 const NullByteId = std.math.maxInt(u8);
+const NullId = std.math.maxInt(u32);
 
 pub fn Rc(comptime T: type) type {
     return struct {
@@ -1494,6 +1749,55 @@ pub fn Rc(comptime T: type) type {
         rc: u32,
         val: T,
     };
+}
+
+const List = packed struct {
+    structId: StructId,
+    rc: u32,
+    // inner: std.ArrayListUnmanaged(Value),
+    list: packed struct {
+        ptr: [*]Value,
+        len: usize,
+        cap: usize,
+    },
+    nextIterIdx: u32,
+};
+
+const HeapPage = struct {
+    objects: [1600]HeapObject,
+};
+
+const HeapObjectId = u32;
+
+/// Total of 40 bytes per object. If structs are bigger they are allocated on the gpa.
+const HeapObject = packed union {
+    common: packed struct {
+        structId: StructId,
+    },
+    freeSpan: packed struct {
+        structId: StructId,
+        len: u32,
+        start: *HeapObject,
+        next: ?*HeapObject,
+    },
+    retainedCommon: packed struct {
+        structId: StructId,
+        rc: u32,
+    },
+    retainedList: List,
+    retainedObject: packed struct {
+        structId: StructId,
+        rc: u32,
+        ptr: *anyopaque,
+        val0: Value,
+        val1: Value,
+        val2: Value,
+    },
+};
+
+comptime {
+    std.debug.assert(@sizeOf(HeapObject) == 40);
+    std.debug.assert(@sizeOf(HeapPage) == 40 * 1600);
 }
 
 const GenericObject = struct {
@@ -1622,14 +1926,18 @@ const Struct = struct {
 
 const SymbolId = u32;
 
+pub const TraceInfo = struct {
+    opCounts: []OpCount,
+    totalOpCounts: u32,
+    numRetains: u32,
+    numReleases: u32,
+    numRetainCycles: u32,
+    numRetainCycleRoots: u32,
+};
+
 pub const OpCount = struct {
     code: u32,
     count: u32,
-};
-
-const List = struct {
-    inner: std.ArrayListUnmanaged(Value),
-    nextIterIdx: u32,
 };
 
 const MapKeyType = enum {
@@ -1693,4 +2001,9 @@ pub const MapContext = struct {
             },
         }
     }
+};
+
+const RcNode = struct {
+    visited: bool,
+    entered: bool,
 };
