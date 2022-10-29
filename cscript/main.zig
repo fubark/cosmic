@@ -30,6 +30,8 @@ pub fn main() !void {
         try vm.init(alloc);
         defer vm.deinit();
 
+        var trace: cs.TraceInfo = undefined;
+        vm.trace = &trace;
         const res = try vm.eval(src, false);
 
         if (cs.Value.floatCanBeInteger(res.asF64())) {

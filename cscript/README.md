@@ -225,29 +225,44 @@ d = dist(x0: 10, x1: 20, y0: 30, y1: 40)
 
 ### Lambdas
 ```cscript
-// Single line lambda.
-canvas.onUpdate(func (delta_ms) => print delta_ms)
+// Expression lambda assignment.
+canvas.onUpdate = delta_ms => print delta_ms)
 
-// Multi line lambda.
-canvas.onUpdate(
-    func (delta_ms):
+// Multi-line lambda assignment.
+canvas.onUpdate = func (delta_ms):
+    print delta_ms
+
+// Expression lambda call argument.
+canvas.onUpdate(delta_ms => print delta_ms)
+
+// Multi-line lambda call argument.
+canvas.onUpdate():
+    @func (delta_ms):
         print delta_ms
-)
 ```
 Lambdas can also be declared and assigned to a nested property of an existing variable. A declaration at the top level scope also makes the lambda eligible for hot swap during development.
 ```cscript
-dict = {}
-func dict.foo():
+map = {}
+func map.foo():
     return 123
-dict.foo()
+map.foo()
 
 // Equivalent to:
-dict = {}
-dict.foo = func () => 123
-dict.foo()
+map = {}
+map.foo = func () => 123
+map.foo()
 ```
 
 ### Closures
+Lambdas can close over global variables or over function local variables.
+```cscript
+func add():
+    a = 123
+    return b => a + b
+fn = add()
+fn(10)
+// Evaluates to 133.
+```
 TODO
 
 ### Exceptions and errors.

@@ -22,6 +22,7 @@ pub const VMcompiler = struct {
     funcParams: []const cs.FunctionParam,
     blocks: std.ArrayListUnmanaged(Block),
     jumpStack: std.ArrayListUnmanaged(Jump),
+    loadStack: std.ArrayListUnmanaged(Load),
     operandStack: std.ArrayListUnmanaged(cs.OpData),
     curBlock: *Block,
 
@@ -37,6 +38,7 @@ pub const VMcompiler = struct {
             .funcParams = undefined,
             .blocks = .{},
             .jumpStack = .{},
+            .loadStack = .{},
             .operandStack = .{},
             .curBlock = undefined,
             .src = undefined,
@@ -48,6 +50,7 @@ pub const VMcompiler = struct {
         self.blocks.deinit(self.alloc);
         self.buf.deinit();
         self.jumpStack.deinit(self.alloc);
+        self.loadStack.deinit(self.alloc);
         self.operandStack.deinit(self.alloc);
     }
 
@@ -82,7 +85,7 @@ pub const VMcompiler = struct {
     fn endLocals(self: *VMcompiler) !void {
         var iter = self.curBlock.vars.valueIterator();
         while (iter.next()) |info| {
-            if (info.rcCandidate) {
+            if (info.rcCandidate and !info.isCapturedVar) {
                 try self.buf.pushOp1(.release, info.localOffset);
             }
         }
@@ -112,14 +115,27 @@ pub const VMcompiler = struct {
         if (self.curBlock.vars.get(varName)) |info| {
             return info;
         }
-        // Start looking at parent scopes.
-        // var i = self.blocks.items.len - 1;
-        // while (i > 0) {
-        //     i -= 1;
-        //     if (self.blocks.items[i].vars.get(var_name)) |desc| {
-        //         return desc;
-        //     }
-        // }
+        return null;
+    }
+
+    /// Returns the VarInfo if the var was in the current scope or the immediate non-main parent scope.
+    /// If found in the parent scope, the var is recorded as a captured var.
+    /// Captured vars are given a tempId (order among other captured vars) and patched later by a local offset at the end of the block.
+    fn readScopedVar(self: *VMcompiler, varName: []const u8) !?VarInfo {
+        if (self.curBlock.vars.get(varName)) |info| {
+            return info;
+        }
+        // Only check one block above that isn't the main scope.
+        if (self.blocks.items.len > 2) {
+            if (self.blocks.items[self.blocks.items.len-2].vars.get(varName)) |info| {
+                if (!info.hasStaticType) {
+                    const localInfo = try self.reserveCapturedVar(varName, AnyType, info.localOffset);
+                    return localInfo.*;
+                } else {
+                    return error.UnsupportedStaticType;
+                }
+            }
+        }
         return null;
     }
 
@@ -144,14 +160,43 @@ pub const VMcompiler = struct {
         }
     }
 
-    fn reserveLocalVar(self: *VMcompiler, name: []const u8, vtype: Type) !u8 {
-        const offset = try self.curBlock.reserveLocal();
-        try self.curBlock.vars.put(self.alloc, name, .{
-            .vtype = vtype,
-            .localOffset = offset,
-            .rcCandidate = vtype.rcCandidate,
+    fn reserveCapturedVar(self: *VMcompiler, name: []const u8, vtype: Type, parentLocalOffset: u8) !*VarInfo {
+        const tempOffset = @intCast(u8, self.curBlock.capturedVars.items.len);
+        try self.curBlock.capturedVars.append(self.alloc, .{
+            .name = name,
+            .parentLocalOffset = parentLocalOffset,
+            .localOffset = tempOffset,
         });
-        return offset;
+        const res = try self.curBlock.vars.getOrPut(self.alloc, name);
+        if (res.found_existing) {
+            return error.VarExists;
+        } else {
+            res.value_ptr.* = .{
+                .vtype = vtype,
+                .localOffset = tempOffset,
+                .rcCandidate = vtype.rcCandidate,
+                .hasStaticType = false,
+                .isCapturedVar = true,
+            };
+            return res.value_ptr;
+        }
+    }
+
+    fn reserveLocalVar(self: *VMcompiler, name: []const u8, vtype: Type) !*VarInfo {
+        const offset = try self.curBlock.reserveLocal();
+        const res = try self.curBlock.vars.getOrPut(self.alloc, name);
+        if (res.found_existing) {
+            return error.VarExists;
+        } else {
+            res.value_ptr.* = .{
+                .vtype = vtype,
+                .localOffset = offset,
+                .rcCandidate = vtype.rcCandidate,
+                .hasStaticType = false,
+                .isCapturedVar = false,
+            };
+            return res.value_ptr;
+        }
     }
 
     fn genSetVar(self: *VMcompiler, name: []const u8, vtype: Type) !u8 {
@@ -169,9 +214,19 @@ pub const VMcompiler = struct {
             }
             return info.localOffset;
         } else {
-            const offset = try self.reserveLocalVar(name, vtype);
-            try self.buf.pushOp1(.setNew, offset);
-            return offset;
+            const info = try self.reserveLocalVar(name, vtype);
+            try self.buf.pushOp1(.setNew, info.localOffset);
+            return info.localOffset;
+        }
+    }
+
+    fn reserveFuncParams(self: *VMcompiler, func: cs.FunctionDeclaration) !void {
+        if (func.params.end > func.params.start) {
+            for (self.funcParams[func.params.start..func.params.end]) |param| {
+                const paramName = self.src[param.name.start..param.name.end];
+                const paramT = AnyType;
+                _ = try self.reserveLocalVar(paramName, paramT);
+            }
         }
     }
 
@@ -215,6 +270,12 @@ pub const VMcompiler = struct {
                     const identToken = self.tokens[left.start_token];
                     const varName = self.src[identToken.start_pos .. identToken.data.end_pos];
 
+                    if (self.getScopedVarInfo(varName)) |info| {
+                        if (info.isCapturedVar) {
+                            return self.reportError("Can not reassign to a captured variable.", .{}, left);
+                        }
+                    }
+
                     const right = self.nodes[node.head.left_right.right];
                     const rtype = try self.genMaybeRetainExpr(right, false);
                     _ = try self.genSetVar(varName, rtype);
@@ -242,22 +303,13 @@ pub const VMcompiler = struct {
 
                 try self.pushBlock();
                 const opStart = @intCast(u32, self.buf.ops.items.len);
-                // Declare params.
-                if (func.params.end > func.params.start) {
-                    for (self.funcParams[func.params.start..func.params.end]) |param| {
-                        const paramName = self.src[param.name.start..param.name.end];
-                        const paramT = AnyType;
-                        _ = try self.reserveLocalVar(paramName, paramT);
-                    }
-                }
+                try self.reserveFuncParams(func);
                 try self.genStatements(node.head.func.body_head, false);
                 // TODO: Check last statement to skip adding ret.
                 try self.endLocals();
                 try self.buf.pushOp(.ret0);
 
                 // Reserve another local for the call return info.
-                _ = try self.curBlock.reserveLocal();
-
                 const numLocals = self.curBlock.vars.size + 1;
                 self.popBlock();
 
@@ -268,7 +320,7 @@ pub const VMcompiler = struct {
             },
             .for_inf_stmt => {
                 self.curBlock.pcSave = @intCast(u32, self.buf.ops.items.len);
-                self.curBlock.jumpStackSave = @intCast(u32, self.jumpStack.items.len);
+                const jumpStackSave = @intCast(u32, self.jumpStack.items.len);
 
                 // TODO: generate gas meter checks.
                 // if (self.opts.gas_meter != .none) {
@@ -284,10 +336,10 @@ pub const VMcompiler = struct {
                 try self.buf.pushOp1(.jumpBack, @intCast(u8, self.buf.ops.items.len - self.curBlock.pcSave));
 
                 // Patch break jumps.
-                for (self.jumpStack.items[self.curBlock.jumpStackSave..]) |jump| {
+                for (self.jumpStack.items[jumpStackSave..]) |jump| {
                     self.buf.setOpArgs1(jump.pc + 1, @intCast(u8, self.buf.ops.items.len - jump.pc));
                 }
-                self.jumpStack.items.len = self.curBlock.jumpStackSave;
+                self.jumpStack.items.len = jumpStackSave;
             },
             .for_iter_stmt => {
                 const iterable = self.nodes[node.head.for_iter_stmt.iterable];
@@ -301,7 +353,8 @@ pub const VMcompiler = struct {
                 if (self.getScopedVarInfo(asName)) |info| {
                     local = info.localOffset;
                 } else {
-                    local = try self.reserveLocalVar(asName, AnyType);
+                    const info = try self.reserveLocalVar(asName, AnyType);
+                    local = info.localOffset;
                 }
 
                 const forOpStart = self.buf.ops.items.len;
@@ -321,7 +374,8 @@ pub const VMcompiler = struct {
                     if (self.getScopedVarInfo(asName)) |info| {
                         local = info.localOffset;
                     } else {
-                        local = try self.reserveLocalVar(asName, NumberType);
+                        const info = try self.reserveLocalVar(asName, NumberType);
+                        local = info.localOffset;
                     }
                     // inc = as_clause.head.as_range_clause.inc;
                     // if (as_clause.head.as_range_clause.step != NullId) {
@@ -402,15 +456,31 @@ pub const VMcompiler = struct {
         }
     }
 
+    fn genLoadLocal(self: *VMcompiler, info: VarInfo) !void {
+        try self.buf.pushOp1(.load, info.localOffset);
+        if (info.isCapturedVar) {
+            try self.loadStack.append(self.alloc, .{
+                .pc = @intCast(u32, self.buf.ops.items.len) - 1,
+                .tempOffset = info.localOffset,
+            });
+        }
+    }
+
     fn genMaybeRetainExpr(self: *VMcompiler, node: cs.Node, comptime discardTopExprReg: bool) anyerror!Type {
         if (node.node_t == .ident) {
             const token = self.tokens[node.start_token];
             const name = self.src[token.start_pos..token.data.end_pos];
-            if (self.getScopedVarInfo(name)) |info| {
+            if (try self.readScopedVar(name)) |info| {
                 if (info.vtype.rcCandidate) {
                     try self.buf.pushOp1(.loadRetain, info.localOffset);
+                    if (info.isCapturedVar) {
+                        try self.loadStack.append(self.alloc, .{
+                            .pc = @intCast(u32, self.buf.ops.items.len) - 1,
+                            .tempOffset = info.localOffset,
+                        });
+                    }
                 } else {
-                    try self.buf.pushOp1(.load, info.localOffset);
+                    try self.genLoadLocal(info);
                 }
                 return info.vtype;
             } else {
@@ -510,8 +580,8 @@ pub const VMcompiler = struct {
             .ident => {
                 const token = self.tokens[node.start_token];
                 const name = self.src[token.start_pos..token.data.end_pos];
-                if (self.getScopedVarInfo(name)) |info| {
-                    try self.buf.pushOp1(.load, info.localOffset);
+                if (try self.readScopedVar(name)) |info| {
+                    try self.genLoadLocal(info);
                     return info.vtype;
                 } else {
                     try self.buf.pushOp(.pushNone);
@@ -612,7 +682,7 @@ pub const VMcompiler = struct {
                         if (left.node_t == .ident) {
                             const token = self.tokens[left.start_token];
                             const name = self.src[token.start_pos .. token.data.end_pos];
-                            if (self.getScopedVarInfo(name)) |info| {
+                            if (try self.readScopedVar(name)) |info| {
                                 leftVar = info.localOffset;
                             }
                         }
@@ -623,7 +693,7 @@ pub const VMcompiler = struct {
                         if (right.node_t == .ident) {
                             const token = self.tokens[right.start_token];
                             const name = self.src[token.start_pos .. token.data.end_pos];
-                            if (self.getScopedVarInfo(name)) |info| {
+                            if (try self.readScopedVar(name)) |info| {
                                 rightVar = info.localOffset;
                             }
                         }
@@ -737,14 +807,30 @@ pub const VMcompiler = struct {
                         const token = self.tokens[callee.start_token];
                         const name = self.src[token.start_pos..token.data.end_pos];
 
-                        if (self.getScopedVarInfo(name)) |_| {
-                            stdx.panic("unsupported call expr on scoped var");
+                        if (try self.readScopedVar(name)) |info| {
+                            var numArgs: u32 = 1;
+                            var arg_id = node.head.func_call.arg_head;
+                            while (arg_id != NullId) : (numArgs += 1) {
+                                const arg = self.nodes[arg_id];
+                                _ = try self.genMaybeRetainExpr(arg, false);
+                                arg_id = arg.next;
+                            }
+
+                            // Load callee after args so it can be easily discarded.
+                            try self.genLoadLocal(info);
+
+                            if (discardTopExprReg) {
+                                try self.buf.pushOp1(.pushCall0, @intCast(u8, numArgs));
+                            } else {
+                                try self.buf.pushOp1(.pushCall1, @intCast(u8, numArgs));
+                            }
+                            return AnyType;
                         } else {
                             var numArgs: u32 = 0;
                             var arg_id = node.head.func_call.arg_head;
                             while (arg_id != NullId) : (numArgs += 1) {
                                 const arg = self.nodes[arg_id];
-                                _ = try self.genExpr(arg, false);
+                                _ = try self.genMaybeRetainExpr(arg, false);
                                 arg_id = arg.next;
                             }
 
@@ -758,6 +844,56 @@ pub const VMcompiler = struct {
                         }
                     } else return self.reportError("Unsupported callee", .{}, node);
                 } else return self.reportError("Unsupported named args", .{}, node);
+            },
+            .lambda_expr => {
+                if (!discardTopExprReg) {
+                    const jumpOpStart = self.buf.ops.items.len;
+                    try self.buf.pushOp1(.jump, 0);
+
+                    try self.pushBlock();
+                    const opStart = @intCast(u32, self.buf.ops.items.len);
+
+                    // Generate function body.
+                    const loadStackSave = @intCast(u32, self.loadStack.items.len);
+                    const func = self.funcDecls[node.head.func.decl_id];
+                    try self.reserveFuncParams(func);
+                    const numParams = @intCast(u8, self.curBlock.stackLen);
+                    const expr = self.nodes[node.head.func.body_head];
+                    _ = try self.genMaybeRetainExpr(expr, false);
+                    try self.endLocals();
+                    try self.buf.pushOp(.ret1);
+                    self.buf.setOpArgs1(jumpOpStart + 1, @intCast(u8, self.buf.ops.items.len - jumpOpStart));
+
+                    // Reserve captured var locals together and push them onto execution stack.
+                    for (self.curBlock.capturedVars.items) |*capVar| {
+                        capVar.localOffset = try self.curBlock.reserveLocal();
+                        const info = self.getScopedVarInfo(capVar.name).?;
+                        if (info.vtype.rcCandidate) {
+                            try self.buf.pushOp1(.loadRetain, capVar.parentLocalOffset);
+                        } else {
+                            try self.buf.pushOp1(.load, capVar.parentLocalOffset);
+                        }
+                    }
+
+                    // Patch captured var load ops.
+                    for (self.loadStack.items[loadStackSave..]) |load| {
+                        const capVar = self.curBlock.capturedVars.items[load.tempOffset];
+                        self.buf.setOpArgs1(load.pc, capVar.localOffset);
+                    }
+                    self.loadStack.items.len = loadStackSave;
+
+                    const numLocals = @intCast(u8, self.curBlock.vars.size + 1);
+                    const numCaptured = @intCast(u8, self.curBlock.capturedVars.items.len);
+                    self.popBlock();
+
+                    const funcPcOffset = @intCast(u8, self.buf.ops.items.len - opStart);
+                    if (numCaptured == 0) {
+                        try self.buf.pushOpSlice(.pushLambda, &.{ funcPcOffset, numParams, numLocals });
+                    } else {
+                        try self.buf.pushOpSlice(.pushClosure, &.{ funcPcOffset, numParams, numCaptured, numLocals });
+                    }
+                }
+                return AnyType;
             },
             else => return self.reportError("Unsupported node", .{}, node),
         }
@@ -778,23 +914,30 @@ pub const ResultView = struct {
     hasError: bool,
 };
 
+const CapturedVar = struct {
+    name: []const u8,
+    parentLocalOffset: u8,
+    localOffset: u8,
+};
+
 const Block = struct {
     stackLen: u32,
     vars: std.StringHashMapUnmanaged(VarInfo),
+    capturedVars: std.ArrayListUnmanaged(CapturedVar),
     pcSave: u32,
-    jumpStackSave: u32,
 
     fn init() Block {
         return .{
             .stackLen = 0,
             .vars = .{},
+            .capturedVars = .{},
             .pcSave = 0,
-            .jumpStackSave = 0,
         };
     }
 
     fn deinit(self: *Block, alloc: std.mem.Allocator) void {
         self.vars.deinit(alloc);
+        self.capturedVars.deinit(alloc);
     }
 
     fn reserveLocal(self: *Block) !u8 {
@@ -819,6 +962,12 @@ const VarInfo = struct {
     /// Once this is true, it can not be reverted to false.
     /// The end of the block will emit release ops for any locals that are rc candidates.
     rcCandidate: bool,
+    hasStaticType: bool,
+
+    /// Whether this variable is captured.
+    /// Captured variables can not be reassigned to another value. This restriction avoids
+    /// an extra retain/release op for closure calls.
+    isCapturedVar: bool,
 };
 
 const TypeTag = enum {
@@ -877,4 +1026,9 @@ const ValueAddr = struct {
 
 const Jump = struct {
     pc: u32,
+};
+
+const Load = struct {
+    pc: u32,
+    tempOffset: u8,
 };

@@ -59,6 +59,7 @@ pub const VM = struct {
     /// Reserved symbols known at comptime.
     const ListS: StructId = 0;
     const MapS: StructId = 1;
+    const ClosureS: StructId = 2;
 
     pub fn init(self: *VM, alloc: std.mem.Allocator) !void {
         self.* = .{
@@ -109,6 +110,9 @@ pub const VM = struct {
         std.debug.assert(id == MapS);
         const remove = try self.ensureStructSym("remove");
         try self.addStructSym(MapS, remove, SymbolEntry.initNativeFunc1(nativeMapRemove));
+
+        id = try self.addStruct("Closure");
+        std.debug.assert(id == ClosureS);
     }
 
     pub fn deinit(self: *VM) void {
@@ -530,6 +534,43 @@ pub const VM = struct {
         }
     }
 
+    fn allocClosure(self: *VM, funcPc: usize, numParams: u8, numLocals: u8, capturedVals: []const Value) !Value {
+        @setRuntimeSafety(debug);
+        const obj = try self.allocObject();
+        obj.closure = .{
+            .structId = ClosureS,
+            .rc = 1,
+            .funcPc = @intCast(u32, funcPc),
+            .numParams = numParams,
+            .numLocals = numLocals,
+            .numCaptured = @intCast(u8, capturedVals.len),
+            .padding = undefined,
+            .capturedVal0 = undefined,
+            .capturedVal1 = undefined,
+            .extra = undefined,
+        };
+        switch (capturedVals.len) {
+            0 => unreachable,
+            1 => {
+                obj.closure.capturedVal0 = capturedVals[0];
+            },
+            2 => {
+                obj.closure.capturedVal0 = capturedVals[0];
+                obj.closure.capturedVal1 = capturedVals[1];
+            },
+            3 => {
+                obj.closure.capturedVal0 = capturedVals[0];
+                obj.closure.capturedVal1 = capturedVals[1];
+                obj.closure.extra.capturedVal2 = capturedVals[2];
+            },
+            else => {
+                log.debug("Unsupported number of closure captured values: {}", .{capturedVals.len});
+                return error.Unsupported;
+            }
+        }
+        return Value.initPtr(obj);
+    }
+
     fn allocList(self: *VM, elems: []const Value) !Value {
         @setRuntimeSafety(debug);
         const obj = try self.allocObject();
@@ -890,6 +931,16 @@ pub const VM = struct {
                         map.val.inner.deinit(self.alloc);
                         self.alloc.destroy(map);
                     },
+                    ClosureS => {
+                        if (obj.closure.numCaptured <= 3) {
+                            const src = @ptrCast([*]Value, &obj.closure.capturedVal0)[0..obj.closure.numCaptured];
+                            for (src) |capturedVal| {
+                                self.release(capturedVal, trace);
+                            }
+                        } else {
+                            stdx.panic("unsupported");
+                        }
+                    },
                     else => {
                         return stdx.panic("unsupported struct type");
                     },
@@ -913,6 +964,42 @@ pub const VM = struct {
                 else => stdx.panicFmt("unsupported {}", .{map.mapT}),
             } 
         } else stdx.panic("Symbol does not exist.");
+    }
+
+    fn call(self: *VM, callee: Value, numArgs: u8, retInfo: Value) !void {
+        @setRuntimeSafety(debug);
+        if (callee.isPointer()) {
+            const obj = stdx.mem.ptrCastAlign(*HeapObject, callee.asPointer().?);
+            switch (obj.common.structId) {
+                ClosureS => {
+                    if (numArgs - 1 != obj.closure.numParams) {
+                        stdx.panic("params/args mismatch");
+                    }
+
+                    self.pc = obj.closure.funcPc;
+                    self.framePtr = self.stack.top - numArgs;
+                    // numLocals includes the function params as well as the return info value.
+                    self.stack.top = self.framePtr + obj.closure.numLocals;
+
+                    if (self.stack.top > self.stack.buf.len) {
+                        try self.stack.growTotalCapacity(self.alloc, self.stack.top);
+                    }
+                    // Push return pc address and previous current framePtr onto the stack.
+                    self.stack.buf[self.stack.top-1] = retInfo;
+
+                    // Copy over captured vars to new call stack locals.
+                    if (obj.closure.numCaptured <= 3) {
+                        const src = @ptrCast([*]Value, &obj.closure.capturedVal0)[0..obj.closure.numCaptured];
+                        std.mem.copy(Value, self.stack.buf[self.stack.top-1-obj.closure.numCaptured..self.stack.top-1], src);
+                    } else {
+                        stdx.panic("unsupported closure > 3 captured args.");
+                    }
+                },
+                else => {},
+            }
+        } else {
+            stdx.panic("not a function");
+        }
     }
 
     /// Current stack top is already pointing past the last arg. 
@@ -1027,7 +1114,7 @@ pub const VM = struct {
                 self.trace.opCounts[@enumToInt(op)].count += 1;
                 self.trace.totalOpCounts += 1;
             }
-            log.debug("op: {}", .{self.ops[self.pc].code});
+            log.debug("{} op: {}", .{self.pc, self.ops[self.pc].code});
             switch (self.ops[self.pc].code) {
                 .pushTrue => {
                     try self.pushRegister(Value.initTrue());
@@ -1281,8 +1368,21 @@ pub const VM = struct {
                     self.release(self.getStackFrameValue(offset), trace);
                     continue;
                 },
-                .pushCall => {
-                    stdx.unsupported();
+                .pushCall0 => {
+                    const numArgs = self.ops[self.pc+1].arg;
+                    self.pc += 2;
+
+                    const callee = self.stack.buf[self.stack.top - 1];
+                    const retInfo = self.buildReturnInfo(0);
+                    try self.call(callee, numArgs, retInfo);
+                },
+                .pushCall1 => {
+                    const numArgs = self.ops[self.pc+1].arg;
+                    self.pc += 2;
+
+                    const callee = self.stack.buf[self.stack.top - 1];
+                    const retInfo = self.buildReturnInfo(1);
+                    try self.call(callee, numArgs, retInfo);
                 },
                 .call => {
                     stdx.unsupported();
@@ -1333,6 +1433,29 @@ pub const VM = struct {
 
                     const recv = self.popRegister();
                     self.pushField(symId, recv);
+                    continue;
+                },
+                .pushLambda => {
+                    const funcOffset = self.ops[self.pc+1].arg;
+                    const numParams = self.ops[self.pc+2].arg;
+                    const numLocals = self.ops[self.pc+3].arg;
+                    self.pc += 4;
+                    _ = funcOffset;
+                    _ = numParams;
+                    _ = numLocals;
+                    continue;
+                },
+                .pushClosure => {
+                    const funcPc = self.pc - self.ops[self.pc+1].arg;
+                    const numParams = self.ops[self.pc+2].arg;
+                    const numCaptured = self.ops[self.pc+3].arg;
+                    const numLocals = self.ops[self.pc+4].arg;
+                    self.pc += 5;
+
+                    const capturedVals = self.stack.buf[self.stack.top-numCaptured..self.stack.top];
+                    const closure = try self.allocClosure(funcPc, numParams, numLocals, capturedVals);
+                    self.stack.top = self.stack.top-numCaptured+1;
+                    self.stack.buf[self.stack.top-1] = closure;
                     continue;
                 },
                 .forIter => {
@@ -1633,6 +1756,15 @@ pub const ByteCodeBuffer = struct {
         self.ops.items[start+1] = .{ .arg = arg };
         self.ops.items[start+2] = .{ .arg = arg2 };
     }
+    
+    pub fn pushOpSlice(self: *ByteCodeBuffer, code: OpCode, args: []const u8) !void {
+        const start = self.ops.items.len;
+        try self.ops.resize(self.alloc, self.ops.items.len + args.len + 1);
+        self.ops.items[start] = .{ .code = code };
+        for (args) |arg, i| {
+            self.ops.items[start+i+1] = .{ .arg = arg };
+        }
+    }
 
     pub fn pushOperands(self: *ByteCodeBuffer, operands: []const OpData) !void {
         try self.ops.appendSlice(self.alloc, operands);
@@ -1709,8 +1841,10 @@ pub const OpCode = enum(u8) {
     jumpBack,
 
     release,
-    /// Pops args and callee registers, performs a function call, and pushes result onto stack.
-    pushCall,
+    /// Pops callee and args, performs a function call, and ensures no return values.
+    pushCall0,
+    /// Pops callee and args, performs a function call, and ensures one return value.
+    pushCall1,
     /// Like pushCall but does not push the result onto the stack.
     call,
     /// Num args includes the receiver.
@@ -1723,6 +1857,8 @@ pub const OpCode = enum(u8) {
     ret1,
     ret0,
     pushField,
+    pushLambda,
+    pushClosure,
     addSet,
     pushCompare,
     pushLess,
@@ -1750,6 +1886,22 @@ pub fn Rc(comptime T: type) type {
         val: T,
     };
 }
+
+const Closure = packed struct {
+    structId: StructId,
+    rc: u32,
+    funcPc: u32, 
+    numParams: u8,
+    numCaptured: u8,
+    numLocals: u8,
+    padding: u8,
+    capturedVal0: Value,
+    capturedVal1: Value,
+    extra: packed union {
+        capturedVal2: Value,
+        ptr: ?*anyopaque,
+    },
+};
 
 const List = packed struct {
     structId: StructId,
@@ -1785,6 +1937,7 @@ const HeapObject = packed union {
         rc: u32,
     },
     retainedList: List,
+    closure: Closure,
     retainedObject: packed struct {
         structId: StructId,
         rc: u32,
@@ -1888,6 +2041,7 @@ pub const FuncSymbolEntry = struct {
         nativeFunc: *const anyopaque,
         func: packed struct {
             pc: usize,
+            /// Includes function params, locals, and return info slot.
             numLocals: u32,
         },
     },

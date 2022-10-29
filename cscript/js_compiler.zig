@@ -805,7 +805,7 @@ pub const JsTargetCompiler = struct {
 
                 _ = try self.writer.write("})");
             },
-            .lambda_single => {
+            .lambda_expr => {
                 const func = self.func_decls[node.head.func.decl_id];
 
                 if (self.use_generators) {
