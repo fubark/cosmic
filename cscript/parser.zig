@@ -64,13 +64,13 @@ pub const Parser = struct {
     /// For custom functions.
     user: struct {
         ctx: *anyopaque,
-        advanceChar: fn (*anyopaque) void,
-        peekChar: fn (*anyopaque) u8,
-        peekCharAhead: fn (*anyopaque, u32) ?u8,
-        isAtEndChar: fn (*anyopaque) bool,
-        getSubStrFromDelta: fn (*anyopaque, u32) []const u8,
-        savePos: fn (*anyopaque) void,
-        restorePos: fn (*anyopaque) void,
+        advanceChar: std.meta.FnPtr(fn (*anyopaque) void),
+        peekChar: std.meta.FnPtr(fn (*anyopaque) u8),
+        peekCharAhead: std.meta.FnPtr(fn (*anyopaque, u32) ?u8),
+        isAtEndChar: std.meta.FnPtr(fn (*anyopaque) bool),
+        getSubStrFromDelta: std.meta.FnPtr(fn (*anyopaque, u32) []const u8),
+        savePos: std.meta.FnPtr(fn (*anyopaque) void),
+        restorePos: std.meta.FnPtr(fn (*anyopaque) void),
     },
 
     pub fn init(alloc: std.mem.Allocator) Parser {

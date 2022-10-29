@@ -1,7 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const mi = @import("mimalloc");
-const cs = @import("cscript.zig");
+const cy = @import("cyber.zig");
 const log = stdx.log.scoped(.main);
 
 pub fn main() !void {
@@ -26,15 +26,15 @@ pub fn main() !void {
         const src = try std.fs.cwd().readFileAlloc(alloc, path, 1e10);
         defer alloc.free(src);
 
-        var vm: cs.VM = undefined;
+        var vm: cy.VM = undefined;
         try vm.init(alloc);
         defer vm.deinit();
 
-        var trace: cs.TraceInfo = undefined;
+        var trace: cy.TraceInfo = undefined;
         vm.trace = &trace;
         const res = try vm.eval(src, false);
 
-        if (cs.Value.floatCanBeInteger(res.asF64())) {
+        if (cy.Value.floatCanBeInteger(res.asF64())) {
             log.info("{d:.0}", .{@floatToInt(u64, res.asF64())});
         } else {
             log.info("{d:.10}", .{res.asF64()});

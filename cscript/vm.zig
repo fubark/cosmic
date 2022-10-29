@@ -214,9 +214,8 @@ pub const VM = struct {
         }
         tt.endPrint("compile");
 
-        // self.dumpByteCode(res.buf);
-
         if (trace) {
+            res.buf.dump();
             const numOps = @enumToInt(cy.OpCode.end) + 1;
             var opCounts: [numOps]cy.OpCount = undefined;
             self.trace.opCounts = &opCounts;
@@ -265,6 +264,7 @@ pub const VM = struct {
     pub fn dumpInfo(self: *VM) void {
         log.info("stack cap: {}", .{self.stack.buf.len});
         log.info("stack top: {}", .{self.stack.top});
+        log.info("heap pages: {}", .{self.heapPages.items.len});
     }
 
     pub fn popStackFrame(self: *VM, comptime numRetVals: u2) void {
@@ -1043,7 +1043,7 @@ pub const VM = struct {
                 }
             },
             .nativeFunc2 => {
-                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) cy.ValuePair, entry.inner.nativeFunc2);
+                const func = @ptrCast(std.meta.FnPtr(fn (*VM, *anyopaque, []const Value) cy.ValuePair), entry.inner.nativeFunc2);
                 const args = self.stack.buf[argStart + 1..self.stack.top];
                 const res = func(self, objPtr, args);
                 if (reqNumRetVals == 2) {
@@ -1368,6 +1368,7 @@ pub const VM = struct {
                     const callee = self.stack.buf[self.stack.top - 1];
                     const retInfo = self.buildReturnInfo(0);
                     try self.call(callee, numArgs, retInfo);
+                    continue;
                 },
                 .pushCall1 => {
                     const numArgs = self.ops[self.pc+1].arg;
@@ -1376,6 +1377,7 @@ pub const VM = struct {
                     const callee = self.stack.buf[self.stack.top - 1];
                     const retInfo = self.buildReturnInfo(1);
                     try self.call(callee, numArgs, retInfo);
+                    continue;
                 },
                 .call => {
                     stdx.unsupported();
@@ -1780,14 +1782,14 @@ const SymbolEntryType = enum {
 const SymbolEntry = struct {
     entryT: SymbolEntryType,
     inner: packed union {
-        nativeFunc1: fn (*VM, *anyopaque, []const Value) Value,
-        nativeFunc2: fn (*VM, *anyopaque, []const Value) cy.ValuePair,
+        nativeFunc1: std.meta.FnPtr(fn (*VM, *anyopaque, []const Value) Value),
+        nativeFunc2: std.meta.FnPtr(fn (*VM, *anyopaque, []const Value) cy.ValuePair),
         func: packed struct {
             pc: u32,
         },
     },
 
-    fn initNativeFunc1(func: fn (*VM, *anyopaque, []const Value) Value) SymbolEntry {
+    fn initNativeFunc1(func: std.meta.FnPtr(fn (*VM, *anyopaque, []const Value) Value)) SymbolEntry {
         return .{
             .entryT = .nativeFunc1,
             .inner = .{
@@ -1796,7 +1798,7 @@ const SymbolEntry = struct {
         };
     }
 
-    fn initNativeFunc2(func: fn (*VM, *anyopaque, []const Value) cy.ValuePair) SymbolEntry {
+    fn initNativeFunc2(func: std.meta.FnPtr(fn (*VM, *anyopaque, []const Value) cy.ValuePair)) SymbolEntry {
         return .{
             .entryT = .nativeFunc2,
             .inner = .{

@@ -40,7 +40,7 @@ pub const ValuePair = struct {
 pub const Value = packed union {
     val: u64,
     /// Split into two 4-byte words. Must consider endian.
-    two: [2]u32,
+    // two: [2]u32,
     /// Call frame return info.
     retInfo: packed struct {
         pc: u32,
@@ -49,14 +49,17 @@ pub const Value = packed union {
     },
 
     pub inline fn asI32(self: Value) i32 {
+        @setRuntimeSafety(debug);
         return @floatToInt(i32, self.asF64());
     }
 
     pub inline fn asU32(self: Value) u32 {
+        @setRuntimeSafety(debug);
         return @floatToInt(u32, self.asF64());
     }
 
     pub inline fn asF64(self: Value) f64 {
+        @setRuntimeSafety(debug);
         return @bitCast(f64, self.val);
     }
 
@@ -107,6 +110,7 @@ pub const Value = packed union {
     }
 
     pub inline fn asPointer(self: Value) ?*anyopaque {
+        @setRuntimeSafety(debug);
         return @intToPtr(?*anyopaque, self.val & ~PointerMask);
     }
 
@@ -127,11 +131,13 @@ pub const Value = packed union {
     }
 
     pub inline fn getTag(self: Value) u3 {
-        if (endian == .Little) {
-            return @intCast(u3, self.two[1] & TagMask);
-        } else {
-            return @intCast(u3, self.two[0] & TagMask);
-        }
+        @setRuntimeSafety(debug);
+        return @intCast(u3, @intCast(u32, self.val >> 32) & TagMask);
+        // if (endian == .Little) {
+        //     return @intCast(u3, self.two[1] & TagMask);
+        // } else {
+        //     return @intCast(u3, self.two[0] & TagMask);
+        // }
     }
 
     pub inline fn initFalse() Value {
@@ -143,6 +149,7 @@ pub const Value = packed union {
     }
 
     pub inline fn initF64(val: f64) Value {
+        @setRuntimeSafety(debug);
         return .{ .val = @bitCast(u64, val) };
     }
 
@@ -155,6 +162,7 @@ pub const Value = packed union {
     }
 
     pub inline fn initPtr(ptr: ?*anyopaque) Value {
+        @setRuntimeSafety(debug);
         return .{ .val = PointerMask | @ptrToInt(ptr) };
     }
 
@@ -163,15 +171,20 @@ pub const Value = packed union {
     }
 
     pub inline fn asConstStr(self: Value) stdx.IndexSlice(u32) {
-        if (endian == .Little) {
-            const len = (self.two[1] & BeforeTagMask) >> 3;
-            const start = self.two[0];
-            return stdx.IndexSlice(u32).init(start, start + len);
-        } else {
-            const len = self.two[0] & BeforeTagMask >> 3;
-            const start = self.two[1];
-            return stdx.IndexSlice(u32).init(start, start + len);
-        }
+        @setRuntimeSafety(debug);
+        const len = (@intCast(u32, self.val >> 32) & BeforeTagMask) >> 3;
+        const start = @intCast(u32, self.val & 0xffffffff);
+        return stdx.IndexSlice(u32).init(start, start + len);
+
+        // if (endian == .Little) {
+        //     const len = (self.two[1] & BeforeTagMask) >> 3;
+        //     const start = self.two[0];
+        //     return stdx.IndexSlice(u32).init(start, start + len);
+        // } else {
+        //     const len = self.two[0] & BeforeTagMask >> 3;
+        //     const start = self.two[1];
+        //     return stdx.IndexSlice(u32).init(start, start + len);
+        // }
     }
 
     pub fn floatCanBeInteger(val: f64) bool {

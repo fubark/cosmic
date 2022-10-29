@@ -107,167 +107,166 @@ pub const ByteCodeBuffer = struct {
         }
     }
 
-    pub fn dump(self: *ByteCodeBuffer, buf: ByteCodeBuffer) void {
-        _ = self;
+    pub fn dump(self: ByteCodeBuffer) void {
         var pc: usize = 0;
-        const ops = buf.ops.items;
+        const ops = self.ops.items;
         while (pc < ops.len) {
-            log.debug("{}", .{pc});
+            log.info("{}", .{pc});
             switch (ops[pc].code) {
                 .pushTrue => {
-                    log.debug("pushTrue", .{});
+                    log.info("pushTrue", .{});
                     pc += 1;
                 },
                 .pushFalse => {
-                    log.debug("pushFalse", .{});
+                    log.info("pushFalse", .{});
                     pc += 1;
                 },
                 .pushNone => {
-                    log.debug("pushNone", .{});
+                    log.info("pushNone", .{});
                     pc += 1;
                 },
                 .pushConst => {
                     const idx = ops[pc+1].arg;
-                    log.debug("pushConst {}", .{idx});
+                    log.info("pushConst {}", .{idx});
                     pc += 2;
                 },
                 .pushNot => {
-                    log.debug("pushNot", .{});
+                    log.info("pushNot", .{});
                     pc += 1;
                 },
                 .pushCompare => {
-                    log.debug("pushCompare", .{});
+                    log.info("pushCompare", .{});
                     pc += 1;
                 },
                 .pushLess => {
-                    log.debug("pushLess", .{});
+                    log.info("pushLess", .{});
                     pc += 1;
                 },
                 .pushGreater => {
-                    log.debug("pushGreater", .{});
+                    log.info("pushGreater", .{});
                     pc += 1;
                 },
                 .pushLessEqual => {
-                    log.debug("pushLessEqual", .{});
+                    log.info("pushLessEqual", .{});
                     pc += 1;
                 },
                 .pushGreaterEqual => {
-                    log.debug("pushGreaterEqual", .{});
+                    log.info("pushGreaterEqual", .{});
                     pc += 1;
                 },
                 .pushOr => {
-                    log.debug("pushOr", .{});
+                    log.info("pushOr", .{});
                     pc += 1;
                 },
                 .pushAnd => {
-                    log.debug("pushAnd", .{});
+                    log.info("pushAnd", .{});
                     pc += 1;
                 },
                 .pushAdd => {
-                    log.debug("pushAdd", .{});
+                    log.info("pushAdd", .{});
                     pc += 1;
                 },
                 .pushMinus => {
-                    log.debug("pushMinus", .{});
+                    log.info("pushMinus", .{});
                     pc += 1;
                 },
                 .pushMinus1 => {
                     const left = ops[pc+1].arg;
                     const right = ops[pc+2].arg;
-                    log.debug("pushMinus1 {} {}", .{left, right});
+                    log.info("pushMinus1 {} {}", .{left, right});
                     pc += 3;
                 },
                 .pushMinus2 => {
                     const left = ops[pc+1].arg;
                     const right = ops[pc+2].arg;
-                    log.debug("pushMinus2 {} {}", .{left, right});
+                    log.info("pushMinus2 {} {}", .{left, right});
                     pc += 3;
                 },
                 .pushList => {
                     const numElems = ops[pc+1].arg;
-                    log.debug("pushList {}", .{numElems});
+                    log.info("pushList {}", .{numElems});
                     pc += 2;
                 },
                 .pushMapEmpty => {
-                    log.debug("pushMapEmpty", .{});
+                    log.info("pushMapEmpty", .{});
                     pc += 1;
                 },
                 .pushMap => {
                     const numEntries = ops[pc+1].arg;
                     const startConst = ops[pc+2].arg;
-                    log.debug("pushMap {} {}", .{numEntries, startConst});
+                    log.info("pushMap {} {}", .{numEntries, startConst});
                     pc += 3;
                 },
                 .pushSlice => {
-                    log.debug("pushSlice", .{});
+                    log.info("pushSlice", .{});
                     pc += 1;
                 },
                 .addSet => {
                     const offset = ops[pc+1].arg;
-                    log.debug("addSet {}", .{offset});
+                    log.info("addSet {}", .{offset});
                     pc += 2;
                 },
                 .releaseSet => {
                     const offset = ops[pc+1].arg;
-                    log.debug("releaseSet {}", .{offset});
+                    log.info("releaseSet {}", .{offset});
                     pc += 2;
                 },
                 .set => {
                     const offset = ops[pc+1].arg;
-                    log.debug("set {}", .{offset});
+                    log.info("set {}", .{offset});
                     pc += 2;
                 },
                 .setNew => {
                     const offset = ops[pc+1].arg;
-                    log.debug("setNew {}", .{offset});
+                    log.info("setNew {}", .{offset});
                     pc += 2;
                 },
                 .setIndex => {
-                    log.debug("setIndex", .{});
+                    log.info("setIndex", .{});
                     pc += 1;
                 },
                 .load => {
                     const offset = ops[pc+1].arg;
-                    log.debug("load {}", .{offset});
+                    log.info("load {}", .{offset});
                     pc += 2;
                 },
                 .loadRetain => {
                     const offset = ops[pc+1].arg;
-                    log.debug("loadRetain {}", .{offset});
+                    log.info("loadRetain {}", .{offset});
                     pc += 2;
                 },
                 .pushIndex => {
-                    log.debug("pushIndex", .{});
+                    log.info("pushIndex", .{});
                     pc += 1;
                 },
                 .jumpBack => {
                     const offset = ops[pc+1].arg;
-                    log.debug("jumpBack {}", .{offset});
+                    log.info("jumpBack {}", .{offset});
                     pc += 2;
                 },
                 .jump => {
                     const offset = ops[pc+1].arg;
-                    log.debug("jump {}", .{offset});
+                    log.info("jump {}", .{offset});
                     pc += 2;
                 },
                 .jumpNotCond => {
                     const offset = ops[pc+1].arg;
-                    log.debug("jumpNotCond {}", .{offset});
+                    log.info("jumpNotCond {}", .{offset});
                     pc += 2;
                 },
                 .release => {
                     const offset = ops[pc+1].arg;
-                    log.debug("release {}", .{offset});
+                    log.info("release {}", .{offset});
                     pc += 2;
                 },
                 .pushCall0 => {
                     const numArgs = ops[pc+1].arg;
-                    log.debug("pushCall0 {}", .{numArgs});
+                    log.info("pushCall0 {}", .{numArgs});
                     pc += 2;
                 },
                 .pushCall1 => {
                     const numArgs = ops[pc+1].arg;
-                    log.debug("pushCall1 {}", .{numArgs});
+                    log.info("pushCall1 {}", .{numArgs});
                     pc += 2;
                 },
                 .call => {
@@ -276,31 +275,31 @@ pub const ByteCodeBuffer = struct {
                 .callObjSym => {
                     const symId = ops[pc+1].arg;
                     const numArgs = ops[pc+2].arg;
-                    log.debug("callObjSym {} {}", .{symId, numArgs});
+                    log.info("callObjSym {} {}", .{symId, numArgs});
                     pc += 3;
                 },
                 .pushCallSym0 => {
                     const symId = ops[pc+1].arg;
                     const numArgs = ops[pc+2].arg;
-                    log.debug("pushCallSym0 {} {}", .{symId, numArgs});
+                    log.info("pushCallSym0 {} {}", .{symId, numArgs});
                     pc += 3;
                 },
                 .pushCallSym1 => {
                     const symId = ops[pc+1].arg;
                     const numArgs = ops[pc+2].arg;
-                    log.debug("pushCallSym1 {} {}", .{symId, numArgs});
+                    log.info("pushCallSym1 {} {}", .{symId, numArgs});
                     pc += 3;
                 },
                 .pushField => {
                     const symId = ops[pc+1].arg;
-                    log.debug("pushField {}", .{symId});
+                    log.info("pushField {}", .{symId});
                     pc += 2;
                 },
                 .pushLambda => {
                     const funcOffset = ops[pc+1].arg;
                     const numParams = ops[pc+2].arg;
                     const numLocals = ops[pc+3].arg;
-                    log.debug("pushLambda {} {} {}", .{funcOffset, numParams, numLocals});
+                    log.info("pushLambda {} {} {}", .{funcOffset, numParams, numLocals});
                     pc += 4;
                 },
                 .pushClosure => {
@@ -308,39 +307,39 @@ pub const ByteCodeBuffer = struct {
                     const numParams = ops[pc+2].arg;
                     const numCaptured = ops[pc+3].arg;
                     const numLocals = ops[pc+4].arg;
-                    log.debug("pushClosure {} {} {} {}", .{funcOffset, numParams, numCaptured, numLocals});
+                    log.info("pushClosure {} {} {} {}", .{funcOffset, numParams, numCaptured, numLocals});
                     pc += 5;
                 },
                 .forIter => {
                     const local = ops[pc+1].arg;
                     const pcOffset = ops[pc+2].arg;
-                    log.debug("forIter {} {}", .{local, pcOffset});
+                    log.info("forIter {} {}", .{local, pcOffset});
                     pc += 3;
                 },
                 .forRange => {
                     const local = ops[pc+1].arg;
                     const pcOffset = ops[pc+2].arg;
-                    log.debug("forRange {} {}", .{local, pcOffset});
+                    log.info("forRange {} {}", .{local, pcOffset});
                     pc += 3;
                 },
                 .cont => {
-                    log.debug("cont", .{});
+                    log.info("cont", .{});
                     pc += 1;
                 },
                 .ret2 => {
-                    log.debug("ret2", .{});
+                    log.info("ret2", .{});
                     pc += 1;
                 },
                 .ret1 => {
-                    log.debug("ret1", .{});
+                    log.info("ret1", .{});
                     pc += 1;
                 },
                 .ret0 => {
-                    log.debug("ret0", .{});
+                    log.info("ret0", .{});
                     pc += 1;
                 },
                 .end => {
-                    log.debug("end", .{});
+                    log.info("end", .{});
                     pc += 1;
                 },
                 else => {
@@ -349,8 +348,8 @@ pub const ByteCodeBuffer = struct {
             }
         }
 
-        for (buf.consts.items) |extra| {
-            log.debug("extra {}", .{extra});
+        for (self.consts.items) |extra| {
+            log.info("extra {}", .{extra});
         }
     }
 };
@@ -382,7 +381,10 @@ pub const StringIndexInsertContext = struct {
 
 pub const Const = packed union {
     val: u64,
-    two: [2]u32,
+    two: packed struct {
+        lower: u32,
+        upper: u32,
+    },
 };
 
 const ConstStringTag: u2 = 0b00;
@@ -432,10 +434,6 @@ pub const OpCode = enum(u8) {
 
     // releaseMany,
     release,
-    /// Pops callee and args, performs a function call, and ensures no return values.
-    pushCall0,
-    /// Pops callee and args, performs a function call, and ensures one return value.
-    pushCall1,
     /// Like pushCall but does not push the result onto the stack.
     call,
     /// Num args includes the receiver.
@@ -447,6 +445,10 @@ pub const OpCode = enum(u8) {
     ret2,
     ret1,
     ret0,
+    /// Pops callee and args, performs a function call, and ensures no return values.
+    pushCall0,
+    /// Pops callee and args, performs a function call, and ensures one return value.
+    pushCall1,
     pushField,
     pushLambda,
     pushClosure,
@@ -466,3 +468,10 @@ pub const OpCode = enum(u8) {
     /// Indicates the end of the main script.
     end,
 };
+
+comptime {
+    const end = @enumToInt(OpCode.end);
+    if (end != 48) {
+        @compileError(std.fmt.comptimePrint("Unexpected end op code {}", .{end}));
+    }
+}
