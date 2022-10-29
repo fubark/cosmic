@@ -1,36 +1,36 @@
 const std = @import("std");
 const stdx = @import("stdx");
-const cs = @import("cscript.zig");
+const cy = @import("cyber.zig");
 
 const NullId = std.math.maxInt(u32);
 const NullByteId = std.math.maxInt(u8);
 const log = stdx.log.scoped(.vm_compiler);
-const f64NegOne = cs.Value.initF64(-1);
-const f64One = cs.Value.initF64(1);
+const f64NegOne = cy.Value.initF64(-1);
+const f64One = cy.Value.initF64(1);
 
 pub const VMcompiler = struct {
     alloc: std.mem.Allocator,
-    vm: *cs.VM,
-    buf: cs.ByteCodeBuffer,
+    vm: *cy.VM,
+    buf: cy.ByteCodeBuffer,
     lastErr: []const u8,
 
     /// Context vars.
     src: []const u8,
-    nodes: []const cs.Node,
-    tokens: []const cs.Token,
-    funcDecls: []const cs.FunctionDeclaration,
-    funcParams: []const cs.FunctionParam,
+    nodes: []const cy.Node,
+    tokens: []const cy.Token,
+    funcDecls: []const cy.FunctionDeclaration,
+    funcParams: []const cy.FunctionParam,
     blocks: std.ArrayListUnmanaged(Block),
     jumpStack: std.ArrayListUnmanaged(Jump),
     loadStack: std.ArrayListUnmanaged(Load),
-    operandStack: std.ArrayListUnmanaged(cs.OpData),
+    operandStack: std.ArrayListUnmanaged(cy.OpData),
     curBlock: *Block,
 
-    pub fn init(self: *VMcompiler, vm: *cs.VM) void {
+    pub fn init(self: *VMcompiler, vm: *cy.VM) void {
         self.* = .{
             .alloc = vm.alloc,
             .vm = vm,
-            .buf = cs.ByteCodeBuffer.init(vm.alloc),
+            .buf = cy.ByteCodeBuffer.init(vm.alloc),
             .lastErr = "",
             .nodes = undefined,
             .tokens = undefined,
@@ -54,7 +54,7 @@ pub const VMcompiler = struct {
         self.operandStack.deinit(self.alloc);
     }
 
-    pub fn compile(self: *VMcompiler, ast: cs.ParseResultView) !ResultView {
+    pub fn compile(self: *VMcompiler, ast: cy.ParseResultView) !ResultView {
         self.buf.clear();
         self.blocks.clearRetainingCapacity();
         self.nodes = ast.nodes.items;
@@ -139,7 +139,7 @@ pub const VMcompiler = struct {
         return null;
     }
 
-    fn genStatements(self: *VMcompiler, head: cs.NodeId, comptime attachEnd: bool) anyerror!void {
+    fn genStatements(self: *VMcompiler, head: cy.NodeId, comptime attachEnd: bool) anyerror!void {
         var cur_id = head;
         while (cur_id != NullId) {
             const node = self.nodes[cur_id];
@@ -220,7 +220,7 @@ pub const VMcompiler = struct {
         }
     }
 
-    fn reserveFuncParams(self: *VMcompiler, func: cs.FunctionDeclaration) !void {
+    fn reserveFuncParams(self: *VMcompiler, func: cy.FunctionDeclaration) !void {
         if (func.params.end > func.params.start) {
             for (self.funcParams[func.params.start..func.params.end]) |param| {
                 const paramName = self.src[param.name.start..param.name.end];
@@ -233,7 +233,7 @@ pub const VMcompiler = struct {
     /// discardTopExprReg is usually true since statements aren't expressions and evaluating child expressions
     /// would just grow the register stack unnecessarily. However, the last main statement requires the
     /// resulting expr to persist to return from `eval`.
-    fn genStatement(self: *VMcompiler, node: cs.Node, comptime discardTopExprReg: bool) !void {
+    fn genStatement(self: *VMcompiler, node: cy.Node, comptime discardTopExprReg: bool) !void {
         // log.debug("gen stmt {}", .{node.node_t});
         switch (node.node_t) {
             .expr_stmt => {
@@ -315,7 +315,7 @@ pub const VMcompiler = struct {
 
                 self.buf.setOpArgs1(jumpOpStart + 1, @intCast(u8, self.buf.ops.items.len - jumpOpStart));
 
-                const sym = cs.FuncSymbolEntry.initFunc(opStart, numLocals);
+                const sym = cy.FuncSymbolEntry.initFunc(opStart, numLocals);
                 try self.vm.setFuncSym(symId, sym);
             },
             .for_inf_stmt => {
@@ -466,7 +466,7 @@ pub const VMcompiler = struct {
         }
     }
 
-    fn genMaybeRetainExpr(self: *VMcompiler, node: cs.Node, comptime discardTopExprReg: bool) anyerror!Type {
+    fn genMaybeRetainExpr(self: *VMcompiler, node: cy.Node, comptime discardTopExprReg: bool) anyerror!Type {
         if (node.node_t == .ident) {
             const token = self.tokens[node.start_token];
             const name = self.src[token.start_pos..token.data.end_pos];
@@ -492,7 +492,7 @@ pub const VMcompiler = struct {
         }
     }
 
-    fn genExpr(self: *VMcompiler, node: cs.Node, comptime discardTopExprReg: bool) anyerror!Type {
+    fn genExpr(self: *VMcompiler, node: cy.Node, comptime discardTopExprReg: bool) anyerror!Type {
         // log.debug("gen expr {}", .{node.node_t});
         switch (node.node_t) {
             .true_literal => {
@@ -666,7 +666,7 @@ pub const VMcompiler = struct {
                 var ltype: Type = undefined;
                 var rtype: Type = undefined;
 
-                const op = @intToEnum(cs.BinaryExprOp, node.head.left_right.extra);
+                const op = @intToEnum(cy.BinaryExprOp, node.head.left_right.extra);
                 switch (op) {
                     .plus => {
                         _ = try self.genExpr(left, discardTopExprReg);
@@ -899,7 +899,7 @@ pub const VMcompiler = struct {
         }
     }
 
-    fn reportError(self: *VMcompiler, comptime fmt: []const u8, args: anytype, node: cs.Node) anyerror {
+    fn reportError(self: *VMcompiler, comptime fmt: []const u8, args: anytype, node: cy.Node) anyerror {
         const token = self.tokens[node.start_token];
         const customMsg = try std.fmt.allocPrint(self.alloc, fmt, args);
         defer self.alloc.free(customMsg);
@@ -910,7 +910,7 @@ pub const VMcompiler = struct {
 };
 
 pub const ResultView = struct {
-    buf: cs.ByteCodeBuffer,
+    buf: cy.ByteCodeBuffer,
     hasError: bool,
 };
 

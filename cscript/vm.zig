@@ -1,16 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const stdx = @import("stdx");
-const cs = @import("cscript.zig");
-const Value = cs.Value;
+const cy = @import("cyber.zig");
+const Value = cy.Value;
 const debug = builtin.mode == .Debug;
 
 const log = stdx.log.scoped(.vm);
 
 pub const VM = struct {
     alloc: std.mem.Allocator,
-    parser: cs.Parser,
-    compiler: cs.VMcompiler,
+    parser: cy.Parser,
+    compiler: cy.VMcompiler,
 
     /// [Eval context]
 
@@ -20,8 +20,8 @@ pub const VM = struct {
     framePtr: usize,
     contFlag: bool,
 
-    ops: []const OpData,
-    consts: []const Const,
+    ops: []const cy.OpData,
+    consts: []const cy.Const,
     strBuf: []const u8,
 
     /// Value stack.
@@ -64,7 +64,7 @@ pub const VM = struct {
     pub fn init(self: *VM, alloc: std.mem.Allocator) !void {
         self.* = .{
             .alloc = alloc,
-            .parser = cs.Parser.init(alloc),
+            .parser = cy.Parser.init(alloc),
             .compiler = undefined,
             .ops = undefined,
             .consts = undefined,
@@ -217,8 +217,8 @@ pub const VM = struct {
         // self.dumpByteCode(res.buf);
 
         if (trace) {
-            const numOps = @enumToInt(cs.OpCode.end) + 1;
-            var opCounts: [numOps]cs.OpCount = undefined;
+            const numOps = @enumToInt(cy.OpCode.end) + 1;
+            var opCounts: [numOps]cy.OpCount = undefined;
             self.trace.opCounts = &opCounts;
             var i: u32 = 0;
             while (i < numOps) : (i += 1) {
@@ -238,16 +238,16 @@ pub const VM = struct {
             if (trace) {
                 self.dumpInfo();
                 const S = struct {
-                    fn opCountLess(_: void, a: cs.OpCount, b: cs.OpCount) bool {
+                    fn opCountLess(_: void, a: cy.OpCount, b: cy.OpCount) bool {
                         return a.count > b.count;
                     }
                 };
-                std.sort.sort(cs.OpCount, self.trace.opCounts, {}, S.opCountLess);
+                std.sort.sort(cy.OpCount, self.trace.opCounts, {}, S.opCountLess);
                 var i: u32 = 0;
-                const numOps = @enumToInt(cs.OpCode.end) + 1;
+                const numOps = @enumToInt(cy.OpCode.end) + 1;
                 while (i < numOps) : (i += 1) {
                     if (self.trace.opCounts[i].count > 0) {
-                        const op = std.meta.intToEnum(cs.OpCode, self.trace.opCounts[i].code) catch continue;
+                        const op = std.meta.intToEnum(cy.OpCode, self.trace.opCounts[i].code) catch continue;
                         log.info("{} {}", .{op, self.trace.opCounts[i].count});
                     }
                 }
@@ -265,13 +265,6 @@ pub const VM = struct {
     pub fn dumpInfo(self: *VM) void {
         log.info("stack cap: {}", .{self.stack.buf.len});
         log.info("stack top: {}", .{self.stack.top});
-    }
-
-    pub fn dumpByteCode(self: *VM, buf: ByteCodeBuffer) void {
-        _ = self;
-        for (buf.consts.items) |extra| {
-            log.debug("extra {}", .{extra});
-        }
     }
 
     pub fn popStackFrame(self: *VM, comptime numRetVals: u2) void {
@@ -362,7 +355,7 @@ pub const VM = struct {
         }
     }
 
-    pub fn evalByteCode(self: *VM, buf: ByteCodeBuffer, comptime trace: bool) !Value {
+    pub fn evalByteCode(self: *VM, buf: cy.ByteCodeBuffer, comptime trace: bool) !Value {
         if (buf.ops.items.len == 0) {
             return error.NoEndOp;
         }
@@ -441,7 +434,7 @@ pub const VM = struct {
             };
         } else {
             switch (val.getTag()) {
-                cs.TagConstString => {
+                cy.TagConstString => {
                     const slice = val.asConstStr();
                     return .{
                         .keyT = .constStr,
@@ -458,7 +451,7 @@ pub const VM = struct {
         }
     }
 
-    fn allocMap(self: *VM, keys: []const Const, vals: []const Value) !Value {
+    fn allocMap(self: *VM, keys: []const cy.Const, vals: []const Value) !Value {
         @setRuntimeSafety(debug);
         const map = try self.alloc.create(Rc(Map));
         map.* = .{
@@ -1050,7 +1043,7 @@ pub const VM = struct {
                 }
             },
             .nativeFunc2 => {
-                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) cs.ValuePair, entry.inner.nativeFunc2);
+                const func = @ptrCast(fn (*VM, *anyopaque, []const Value) cy.ValuePair, entry.inner.nativeFunc2);
                 const args = self.stack.buf[argStart + 1..self.stack.top];
                 const res = func(self, objPtr, args);
                 if (reqNumRetVals == 2) {
@@ -1555,7 +1548,7 @@ pub const VM = struct {
     }
 };
 
-fn evalAnd(left: cs.Value, right: cs.Value) cs.Value {
+fn evalAnd(left: cy.Value, right: cy.Value) cy.Value {
     if (left.isNumber()) {
         if (left.asF64() == 0) {
             return left;
@@ -1564,15 +1557,15 @@ fn evalAnd(left: cs.Value, right: cs.Value) cs.Value {
         }
     } else {
         switch (left.getTag()) {
-            cs.TagFalse => return left,
-            cs.TagTrue => return right,
-            cs.TagNone => return left,
+            cy.TagFalse => return left,
+            cy.TagTrue => return right,
+            cy.TagNone => return left,
             else => stdx.panic("unexpected tag"),
         }
     }
 }
 
-fn evalOr(left: cs.Value, right: cs.Value) cs.Value {
+fn evalOr(left: cy.Value, right: cy.Value) cy.Value {
     if (left.isNumber()) {
         if (left.asF64() == 0) {
             return right;
@@ -1581,300 +1574,84 @@ fn evalOr(left: cs.Value, right: cs.Value) cs.Value {
         }
     } else {
         switch (left.getTag()) {
-            cs.TagFalse => return right,
-            cs.TagTrue => return left,
-            cs.TagNone => return right,
+            cy.TagFalse => return right,
+            cy.TagTrue => return left,
+            cy.TagNone => return right,
             else => stdx.panic("unexpected tag"),
         }
     }
 }
 
-fn evalGreaterOrEqual(left: cs.Value, right: cs.Value) cs.Value {
+fn evalGreaterOrEqual(left: cy.Value, right: cy.Value) cy.Value {
     return Value.initBool(left.toF64() >= right.toF64());
 }
 
-fn evalGreater(left: cs.Value, right: cs.Value) cs.Value {
+fn evalGreater(left: cy.Value, right: cy.Value) cy.Value {
     return Value.initBool(left.toF64() > right.toF64());
 }
 
-fn evalLessOrEqual(left: cs.Value, right: cs.Value) cs.Value {
+fn evalLessOrEqual(left: cy.Value, right: cy.Value) cy.Value {
     return Value.initBool(left.toF64() <= right.toF64());
 }
 
-fn evalLess(left: cs.Value, right: cs.Value) cs.Value {
+fn evalLess(left: cy.Value, right: cy.Value) cy.Value {
     @setRuntimeSafety(debug);
     return Value.initBool(left.toF64() < right.toF64());
 }
 
-fn evalCompare(left: cs.Value, right: cs.Value) cs.Value {
+fn evalCompare(left: cy.Value, right: cy.Value) cy.Value {
     if (left.isNumber()) {
         return Value.initBool(right.isNumber() and left.asF64() == right.asF64());
     } else {
         switch (left.getTag()) {
-            cs.TagFalse => return Value.initBool(right.isFalse()),
-            cs.TagTrue => return Value.initBool(right.isTrue()),
-            cs.TagNone => return Value.initBool(right.isNone()),
+            cy.TagFalse => return Value.initBool(right.isFalse()),
+            cy.TagTrue => return Value.initBool(right.isTrue()),
+            cy.TagNone => return Value.initBool(right.isNone()),
             else => stdx.panic("unexpected tag"),
         }
     }
 }
 
-fn evalMinus(left: cs.Value, right: cs.Value) cs.Value {
+fn evalMinus(left: cy.Value, right: cy.Value) cy.Value {
     @setRuntimeSafety(debug);
     if (left.isNumber()) {
         return Value.initF64(left.asF64() - right.toF64());
     } else {
         switch (left.getTag()) {
-            cs.TagFalse => return Value.initF64(-right.toF64()),
-            cs.TagTrue => return Value.initF64(1 - right.toF64()),
-            cs.TagNone => return Value.initF64(-right.toF64()),
+            cy.TagFalse => return Value.initF64(-right.toF64()),
+            cy.TagTrue => return Value.initF64(1 - right.toF64()),
+            cy.TagNone => return Value.initF64(-right.toF64()),
             else => stdx.panic("unexpected tag"),
         }
     }
 }
 
-fn evalAdd(left: cs.Value, right: cs.Value) cs.Value {
+fn evalAdd(left: cy.Value, right: cy.Value) cy.Value {
     @setRuntimeSafety(debug);
     if (left.isNumber()) {
         return Value.initF64(left.asF64() + right.toF64());
     } else {
         switch (left.getTag()) {
-            cs.TagFalse => return Value.initF64(right.toF64()),
-            cs.TagTrue => return Value.initF64(1 + right.toF64()),
-            cs.TagNone => return Value.initF64(right.toF64()),
+            cy.TagFalse => return Value.initF64(right.toF64()),
+            cy.TagTrue => return Value.initF64(1 + right.toF64()),
+            cy.TagNone => return Value.initF64(right.toF64()),
             else => stdx.panic("unexpected tag"),
         }
     }
 }
 
-fn evalNot(val: cs.Value) cs.Value {
+fn evalNot(val: cy.Value) cy.Value {
     if (val.isNumber()) {
-        return cs.Value.initFalse();
+        return cy.Value.initFalse();
     } else {
         switch (val.getTag()) {
-            cs.TagFalse => return cs.Value.initTrue(),
-            cs.TagTrue => return cs.Value.initFalse(),
-            cs.TagNone => return cs.Value.initTrue(),
+            cy.TagFalse => return cy.Value.initTrue(),
+            cy.TagTrue => return cy.Value.initFalse(),
+            cy.TagNone => return cy.Value.initTrue(),
             else => stdx.panic("unexpected tag"),
         }
     }
 }
-
-pub const StringIndexContext = struct {
-    buf: *std.ArrayListUnmanaged(u8),
-
-    pub fn hash(self: StringIndexContext, s: stdx.IndexSlice(u32)) u64 {
-        return std.hash.Wyhash.hash(0, self.buf.items[s.start..s.end]);
-    }
-
-    pub fn eql(self: StringIndexContext, a: stdx.IndexSlice(u32), b: stdx.IndexSlice(u32)) bool {
-        return std.mem.eql(u8, self.buf.items[a.start..a.end], self.buf.items[b.start..b.end]);
-    }
-};
-
-pub const StringIndexInsertContext = struct {
-    buf: *std.ArrayListUnmanaged(u8),
-
-    pub fn hash(self: StringIndexInsertContext, s: []const u8) u64 {
-        _ = self;
-        return std.hash.Wyhash.hash(0, s);
-    }
-
-    pub fn eql(self: StringIndexInsertContext, a: []const u8, b: stdx.IndexSlice(u32)) bool {
-        return std.mem.eql(u8, a, self.buf.items[b.start..b.end]);
-    }
-};
-
-pub const Const = packed union {
-    val: u64,
-    two: [2]u32,
-};
-
-const ConstStringTag: u2 = 0b00;
-
-/// Holds vm instructions.
-pub const ByteCodeBuffer = struct {
-    alloc: std.mem.Allocator,
-    /// The number of local vars in the main block to reserve space for.
-    mainLocalSize: u32,
-    ops: std.ArrayListUnmanaged(OpData),
-    consts: std.ArrayListUnmanaged(Const),
-    /// Contiguous constant strings in a buffer.
-    strBuf: std.ArrayListUnmanaged(u8),
-    /// Tracks the start index of strings that are already in strBuf.
-    strMap: std.HashMapUnmanaged(stdx.IndexSlice(u32), u32, StringIndexContext, std.hash_map.default_max_load_percentage),
-
-    pub fn init(alloc: std.mem.Allocator) ByteCodeBuffer {
-        return .{
-            .alloc = alloc,
-            .mainLocalSize = 0,
-            .ops = .{},
-            .consts = .{},
-            .strBuf = .{},
-            .strMap = .{},
-        };
-    }
-
-    pub fn deinit(self: *ByteCodeBuffer) void {
-        self.ops.deinit(self.alloc);
-        self.consts.deinit(self.alloc);
-        self.strBuf.deinit(self.alloc);
-        self.strMap.deinit(self.alloc);
-    }
-
-    pub fn clear(self: *ByteCodeBuffer) void {
-        self.ops.clearRetainingCapacity();
-        self.consts.clearRetainingCapacity();
-        self.strBuf.clearRetainingCapacity();
-        self.strMap.clearRetainingCapacity();
-    }
-
-    pub fn pushConst(self: *ByteCodeBuffer, val: Const) !u32 {
-        const start = @intCast(u32, self.consts.items.len);
-        try self.consts.resize(self.alloc, self.consts.items.len + 1);
-        self.consts.items[start] = val;
-        return start;
-    }
-
-    pub fn pushOp(self: *ByteCodeBuffer, code: OpCode) !void {
-        const start = self.ops.items.len;
-        try self.ops.resize(self.alloc, self.ops.items.len + 1);
-        self.ops.items[start] = .{ .code = code };
-    }
-
-    pub fn pushOp1(self: *ByteCodeBuffer, code: OpCode, arg: u8) !void {
-        const start = self.ops.items.len;
-        try self.ops.resize(self.alloc, self.ops.items.len + 2);
-        self.ops.items[start] = .{ .code = code };
-        self.ops.items[start+1] = .{ .arg = arg };
-    }
-
-    pub fn pushOp2(self: *ByteCodeBuffer, code: OpCode, arg: u8, arg2: u8) !void {
-        const start = self.ops.items.len;
-        try self.ops.resize(self.alloc, self.ops.items.len + 3);
-        self.ops.items[start] = .{ .code = code };
-        self.ops.items[start+1] = .{ .arg = arg };
-        self.ops.items[start+2] = .{ .arg = arg2 };
-    }
-    
-    pub fn pushOpSlice(self: *ByteCodeBuffer, code: OpCode, args: []const u8) !void {
-        const start = self.ops.items.len;
-        try self.ops.resize(self.alloc, self.ops.items.len + args.len + 1);
-        self.ops.items[start] = .{ .code = code };
-        for (args) |arg, i| {
-            self.ops.items[start+i+1] = .{ .arg = arg };
-        }
-    }
-
-    pub fn pushOperands(self: *ByteCodeBuffer, operands: []const OpData) !void {
-        try self.ops.appendSlice(self.alloc, operands);
-    }
-
-    pub fn setOpArgs1(self: *ByteCodeBuffer, idx: usize, arg: u8) void {
-        self.ops.items[idx].arg = arg;
-    }
-
-    pub fn pushStringConst(self: *ByteCodeBuffer, str: []const u8) !u32 {
-        const slice = try self.getStringConst(str);
-        const idx = @intCast(u32, self.consts.items.len);
-        const val = Value.initConstStr(slice.start, @intCast(u16, slice.end - slice.start));
-        try self.consts.append(self.alloc, .{ .val = val.val });
-        return idx;
-    }
-
-    pub fn getStringConst(self: *ByteCodeBuffer, str: []const u8) !stdx.IndexSlice(u32) {
-        const ctx = StringIndexContext{ .buf = &self.strBuf };
-        const insertCtx = StringIndexInsertContext{ .buf = &self.strBuf };
-        const res = try self.strMap.getOrPutContextAdapted(self.alloc, str, insertCtx, ctx);
-        if (res.found_existing) {
-            return res.key_ptr.*;
-        } else {
-            const start = @intCast(u32, self.strBuf.items.len);
-            try self.strBuf.appendSlice(self.alloc, str);
-            res.key_ptr.* = stdx.IndexSlice(u32).init(start, @intCast(u32, self.strBuf.items.len));
-            return res.key_ptr.*;
-        }
-    }
-};
-
-pub const OpData = packed union {
-    code: OpCode,
-    arg: u8,
-};
-
-pub const OpCode = enum(u8) {
-    /// Push boolean onto register stack.
-    pushTrue,
-    pushFalse,
-    /// Push none value onto register stack.
-    pushNone,
-    /// Push constant value onto register stack.
-    pushConst,
-    /// Pops top two registers, performs or, and pushes result onto stack.
-    pushOr,
-    /// Pops top two registers, performs and, and pushes result onto stack.
-    pushAnd,
-    /// Pops top register, performs not, and pushes result onto stack.
-    pushNot,
-    /// Pops top register and copies value to address relative to the local frame.
-    set,
-    releaseSet,
-    /// Same as set except it also does a ensure capacity on the stack.
-    setNew,
-    /// Pops right, index, left registers, sets right value to address of left[index].
-    setIndex,
-    /// Loads a value from address relative to the local frame onto the register stack.
-    load,
-    loadRetain,
-    pushIndex,
-    /// Pops top two registers, performs addition, and pushes result onto stack.
-    pushAdd,
-    /// Pops specifc number of registers to allocate a new list on the heap. Pointer to new list is pushed onto the stack.
-    pushList,
-    pushMap,
-    pushMapEmpty,
-    pushSlice,
-    /// Pops top register, if value evals to false, jumps the pc forward by an offset.
-    jumpNotCond,
-    /// Jumps the pc forward by an offset.
-    jump,
-    jumpBack,
-
-    release,
-    /// Pops callee and args, performs a function call, and ensures no return values.
-    pushCall0,
-    /// Pops callee and args, performs a function call, and ensures one return value.
-    pushCall1,
-    /// Like pushCall but does not push the result onto the stack.
-    call,
-    /// Num args includes the receiver.
-    callStr,
-    /// Num args includes the receiver.
-    callObjSym,
-    pushCallSym0,
-    pushCallSym1,
-    ret2,
-    ret1,
-    ret0,
-    pushField,
-    pushLambda,
-    pushClosure,
-    addSet,
-    pushCompare,
-    pushLess,
-    pushGreater,
-    pushLessEqual,
-    pushGreaterEqual,
-    pushMinus,
-    pushMinus1,
-    pushMinus2,
-    cont,
-    forRange,
-    forIter,
-
-    /// Indicates the end of the main script.
-    end,
-};
 
 const NullByteId = std.math.maxInt(u8);
 const NullId = std.math.maxInt(u32);
@@ -2004,7 +1781,7 @@ const SymbolEntry = struct {
     entryT: SymbolEntryType,
     inner: packed union {
         nativeFunc1: fn (*VM, *anyopaque, []const Value) Value,
-        nativeFunc2: fn (*VM, *anyopaque, []const Value) cs.ValuePair,
+        nativeFunc2: fn (*VM, *anyopaque, []const Value) cy.ValuePair,
         func: packed struct {
             pc: u32,
         },
@@ -2019,7 +1796,7 @@ const SymbolEntry = struct {
         };
     }
 
-    fn initNativeFunc2(func: fn (*VM, *anyopaque, []const Value) cs.ValuePair) SymbolEntry {
+    fn initNativeFunc2(func: fn (*VM, *anyopaque, []const Value) cy.ValuePair) SymbolEntry {
         return .{
             .entryT = .nativeFunc2,
             .inner = .{

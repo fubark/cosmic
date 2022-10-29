@@ -5,8 +5,8 @@ const qjs = @import("../lib/qjs/lib.zig");
 const config = @import("config.zig");
 
 pub const pkg = std.build.Pkg{
-    .name = "cscript",
-    .source = .{ .path = srcPath() ++ "/cscript.zig" },
+    .name = "cyber",
+    .source = .{ .path = srcPath() ++ "/cyber.zig" },
 };
 
 pub const Options = struct {

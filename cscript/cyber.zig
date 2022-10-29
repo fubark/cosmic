@@ -29,14 +29,16 @@ pub const TagConstString = value.TagConstString;
 
 const vm = @import("vm.zig");
 pub const VM = vm.VM;
-pub const ByteCodeBuffer = vm.ByteCodeBuffer;
-pub const Const = vm.Const;
 pub const FuncSymbolEntry = vm.FuncSymbolEntry;
 pub const Rc = vm.Rc;
-pub const OpCode = vm.OpCode;
-pub const OpData = vm.OpData;
 pub const TraceInfo = vm.TraceInfo;
 pub const OpCount = vm.OpCount;
+
+const bytecode = @import("bytecode.zig");
+pub const ByteCodeBuffer = bytecode.ByteCodeBuffer;
+pub const OpCode = bytecode.OpCode;
+pub const OpData = bytecode.OpData;
+pub const Const = bytecode.Const;
 
 const interpreter = @import("interpreter.zig");
 pub const JsEngine = interpreter.JsEngine;
