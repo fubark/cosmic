@@ -100,7 +100,7 @@ pub const App = struct {
             }
 
             fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
-                const self_ = stdx.mem.ptrCastAlign(*App, ptr);
+                const self_ = stdx.ptrCastAlign(*App, ptr);
                 return u.FileDialog(.{
                     .init_cwd = self_.cwd,
                     .onResult = c_.funcExt(self_, onOpenFont),

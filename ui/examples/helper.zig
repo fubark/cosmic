@@ -53,7 +53,7 @@ pub const App = struct {
 
         const S = struct {
             fn onQuit(ptr: ?*anyopaque) void {
-                const self_ = stdx.mem.ptrCastAlign(*App, ptr.?);
+                const self_ = stdx.ptrCastAlign(*App, ptr.?);
                 self_.quit = true;
             }
         };

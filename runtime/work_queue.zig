@@ -186,14 +186,14 @@ pub const WorkQueue = struct {
 
     fn onTaskTimer(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
         const timer = @ptrCast(*TaskTimer, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, timer.super.data);
+        const self = stdx.ptrCastAlign(*Self, timer.super.data);
         self.addReadyTaskAndNotify(timer.task_id);
         uv.uv_close(@ptrCast(*uv.uv_handle_t, ptr), onCloseTaskTimer);
     }
 
     fn onCloseTaskTimer(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
         const timer = @ptrCast(*TaskTimer, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, timer.super.data);
+        const self = stdx.ptrCastAlign(*Self, timer.super.data);
         self.alloc.destroy(timer);
     }
 };
@@ -295,8 +295,8 @@ const TaskInfo = struct {
         const Context = std.meta.Child(@TypeOf(ctx_ptr));
         const gen = struct {
             fn success_cb(_ctx_ptr: *anyopaque, ptr: *anyopaque) void {
-                const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
-                const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, ptr);
+                const ctx = stdx.ptrCastAlign(*Context, _ctx_ptr);
+                const orig_ptr = stdx.ptrCastAlign(*TaskImpl, ptr);
                 const ResultType = comptime stdx.meta.FieldType(TaskImpl, .res);
                 if (@typeInfo(ResultType) == .ErrorUnion) {
                     return @call(.{ .modifier = .always_inline }, success_cb, .{ ctx.*, orig_ptr.res catch unreachable });
@@ -306,15 +306,15 @@ const TaskInfo = struct {
             }
 
             fn failure_cb(_ctx_ptr: *anyopaque, err: anyerror) void {
-                const ctx = stdx.mem.ptrCastAlign(*Context, _ctx_ptr);
+                const ctx = stdx.ptrCastAlign(*Context, _ctx_ptr);
                 return @call(.{ .modifier = .always_inline }, failure_cb, .{ ctx.*, err });
             }
 
             fn deinit(self: Self, alloc: std.mem.Allocator) void {
                 self.task.deinit();
-                const orig_ptr = stdx.mem.ptrCastAlign(*TaskImpl, self.task.ptr);
+                const orig_ptr = stdx.ptrCastAlign(*TaskImpl, self.task.ptr);
                 alloc.destroy(orig_ptr);
-                const orig_ctx_ptr = stdx.mem.ptrCastAlign(*Context, self.cb_ctx_ptr);
+                const orig_ctx_ptr = stdx.ptrCastAlign(*Context, self.cb_ctx_ptr);
                 alloc.destroy(orig_ctx_ptr);
             }
         };
@@ -361,11 +361,11 @@ const TaskIface = struct {
                 .deinit = _deinit,
             };
             fn _process(ptr: *anyopaque) anyerror!TaskResult {
-                const self = stdx.mem.ptrCastAlign(ImplPtr, ptr);
+                const self = stdx.ptrCastAlign(ImplPtr, ptr);
                 return @call(.{ .modifier = .always_inline }, Impl.process, .{ self });
             }
             fn _deinit(ptr: *anyopaque) void {
-                const self = stdx.mem.ptrCastAlign(ImplPtr, ptr);
+                const self = stdx.ptrCastAlign(ImplPtr, ptr);
                 return @call(.{ .modifier = .always_inline }, Impl.deinit, .{ self });
             }
         };

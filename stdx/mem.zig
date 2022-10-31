@@ -16,20 +16,6 @@ pub fn ptrCastTo(ptr_to_ptr: anytype, from: anytype) void {
     ptr_to_ptr.* = @ptrCast(Ptr, from);
 }
 
-/// @alignCast seems to be broken (does not insert runtime checks) when passed a comptime int from an expression like @typeInfo(Ptr).Pointer.alignment (for cases where Ptr has a custom alignment, eg. *align(1) u32).
-/// Current fix is to branch to common alignments.
-pub inline fn ptrCastAlign(comptime Ptr: type, ptr: anytype) Ptr {
-    const alignment = comptime @typeInfo(Ptr).Pointer.alignment;
-    return comptime switch (alignment) {
-        0 => @ptrCast(Ptr, ptr),
-        1 => @ptrCast(Ptr, @alignCast(1, ptr)),
-        2 => @ptrCast(Ptr, @alignCast(2, ptr)),
-        4 => @ptrCast(Ptr, @alignCast(4, ptr)),
-        8 => @ptrCast(Ptr, @alignCast(8, ptr)),
-        else => unreachable,
-    };
-}
-
 // Same as std.mem.replace except we write to an ArrayList.
 pub fn replaceIntoList(comptime T: type, input: []const T, needle: []const T, replacement: []const T, output: *std.ArrayList(T)) usize {
     // Clear the array list.

@@ -100,13 +100,13 @@ pub fn ClosureIface(comptime Fn: type) type {
                         // *void
                         return @call(.{}, userFn, .{{}} ++ args);
                     } else {
-                        const captured = stdx.mem.ptrCastAlign(CapturePtr, capturePtr);
+                        const captured = stdx.ptrCastAlign(CapturePtr, capturePtr);
                         return @call(.{}, userFn, .{captured.*} ++ args);
                     }
                 }
                 fn deinit(capturePtr: *anyopaque, alloc: std.mem.Allocator) void {
                     if (@sizeOf(CapturePtr) > 0) {
-                        const captured = stdx.mem.ptrCastAlign(CapturePtr, capturePtr);
+                        const captured = stdx.ptrCastAlign(CapturePtr, capturePtr);
                         // not *void
                         alloc.destroy(captured);
                     }
@@ -229,7 +229,7 @@ pub fn ClosureSimpleIface(comptime Param: type) type {
                             user_fn({}, arg);
                         }
                     } else {
-                        const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
+                        const capture = stdx.ptrCastAlign(CapturePtr, ptr);
                         if (Param == void) {
                             user_fn(capture.*);
                         } else {
@@ -240,7 +240,7 @@ pub fn ClosureSimpleIface(comptime Param: type) type {
                 fn deinit(alloc: std.mem.Allocator, ptr: *anyopaque) void {
                     if (@sizeOf(CapturePtr) > 0) {
                         // not *void
-                        const capture = stdx.mem.ptrCastAlign(CapturePtr, ptr);
+                        const capture = stdx.ptrCastAlign(CapturePtr, ptr);
                         alloc.destroy(capture);
                     }
                 }

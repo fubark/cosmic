@@ -56,7 +56,7 @@ pub const FontAtlas = struct {
 
         const S = struct {
             fn onResize(ptr: ?*anyopaque, width_: u32, height_: u32) void {
-                const self_ = stdx.mem.ptrCastAlign(*FontAtlas, ptr);
+                const self_ = stdx.ptrCastAlign(*FontAtlas, ptr);
                 self_.resizeLocalBuffer(width_, height_);
             }
         };
@@ -175,7 +175,7 @@ pub const FontAtlas = struct {
 
 /// Updates gpu texture before current draw call batch is sent to gpu.
 fn syncFontAtlasToGpu(ptr: ?*anyopaque) void {
-    const self = stdx.mem.ptrCastAlign(*FontAtlas, ptr);
+    const self = stdx.ptrCastAlign(*FontAtlas, ptr);
     self.dirty = false;
 
     // Send bitmap data.

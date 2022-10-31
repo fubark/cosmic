@@ -25,7 +25,7 @@ test "allocCStrings" {
     const buf = try allocCStrings(t.alloc, &.{"foo", "bar"});
     defer t.alloc.free(buf);
 
-    const c_arr = stdx.mem.ptrCastAlign([*c][*c]u8, buf.ptr);
+    const c_arr = stdx.ptrCastAlign([*c][*c]u8, buf.ptr);
     try t.eqStr(c_arr[0][0..4], "foo" ++ &[_]u8{0});
     try t.eqStr(c_arr[1][0..4], "bar" ++ &[_]u8{0});
     try t.eq(c_arr[2], null);

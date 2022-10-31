@@ -50,3 +50,4 @@ pub const SizedBox = utils.SizedBox;
 pub const SizedPtr = utils.SizedPtr;
 pub const IndexSlice = utils.IndexSlice;
 pub const Pair = utils.Pair;
+pub const ptrCastAlign = utils.ptrCastAlign;

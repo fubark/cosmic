@@ -191,11 +191,11 @@ export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
         js_buffer.input_buf.resize(js_buffer.alloc, data_size) catch unreachable;
         std.mem.copy(u8, copy, js_buffer.input_buf.items[0..data_size]);
         if (p.then_copy_to) |dst| {
-            stdx.mem.ptrCastAlign(*[]u8, dst).* = copy;
+            stdx.ptrCastAlign(*[]u8, dst).* = copy;
         }
     } else {
         if (p.then_copy_to) |dst| {
-            const dst_slice = stdx.mem.ptrCastAlign([*]u8, dst)[0..data_size];
+            const dst_slice = stdx.ptrCastAlign([*]u8, dst)[0..data_size];
             std.mem.copy(u8, dst_slice, js_buffer.input_buf.items[0..data_size]);
         }
     }
@@ -224,7 +224,7 @@ pub fn resolvePromise(id: PromiseId, value: anytype) void {
     const p = promises.getPtrNoCheck(id);
 
     if (p.then_copy_to) |dst| {
-        stdx.mem.ptrCastAlign(*@TypeOf(value), dst).* = value;
+        stdx.ptrCastAlign(*@TypeOf(value), dst).* = value;
     }
 
     p.resolved = true;

@@ -65,7 +65,7 @@ pub const ColorPicker = struct {
     fn onClick(self: *ColorPicker, _: ui.MouseUpEvent) void {
         const S = struct {
             fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
-                const self_ = stdx.mem.ptrCastAlign(*ColorPicker, ptr);
+                const self_ = stdx.ptrCastAlign(*ColorPicker, ptr);
                 return c_.build(ColorPickerPopover, .{
                     .bind = &self_.popover_inner,
                     .popoverId = self_.popover,
@@ -74,7 +74,7 @@ pub const ColorPicker = struct {
                 });
             }
             fn onPopoverClose(ptr: ?*anyopaque) void {
-                const self_ = stdx.mem.ptrCastAlign(*ColorPicker, ptr);
+                const self_ = stdx.ptrCastAlign(*ColorPicker, ptr);
                 const inner = self_.popover_inner.getWidget();
                 if (inner.save_result) {
                     self_.color = inner.color;
@@ -283,7 +283,7 @@ const ColorPickerPopover = struct {
     }
 
     fn postPopoverRender(ptr: ?*anyopaque, c: *ui.RenderContext) void {
-        const self = stdx.mem.ptrCastAlign(*ColorPickerPopover, ptr);
+        const self = stdx.ptrCastAlign(*ColorPickerPopover, ptr);
         const palette_bounds = self.palette.getAbsBounds();
         const g = c.gctx;
 

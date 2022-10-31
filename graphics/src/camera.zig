@@ -389,7 +389,7 @@ pub const CameraModule = struct {
     pub fn init(self_: *Self, cam: *Camera, dispatcher: *platform.EventDispatcher) void {
         const S = struct {
             fn onKeyDown(ptr: ?*anyopaque, ke: platform.KeyDownEvent) void {
-                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                const self = stdx.ptrCastAlign(*Self, ptr);
                 switch (ke.code) {
                     .W => self.move_forward = true,
                     .S => self.move_backward = true,
@@ -401,7 +401,7 @@ pub const CameraModule = struct {
                 }
             }
             fn onKeyUp(ptr: ?*anyopaque, ke: platform.KeyUpEvent) void {
-                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                const self = stdx.ptrCastAlign(*Self, ptr);
                 switch (ke.code) {
                     .W => self.move_forward = false,
                     .S => self.move_backward = false,
@@ -413,7 +413,7 @@ pub const CameraModule = struct {
                 }
             }
             fn onMouseDown(ptr: ?*anyopaque, me: platform.MouseDownEvent) platform.EventResult {
-                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                const self = stdx.ptrCastAlign(*Self, ptr);
                 if (me.button == .Left) {
                     self.dragging = true;
                     self.drag_start_x = @intToFloat(f32, me.x);
@@ -424,13 +424,13 @@ pub const CameraModule = struct {
                 return .Continue;
             }
             fn onMouseUp(ptr: ?*anyopaque, me: platform.MouseUpEvent) void {
-                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                const self = stdx.ptrCastAlign(*Self, ptr);
                 if (me.button == .Left) {
                     self.dragging = false;
                 }
             }
             fn onMouseMove(ptr: ?*anyopaque, me: platform.MouseMoveEvent) void {
-                const self = stdx.mem.ptrCastAlign(*Self, ptr);
+                const self = stdx.ptrCastAlign(*Self, ptr);
                 if (self.dragging) {
                     const delta_x = @intToFloat(f32, me.x) - self.drag_start_x;
                     const delta_y = -(@intToFloat(f32, me.y) - self.drag_start_y);

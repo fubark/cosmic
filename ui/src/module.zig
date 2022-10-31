@@ -38,7 +38,7 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
     const UserStyle = WidgetUserStyle(Widget);
     if (frame.style) |style| {
         if (frame.style_is_owned) {
-            const user_style = stdx.mem.ptrCastAlign(*const UserStyle, style);
+            const user_style = stdx.ptrCastAlign(*const UserStyle, style);
             // Persist user style.
             if (!node.hasState(ui.NodeStateMasks.user_style)) {
                 const new = mod.alloc.create(UserStyle) catch fatal();
@@ -61,13 +61,13 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
                     };
                     handle.owned = true;
                 } else {
-                    existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                    existing = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
                 }
                 existing.* = user_style.*;
                 return existing;
             }
         } else {
-            const user_style = stdx.mem.ptrCastAlign(*const UserStyle, style);
+            const user_style = stdx.ptrCastAlign(*const UserStyle, style);
             if (!node.hasState(ui.NodeStateMasks.user_style)) {
                 mod.common.node_user_styles.put(mod.alloc, node, .{
                     .ptr = .{
@@ -79,7 +79,7 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
             } else {
                 const handle = mod.common.node_user_styles.getPtr(node).?;
                 if (handle.owned) {
-                    const existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                    const existing = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
                     mod.alloc.destroy(existing);
                     handle.owned = false;
                 }
@@ -91,7 +91,7 @@ fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, fr
         if (node.hasState(ui.NodeStateMasks.user_style)) {
             const handle = mod.common.node_user_styles.get(node).?;
             if (handle.owned) {
-                const existing = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                const existing = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
                 mod.alloc.destroy(existing);
             }
             _ = mod.common.node_user_styles.remove(node);
@@ -105,7 +105,7 @@ fn updateWidgetStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame:
     const Style = WidgetComputedStyle(Widget);
     const StyleMods = WidgetStyleMods(Widget);
     if (StyleMods != void) {
-        const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+        const widget = stdx.ptrCastAlign(*Widget, node.widget);
         if (widget.mods.value > 0) {
             var computed = mod.common.getCurrentStyleDefault(Widget).*;
             if (updateWidgetUserStyle(Widget, mod, node, frame)) |user_style| {
@@ -123,7 +123,7 @@ fn updateWidgetStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame:
                 mod.common.node_computed_styles.put(mod.alloc, node, new) catch fatal();
                 node.setStateMask(ui.NodeStateMasks.computed_style);
             } else {
-                const existing = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+                const existing = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
                 existing.* = computed;
             }
             return;
@@ -146,13 +146,13 @@ fn updateWidgetStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame:
             mod.common.node_computed_styles.put(mod.alloc, node, new) catch fatal();
             node.setStateMask(ui.NodeStateMasks.computed_style);
         } else {
-            const existing = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+            const existing = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
             existing.* = computed;
         }
     } else {
         // Remove computed.
         if (node.hasState(ui.NodeStateMasks.computed_style)) {
-            const existing = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+            const existing = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
             mod.alloc.destroy(existing);
             _ = mod.common.node_computed_styles.remove(node);
             node.clearStateMask(ui.NodeStateMasks.computed_style);
@@ -177,7 +177,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime WidgetHasProps(Widget)) {
                     if (frame.props) |ptr| {
                         const Props = WidgetProps(Widget);
-                        const props = stdx.mem.ptrCastAlign(*const Props, ptr);
+                        const props = stdx.ptrCastAlign(*const Props, ptr);
 
                         // Copy frame props pointer and own a reference to the frame.
                         new.props = props;
@@ -206,7 +206,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
         }
 
         fn postInit(widget_ptr: *anyopaque, ctx: *InitContext) void {
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+            const widget = stdx.ptrCastAlign(*Widget, widget_ptr);
             if (@hasDecl(Widget, "postInit")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.postInit))) {
                     @compileError("Invalid postInit function: " ++ @typeName(@TypeOf(Widget.postInit)) ++ " Widget: " ++ @typeName(Widget));
@@ -216,11 +216,11 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
         }
 
         fn updateProps(mod: *Module, node: *ui.Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *UpdateContext) void {
-            const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+            const widget = stdx.ptrCastAlign(*Widget, node.widget);
             if (comptime WidgetHasProps(Widget)) {
                 if (frame.props) |ptr| {
                     const Props = WidgetProps(Widget);
-                    const props = stdx.mem.ptrCastAlign(*const Props, ptr);
+                    const props = stdx.ptrCastAlign(*const Props, ptr);
 
                     if (@hasDecl(Widget, "prePropsUpdate")) {
                         if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext, *const Props) void, @TypeOf(Widget.prePropsUpdate))) {
@@ -254,13 +254,13 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext) void, @TypeOf(Widget.postUpdate))) {
                     @compileError("Invalid postUpdate function: " ++ @typeName(@TypeOf(Widget.postUpdate)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                const widget = stdx.ptrCastAlign(*Widget, node.widget);
                 widget.postUpdate(ctx);
             }
         }
 
         fn build(widget_ptr: *anyopaque, ctx: *BuildContext) ui.FramePtr {
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+            const widget = stdx.ptrCastAlign(*Widget, widget_ptr);
 
             if (!@hasDecl(Widget, "build")) {
                 // No build function. Return null child.
@@ -294,14 +294,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.renderCustom))) {
                     @compileError("Invalid renderCustom function: " ++ @typeName(@TypeOf(Widget.renderCustom)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                const widget = stdx.ptrCastAlign(*Widget, node.widget);
                 widget.renderCustom(ctx);
             } else {
                 if (@hasDecl(Widget, "render")) {
                     if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.render))) {
                         @compileError("Invalid render function: " ++ @typeName(@TypeOf(Widget.render)) ++ " Widget: " ++ @typeName(Widget));
                     }
-                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                    const widget = stdx.ptrCastAlign(*Widget, node.widget);
                     widget.render(ctx);
                 }
                 if (@hasDecl(Widget, "postRender")) {
@@ -310,7 +310,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     }
                     const temp = ctx.node;
                     ui_render.defaultRenderChildren(node, ctx);
-                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                    const widget = stdx.ptrCastAlign(*Widget, node.widget);
                     ctx.node = temp;
                     widget.postRender(ctx);
                 } else {
@@ -325,7 +325,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     log.debug("layout: {}", .{ctx.getSizeConstraints()});
                 }
             }
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+            const widget = stdx.ptrCastAlign(*Widget, widget_ptr);
             if (@hasDecl(Widget, "layout")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *ui.LayoutContext) ui.LayoutSize, @TypeOf(Widget.layout))) {
                     @compileError("Invalid layout function: " ++ @typeName(@TypeOf(Widget.layout)) ++ " Widget: " ++ @typeName(Widget));
@@ -360,14 +360,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             if (node.bind) |bind| {
                 // Unbind.
                 if (node.hasState(ui.NodeStateMasks.bind_func)) {
-                    const bind_func = stdx.mem.ptrCastAlign(*ui.BindNodeFunc, bind);
+                    const bind_func = stdx.ptrCastAlign(*ui.BindNodeFunc, bind);
                     bind_func.func(bind_func.ctx, node, false);
                 } else {
-                    const ref = stdx.mem.ptrCastAlign(*ui.WidgetRef(Widget), bind);
+                    const ref = stdx.ptrCastAlign(*ui.WidgetRef(Widget), bind);
                     ref.binded = false;
                 }
             }
-            const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+            const widget = stdx.ptrCastAlign(*Widget, node.widget);
             if (@hasDecl(Widget, "deinit")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *DeinitContext) void, @TypeOf(Widget.deinit))) {
                     @compileError("Invalid deinit function: " ++ @typeName(@TypeOf(Widget.deinit)) ++ " Widget: " ++ @typeName(Widget));
@@ -386,13 +386,13 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (node.hasState(ui.NodeStateMasks.user_style)) {
                     const handle = mod.common.node_user_styles.get(node).?;
                     if (handle.owned) {
-                        const style = stdx.mem.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                        const style = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
                         mod.alloc.destroy(style);
                     }
                     _ = mod.common.node_user_styles.remove(node);
                 }
                 if (node.hasState(ui.NodeStateMasks.computed_style)) {
-                    const style = stdx.mem.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+                    const style = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
                     mod.alloc.destroy(style);
                     _ = mod.common.node_computed_styles.remove(node);
                 }
@@ -409,7 +409,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             if (UserStyle != void) {
                 if (frame.style) |ptr| {
                     if (frame.style_is_owned) {
-                        const style = stdx.mem.ptrCastAlign(*const UserStyle, ptr);
+                        const style = stdx.ptrCastAlign(*const UserStyle, ptr);
                         mod.build_ctx.dynamic_alloc.destroy(style);
                     }
                 }
@@ -418,7 +418,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             const Props = WidgetProps(Widget);
             if (Props != void) {
                 if (frame.props) |ptr| {
-                    const props = stdx.mem.ptrCastAlign(*Props, ptr);
+                    const props = stdx.ptrCastAlign(*Props, ptr);
 
                     // Release ref counted props.
                     inline for (comptime std.meta.fields(Props)) |field| {
@@ -572,27 +572,27 @@ pub const Module = struct {
     pub fn addInputHandlers(self: *Module, dispatcher: *EventDispatcher) void {
         const S = struct {
             fn onKeyDown(ctx: ?*anyopaque, e: platform.KeyDownEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processKeyDownEvent(e);
             }
             fn onKeyUp(ctx: ?*anyopaque, e: platform.KeyUpEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processKeyUpEvent(e);
             }
             fn onMouseDown(ctx: ?*anyopaque, e: platform.MouseDownEvent) platform.EventResult {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 return self_.processMouseDownEvent(e);
             }
             fn onMouseUp(ctx: ?*anyopaque, e: platform.MouseUpEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processMouseUpEvent(e);
             }
             fn onMouseScroll(ctx: ?*anyopaque, e: platform.MouseScrollEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processMouseWheelEvent(e);
             }
             fn onMouseMove(ctx: ?*anyopaque, e: platform.MouseMoveEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processMouseMoveEvent(e);
             }
         };
@@ -616,7 +616,7 @@ pub const Module = struct {
 
     fn getWidget(self: *Module, comptime Widget: type, node: *ui.Node) *Widget {
         _ = self;
-        return stdx.mem.ptrCastAlign(*Widget, node.widget);
+        return stdx.ptrCastAlign(*Widget, node.widget);
     }
 
     /// The way to receive paste events from the browser.
@@ -1397,11 +1397,11 @@ pub const Module = struct {
         // Bind to ref after initializing the widget.
         if (frame.widget_bind) |bind| {
             if (frame.is_bind_func) {
-                const bind_func = stdx.mem.ptrCastAlign(*ui.BindNodeFunc, frame.widget_bind);
+                const bind_func = stdx.ptrCastAlign(*ui.BindNodeFunc, frame.widget_bind);
                 bind_func.func(bind_func.ctx, new_node, true);
                 new_node.setStateMask(ui.NodeStateMasks.bind_func);
             } else {
-                stdx.mem.ptrCastAlign(*ui.NodeRef, bind).* = ui.NodeRef.init(new_node);
+                stdx.ptrCastAlign(*ui.NodeRef, bind).* = ui.NodeRef.init(new_node);
             }
             new_node.bind = bind;
         }
@@ -1893,7 +1893,7 @@ pub const CommonContext = struct {
         if (!node.hasState(ui.NodeStateMasks.computed_style)) {
             return self.common.getCurrentStyleDefault(Widget);
         } else {
-            return stdx.mem.ptrCastAlign(*Style, self.common.node_computed_styles.get(node).?);
+            return stdx.ptrCastAlign(*Style, self.common.node_computed_styles.get(node).?);
         }
     }
 

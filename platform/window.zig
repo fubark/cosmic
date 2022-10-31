@@ -65,7 +65,7 @@ pub const Window = struct {
     pub fn addDefaultHandlers(self: *Self, dispatcher: *EventDispatcher) void {
         const S = struct {
             fn onWindowResize(ctx: ?*anyopaque, e: WindowResizeEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Self, ctx);
+                const self_ = stdx.ptrCastAlign(*Self, ctx);
                 self_.handleResize(e.width, e.height);
             }
         };

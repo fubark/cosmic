@@ -424,7 +424,7 @@ test "Resize." {
     };
     const S = struct {
         fn onResize(ptr: ?*anyopaque, width: u32, height: u32) void {
-            const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
+            const ctx_ = stdx.ptrCastAlign(*Context, ptr);
             ctx_.width = width;
             ctx_.height = height;
         }

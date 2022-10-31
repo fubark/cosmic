@@ -456,6 +456,6 @@ pub const PtrId = struct {
     }
 
     pub fn castPtr(self: PtrId, comptime Ptr: type) Ptr {
-        return stdx.mem.ptrCastAlign(Ptr, self.ptr);
+        return stdx.ptrCastAlign(Ptr, self.ptr);
     }
 };

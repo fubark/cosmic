@@ -34,7 +34,7 @@ pub fn compileGLSL(alloc: std.mem.Allocator, stage: Stage, src: [:0]const u8, op
         fn includeLocal(ptr: ?*anyopaque, header_name: [*c]const u8, includer_name: [*c]const u8, include_depth: usize) callconv(.C) [*c]glslang.glsl_include_result_t {
             _ = includer_name;
             _ = include_depth;
-            const ctx = stdx.mem.ptrCastAlign(*IncludeContext, ptr);
+            const ctx = stdx.ptrCastAlign(*IncludeContext, ptr);
             const res = ctx.alloc.create(glslang.glsl_include_result_t) catch fatal();
             const header_name_slice: []const u8 = std.mem.span(header_name);
             if (ctx.mapping.get(header_name_slice)) |data| {
@@ -54,7 +54,7 @@ pub fn compileGLSL(alloc: std.mem.Allocator, stage: Stage, src: [:0]const u8, op
             return res;
         }
         fn freeIncludeResult(ptr: ?*anyopaque, res: [*c]glslang.glsl_include_result_t) callconv(.C) c_int {
-            const ctx = stdx.mem.ptrCastAlign(*IncludeContext, ptr);
+            const ctx = stdx.ptrCastAlign(*IncludeContext, ptr);
             ctx.alloc.destroy(@ptrCast(*glslang.glsl_include_result_t, res));
             return 1;
         }

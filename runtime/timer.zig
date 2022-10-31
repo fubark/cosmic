@@ -73,7 +73,7 @@ pub const Timer = struct {
 
     fn onTimeout(ptr: [*c]uv.uv_timer_t) callconv(.C) void {
         const timer = @ptrCast(*uv.uv_timer_t, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, timer.data);
+        const self = stdx.ptrCastAlign(*Self, timer.data);
         self.processNext();
     }
 

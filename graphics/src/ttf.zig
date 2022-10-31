@@ -96,7 +96,7 @@ const GlyphMapperIface = struct {
         const ImplPtr = @TypeOf(ptr);
         const gen = struct {
             fn getGlyphId(_ptr: *anyopaque, cp: u21) FontError!?u16 {
-                const self = stdx.mem.ptrCastAlign(ImplPtr, _ptr);
+                const self = stdx.ptrCastAlign(ImplPtr, _ptr);
                 return self.getGlyphId(cp);
             }
         };

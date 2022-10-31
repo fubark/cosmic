@@ -220,7 +220,7 @@ pub const HttpServer = struct {
 
     fn onCloseListenHandle(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
         const handle = @ptrCast(*uv.uv_tcp_t, ptr);
-        const self = stdx.mem.ptrCastAlign(*Self, handle.data.?);
+        const self = stdx.ptrCastAlign(*Self, handle.data.?);
         // We don't need to free the handle since it's embedded into server struct.
         self.closed_listen_handle = true;
         self.updateClosed();
@@ -282,7 +282,7 @@ pub const HttpServer = struct {
             return;
         }
 
-        const self = stdx.mem.ptrCastAlign(*HttpServer, listener.data.?);
+        const self = stdx.ptrCastAlign(*HttpServer, listener.data.?);
 
         // h2o will set its own data on uv_tcp_t so use a custom struct.
         var conn = self.rt.alloc.create(H2oUvTcp) catch unreachable;
@@ -305,7 +305,7 @@ pub const HttpServer = struct {
         const kind = uv.uv_handle_get_type(ptr);
         if (kind == uv.UV_TCP) {
             const handle = @ptrCast(*H2oUvTcp, ptr);
-            const self = stdx.mem.ptrCastAlign(*HttpServer, handle.server);
+            const self = stdx.ptrCastAlign(*HttpServer, handle.server);
             self.rt.alloc.destroy(handle);
 
             self.socket_handles -= 1;

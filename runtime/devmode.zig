@@ -83,8 +83,8 @@ pub const DevModeContext = struct {
                 uv.assertNoError(status);
                 if (events & uv.UV_CHANGE != 0) {
                     // log.debug("on file change {s}", .{filename});
-                    const entry = stdx.mem.ptrCastAlign(*WatchEntry, handle);
-                    const rt_ = stdx.mem.ptrCastAlign(*RuntimeContext, entry.event.data);
+                    const entry = stdx.ptrCastAlign(*WatchEntry, handle);
+                    const rt_ = stdx.ptrCastAlign(*RuntimeContext, entry.event.data);
                     var hash: [16]u8 = undefined;
                     stdx.fs.getFileMd5Hash(rt_.alloc, entry.path, &hash) catch unreachable;
                     if (!std.meta.eql(hash, entry.hash)) {
@@ -102,7 +102,7 @@ pub const DevModeContext = struct {
         const S = struct {
             fn onClose(ptr: [*c]uv.uv_handle_t) callconv(.C) void {
                 const entry = @ptrCast(*WatchEntry, ptr);
-                const rt = stdx.mem.ptrCastAlign(*RuntimeContext, entry.event.data.?);
+                const rt = stdx.ptrCastAlign(*RuntimeContext, entry.event.data.?);
                 entry.deinit(rt.alloc);
                 rt.alloc.destroy(entry);
             }

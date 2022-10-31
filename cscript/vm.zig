@@ -385,9 +385,9 @@ pub const VM = struct {
 
     fn sliceList(self: *VM, listV: Value, startV: Value, endV: Value) !Value {
         if (listV.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*HeapObject, listV.asPointer().?);
+            const obj = stdx.ptrCastAlign(*HeapObject, listV.asPointer().?);
             if (obj.retainedCommon.structId == ListS) {
-                const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                 var start = @floatToInt(i32, startV.toF64());
                 if (start < 0) {
                     start = @intCast(i32, list.items.len) + start + 1;
@@ -577,7 +577,7 @@ pub const VM = struct {
             },
             .nextIterIdx = 0,
         };
-        const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+        const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
         try list.appendSlice(self.alloc, elems);
         return Value.initPtr(obj);
     }
@@ -685,10 +685,10 @@ pub const VM = struct {
     fn setIndex(self: *VM, left: Value, index: Value, right: Value) !void {
         @setRuntimeSafety(debug);
         if (left.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*HeapObject, left.asPointer().?);
+            const obj = stdx.ptrCastAlign(*HeapObject, left.asPointer().?);
             switch (obj.retainedCommon.structId) {
                 ListS => {
-                    const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                    const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                     const idx = @floatToInt(u32, index.toF64());
                     if (idx < list.items.len) {
                         list.items[idx] = right;
@@ -703,7 +703,7 @@ pub const VM = struct {
                     }
                 },
                 MapS => {
-                    const map = stdx.mem.ptrCastAlign(*Rc(Map), left.asPointer());
+                    const map = stdx.ptrCastAlign(*Rc(Map), left.asPointer());
                     const key = toMapKey(index);
                     const ctx = MapContext{ .vm = self };
                     try map.val.inner.putContext(self.alloc, key, right, ctx);
@@ -720,10 +720,10 @@ pub const VM = struct {
     fn getIndex(self: *VM, left: Value, index: Value) !Value {
         @setRuntimeSafety(debug);
         if (left.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*HeapObject, left.asPointer().?);
+            const obj = stdx.ptrCastAlign(*HeapObject, left.asPointer().?);
             switch (obj.retainedCommon.structId) {
                 ListS => {
-                    const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                    const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                     const idx = @floatToInt(u32, index.toF64());
                     if (idx < list.items.len) {
                         return list.items[idx];
@@ -732,7 +732,7 @@ pub const VM = struct {
                     }
                 },
                 MapS => {
-                    const map = stdx.mem.ptrCastAlign(*Rc(Map), left.asPointer());
+                    const map = stdx.ptrCastAlign(*Rc(Map), left.asPointer());
                     const mapKey = toMapKey(index);
                     const ctx = MapContext{ .vm = self };
                     if (map.val.inner.getContext(mapKey, ctx)) |val| {
@@ -759,7 +759,7 @@ pub const VM = struct {
             stdx.panic("Args mismatch");
         }
         const ctx = MapContext{ .vm = self };
-        const map = stdx.mem.ptrCastAlign(*Rc(Map), ptr);
+        const map = stdx.ptrCastAlign(*Rc(Map), ptr);
         const key = toMapKey(args[0]);
         _ = map.val.inner.removeContext(key, ctx);
         return Value.initNone();
@@ -770,8 +770,8 @@ pub const VM = struct {
         if (args.len == 0) {
             stdx.panic("Args mismatch");
         }
-        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
-        const inner = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &list.retainedList.list);
+        const list = stdx.ptrCastAlign(*HeapObject, ptr);
+        const inner = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &list.retainedList.list);
         inner.append(self.alloc, args[0]) catch stdx.fatal();
         return Value.initNone();
     }
@@ -780,7 +780,7 @@ pub const VM = struct {
         @setRuntimeSafety(debug);
         _ = self;
         _ = args;
-        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
+        const list = stdx.ptrCastAlign(*HeapObject, ptr);
         if (list.retainedList.nextIterIdx < list.retainedList.list.len) {
             defer list.retainedList.nextIterIdx += 1;
             return list.retainedList.list.ptr[list.retainedList.nextIterIdx];
@@ -790,7 +790,7 @@ pub const VM = struct {
     fn nativeListIterator(self: *VM, ptr: *anyopaque, args: []const Value) Value {
         _ = self;
         _ = args;
-        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
+        const list = stdx.ptrCastAlign(*HeapObject, ptr);
         list.retainedList.nextIterIdx = 0;
         return Value.initPtr(ptr);
     }
@@ -799,8 +799,8 @@ pub const VM = struct {
         if (args.len == 0) {
             stdx.panic("Args mismatch");
         }
-        const list = stdx.mem.ptrCastAlign(*HeapObject, ptr);
-        const inner = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &list.retainedList.list);
+        const list = stdx.ptrCastAlign(*HeapObject, ptr);
+        const inner = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &list.retainedList.list);
         const size = @floatToInt(u32, args[0].toF64());
         inner.resize(self.alloc, size) catch stdx.fatal();
         return Value.initNone();
@@ -838,10 +838,10 @@ pub const VM = struct {
 
                 switch (obj.retainedCommon.structId) {
                     ListS => {
-                        const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                        const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                         for (list.items) |it| {
                             if (it.isPointer()) {
-                                const ptr = stdx.mem.ptrCastAlign(*HeapObject, it.asPointer().?);
+                                const ptr = stdx.ptrCastAlign(*HeapObject, it.asPointer().?);
                                 if (visit(alloc, graph, cycleRoots_, ptr, graph.getPtr(ptr).?)) {
                                     cycleRoots_.append(alloc, obj) catch stdx.fatal();
                                     return true;
@@ -878,7 +878,7 @@ pub const VM = struct {
         _ = self;
         @setRuntimeSafety(debug);
         if (val.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*GenericObject, val.asPointer());
+            const obj = stdx.ptrCastAlign(*GenericObject, val.asPointer());
             obj.rc += 1;
         }
     }
@@ -889,12 +889,12 @@ pub const VM = struct {
         }
         switch (obj.retainedCommon.structId) {
             ListS => {
-                const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                 list.deinit(self.alloc);
                 self.freeObject(obj);
             },
             MapS => {
-                const map = stdx.mem.ptrCastAlign(*Rc(Map), &obj.retainedList);
+                const map = stdx.ptrCastAlign(*Rc(Map), &obj.retainedList);
                 map.val.inner.deinit(self.alloc);
                 self.alloc.destroy(map);
             },
@@ -907,7 +907,7 @@ pub const VM = struct {
     pub fn release(self: *VM, val: Value, comptime trace: bool) void {
         @setRuntimeSafety(debug);
         if (val.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*HeapObject, val.asPointer().?);
+            const obj = stdx.ptrCastAlign(*HeapObject, val.asPointer().?);
             obj.retainedCommon.rc -= 1;
             if (trace) {
                 self.trace.numReleases += 1;
@@ -915,12 +915,12 @@ pub const VM = struct {
             if (obj.retainedCommon.rc == 0) {
                 switch (obj.retainedCommon.structId) {
                     ListS => {
-                        const list = stdx.mem.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
+                        const list = stdx.ptrCastAlign(*std.ArrayListUnmanaged(Value), &obj.retainedList.list);
                         list.deinit(self.alloc);
                         self.freeObject(obj);
                     },
                     MapS => {
-                        const map = stdx.mem.ptrCastAlign(*Rc(Map), val.asPointer());
+                        const map = stdx.ptrCastAlign(*Rc(Map), val.asPointer());
                         map.val.inner.deinit(self.alloc);
                         self.alloc.destroy(map);
                     },
@@ -945,7 +945,7 @@ pub const VM = struct {
     fn pushField(self: VM, symId: SymbolId, recv: Value) void {
         @setRuntimeSafety(debug);
         if (recv.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*GenericObject, recv.asPointer());
+            const obj = stdx.ptrCastAlign(*GenericObject, recv.asPointer());
             const map = self.fieldSyms.items[symId];
             switch (map.mapT) {
                 .oneStruct => {
@@ -962,7 +962,7 @@ pub const VM = struct {
     fn call(self: *VM, callee: Value, numArgs: u8, retInfo: Value) !void {
         @setRuntimeSafety(debug);
         if (callee.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*HeapObject, callee.asPointer().?);
+            const obj = stdx.ptrCastAlign(*HeapObject, callee.asPointer().?);
             switch (obj.common.structId) {
                 ClosureS => {
                     if (numArgs - 1 != obj.closure.numParams) {
@@ -1075,7 +1075,7 @@ pub const VM = struct {
         const argStart = self.stack.top - numArgs;
         const recv = self.stack.buf[argStart];
         if (recv.isPointer()) {
-            const obj = stdx.mem.ptrCastAlign(*HeapObject, recv.asPointer().?);
+            const obj = stdx.ptrCastAlign(*HeapObject, recv.asPointer().?);
             const map = self.symbols.items[symId];
             switch (map.mapT) {
                 .oneStruct => {

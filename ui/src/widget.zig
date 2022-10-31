@@ -67,7 +67,7 @@ pub const NodeRefMap = struct {
     }
 
     fn bind(ptr: ?*anyopaque, node: *ui.Node, bind_: bool) void {
-        const self = stdx.mem.ptrCastAlign(*NodeRefMap, ptr);
+        const self = stdx.ptrCastAlign(*NodeRefMap, ptr);
         if (bind_) {
             self.map.put(self.alloc, node.key, node) catch fatal();
         } else {
@@ -113,7 +113,7 @@ pub fn WidgetRef(comptime Widget: type) type {
         pub const widget = getWidget;
 
         pub inline fn getWidget(self: WidgetRefT) *Widget {
-            return stdx.mem.ptrCastAlign(*Widget, self.node.widget);
+            return stdx.ptrCastAlign(*Widget, self.node.widget);
         }
 
         pub inline fn key(self: WidgetRefT) WidgetKey {
@@ -250,7 +250,7 @@ pub const Node = struct {
     }
 
     pub fn getWidget(self: Node, comptime Widget: type) *Widget {
-        return stdx.mem.ptrCastAlign(*Widget, self.widget);
+        return stdx.ptrCastAlign(*Widget, self.widget);
     }
 
     pub fn deinit(self: *Node) void {

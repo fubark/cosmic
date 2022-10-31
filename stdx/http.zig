@@ -398,7 +398,7 @@ fn onSocket(_h: *curl.CURL, sock_fd: curl.curl_socket_t, action: c_int, user_ptr
 
     var cres = h.getInfo(curl.CURLINFO_PRIVATE, &ptr);
     Curl.assertNoError(cres);
-    const req = stdx.mem.ptrCastAlign(*AsyncRequestHandle, ptr);
+    const req = stdx.ptrCastAlign(*AsyncRequestHandle, ptr);
 
     const S = struct {
         // Attaches a sock to a request only once.
@@ -469,7 +469,7 @@ fn checkDone() void {
 
                     var ptr: *anyopaque = undefined;
                     _ = ch.getInfo(curl.CURLINFO_PRIVATE, &ptr);
-                    const req = stdx.mem.ptrCastAlign(*AsyncRequestHandle, ptr);
+                    const req = stdx.ptrCastAlign(*AsyncRequestHandle, ptr);
 
                     // Get status code.
                     var http_code: u64 = 0;

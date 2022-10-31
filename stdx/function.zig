@@ -59,7 +59,7 @@ pub fn Function(comptime Fn: type) type {
             stdx.meta.assertPointerType(ContextPtr);
             const gen = struct {
                 fn call(_: *const anyopaque, ptr: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-                    const ctx = stdx.mem.ptrCastAlign(ContextPtr, ptr);
+                    const ctx = stdx.ptrCastAlign(ContextPtr, ptr);
                     return @call(.{}, func, .{ctx} ++ args);
                 }
             };
@@ -163,7 +163,7 @@ pub fn FunctionSimple(comptime Param: type) type {
             stdx.meta.assertPointerType(ContextPtr);
             const gen = struct {
                 fn call(_: *const anyopaque, ptr: *anyopaque, arg: Param) void {
-                    const ctx = stdx.mem.ptrCastAlign(ContextPtr, ptr);
+                    const ctx = stdx.ptrCastAlign(ContextPtr, ptr);
                     func(ctx, arg);
                 }
             };

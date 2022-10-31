@@ -24,7 +24,7 @@ pub const Menu = struct {
     fn onClick(self: *Menu, e: ui.MouseUpEvent) void {
         const S = struct {
             fn buildPopover(ptr: ?*anyopaque, ctx: *ui.BuildContext) ui.FramePtr {
-                const self_ = stdx.mem.ptrCastAlign(*Menu, ptr);
+                const self_ = stdx.ptrCastAlign(*Menu, ptr);
                 return u.Container(.{ .bgColor = graphics.Color.Green, .width = 150 }, 
                     ctx.build(u.ColumnT, .{
                         .expandChildWidth = true,
@@ -33,7 +33,7 @@ pub const Menu = struct {
                 );
             }
             fn onPopoverClose(ptr: ?*anyopaque) void {
-                const self_ = stdx.mem.ptrCastAlign(*Menu, ptr);
+                const self_ = stdx.ptrCastAlign(*Menu, ptr);
                 self_.popover = null;
             }
         };

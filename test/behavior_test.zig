@@ -312,7 +312,7 @@ test "behavior: 'cosmic http' starts an HTTP server and handles request" {
 
     const S = struct {
         fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) !void {
-            const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
+            const ctx_ = stdx.ptrCastAlign(*Context, ptr);
             var res = rt.evalModuleScript(
                 \\const res = await cs.http.getAsync('http://localhost:8081/index.html')
                 \\cs.test.eq(res, `<html>
@@ -376,7 +376,7 @@ test "behavior: 'cosmic https' starts an HTTPS server and handles request." {
 
     const S = struct {
         fn onMainScriptDone(ptr: ?*anyopaque, rt: *RuntimeContext) !void {
-            const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
+            const ctx_ = stdx.ptrCastAlign(*Context, ptr);
             var res = rt.evalModuleScript(
                 \\const res = await cs.http.requestAsync('https://localhost:8081/index.html', {
                 \\    certFile: './localhost.crt',
