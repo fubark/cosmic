@@ -49,7 +49,7 @@ const ShaderType = enum(u4) {
 };
 
 const PreFlushTask = struct {
-    cb: std.meta.FnPtr(fn (ctx: ?*anyopaque) void),
+    cb: *const fn (ctx: ?*anyopaque) void,
     ctx: ?*anyopaque,
 };
 
@@ -265,7 +265,7 @@ pub const Batcher = struct {
     }
 
     /// Queue a task to run before the next flush.
-    pub fn addNextPreFlushTask(self: *Batcher, ctx: ?*anyopaque, cb: fn (?*anyopaque) void) void {
+    pub fn addNextPreFlushTask(self: *Batcher, ctx: ?*anyopaque, cb: *const fn (?*anyopaque) void) void {
         self.pre_flush_tasks.append(.{
             .ctx = ctx,
             .cb = cb,

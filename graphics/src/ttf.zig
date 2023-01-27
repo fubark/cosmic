@@ -91,7 +91,7 @@ const GlyphMapperIface = struct {
     const Self = @This();
 
     ptr: *anyopaque,
-    get_glyph_id_fn: std.meta.FnPtr(fn (*anyopaque, cp: u21) FontError!?u16),
+    get_glyph_id_fn: *const fn (*anyopaque, cp: u21) FontError!?u16,
 
     fn init(ptr: anytype) Self {
         const ImplPtr = @TypeOf(ptr);
@@ -370,7 +370,8 @@ pub const OpenTypeFont = struct {
                     return error.GlyphTooBig;
                 }
                 const cdata = alloc.alloc(u8, num_rows * num_cols) catch @panic("error");
-                var reader = std.io.bitReader(.Big, std.io.fixedBufferStream(data[5..]).reader());
+                var stream = std.io.fixedBufferStream(data[5..]);
+                var reader = std.io.bitReader(.Big, stream.reader());
                 var out_bits: usize = undefined;
                 for (cdata) |_, i| {
                     const val = try reader.readBits(u1, 1, &out_bits);
@@ -709,9 +710,7 @@ const SegmentGlyphMapper = struct {
                 const id_deltas_loc = self.offset + 16 + (self.num_segments * 2) * 2;
                 // although id_delta a i16, since it's modulo 2^8, we can interpret it as u16 and just add with overflow.
                 const id_delta = fromBigU16(&self.data[id_deltas_loc + i * 2]);
-                var res: u16 = undefined;
-                _ = @addWithOverflow(u16, id_delta, cp16, &res);
-                return res;
+                return @addWithOverflow(id_delta, cp16)[0];
             } else {
                 // Use id_range_offset
                 const glyph_offset = id_range_offset_loc + (cp16 - start_code) * 2 + id_range_offset;

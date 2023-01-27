@@ -252,7 +252,7 @@ pub const PathParser = struct {
                 break;
             }
             var ch = self.peekNext();
-            if (!std.ascii.isAlpha(ch)) {
+            if (!std.ascii.isAlphabetic(ch)) {
                 log.debug("unsupported command char: {c} {} at {}", .{ ch, ch, self.next_pos });
                 log.debug("{s}", .{self.src});
                 return error.ParseError;
@@ -265,7 +265,7 @@ pub const PathParser = struct {
 
                     // Subsequent points are treated as LineTo
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         cmd = try self.parseLineTo(true);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
@@ -277,7 +277,7 @@ pub const PathParser = struct {
 
                     // Subsequent points are treated as LineTo
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         cmd = try self.parseLineTo(false);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
@@ -289,7 +289,7 @@ pub const PathParser = struct {
 
                     // Subsequent args are additional elliptic arc commands.
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         cmd = try self.parseEllipticArc(true);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
@@ -313,7 +313,7 @@ pub const PathParser = struct {
 
                     // Subsequent args represent a polyline.
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         cmd = try self.parseLineTo(true);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
@@ -325,7 +325,7 @@ pub const PathParser = struct {
 
                     // Subsequent args represent a polyline.
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         cmd = try self.parseLineTo(false);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                         ch = self.seekToNext() orelse break;
@@ -336,7 +336,7 @@ pub const PathParser = struct {
                     self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
 
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         // Polybezier, keep parsing same command.
                         cmd = try self.parseSvgCurveto(true);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
@@ -352,7 +352,7 @@ pub const PathParser = struct {
                     self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
 
                     ch = self.seekToNext() orelse break;
-                    while (!std.ascii.isAlpha(ch)) {
+                    while (!std.ascii.isAlphabetic(ch)) {
                         // Polybezier, keep parsing same command.
                         cmd = try self.parseSvgSmoothCurveto(true);
                         self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
@@ -1065,7 +1065,7 @@ pub const SvgParser = struct {
 
         // consume whitespace.
         var ch = str[pos];
-        while (std.ascii.isSpace(ch)) {
+        while (std.ascii.isWhitespace(ch)) {
             pos += 1;
             if (pos == str.len) {
                 return null;
@@ -1074,7 +1074,7 @@ pub const SvgParser = struct {
         }
 
         const start_pos = pos;
-        if (!std.ascii.isAlpha(ch)) {
+        if (!std.ascii.isAlphabetic(ch)) {
             return error.ParseError;
         }
         pos += 1;
@@ -1227,7 +1227,7 @@ pub const SvgParser = struct {
     }
 
     fn consumeWhitespaces(self: *SvgParser) void {
-        while (std.ascii.isSpace(self.peekNext())) {
+        while (std.ascii.isWhitespace(self.peekNext())) {
             self.next_ch_idx += 1;
             if (self.nextAtEnd()) {
                 break;
@@ -1251,7 +1251,7 @@ pub const SvgParser = struct {
     fn parseElement(self: *SvgParser) anyerror!bool {
         // log.debug("parse element", .{});
         const ch = self.peekNext();
-        if (std.ascii.isSpace(ch)) {
+        if (std.ascii.isWhitespace(ch)) {
             self.consumeWhitespaces();
         }
 
@@ -1345,13 +1345,13 @@ pub const SvgParser = struct {
             return error.ParseError;
         }
         var ch = self.peekNext();
-        if (std.ascii.isAlpha(ch)) {
+        if (std.ascii.isAlphabetic(ch)) {
             const start = self.next_ch_idx;
             while (true) {
                 if (ch == '=') {
                     break;
                 }
-                if (std.ascii.isSpace(ch)) {
+                if (std.ascii.isWhitespace(ch)) {
                     return error.ParseError;
                 }
                 self.next_ch_idx += 1;
@@ -1361,7 +1361,7 @@ pub const SvgParser = struct {
                 ch = self.peekNext();
             }
             return self.src[start..self.next_ch_idx];
-        } else if (std.ascii.isSpace(ch)) {
+        } else if (std.ascii.isWhitespace(ch)) {
             self.consumeWhitespaces();
             return try self.parseAttributeKey();
         } else {
@@ -1374,17 +1374,17 @@ pub const SvgParser = struct {
             return error.ParseError;
         }
         var ch = self.peekNext();
-        if (std.ascii.isSpace(ch)) {
+        if (std.ascii.isWhitespace(ch)) {
             self.consumeWhitespaces();
             if (self.nextAtEnd()) {
                 return error.ParseError;
             }
             ch = self.peekNext();
         }
-        if (std.ascii.isAlpha(ch)) {
+        if (std.ascii.isAlphabetic(ch)) {
             const start = self.next_ch_idx;
             while (true) {
-                if (std.ascii.isSpace(ch) or ch == '>') {
+                if (std.ascii.isWhitespace(ch) or ch == '>') {
                     break;
                 }
                 self.next_ch_idx += 1;

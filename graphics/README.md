@@ -50,7 +50,7 @@ Standalone 2D graphics library for GUI and games in Zig. Uses SDL for window/gra
 <a href="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png"><img src="https://raw.githubusercontent.com/fubark/cosmic-site/master/graphics-demo-linux.png" alt="Linux Demo" height="300"></a>
 
 ## Dependencies
-Get the latest Zig compiler (0.10.0-dev) [here](https://ziglang.org/download/).
+Get the latest Zig compiler (0.11.0-dev) [here](https://ziglang.org/download/).
 
 Clone the cosmic repo which includes:
 - cosmic/graphics: This module.
@@ -67,7 +67,6 @@ cd cosmic
 
 ## Run demo (Desktop)
 ```sh
-# If you are using the latest zig stage3 compiler, append "-fstage1" to the command.
 zig build run -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
 ```
 

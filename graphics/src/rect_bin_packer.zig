@@ -6,7 +6,7 @@ const log = stdx.log.scoped(.rect_bin_packer);
 
 const SpanId = u32;
 const NullId = std.math.maxInt(SpanId);
-const ResizeCallback = std.meta.FnPtr(fn (ctx: ?*anyopaque, width: u32, height: u32) void);
+const ResizeCallback = *const fn (ctx: ?*anyopaque, width: u32, height: u32) void;
 const ResizeCallbackItem = struct {
     ctx: ?*anyopaque,
     cb: ResizeCallback,

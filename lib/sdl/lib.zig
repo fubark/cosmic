@@ -38,6 +38,7 @@ pub fn create(
             // Silence warnings that are errors by default in objc source files. Noticed this in github ci.
             "-Wno-deprecated-declarations",
             "-Wno-unguarded-availability",
+            "-fobjc-arc"
         });
     } else if (target.getOsTag() == .linux) {
         try c_flags.append("-DSDL_VIDEO_VULKAN=1");
@@ -147,6 +148,7 @@ pub fn create(
 
         "joystick/hidapi/SDL_hidapi_rumble.c",
         "joystick/hidapi/SDL_hidapijoystick.c",
+        "joystick/hidapi/SDL_hidapi_shield.c",
         "joystick/hidapi/SDL_hidapi_xbox360w.c",
         "joystick/hidapi/SDL_hidapi_switch.c",
         "joystick/hidapi/SDL_hidapi_steam.c",
