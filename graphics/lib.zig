@@ -91,6 +91,9 @@ pub fn addPackage(step: *std.build.LibExeObjStep, opts: Options) void {
         platform.addPackage(step, platform_opts);
         gl.addPackage(step);
         stb.addStbttPackage(step);
+        if (opts.link_freetype2) {
+            freetype.addPackage(step);
+        }
     }
 }
 
