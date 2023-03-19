@@ -38,6 +38,7 @@ pub fn create(
             // Silence warnings that are errors by default in objc source files. Noticed this in github ci.
             "-Wno-deprecated-declarations",
             "-Wno-unguarded-availability",
+            "-fobjc-arc"
         });
     } else if (target.getOsTag() == .linux) {
         try c_flags.append("-DSDL_VIDEO_VULKAN=1");
@@ -147,6 +148,7 @@ pub fn create(
 
         "joystick/hidapi/SDL_hidapi_rumble.c",
         "joystick/hidapi/SDL_hidapijoystick.c",
+        "joystick/hidapi/SDL_hidapi_shield.c",
         "joystick/hidapi/SDL_hidapi_xbox360w.c",
         "joystick/hidapi/SDL_hidapi_switch.c",
         "joystick/hidapi/SDL_hidapi_steam.c",
@@ -278,6 +280,31 @@ pub fn create(
             "video/windows/SDL_windowsopengl.c",
             "video/windows/SDL_windowsframebuffer.c",
             "video/windows/SDL_windowsmessagebox.c",
+            "render/direct3D/SDL_render_d3d.c",
+            "render/direct3d11/SDL_render_d3d11.c",
+            "render/direct3d12/SDL_render_d3d12.c",
+            "libm/e_atan2.c",
+            "libm/e_exp.c",
+            "libm/e_fmod.c",
+            "libm/e_log10.c",
+            "libm/e_pow.c",
+            "libm/e_sqrt.c",
+            "libm/k_cos.c",
+            "libm/k_sin.c",
+            "libm/k_tan.c",
+            "libm/s_atan.c",
+            "libm/s_cos.c",
+            "libm/s_sin.c",
+            "libm/e_rem_pio2.c",
+            "libm/k_rem_pio2.c",
+            "libm/math_private.h",
+            "libm/e_log.c",
+            "libm/s_floor.c",
+            "libm/s_copysign.c",
+            "libm/s_tan.c",
+            "libm/s_scalbn.c",
+            "libm/s_fabs.c",
+            "core/windows/SDL_immdevice.c",
             "joystick/windows/SDL_rawinputjoystick.c",
             "joystick/windows/SDL_dinputjoystick.c",
             "joystick/windows/SDL_xinputjoystick.c",

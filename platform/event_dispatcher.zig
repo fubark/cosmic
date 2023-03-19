@@ -388,15 +388,15 @@ fn HandlerEntry(comptime Handler: type) type {
     };
 }
 
-const OnQuitHandler = std.meta.FnPtr(fn (?*anyopaque) void);
-const OnKeyDownHandler = std.meta.FnPtr(fn(?*anyopaque, KeyDownEvent) void);
-const OnKeyUpHandler = std.meta.FnPtr(fn(?*anyopaque, KeyUpEvent) void);
-const OnMouseDownHandler = std.meta.FnPtr(fn(?*anyopaque, MouseDownEvent) EventResult);
-const OnMouseUpHandler = std.meta.FnPtr(fn(?*anyopaque, MouseUpEvent) void);
-const OnMouseMoveHandler = std.meta.FnPtr(fn(?*anyopaque, MouseMoveEvent) void);
-const OnMouseScrollHandler = std.meta.FnPtr(fn(?*anyopaque, MouseScrollEvent) void);
-const OnWindowResizeHandler = std.meta.FnPtr(fn(?*anyopaque, WindowResizeEvent) void);
-const OnFetchResultHandler = std.meta.FnPtr(fn(?*anyopaque, FetchResultEvent) void);
+const OnQuitHandler = *const fn (?*anyopaque) void;
+const OnKeyDownHandler = *const fn(?*anyopaque, KeyDownEvent) void;
+const OnKeyUpHandler = *const fn(?*anyopaque, KeyUpEvent) void;
+const OnMouseDownHandler = *const fn(?*anyopaque, MouseDownEvent) EventResult;
+const OnMouseUpHandler = *const fn(?*anyopaque, MouseUpEvent) void;
+const OnMouseMoveHandler = *const fn(?*anyopaque, MouseMoveEvent) void;
+const OnMouseScrollHandler = *const fn(?*anyopaque, MouseScrollEvent) void;
+const OnWindowResizeHandler = *const fn(?*anyopaque, WindowResizeEvent) void;
+const OnFetchResultHandler = *const fn(?*anyopaque, FetchResultEvent) void;
 
 pub const EventResult = enum(u1) {
     /// Event will continue to propagate down to children. 
