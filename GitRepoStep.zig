@@ -1,4 +1,4 @@
-//! Publish Date: 2022_09_09
+//! Publish Date: 2023_03_05
 //! This file is hosted at github.com/marler8997/zig-build-repos and is meant to be copied
 //! to projects that use it.
 const std = @import("std");
@@ -56,11 +56,8 @@ pub fn create(b: *std.build.Builder, opt: struct {
         .name = name,
         .branch = opt.branch,
         .sha = opt.sha,
-        .path = if (opt.path) |p| (b.allocator.dupe(u8, p) catch @panic("memory")) else (std.fs.path.resolve(b.allocator, &[_][]const u8{
-            b.build_root,
-            "dep",
-            name,
-        })) catch @panic("memory"),
+        .path = if (opt.path) |p| b.allocator.dupe(u8, p) catch @panic("OOM")
+            else b.pathFromRoot(b.pathJoin(&.{"dep", name})),
         .sha_check = opt.sha_check,
         .fetch_enabled = if (opt.fetch_enabled) |fe| fe else defaultFetchOption(b),
     };
@@ -140,7 +137,7 @@ fn checkSha(self: GitRepoStep) !void {
                 "rev-parse",
                 "HEAD",
             },
-            .cwd = self.builder.build_root,
+            .cwd = self.builder.build_root.path,
             .env_map = self.builder.env_map,
         }) catch |e| break :blk .{ .failed = e };
         try std.io.getStdErr().writer().writeAll(result.stderr);
@@ -183,7 +180,7 @@ fn run(builder: *std.build.Builder, argv: []const []const u8) !void {
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
-    child.cwd = builder.build_root;
+    child.cwd = builder.build_root.path;
     child.env_map = builder.env_map;
 
     try child.spawn();
