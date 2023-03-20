@@ -166,9 +166,6 @@ pub fn build(b: *Builder) !void {
     stbi = stb_lib.createStbiModule(b);
     stbperlin = stb_lib.createStbPerlinModule(b);
     uv = uv_lib.createModule(b);
-    ui = ui_lib.createModule(b, .{
-        .graphics_backend = ctx.graphics_backend,
-    });
     maudio = maudio_lib.createModule(b);
     freetype = freetype_lib.createModule(b);
     vk = vk_lib.createModule(b);
@@ -196,6 +193,13 @@ pub fn build(b: *Builder) !void {
         },
     };
     graphics = graphics_lib.createModule(b, graphics_opts);
+    ui = ui_lib.createModule(b, .{
+        .deps = .{
+            .graphics = graphics,
+            .stdx = stdx,
+            .platform = platform,
+        },
+    });
     lyon = lyon_lib.createModule(b, link_lyon);
     tess2 = tess2_lib.createModule(b, link_tess2);
 
@@ -744,7 +748,7 @@ const BuildContext = struct {
         step.addModule("vk", vk);
         step.addModule("jolt", jolt);
         step.addModule("glslang", glslang);
-        step.addModule("maudio", maudio);
+        maudio_lib.addModule(step, "miniaudio", maudio);
         step.addModule("lyon", lyon);
         step.addModule("tess2", tess2);
         if (self.target.getOsTag() == .macos) {
@@ -884,9 +888,9 @@ const BuildContext = struct {
             .optimize = self.optimize,
         });
         lib.addModule("stdx", stdx);
-        lib.addModule("gl", gl);
+        gl_lib.addModule(lib, "gl", gl);
         lib.addModule("uv", uv);
-        lib.addModule("maudio", maudio);
+        maudio_lib.addModule(lib, "miniaudio", maudio);
         step.linkLibrary(lib);
     }
 };
