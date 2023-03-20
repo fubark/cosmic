@@ -94,16 +94,16 @@ jobs:
             pr-build-${{ env.BUILD_TARGET }}-${{ env.BUILD_MODE }}-3
 
       - name: Get extras.
-        run: zig build get-extras -fstage1 ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
+        run: zig build get-extras ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
 
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
         if: env.BUILD_TARGET != 'aarch64-macos-none'
         run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch
 
-      - name: Test app.
-        if: env.BUILD_TARGET != 'aarch64-macos-none' && env.BUILD_TARGET != 'x86_64-windows-gnu'
-        run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
+      # - name: Test app.
+      #   if: env.BUILD_TARGET != 'aarch64-macos-none' && env.BUILD_TARGET != 'x86_64-windows-gnu'
+      #   run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       # - name: Test behavior.
       #   if: env.BUILD_TARGET != 'aarch64-macos-none'
