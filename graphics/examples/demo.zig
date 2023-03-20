@@ -164,17 +164,17 @@ fn initAssets(alloc: std.mem.Allocator) !void {
 
     const gctx = app.gctx;
 
-    font_id = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
-    const emoji_font = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
+    font_id = try gctx.addFontFromPathTTF(thisDir() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
+    const emoji_font = try gctx.addFontFromPathTTF(thisDir() ++ "/../../examples/assets/NotoColorEmoji.ttf");
     try gctx.addFallbackFont(emoji_font);
 
-    const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
+    const game_char_data = try std.fs.cwd().readFileAlloc(alloc, thisDir() ++ "/../../examples/assets/game-char.png", MaxFileSize);
     defer alloc.free(game_char_data);
     game_char_image = try gctx.createImage(game_char_data);
 
-    zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
+    zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, thisDir() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
 
-    const tiger_head_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/tiger-head.svg", MaxFileSize);
+    const tiger_head_svg = try std.fs.cwd().readFileAlloc(alloc, thisDir() ++ "/../../examples/assets/tiger-head.svg", MaxFileSize);
     defer alloc.free(tiger_head_svg);
 
     var parser = graphics.svg.SvgParser.init(alloc);
@@ -257,6 +257,6 @@ pub usingnamespace if (IsWasm) struct {
     }
 } else struct {};
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return (comptime std.fs.path.dirname(@src().file) orelse unreachable);
 }

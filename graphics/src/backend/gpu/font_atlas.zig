@@ -127,7 +127,7 @@ pub const FontAtlas = struct {
         var buf_offset: usize = (x + y * self.width) * self.channels;
         var src_offset: usize = 0;
         while (row < height) : (row += 1) {
-            for (src[src_offset .. src_offset + src_row_size]) |it, i| {
+            for (src[src_offset .. src_offset + src_row_size], 0..) |it, i| {
                 const dst_idx = buf_offset + (i * self.channels);
                 self.gl_buf[dst_idx + 0] = 255;
                 self.gl_buf[dst_idx + 1] = 255;

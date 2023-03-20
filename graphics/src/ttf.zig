@@ -339,7 +339,7 @@ pub const OpenTypeFont = struct {
         var stream = std.io.fixedBufferStream(data);
         var reader = std.io.bitReader(.Big, stream.reader());
         var out_bits: usize = undefined;
-        for (cdata) |_, i| {
+        for (cdata, 0..) |_, i| {
             const val = try reader.readBits(u1, 1, &out_bits);
             if (val == 1) {
                 cdata[i] = 255;
@@ -372,7 +372,7 @@ pub const OpenTypeFont = struct {
                 var stream = std.io.fixedBufferStream(data[5..]);
                 var reader = std.io.bitReader(.Big, stream.reader());
                 var out_bits: usize = undefined;
-                for (cdata) |_, i| {
+                for (cdata, 0..) |_, i| {
                     const val = try reader.readBits(u1, 1, &out_bits);
                     if (val == 1) {
                         cdata[i] = 255;
@@ -827,7 +827,7 @@ fn allocBigUTF16(alloc: std.mem.Allocator, data: []const u8) []const u8 {
 
     const aligned = alloc.alloc(u16, utf16.len) catch @panic("error");
     defer alloc.free(aligned);
-    for (utf16) |it, i| {
+    for (utf16, 0..) |it, i| {
         aligned[i] = it;
     }
 

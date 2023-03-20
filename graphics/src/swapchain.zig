@@ -1,5 +1,5 @@
 const std = @import("std");
-const Backend = @import("build_options").GraphicsBackend;
+const Backend = @import("graphics_options").GraphicsBackend;
 const stdx = @import("stdx");
 const platform = @import("platform");
 

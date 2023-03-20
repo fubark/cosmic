@@ -1,6 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
-const Backend = @import("build_options").GraphicsBackend;
+const Backend = @import("graphics_options").GraphicsBackend;
 
 const graphics = @import("graphics.zig");
 const FontGroupId = graphics.FontGroupId;

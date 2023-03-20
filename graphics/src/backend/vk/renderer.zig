@@ -121,7 +121,7 @@ pub const Renderer = struct {
 
         const cmd_bufs = gvk.command.createCommandBuffers(alloc, device, ret.cmd_pool, MaxActiveFrames * 2);
         defer alloc.free(cmd_bufs);
-        for (ret.frames) |*frame, i| {
+        for (ret.frames, 0..) |*frame, i| {
             frame.main_cmd_buf = cmd_bufs[i * 2];
             frame.shadow_cmd_buf = cmd_bufs[i * 2 + 1];
             frame.shadow_image = gvk.image.createDepthImage(physical, device, ShadowMapSize, ShadowMapSize, ShadowMapFormat);
@@ -142,7 +142,7 @@ pub const Renderer = struct {
             gvk.descriptor.updateUniformBufferDescriptorSet(device, frame.cam_desc_set, frame.u_cam_buf.buf, 2, gpu.ShaderCamera);
         }
 
-        for (ret.framebuffers) |_, i| {
+        for (ret.framebuffers, 0..) |_, i| {
             const attachments = &[_]vk.VkImageView{
                 swapchain.impl.image_views[i],
                 swapchain.impl.depth_image_views[i],

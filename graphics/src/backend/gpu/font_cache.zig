@@ -234,7 +234,7 @@ pub const FontCache = struct {
                 continue;
             }
             var match = true;
-            for (font_seq) |needle, i| {
+            for (font_seq, 0..) |needle, i| {
                 if (it.fonts[i] != needle) {
                     match = false;
                     break;

@@ -56,7 +56,7 @@ pub const RectBinPacker = struct {
     }
 
     pub fn removeResizeCallback(self: *Self, needle: ResizeCallback) void {
-        for (self.resize_cbs.items) |it, i| {
+        for (self.resize_cbs.items, 0..) |it, i| {
             if (it.cb == needle) {
                 self.resize_cbs.orderedRemove(i);
                 break;

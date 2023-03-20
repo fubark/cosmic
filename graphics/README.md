@@ -67,13 +67,13 @@ cd cosmic
 
 ## Run demo (Desktop)
 ```sh
-zig build run -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
+zig build run -Dpath="graphics/examples/demo.zig" -Dgraphics -Doptimize=ReleaseSafe
 ```
 
 ## Run demo (Web/Wasm)
 
 ```sh
-zig build wasm -Dpath="graphics/examples/demo.zig" -Dgraphics -Drelease-safe
+zig build wasm -Dpath="graphics/examples/demo.zig" -Dgraphics -Doptimize=ReleaseSafe
 cd zig-out/wasm32-freestanding-musl/demo
 python3 -m http.server
 # Or "cosmic http ." if you have cosmic installed.

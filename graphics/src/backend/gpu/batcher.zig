@@ -1,5 +1,5 @@
 const std = @import("std");
-const Backend = @import("build_options").GraphicsBackend;
+const Backend = @import("graphics_options").GraphicsBackend;
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
@@ -236,7 +236,7 @@ pub const Batcher = struct {
         vk.assertSuccess(res);
         new.inner.host_materials_buf = host_materials_buf[0..new.inner.materials_buf.size/@sizeOf(graphics.Material)];
 
-        for (new.inner.batcher_frames) |*frame, i| {
+        for (new.inner.batcher_frames, 0..) |*frame, i| {
             const renderer_frame = renderer.frames[i];
             var host_cam_buf: *graphics.gpu.ShaderCamera = undefined;
             res = vk.mapMemory(new.inner.ctx.device, renderer_frame.u_cam_buf.mem, 0, renderer_frame.u_cam_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_cam_buf));

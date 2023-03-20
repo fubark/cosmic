@@ -1,5 +1,5 @@
 const std = @import("std");
-const build_options = @import("build_options");
+const build_options = @import("graphics_options");
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const unsupported = stdx.unsupported;
@@ -1678,7 +1678,7 @@ pub const GLTFscene = struct {
         // Spec says scene.nodes should be root nodes.
         const root_nodes = alloc.alloc(u32, scene.nodes_count) catch fatal();
         errdefer alloc.free(root_nodes);
-        for (cnodes) |node, i| {
+        for (cnodes, 0..) |node, i| {
             S.dupeNode(&nodes, &map, node);
             const id = map.get(node).?;
             root_nodes[i] = id;
@@ -1754,7 +1754,7 @@ pub const GLTFscene = struct {
                                 const res = cgltf.cgltf_accessor_read_float(time_accessor, i, &times[i], 1);
                                 try cgltf.checkTrue(res);
                             }
-                            for (times) |_, j| {
+                            for (times, 0..) |_, j| {
                                 // From secs to ms.
                                 times[j] *= 1000;
                             }
@@ -1925,7 +1925,7 @@ pub const GLTFnode = struct {
         if (node.children_count > 0) {
             const children = ctx.alloc.alloc(u32, node.children_count) catch fatal();
             const cchildren = node.children[0..node.children_count];
-            for (cchildren) |child, i| {
+            for (cchildren, 0..) |child, i| {
                 children[i] = ctx.map.get(child).?;
             }
             ret.children = children;
@@ -1959,7 +1959,7 @@ pub const GLTFnode = struct {
                 alloc.free(primitives);
             }
             const cprimitives = mesh.primitives[0..mesh.primitives_count];
-            for (cprimitives) |primitive, prim_idx| {
+            for (cprimitives, 0..) |primitive, prim_idx| {
                 primitives[prim_idx] = .{
                     .material = .{
                         .roughness = 0,
@@ -2174,7 +2174,7 @@ pub const GLTFnode = struct {
                 if (inv_mat_accessor.@"type" == cgltf.cgltf_type_mat4 and inv_mat_accessor.component_type == cgltf.cgltf_component_type_r_32f) {
                     const mesh_joints = alloc.alloc(MeshJoint, skin.joints_count) catch fatal();
                     const joints = skin.joints[0..skin.joints_count];
-                    for (joints) |joint_node, i| {
+                    for (joints, 0..) |joint_node, i| {
                         var mat: [16]f32 = undefined;
                         const res = cgltf.cgltf_accessor_read_float(skin.inverse_bind_matrices, i, &mat, 16);
                         if (res == 0) {
@@ -2340,7 +2340,7 @@ pub const AnimatedMesh = struct {
     }
 
     pub fn update(self: *AnimatedMesh, delta_ms: f32) void {
-        for (self.transition_markers) |*marker, i| outer: {
+        for (self.transition_markers, 0..) |*marker, i| outer: {
             const transition = self.anim.transitions[i];
 
             marker.cur_time_ms += delta_ms;
@@ -2352,7 +2352,7 @@ pub const AnimatedMesh = struct {
                 }
             }
 
-            for (transition.times) |time, idx| {
+            for (transition.times, 0..) |time, idx| {
                 if (marker.cur_time_ms <= time) {
                     marker.time_idx = @intCast(u32, idx-1);
                     const prev = transition.times[marker.time_idx];

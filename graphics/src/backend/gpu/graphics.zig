@@ -22,7 +22,7 @@ const tess2 = @import("tess2");
 const pt = lyon.initPt;
 const t = stdx.testing;
 const trace = stdx.debug.tracy.trace;
-const build_options = @import("build_options");
+const build_options = @import("graphics_options");
 const Backend = build_options.GraphicsBackend;
 
 const graphics = @import("../../graphics.zig");
@@ -1795,7 +1795,7 @@ pub const Graphics = struct {
         self.batcher.ensureUnusedBuffer(mesh.verts.len*2, mesh.verts.len*2);
         const vert_start = self.batcher.mesh.getNextIndexId();
         const norm_len = 1;
-        for (mesh.verts) |vert, i| {
+        for (mesh.verts, 0..) |vert, i| {
             var new_vert = vert;
             new_vert.setColor(Color.Blue);
             self.batcher.mesh.pushVertex(new_vert);
@@ -1881,7 +1881,7 @@ pub const Graphics = struct {
         const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
 
         // Apply animation.
-        for (amesh.transition_markers) |marker, i| {
+        for (amesh.transition_markers, 0..) |marker, i| {
             const tt = marker.time_t;
             const time_idx = marker.time_idx;
             const transition = amesh.anim.transitions[i];
@@ -1945,7 +1945,7 @@ pub const Graphics = struct {
                         self.batcher.beginAnim3D(tex);
                     }
                     const mat_idx = self.batcher.mesh.cur_mats_buf_size;
-                    for (node.skin) |joint, i| {
+                    for (node.skin, 0..) |joint, i| {
                         var xform = Transform.initRowMajor(joint.inv_bind_mat);
                         cur_id = joint.node_id;
                         while (cur_id != NullId) {
@@ -2536,7 +2536,7 @@ fn dumpPolygons(alloc: std.mem.Allocator, polys: []const []const Vec2) void {
     defer buf.deinit();
     const writer = buf.writer();
 
-    for (polys) |poly, i| {
+    for (polys, 0..) |poly, i| {
         std.fmt.format(writer, "polygon {} ", .{i}) catch unreachable;
         for (poly) |pt_| {
             std.fmt.format(writer, "{d:.2}, {d:.2},", .{pt_.x, pt_.y}) catch unreachable;

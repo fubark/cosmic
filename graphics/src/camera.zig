@@ -1,5 +1,5 @@
 const std = @import("std");
-const build_options = @import("build_options");
+const build_options = @import("graphics_options");
 const stdx = @import("stdx");
 const Vec2 = stdx.math.Vec2;
 const Vec3 = stdx.math.Vec3;
