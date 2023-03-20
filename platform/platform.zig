@@ -142,12 +142,14 @@ pub fn allocClipboardText(alloc: std.mem.Allocator) ![]const u8 {
     }
 }
 
-pub fn setClipboardText(str: if (IsWasm) []const u8 else [:0]const u8) !void {
+pub fn setClipboardText(alloc: std.mem.Allocator, str: []const u8) !void {
     if (IsWasm) {
         jsSetClipboardText(str.ptr, str.len);
     } else {
+        const cstr = try std.cstr.addNullByte(alloc, str);
+        defer alloc.free(cstr);
         sdl.ensureVideoInit() catch return error.Unknown;
-        const res = sdl.SDL_SetClipboardText(str);
+        const res = sdl.SDL_SetClipboardText(cstr);
         if (res != 0) {
             log.debug("unknown error: {} {s}", .{res, sdl.SDL_GetError()});
             return error.Unknown;
