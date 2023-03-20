@@ -25,7 +25,7 @@ pub fn Function(comptime Fn: type) type {
         inner: union {
             free: struct {
                 ctx: *anyopaque = undefined,
-                callFn: fn (*const anyopaque, *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn),
+                callFn: *const fn (*const anyopaque, *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn),
                 userFn: *const anyopaque,
             },
             closure: ClosureIface(Fn),
@@ -60,7 +60,7 @@ pub fn Function(comptime Fn: type) type {
             const gen = struct {
                 fn call(_: *const anyopaque, ptr: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
                     const ctx = stdx.ptrCastAlign(ContextPtr, ptr);
-                    return @call(.{}, func, .{ctx} ++ args);
+                    return @call(.auto, func, .{ctx} ++ args);
                 }
             };
             return .{
@@ -78,7 +78,7 @@ pub fn Function(comptime Fn: type) type {
         pub fn init(comptime func: anytype) FunctionT {
             const gen = struct {
                 fn call(_: *const anyopaque, _: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-                    return @call(.{}, func, args);
+                    return @call(.auto, func, args);
                 }
             };
             return .{

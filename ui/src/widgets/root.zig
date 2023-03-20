@@ -57,14 +57,14 @@ pub const Root = struct {
 
         // Build the overlay items.
         const base_ids = self.base_overlays.ids();
-        for (self.base_overlays.items()) |overlay, i| {
+        for (self.base_overlays.items(), 0..) |overlay, i| {
             const overlay_id = base_ids[i];
             self.appendOverlayFrame(c, overlay_id, overlay);
         }
         const base_frames = self.build_buf.items[0..self.base_overlays.size()];
 
         const top_ids = self.top_overlays.ids();
-        for (self.top_overlays.items()) |overlay, i| {
+        for (self.top_overlays.items(), 0..) |overlay, i| {
             const overlay_id = top_ids[i];
             self.appendOverlayFrame(c, overlay_id, overlay);
         }
@@ -252,10 +252,10 @@ const PopoverPlacement = enum {
 
 const OverlayDesc = struct {
     build_ctx: ?*anyopaque,
-    build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr,
+    build_fn: *const fn (?*anyopaque, *ui.BuildContext) ui.FramePtr,
 
     close_ctx: ?*anyopaque,
-    close_cb: ?fn (?*anyopaque) void,
+    close_cb: ?*const fn (?*anyopaque) void,
 
     overlay_type: OverlayType,
 
@@ -366,7 +366,7 @@ pub const PopoverOverlay = struct {
 
     /// Allow a custom post render. For child popovers that want to draw over the border.
     custom_post_render_ctx: ?*anyopaque,
-    custom_post_render: ?fn (?*anyopaque, ctx: *ui.RenderContext) void,
+    custom_post_render: ?*const fn (?*anyopaque, ctx: *ui.RenderContext) void,
 
     node: *ui.Node,
     pressed: bool,

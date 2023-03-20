@@ -36,10 +36,10 @@ pub const App = struct {
             u.Row(.{}, &.{
                 u.Padding(.{
                     .padding = 10,
-                    .pad_left = 30,
-                    .pad_right = 30, }, 
+                    .padLeft = 30,
+                    .padRight = 30, }, 
                     u.Text(.{
-                        .text = c.fmt("{}", .{self.counter}),
+                        .text = c.fmt("{}", .{self.counter}) catch stdx.fatal(),
                         .style = t_style,
                     }),
                 ),

@@ -96,7 +96,7 @@ pub const BuildContext = struct {
     pub fn funcExt(self: *BuildContext, ctx_ptr: anytype, comptime user_fn: anytype) Function(stdx.meta.FnAfterFirstParam(@TypeOf(user_fn))) {
         _ = self;
         const Params = comptime stdx.meta.FnParams(@TypeOf(user_fn));
-        if (Params[0].arg_type.? != @TypeOf(ctx_ptr)) {
+        if (Params[0].type.? != @TypeOf(ctx_ptr)) {
             @compileError("Expected first param to be: " ++ @typeName(@TypeOf(ctx_ptr)));
         }
         const InnerFn = stdx.meta.FnAfterFirstParam(@TypeOf(user_fn));
@@ -160,7 +160,7 @@ pub const BuildContext = struct {
             setWidgetProps(Widget, &widget_props, props);
             return self.createFrame(Widget, &widget_props, props);
         } else {
-            return self.createFrame(Widget, {}, props);
+            return self.createFrame(Widget, null, props);
         }
     }
 
@@ -385,9 +385,9 @@ pub const BuildContext = struct {
                     if (UserStyle == void) {
                         @compileError(@typeName(Widget) ++ " doesn't have styles.");
                     } else {
-                        if (f.field_type != UserStyle and !(@typeInfo(f.field_type) == .Pointer and std.meta.Child(f.field_type) != UserStyle) and 
-                            f.field_type != ?*const UserStyle) {
-                            @compileError(@typeName(Widget) ++ " style must be of type " ++ @typeName(UserStyle) ++ " or a pointer to it. " ++ @typeName(f.field_type));
+                        if (f.type != UserStyle and !(@typeInfo(f.type) == .Pointer and std.meta.Child(f.type) != UserStyle) and 
+                            f.type != ?*const UserStyle) {
+                            @compileError(@typeName(Widget) ++ " style must be of type " ++ @typeName(UserStyle) ++ " or a pointer to it. " ++ @typeName(f.type));
                         }
                     }
                     continue;
@@ -417,7 +417,7 @@ pub const BuildContext = struct {
         } else {
             inline for (std.meta.fields(ui.WidgetProps(Widget))) |Field| {
                 if (@hasField(BuildProps, Field.name)) {
-                    if (Field.field_type == ui.SlicePtr(u8) and comptime stdx.meta.CanCoalesceToSlice(u8, @TypeOf(@field(build_props, Field.name)))) {
+                    if (comptime Field.type == ui.SlicePtr(u8) and stdx.meta.CanCoalesceToSlice(u8, @TypeOf(@field(build_props, Field.name)))) {
                         @field(props, Field.name) = ui.SlicePtr(u8).initStatic(
                             @field(build_props, Field.name),
                         );
@@ -427,7 +427,7 @@ pub const BuildContext = struct {
                 } else {
                     if (Field.default_value) |def| {
                         // Set default value.
-                        @field(props, Field.name) = @ptrCast(*const Field.field_type, def).*;
+                        @field(props, Field.name) = stdx.ptrAlignCast(*const Field.type, def).*;
                     } else {
                         @compileError("Required field " ++ Field.name ++ " in " ++ @typeName(Widget));
                     }

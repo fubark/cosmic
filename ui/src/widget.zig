@@ -43,7 +43,7 @@ pub const NodeRef = struct {
 
 pub const BindNodeFunc = struct {
     ctx: ?*anyopaque,
-    func: fn (ctx: ?*anyopaque, node: *Node, bind: bool) void,
+    func: *const fn (ctx: ?*anyopaque, node: *Node, bind: bool) void,
 };
 
 pub const NodeRefMap = struct {
@@ -350,30 +350,30 @@ pub const Node = struct {
 pub const WidgetVTable = struct {
 
     /// Creates a new Widget on the heap and returns the pointer.
-    create: fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame) *anyopaque,
+    create: *const fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame) *anyopaque,
 
     /// Runs post init on an existing Widget.
-    postInit: fn (widget_ptr: *anyopaque, init_ctx: *ui.InitContext) void,
+    postInit: *const fn (widget_ptr: *anyopaque, init_ctx: *ui.InitContext) void,
 
     /// Updates the props on an existing Widget.
-    updateProps: fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *ui.UpdateContext) void,
+    updateProps: *const fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *ui.UpdateContext) void,
 
     /// Runs post update.
-    postUpdate: fn (node: *Node, ctx: *ui.UpdateContext) void,
+    postUpdate: *const fn (node: *Node, ctx: *ui.UpdateContext) void,
 
     /// Generates the frame for an existing Widget.
-    build: fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) ui.FramePtr,
+    build: *const fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) ui.FramePtr,
 
     /// Renders an existing Widget.
-    render: fn (node: *Node, render_ctx: *ui.RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
+    render: *const fn (node: *Node, render_ctx: *ui.RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
 
     /// Computes the layout size for an existing Widget and sets the relative positioning for it's child nodes.
-    layout: fn (widget_ptr: *anyopaque, ctx: *ui.LayoutContext) ui.LayoutSize,
+    layout: *const fn (widget_ptr: *anyopaque, ctx: *ui.LayoutContext) ui.LayoutSize,
 
     /// Destroys an existing Widget.
-    destroy: fn (mod: *ui.Module, node: *Node) void,
+    destroy: *const fn (mod: *ui.Module, node: *Node) void,
 
-    deinitFrame: fn (mod: *ui.Module, frame: ui.Frame) void,
+    deinitFrame: *const fn (mod: *ui.Module, frame: ui.Frame) void,
 
     name: []const u8,
 

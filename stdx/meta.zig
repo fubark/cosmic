@@ -40,17 +40,17 @@ pub fn FnParamAt(comptime Fn: type, comptime idx: u32) type {
     if (Params.len <= idx) {
         @compileError(std.fmt.comptimePrint("Expected {} params for function.", .{idx + 1}));
     }
-    return Params[idx].arg_type.?;
+    return Params[idx].type.?;
 }
 
 pub const FnParamsTuple = std.meta.ArgsTuple;
 
 pub fn FnParams(comptime Fn: type) []const std.builtin.Type.Fn.Param {
-    return @typeInfo(Fn).Fn.args;
+    return @typeInfo(Fn).Fn.params;
 }
 
 pub fn FnNumParams(comptime Fn: type) u32 {
-    return @typeInfo(Fn).Fn.args.len;
+    return @typeInfo(Fn).Fn.params.len;
 }
 
 pub fn FnReturn(comptime Fn: type) type {
@@ -62,7 +62,7 @@ pub fn FnWithPrefixParam(comptime Fn: type, comptime Param: type) type {
     const FnParam = std.builtin.Type.Fn.Param{
         .is_generic = false,
         .is_noalias = false,
-        .arg_type = Param,
+        .type = Param,
     };
     return @Type(.{
         .Fn = .{
@@ -71,7 +71,7 @@ pub fn FnWithPrefixParam(comptime Fn: type, comptime Param: type) type {
             .is_generic = false,
             .is_var_args = false,
             .return_type = FnReturn(Fn),
-            .args = &[_]std.builtin.Type.Fn.Param{FnParam} ++ @typeInfo(Fn).Fn.args,
+            .params = &[_]std.builtin.Type.Fn.Param{FnParam} ++ @typeInfo(Fn).Fn.params,
         },
     });
 }
@@ -85,13 +85,13 @@ pub fn FnAfterFirstParam(comptime Fn: type) type {
             .is_generic = false,
             .is_var_args = false,
             .return_type = FnReturn(Fn),
-            .args = &[_]std.builtin.Type.Fn.Param{} ++ @typeInfo(Fn).Fn.args[1..],
+            .params = &[_]std.builtin.Type.Fn.Param{} ++ @typeInfo(Fn).Fn.params[1..],
         },
     });
 }
 
 pub fn FieldType(comptime T: type, comptime Field: std.meta.FieldEnum(T)) type {
-    return std.meta.fieldInfo(T, Field).field_type;
+    return std.meta.fieldInfo(T, Field).type;
 }
 
 /// Generate a unique type id.

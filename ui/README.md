@@ -28,7 +28,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
-\* Static binary size. Compiled with -Drelease-safe.
+\* Static binary size. Compiled with -Doptimize=ReleaseSafe.
 
 \** Note for the Vulkan backend on macOS, you need to install MoltenVK. In a future release, the static lib will automatically be included. If you'd like to use OpenGL instead, enable it in cosmic/platform/backend.zig.
 
@@ -51,14 +51,13 @@ cd cosmic
 
 ## Run demo (Desktop)
 ```sh
-# If you are using the latest zig stage3 compiler, append "-fstage1" to the command.
-zig build run -Dpath="ui/examples/counter.zig" -Dgraphics -Drelease-safe
+zig build run -Dpath="ui/examples/counter.zig" -Dgraphics -Doptimize=ReleaseSafe
 ```
 
 ## Run demo (Web/Wasm)
 
 ```sh
-zig build wasm -Dpath="ui/examples/counter.zig" -Dgraphics -Drelease-safe
+zig build wasm -Dpath="ui/examples/counter.zig" -Dgraphics -Doptimize=ReleaseSafe
 cd zig-out/wasm32-freestanding-musl/counter
 python3 -m http.server
 # Or "cosmic http ." if you have cosmic installed.

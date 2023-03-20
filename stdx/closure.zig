@@ -7,7 +7,7 @@ const log = stdx.log.scoped(.closure);
 pub fn Closure(comptime Capture: type, comptime Fn: type) type {
     stdx.meta.assertFunctionType(Fn);
 
-    const FnPtr = stdx.meta.FnWithPrefixParam(Fn, Capture);
+    const NewFn = stdx.meta.FnWithPrefixParam(Fn, Capture);
 
     // The compiler crashes when a created @Type is not used. Declaring a dummy var somehow makes the compiler aware of it.
     var dummy: stdx.meta.FnParamsTuple(Fn) = undefined;
@@ -16,9 +16,9 @@ pub fn Closure(comptime Capture: type, comptime Fn: type) type {
         const Self = @This();
 
         capture: *Capture,
-        user_fn: FnPtr,
+        user_fn: *const NewFn,
 
-        pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: FnPtr) Self {
+        pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: *const NewFn) Self {
             if (@sizeOf(Capture) == 0) {
                 return .{
                     .capture = undefined,
@@ -83,8 +83,8 @@ pub fn ClosureIface(comptime Fn: type) type {
         vtable: *const VTable,
 
         const VTable = struct {
-            call: fn (capturePtr: *anyopaque, userFnPtr: *const anyopaque, args: Params) Return,
-            deinit: fn (capturePtr: *anyopaque, std.mem.Allocator) void,
+            call: *const fn (capturePtr: *anyopaque, userFnPtr: *const anyopaque, args: Params) Return,
+            deinit: *const fn (capturePtr: *anyopaque, std.mem.Allocator) void,
         };
 
         const ClosureIfaceT = @This();
@@ -95,13 +95,13 @@ pub fn ClosureIface(comptime Fn: type) type {
 
             const gen = struct {
                 fn call(capturePtr: *anyopaque, userFnPtr: *const anyopaque, args: Params) Return {
-                    const userFn = @ptrCast(UserFn, userFnPtr);
+                    const userFn = stdx.ptrAlignCast(UserFn, userFnPtr);
                     if (@sizeOf(CapturePtr) == 0) {
                         // *void
-                        return @call(.{}, userFn, .{{}} ++ args);
+                        return @call(.auto, userFn, .{{}} ++ args);
                     } else {
                         const captured = stdx.ptrCastAlign(CapturePtr, capturePtr);
-                        return @call(.{}, userFn, .{captured.*} ++ args);
+                        return @call(.auto, userFn, .{captured.*} ++ args);
                     }
                 }
                 fn deinit(capturePtr: *anyopaque, alloc: std.mem.Allocator) void {

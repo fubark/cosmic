@@ -422,13 +422,13 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
 
                     // Release ref counted props.
                     inline for (comptime std.meta.fields(Props)) |field| {
-                        if (field.field_type == ui.FramePtr) {
+                        if (field.type == ui.FramePtr) {
                             @field(props, field.name).destroy();
-                        } else if (field.field_type == ui.FrameListPtr) {
+                        } else if (field.type == ui.FrameListPtr) {
                             @field(props, field.name).destroy();
-                        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "SlicePtr")) {
+                        } else if (@typeInfo(field.type) == .Struct and @hasDecl(field.type, "SlicePtr")) {
                             @field(props, field.name).destroy();
-                        } else if (@typeInfo(field.field_type) == .Struct and @hasDecl(field.field_type, "Function")) {
+                        } else if (@typeInfo(field.type) == .Struct and @hasDecl(field.type, "Function")) {
                             @field(props, field.name).deinit(mod.build_ctx.dynamic_alloc);
                         }
                     }
@@ -1567,14 +1567,14 @@ pub const RenderContext = struct {
     // pub usingnamespace MixinContextReadOps(RenderContext);
 };
 
-inline fn WidgetStyleMods(comptime Widget: type) type {
+fn WidgetStyleMods(comptime Widget: type) type {
     return switch (Widget) {
         ui.widgets.ButtonT => ui.widgets.ButtonMods,
         else => void,
     };
 }
 
-pub inline fn WidgetComputedStyle(comptime Widget: type) type {
+pub fn WidgetComputedStyle(comptime Widget: type) type {
     if (@hasDecl(Widget, "ComputedStyle")) {
         return Widget.ComputedStyle;
     } else return void;
@@ -1776,8 +1776,8 @@ pub fn MixinContextFontOps(comptime Context: type) type {
     };
 }
 
-const BlurHandler = fn (node: *ui.Node, ctx: *CommonContext) void;
-const PasteHandler = fn (node: *ui.Node, ctx: *CommonContext, str: []const u8) void;
+const BlurHandler = *const fn (node: *ui.Node, ctx: *CommonContext) void;
+const PasteHandler = *const fn (node: *ui.Node, ctx: *CommonContext, str: []const u8) void;
 
 /// Ops that need an attached node.
 /// Requires Context.node and Context.common.
@@ -2364,7 +2364,7 @@ pub const ModuleCommon = struct {
 
     /// Style defaults.
     default_button_style: u.ButtonT.ComputedStyle,
-    default_update_button_style: fn (*u.ButtonT.ComputedStyle, u.ButtonMods) void,
+    default_update_button_style: *const fn (*u.ButtonT.ComputedStyle, u.ButtonMods) void,
     default_text_button_style: u.TextButtonT.ComputedStyle,
     default_icon_button_style: u.IconButtonT.ComputedStyle,
     default_text_style: u.TextT.ComputedStyle,
@@ -2399,7 +2399,7 @@ pub const ModuleCommon = struct {
 
     to_remove_nodes: std.ArrayListUnmanaged(*ui.Node),
 
-    context_provider: fn (key: u32) ?*anyopaque,
+    context_provider: *const fn (key: u32) ?*anyopaque,
 
     fn init(self: *ModuleCommon, alloc: std.mem.Allocator, mod: *Module, g: *graphics.Graphics) void {
         const S = struct {
@@ -2603,7 +2603,11 @@ pub const ModuleCommon = struct {
         };
     }
 
-    inline fn getCurrentStyleUpdateFuncDefault(self: *ModuleCommon, comptime Widget: type) fn (*WidgetComputedStyle(Widget), WidgetStyleMods(Widget)) void {
+    fn CurrentStyleUpdateFunc(comptime Widget: type) type {
+        return *const fn (*WidgetComputedStyle(Widget), WidgetStyleMods(Widget)) void;
+    }
+
+    fn getCurrentStyleUpdateFuncDefault(self: *ModuleCommon, comptime Widget: type) CurrentStyleUpdateFunc(Widget) {
         const Style = WidgetComputedStyle(Widget);
         return switch (Style) {
             u.ButtonT.ComputedStyle => self.default_update_button_style,
@@ -2612,7 +2616,7 @@ pub const ModuleCommon = struct {
     }
 
     fn cancelRemoveHandler(self: *ModuleCommon, event_t: EventType, node: *ui.Node) void {
-        for (self.to_remove_handlers.items) |ref, i| {
+        for (self.to_remove_handlers.items, 0..) |ref, i| {
             if (ref.node == node and ref.event_t == event_t) {
                 _ = self.to_remove_handlers.swapRemove(i);
                 break;
@@ -2629,7 +2633,7 @@ pub const ModuleCommon = struct {
                     const sub = self.node_hoverchange_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_hoverchange_map.remove(ref.node);
-                    for (self.hovered_nodes.items) |node, i| {
+                    for (self.hovered_nodes.items, 0..) |node, i| {
                         if (node == ref.node) {
                             _ = self.hovered_nodes.orderedRemove(i);
                             break;
@@ -2670,7 +2674,7 @@ pub const ModuleCommon = struct {
                     const sub = self.node_global_mouseup_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_global_mouseup_map.remove(ref.node);
-                    for (self.global_mouse_up_list.items) |node, i| {
+                    for (self.global_mouse_up_list.items, 0..) |node, i| {
                         if (node == ref.node) {
                             _ = self.global_mouse_up_list.orderedRemove(i);
                             break;
@@ -2681,7 +2685,7 @@ pub const ModuleCommon = struct {
                     const sub = self.node_global_mousemove_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_global_mousemove_map.remove(ref.node);
-                    for (self.global_mouse_move_list.items) |node, i| {
+                    for (self.global_mouse_move_list.items, 0..) |node, i| {
                         if (node == ref.node) {
                             _ = self.global_mouse_move_list.orderedRemove(i);
                             break;

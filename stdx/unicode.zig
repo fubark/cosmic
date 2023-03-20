@@ -56,7 +56,7 @@ pub const Utf16BeIterator = struct {
 // TODO: Check unicode spaces too.
 pub fn isSpace(cp: u21) bool {
     if (cp < 128) {
-        return std.ascii.isSpace(@intCast(u8, cp));
+        return std.ascii.isWhitespace(@intCast(u8, cp));
     }
     return false;
 }

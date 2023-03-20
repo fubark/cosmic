@@ -6,8 +6,12 @@ pub fn createModule(b: *std.build.Builder) *std.build.Module {
         .source_file = .{ .path = thisDir() ++ "/miniaudio.zig" },
         .dependencies = &.{},
     });
-    // step.addIncludePath(thisDir() ++ "/src");
     return mod;
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    step.addIncludePath(thisDir() ++ "/src");
+    step.addModule(name, mod);
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
