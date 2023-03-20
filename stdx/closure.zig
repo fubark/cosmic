@@ -41,9 +41,9 @@ pub fn Closure(comptime Capture: type, comptime Fn: type) type {
         pub fn call(self: *Self, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
             if (@sizeOf(Capture) == 0) {
                 // *void
-                return @call(.{}, self.user_fn, .{{}} ++ args);
+                return @call(.auto, self.user_fn, .{{}} ++ args);
             } else {
-                return @call(.{}, self.user_fn, .{self.capture.*} ++ args);
+                return @call(.auto, self.user_fn, .{self.capture.*} ++ args);
             }
         }
 
@@ -118,7 +118,7 @@ pub fn ClosureIface(comptime Fn: type) type {
             };
             return ClosureIfaceT{
                 // Check for *void.
-                .capturePtr = if (@sizeOf(CapturePtr) == 0) undefined else @ptrCast(*anyopaque, closure.capture),
+                .capturePtr = if (@sizeOf(CapturePtr) == 0) undefined else stdx.ptrAlignCast(*anyopaque, closure.capture),
                 .userFnPtr = closure.user_fn,
                 .vtable = &vtable,
             };
@@ -156,9 +156,9 @@ pub fn ClosureSimple(comptime Capture: type, comptime Param: type) type {
         const Self = @This();
 
         capture: *Capture,
-        user_fn: UserClosureFn(Capture, Param),
+        user_fn: *const UserClosureFn(Capture, Param),
 
-        pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: UserClosureFn(Capture, Param)) Self {
+        pub fn init(alloc: std.mem.Allocator, capture: Capture, user_fn: *const UserClosureFn(Capture, Param)) Self {
             if (@sizeOf(Capture) == 0) {
                 return .{
                     .capture = undefined,
@@ -209,8 +209,8 @@ pub fn ClosureSimpleIface(comptime Param: type) type {
         const Self = @This();
 
         capture_ptr: *anyopaque,
-        call_fn: fn (*const anyopaque, *anyopaque, Param) void,
-        deinit_fn: fn (std.mem.Allocator, *anyopaque) void,
+        call_fn: *const fn (*const anyopaque, *anyopaque, Param) void,
+        deinit_fn: *const fn (std.mem.Allocator, *anyopaque) void,
 
         // Also useful for equality comparison.
         user_fn: *const anyopaque,
@@ -220,7 +220,7 @@ pub fn ClosureSimpleIface(comptime Param: type) type {
             const UserFn = @TypeOf(closure.user_fn);
             const gen = struct {
                 fn call(user_fn_ptr: *const anyopaque, ptr: *anyopaque, arg: Param) void {
-                    const user_fn = @ptrCast(UserFn, user_fn_ptr);
+                    const user_fn = stdx.ptrAlignCast(UserFn, user_fn_ptr);
                     if (@sizeOf(CapturePtr) == 0) {
                         // *void
                         if (Param == void) {

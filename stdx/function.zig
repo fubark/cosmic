@@ -139,7 +139,7 @@ test "Function" {
 pub fn FunctionSimple(comptime Param: type) type {
     return struct {
         ctx: *anyopaque,
-        call_fn: fn (*const anyopaque, *anyopaque, Param) void,
+        call_fn: *const fn (*const anyopaque, *anyopaque, Param) void,
 
         // For closures.
         user_fn: *const anyopaque,

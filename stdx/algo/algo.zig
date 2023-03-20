@@ -1,5 +1,5 @@
 const std = @import("std");
-const stdx = @import("stdx");
+const stdx = @import("../stdx.zig");
 const t = stdx.testing;
 const walk = @import("walk.zig");
 const walk_iterator = @import("walk_iterator.zig");

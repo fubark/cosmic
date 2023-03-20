@@ -14,7 +14,7 @@ pub fn createModule(b: *std.build.Builder) *std.build.Module {
     return mod;
 }
 
-pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+pub fn addModuleIncludes(step: *std.build.CompileStep) void {
     step.addIncludePath(thisDir() ++ "/vendor");
     step.addIncludePath(thisDir() ++ "/include");
     step.addIncludePath(thisDir() ++ "/vendor/include");
@@ -22,6 +22,10 @@ pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build
         step.addIncludePath(thisDir() ++ "/../wasm/include");
     }
     // step.linkLibC();
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addModuleIncludes(step);
     step.addModule(name, mod);
 }
 

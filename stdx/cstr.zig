@@ -1,5 +1,5 @@
 const std = @import("std");
-const stdx = @import("stdx");
+const stdx = @import("stdx.zig");
 const t = stdx.testing;
 
 pub fn allocCStrings(alloc: std.mem.Allocator, strs: []const []const u8) ![]u8 {

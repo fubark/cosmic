@@ -1,9 +1,9 @@
 const std = @import("std");
 const t = std.testing;
 
-// Test suite for app and cscript.
+// Test suite for the app.
 test {
-    const cscript = @import("../cscript/cscript.zig");
-    t.refAllDecls(cscript);
-    _ = @import("../cscript/behavior_test.zig");
+    _ = @import("../app/behavior_test.zig");
+    _ = @import("../app/markdown.zig");
+    _ = @import("../app/ui.zig");
 }

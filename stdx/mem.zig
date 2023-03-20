@@ -1,6 +1,6 @@
 const std = @import("std");
 const ds = @import("ds/ds.zig");
-const stdx = @import("stdx");
+const stdx = @import("stdx.zig");
 const t = stdx.testing;
 const log = stdx.log.scoped(.mem);
 

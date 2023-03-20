@@ -20,9 +20,13 @@ pub fn createModule(b: *std.build.Builder, opts: Options) *std.build.Module {
     return mod;
 }
 
-pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+pub fn addModuleIncludes(step: *std.build.CompileStep) void {
     step.addIncludePath(thisDir() ++ "/vendor");
     // step.linkLibC();
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addModuleIncludes(step);
     step.addModule(name, mod);
 }
 

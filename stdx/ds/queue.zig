@@ -73,7 +73,7 @@ pub fn Queue(comptime T: type) type {
                 }
             }
             const prev_cap = self.buf.len;
-            self.buf = try self.alloc.reallocAtLeast(self.buf, better_cap);
+            self.buf = try self.alloc.realloc(self.buf, better_cap);
             if (self.head + self.len >= prev_cap) {
                 // List currently touches the end of prev capacity. Need to copy to new capacity.
                 const head_to_end = prev_cap - self.head;

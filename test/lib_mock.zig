@@ -71,6 +71,7 @@ export fn glBlendEquation() void {}
 export fn SDL_GL_DeleteContext() void {}
 export fn SDL_DestroyWindow() void {}
 export fn SDL_CaptureMouse() void {}
+export fn SDL_Quit() void {}
 
 export fn v8__Persistent__Reset() void {}
 export fn v8__Boolean__New() void {}
@@ -99,15 +100,26 @@ export fn v8__WeakCallbackInfo__GetParameter() void {}
 export fn curl_slist_free_all() void {}
 export fn v8__Promise__Resolver__New() void {}
 export fn v8__Promise__Resolver__GetPromise() void {}
-export fn uv_timer_init(loop: *uv.uv_loop_t, timer: *uv.uv_timer_t) c_int {
-    _ = loop;
-    _ = timer;
-    return 0;
-}
-export fn uv_async_send(async_: *uv.uv_async_t) c_int {
-    _ = async_;
-    return 0;
-}
+// export fn uv_timer_init(loop: *uv.uv_loop_t, timer: *uv.uv_timer_t) c_int {
+//     _ = loop;
+//     _ = timer;
+//     return 0;
+// }
+// export fn uv_async_send(async_: *uv.uv_async_t) c_int {
+//     _ = async_;
+//     return 0;
+// }
+// export fn uv_timer_start(handle: *uv.uv_timer_t, cb: uv.uv_timer_cb, timeout: u64, repeat: u64) c_int {
+//     _ = handle;
+//     _ = cb;
+//     _ = timeout;
+//     _ = repeat;
+//     return 0;
+// }
+// export fn uv_loop_init(loop: *uv.uv_loop_t) c_int {
+//     _ = loop;
+//     return 0;
+// }
 export fn TLS_server_method() void {}
 export fn SSL_CTX_new() void {}
 export fn OPENSSL_init_ssl() void {}
@@ -121,13 +133,6 @@ export fn h2o_get_alpn_protocols() void {}
 export fn h2o_ssl_register_alpn_protocols() void {}
 export fn v8__FunctionTemplate__GetFunction() void {}
 export fn v8__Function__NewInstance() void {}
-export fn uv_timer_start(handle: *uv.uv_timer_t, cb: uv.uv_timer_cb, timeout: u64, repeat: u64) c_int {
-    _ = handle;
-    _ = cb;
-    _ = timeout;
-    _ = repeat;
-    return 0;
-}
 export fn h2o_strdup() void {}
 export fn h2o_set_header_by_str() void {}
 export fn h2o_start_response() void {}
@@ -282,10 +287,6 @@ export fn h2o_httpclient_ctx_size() void {}
 export fn h2o_context_size() void {}
 export fn h2o_accept_ctx_size() void {}
 export fn h2o_socket_size() void {}
-export fn uv_loop_init(loop: *uv.uv_loop_t) c_int {
-    _ = loop;
-    return 0;
-}
 export fn uv_async_init() void {}
 export fn uv_run() void {}
 export fn curl_global_cleanup() void {}

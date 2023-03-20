@@ -1,8 +1,7 @@
 const std = @import("std");
 
-const window = @import("../../window.zig");
+const window = @import("window.zig");
 const Config = window.Config;
-const graphics = @import("../../graphics.zig");
 
 extern "graphics" fn jsSetCanvasBuffer(width: u32, height: u32) void;
 extern "graphics" fn jsBeginFrame() void;
@@ -15,7 +14,6 @@ pub const Window = struct {
     height: u32,
 
     alloc: std.mem.Allocator,
-    graphics: *graphics.Graphics,
 
     pub fn init(alloc: std.mem.Allocator, config: Config) !Self {
         var res: Self = .{
@@ -23,7 +21,6 @@ pub const Window = struct {
             .width = @intCast(u32, config.width),
             .height = @intCast(u32, config.height),
             .alloc = alloc,
-            .graphics = alloc.create(graphics.Graphics) catch unreachable,
         };
         jsSetCanvasBuffer(config.width, config.height);
         res.graphics.init(alloc);
@@ -42,9 +39,5 @@ pub const Window = struct {
 
     pub fn endFrame(self: Self) void {
         _ = self;
-    }
-
-    pub fn getGraphics(self: Self) *graphics.Graphics {
-        return self.graphics;
     }
 };

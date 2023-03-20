@@ -11,10 +11,14 @@ pub fn createModule(b: *std.build.Builder, stdx: *std.build.Module) *std.build.M
     return mod;
 }
 
-pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+pub fn addModuleIncludes(step: *std.build.CompileStep) void {
     // step.linkLibC();
     step.addIncludePath(thisDir() ++ "/vendor/include");
     step.addIncludePath(thisDir() ++ "/");
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addModuleIncludes(step);
     step.addModule(name, mod);
 }
 

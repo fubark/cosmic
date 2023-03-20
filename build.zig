@@ -65,7 +65,7 @@ var ssl: *std.build.Module = undefined;
 var mimalloc: *std.build.Module = undefined;
 var stbtt: *std.build.Module = undefined;
 var stbi: *std.build.Module = undefined;
-var stbperlin: *std.build.Module = undefined;
+var stb_perlin: *std.build.Module = undefined;
 var sdl: *std.build.Module = undefined;
 var uv: *std.build.Module = undefined;
 var gl: *std.build.Module = undefined;
@@ -143,28 +143,30 @@ pub fn build(b: *Builder) !void {
         .wsl = wsl,
     };
 
-    stdx = stdx_lib.createModule(b, .{
+    const stdx_opts = stdx_lib.Options{
         .enable_tracy = tracy,
-    });
+    };
+    stdx = stdx_lib.createModule(b, stdx_opts);
     sdl = sdl_lib.createModule(b, stdx);
     gl = gl_lib.createModule(b, .{
         .deps = .{
             .sdl = sdl,
         },
     });
-    platform = platform_lib.createModule(b, .{
+    const platform_opts = platform_lib.Options{
         .graphics_backend = ctx.graphics_backend,
         .deps = .{
             .sdl = sdl,
             .gl = gl,
             .stdx = stdx,
         },
-    });
+    };
+    platform = platform_lib.createModule(b, platform_opts);
     ssl = ssl_lib.createModule(b);
     mimalloc = mimalloc_lib.createModule(b);
     stbtt = stb_lib.createStbttModule(b);
     stbi = stb_lib.createStbiModule(b);
-    stbperlin = stb_lib.createStbPerlinModule(b);
+    stb_perlin = stb_lib.createStbPerlinModule(b);
     uv = uv_lib.createModule(b);
     maudio = maudio_lib.createModule(b);
     freetype = freetype_lib.createModule(b);
@@ -190,16 +192,18 @@ pub fn build(b: *Builder) !void {
             .platform = platform,
             .stbi = stbi,
             .sdl = sdl,
+            .stb_perlin = stb_perlin,
         },
     };
     graphics = graphics_lib.createModule(b, graphics_opts);
-    ui = ui_lib.createModule(b, .{
+    const ui_opts = ui_lib.Options{
         .deps = .{
             .graphics = graphics,
             .stdx = stdx,
             .platform = platform,
         },
-    });
+    };
+    ui = ui_lib.createModule(b, ui_opts);
     lyon = lyon_lib.createModule(b, link_lyon);
     tess2 = tess2_lib.createModule(b, link_tess2);
 
@@ -241,17 +245,22 @@ pub fn build(b: *Builder) !void {
     }
 
     {
-        const step = b.addLog("", .{});
-        if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
-            const gen_mac_libc = GenMacLibCStep.create(b, target);
-            step.step.dependOn(&gen_mac_libc.step);
-        }
-        var ctx_ = ctx;
-        ctx_.add_runtime_pkg = true;
-        const test_exe = ctx_.createTestExeStep();
-        const run_test = test_exe.run();
-        step.step.dependOn(&run_test.step);
-        b.step("test", "Run unit tests").dependOn(&step.step);
+        const step = b.step("test", "Run unit tests");
+
+        // if (builtin.os.tag == .macos and target.getOsTag() == .macos and !target.isNativeOs()) {
+        //     const gen_mac_libc = GenMacLibCStep.create(b, target);
+        //     step.step.dependOn(&gen_mac_libc.step);
+        // }
+        step.dependOn(&stdx_lib.createTestExe(b, target, optimize, stdx_opts).run().step);
+        step.dependOn(&platform_lib.createTestExe(b, target, optimize, platform_opts).run().step);
+        step.dependOn(&graphics_lib.createTestExe(b, target, optimize, graphics_opts).run().step);
+
+        var test_graphics_opts = graphics_opts;
+        test_graphics_opts.graphics_backend = .Test;
+        const test_graphics = graphics_lib.createModule(b, test_graphics_opts);
+        var test_ui_opts = ui_opts;
+        test_ui_opts.deps.graphics = test_graphics;
+        step.dependOn(&ui_lib.createTestExe(b, target, optimize, test_ui_opts).run().step);
     }
 
     {
@@ -682,7 +691,7 @@ const BuildContext = struct {
     }
 
     fn createTestExeStep(self: *BuildContext) *std.build.CompileStep {
-        const step = self.builder. addTest(.{
+        const step = self.builder.addTest(.{
             .name = "main_test",
             .kind = .test_exe,
             .root_source_file = .{ .path = "./test/main_test.zig" },
@@ -742,7 +751,7 @@ const BuildContext = struct {
         sdl_lib.addModule(step, "sdl", sdl);
         step.addModule("stbtt", stbtt);
         stb_lib.addStbiModule(step, "stbi", stbi);
-        step.addModule("stb_perlin", stbperlin);
+        step.addModule("stb_perlin", stb_perlin);
         freetype_lib.addModule(step, "freetype", freetype);
         gl_lib.addModule(step, "gl", gl);
         step.addModule("vk", vk);
@@ -889,7 +898,7 @@ const BuildContext = struct {
         });
         lib.addModule("stdx", stdx);
         gl_lib.addModule(lib, "gl", gl);
-        lib.addModule("uv", uv);
+        uv_lib.addModule(lib, "uv", uv);
         maudio_lib.addModule(lib, "miniaudio", maudio);
         step.linkLibrary(lib);
     }

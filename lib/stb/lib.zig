@@ -5,9 +5,13 @@ pub fn createStbPerlinModule(b: *std.build.Builder) *std.build.Module {
         .source_file = .{ .path = thisDir() ++ "/stb_perlin.zig" },
         .dependencies = &.{},
     });
-    // step.addIncludePath(thisDir() ++ "/vendor");
-    // step.linkLibC();
     return mod;
+}
+
+pub fn addStbPerlinModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    step.addIncludePath(thisDir() ++ "/vendor");
+    // step.linkLibC();
+    step.addModule(name, mod);
 }
 
 pub fn createStbttModule(b: *std.build.Builder) *std.build.Module {
@@ -28,8 +32,12 @@ pub fn createStbiModule(b: *std.build.Builder) *std.build.Module {
     return mod;
 }
 
-pub fn addStbiModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+pub fn addStbiModuleIncludes(step: *std.build.CompileStep) void {
     step.addIncludePath(thisDir() ++ "/vendor");
+}
+
+pub fn addStbiModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addStbiModuleIncludes(step);
     step.addModule(name, mod);
 }
 

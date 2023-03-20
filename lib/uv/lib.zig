@@ -10,9 +10,13 @@ pub fn createModule(b: *std.build.Builder) *std.build.Module {
         .source_file = .{ .path = thisDir() ++ "/uv.zig" },
         .dependencies = &.{},
     });
-    // step.addIncludePath(thisDir() ++ "/vendor/include");
-    // step.addIncludePath(thisDir() ++ "/");
     return mod;
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    step.addIncludePath(thisDir() ++ "/vendor/include");
+    step.addIncludePath(thisDir() ++ "/");
+    step.addModule(name, mod);
 }
 
 pub fn create(

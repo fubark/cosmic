@@ -75,35 +75,35 @@ pub const EventContext = struct {
 };
 
 pub fn KeyDownHandler(comptime Context: type) type {
-    return fn (Context, KeyDownEvent) void;
+    return *const fn (Context, KeyDownEvent) void;
 }
 
 pub fn KeyUpHandler(comptime Context: type) type {
-    return fn (Context, KeyUpEvent) void;
+    return *const fn (Context, KeyUpEvent) void;
 }
 
 pub fn MouseMoveHandler(comptime Context: type) type {
-    return fn (Context, MouseMoveEvent) void;
+    return *const fn (Context, MouseMoveEvent) void;
 }
 
 pub fn MouseDownHandler(comptime Context: type) type {
-    return fn (Context, MouseDownEvent) EventResult;
+    return *const fn (Context, MouseDownEvent) EventResult;
 }
 
 pub fn MouseUpHandler(comptime Context: type) type {
-    return fn (Context, MouseUpEvent) void;
+    return *const fn (Context, MouseUpEvent) void;
 }
 
 pub fn MouseWheelHandler(comptime Context: type) type {
-    return fn (Context, MouseWheelEvent) EventResult;
+    return *const fn (Context, MouseWheelEvent) EventResult;
 }
 
 pub fn HoverChangeHandler(comptime Context: type) type {
-    return fn (Context, HoverChangeEvent) void;
+    return *const fn (Context, HoverChangeEvent) void;
 }
 
 pub fn IntervalHandler(comptime Context: type) type {
-    return fn (Context, IntervalEvent) void;
+    return *const fn (Context, IntervalEvent) void;
 }
 
 pub const EventResult = enum(u1) {
