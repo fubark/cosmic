@@ -5,31 +5,29 @@ const uv = @import("../lib/uv/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "stdx",
-    .source = .{ .path = srcPath() ++ "/stdx.zig" },
+    .source = .{ .path = thisDir() ++ "/stdx.zig" },
 };
 
 pub const Options = struct {
     enable_tracy: bool = false,
 };
 
-pub fn getPackage(b: *std.build.Builder, opts: Options) std.build.Pkg {
-    const build_options = b.addOptions();
-    build_options.addOption(bool, "enable_tracy", opts.enable_tracy);
-    const build_options_pkg = build_options.getPackage("build_options");
+pub fn createModule(b: *std.build.Builder, opts: Options) *std.build.Module {
+    const bopts = b.addOptions();
+    bopts.addOption(bool, "enable_tracy", opts.enable_tracy);
+    const stdx_options = bopts.createModule();
 
-    var ret = pkg;
-    ret.dependencies = b.allocator.dupe(std.build.Pkg, &.{
-        curl.pkg, uv.pkg, build_options_pkg,
-    }) catch @panic("error");
-    return ret;
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/stdx.zig" },
+        .dependencies = &.{
+            .{ .name = "stdx_options", .module = stdx_options },
+        },
+    });
+    // curl.pkg, uv.pkg, 
+    // step.linkLibC();
+    return mod;
 }
 
-pub fn addPackage(step: *std.build.LibExeObjStep, opts: Options) void {
-    const final_pkg = getPackage(step.builder, opts);
-    step.addPackage(final_pkg);
+inline fn thisDir() []const u8 {
+    return comptime std.fs.path.dirname(@src().file) orelse unreachable;
 }
-
-fn srcPath() []const u8 {
-    return std.fs.path.dirname(@src().file) orelse unreachable;
-}
-

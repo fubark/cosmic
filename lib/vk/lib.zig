@@ -2,18 +2,15 @@ const std = @import("std");
 
 const sdl = @import("../sdl/lib.zig");
 
-pub const pkg = std.build.Pkg{
-    .name = "vk",
-    .source = .{ .path = srcPath() ++ "/vk.zig" },
-    .dependencies = &.{ sdl.pkg },
-};
-
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    new_pkg.dependencies = &.{ sdl.pkg };
-    step.addPackage(new_pkg);
-    step.addIncludePath(srcPath() ++ "/vendor/include");
-    step.linkLibC();
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/vk.zig" },
+        .dependencies = &.{},
+    });
+    // new_pkg.dependencies = &.{ sdl.pkg };
+    // step.addIncludePath(thisDir() ++ "/vendor/include");
+    // step.linkLibC();
+    return mod;
 }
 
 pub fn link(step: *std.build.LibExeObjStep) void {
@@ -31,6 +28,6 @@ pub fn link(step: *std.build.LibExeObjStep) void {
     }
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

@@ -89,7 +89,7 @@ const MaxLowerRangeCodes = 123;
 const LowerRangeMap = b: {
     var map: [MaxLowerRangeCodes]KeyCode = undefined;
 
-    for (map) |*it| {
+    for (&map) |*it| {
         it.* = .Unknown;
     }
     map[sdl.SDLK_UNKNOWN] = .Unknown;
@@ -108,10 +108,10 @@ const LowerRangeMap = b: {
     map[sdl.SDLK_BACKSLASH] = .Backslash;
     map[sdl.SDLK_RIGHTBRACKET] = .BracketRight;
     map[sdl.SDLK_BACKQUOTE] = .Backquote;
-    for (map[sdl.SDLK_0 .. sdl.SDLK_9 + 1]) |*it, i| {
+    for (map[sdl.SDLK_0 .. sdl.SDLK_9 + 1], 0..) |*it, i| {
         it.* = @intToEnum(KeyCode, @enumToInt(KeyCode.Digit0) + i);
     }
-    for (map[sdl.SDLK_a .. sdl.SDLK_z + 1]) |*it, i| {
+    for (map[sdl.SDLK_a .. sdl.SDLK_z + 1], 0..) |*it, i| {
         it.* = @intToEnum(KeyCode, @enumToInt(KeyCode.A) + i);
     }
 
@@ -128,12 +128,12 @@ const UpperRangeMap = b: {
         }
     };
 
-    for (map) |*it| {
+    for (&map) |*it| {
         it.* = .Unknown;
     }
     const offset = S.toUpperOffset;
 
-    for (map[offset(sdl.SDLK_F1) .. offset(sdl.SDLK_F12) + 1]) |*it, i| {
+    for (map[offset(sdl.SDLK_F1) .. offset(sdl.SDLK_F12) + 1], 0..) |*it, i| {
         it.* = @intToEnum(KeyCode, @enumToInt(KeyCode.F1) + i);
     }
     map[offset(sdl.SDLK_CAPSLOCK)] = .CapsLock;

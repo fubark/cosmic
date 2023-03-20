@@ -735,7 +735,7 @@ fn c_qsort(base: [*]u8, nmemb: usize, size: usize, c_compare: fn (*anyopaque, *a
         .c_compare = c_compare,
         .buf = base[0..nmemb*size],
     };
-    for (idxes) |_, i| {
+    for (idxes, 0..) |_, i| {
         idxes[i] = i;
     }
     std.sort.sort(u32, idxes, ctx, S.lessThan);
@@ -743,7 +743,7 @@ fn c_qsort(base: [*]u8, nmemb: usize, size: usize, c_compare: fn (*anyopaque, *a
     // Copy to temporary buffer.
     const temp = galloc.alloc(u8, nmemb * size) catch fatal();
     defer galloc.free(temp);
-    for (idxes) |idx, i| {
+    for (idxes, 0..) |idx, i| {
         std.mem.copy(u8, temp[i*size..i*size+size], ctx.buf[idx*size..idx*size+size]);
     }
     std.mem.copy(u8, ctx.buf, temp);

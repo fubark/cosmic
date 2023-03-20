@@ -1,15 +1,12 @@
 const std = @import("std");
 
-pub const pkg = std.build.Pkg{
-    .name = "mimalloc",
-    .source = .{ .path = srcPath() ++ "/mimalloc.zig" },
-    .dependencies = &.{},
-};
-
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    step.addPackage(new_pkg);
-    step.addIncludePath(srcPath() ++ "/vendor/include");
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/mimalloc.zig" },
+        .dependencies = &.{},
+    });
+    // step.addIncludePath(thisDir() ++ "/vendor/include");
+    return mod;
 }
 
 const BuildOptions = struct {
@@ -18,10 +15,12 @@ const BuildOptions = struct {
 pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
     _ = opts;
     const b = step.builder;
-    const lib = b.addStaticLibrary("mimalloc", null);
-    lib.setTarget(step.target);
-    lib.setBuildMode(step.build_mode);
-    lib.addIncludePath(srcPath() ++ "/vendor/include");
+    const lib = step.builder.addStaticLibrary(.{
+        .name = "mimalloc",
+        .target = step.target,
+        .optimize = step.optimize,
+    });
+    lib.addIncludePath(thisDir() ++ "/vendor/include");
     lib.linkLibC();
     // lib.disable_sanitize_c = true;
 
@@ -29,7 +28,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
     // c_flags.append("-D_GNU_SOURCE=1") catch @panic("error");
     if (step.target.getOsTag() == .windows) {
     }
-    if (step.build_mode == .Debug) {
+    if (step.optimize == .Debug) {
         // For debugging:
         // c_flags.append("-O0") catch @panic("error");
         // if (step.target.getCpuArch().isWasm()) {
@@ -55,11 +54,11 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
         "/vendor/src/stats.c",
     }) catch @panic("error");
     for (sources.items) |src| {
-        lib.addCSourceFile(b.fmt("{s}{s}", .{srcPath(), src}), c_flags.items);
+        lib.addCSourceFile(b.fmt("{s}{s}", .{thisDir(), src}), c_flags.items);
     }
     step.linkLibrary(lib);
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

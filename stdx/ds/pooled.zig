@@ -139,7 +139,7 @@ fn PooledHandleListExt(comptime Id: type, comptime T: type, comptime RC: bool) t
                 const free_head = self.id_gen.next_ids.head;
                 const free_len = self.id_gen.next_ids.count;
                 const src = free_buf[free_head..free_head+free_len];
-                for (src) |free_id, idx| {
+                for (src, 0..) |free_id, idx| {
                     if (free_id == id) {
                         if (idx == 0) {
                             self.id_gen.next_ids.discard(1);

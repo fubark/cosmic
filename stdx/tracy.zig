@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const enable = @import("build_options").enable_tracy;
+const enable = @import("stdx_options").enable_tracy;
 
 extern fn ___tracy_emit_zone_begin_callstack(
     srcloc: *const ___tracy_source_location_data,

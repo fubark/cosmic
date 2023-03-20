@@ -1,6 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
-const build_options = @import("build_options");
+const build_options = @import("platform_options");
 const Backend = build_options.GraphicsBackend;
 
 const window_sdl = @import("window_sdl.zig");

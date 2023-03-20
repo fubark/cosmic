@@ -2,17 +2,15 @@ const std = @import("std");
 
 const stdx = @import("../../stdx/lib.zig");
 
-pub const pkg = std.build.Pkg{
-    .name = "jolt",
-    .source = .{ .path = srcPath() ++ "/jolt.zig" },
-    .dependencies = &.{ stdx.pkg },
-};
-
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    step.addPackage(new_pkg);
-    step.addIncludePath(srcPath() ++ "/vendor");
-    step.addIncludePath(srcPath() ++ "/");
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/jolt.zig" },
+        .dependencies = &.{},
+    });
+    // .dependencies = &.{ stdx.pkg },
+    // step.addIncludePath(thisDir() ++ "/vendor");
+    // step.addIncludePath(thisDir() ++ "/");
+    return mod;
 }
 
 const BuildOptions = struct {
@@ -20,12 +18,14 @@ const BuildOptions = struct {
     enable_simd: bool = true,
 };
 
-pub fn createTest(b: *std.build.Builder, target: std.zig.CrossTarget, mode: std.builtin.Mode, opts: BuildOptions) *std.build.LibExeObjStep {
-    const exe = b.addExecutable("test-jolt", null);
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
-    exe.addIncludePath(srcPath() ++ "/vendor/UnitTests");
-    exe.addIncludePath(srcPath() ++ "/vendor");
+pub fn createTest(b: *std.build.Builder, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode, opts: BuildOptions) *std.build.LibExeObjStep {
+    const exe = b.addExecutable(.{
+        .name = "test-jolt",
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.addIncludePath(thisDir() ++ "/vendor/UnitTests");
+    exe.addIncludePath(thisDir() ++ "/vendor");
     exe.linkLibCpp();
 
     buildAndLink(exe, opts);
@@ -97,31 +97,33 @@ pub fn createTest(b: *std.build.Builder, target: std.zig.CrossTarget, mode: std.
         "/vendor/UnitTests/UnitTestFramework.cpp",
     }) catch @panic("error");
     for (sources.items) |src| {
-        exe.addCSourceFile(b.fmt("{s}{s}", .{srcPath(), src}), c_flags.items);
+        exe.addCSourceFile(b.fmt("{s}{s}", .{thisDir(), src}), c_flags.items);
     }
 
     // Turns out UnitTestFramework generates the main and sets up the default allocator.
     // c_flags.clearRetainingCapacity();
     // c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
     // c_flags.appendSlice(&.{ "-DDOCTEST_CONFIG_IMPLEMENT_WITH_MAIN=1" }) catch @panic("error");
-    // exe.addCSourceFile(b.fmt("{s}/doctest.cpp", .{srcPath()}), c_flags.items);
+    // exe.addCSourceFile(b.fmt("{s}/doctest.cpp", .{thisDir()}), c_flags.items);
 
     return exe;
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
     const b = step.builder;
-    const lib = b.addStaticLibrary("jolt", null);
-    lib.setTarget(step.target);
-    lib.setBuildMode(step.build_mode);
-    lib.addIncludePath(srcPath() ++ "/vendor");
+    const lib = b.addStaticLibrary(.{
+        .name = "jolt",
+        .target = step.target,
+        .optimize = step.optimize,
+    });
+    lib.addIncludePath(thisDir() ++ "/vendor");
     lib.linkLibCpp();
 
     var c_flags = std.ArrayList([]const u8).init(b.allocator);
     c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
     // Since the TempAllocator does allocations aligned by 16bytes, data structures that use JPH_CACHE_LINE_SIZE should also be aligned by 16bytes.
     c_flags.append("-DJPH_CACHE_LINE_SIZE=16") catch @panic("error");
-    if (step.build_mode == .Debug) {
+    if (step.optimize == .Debug) {
         c_flags.append("-DJPH_ENABLE_ASSERTS=1") catch @panic("error");
         // For debugging:
         // c_flags.append("-O0") catch @panic("error");
@@ -238,14 +240,14 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: BuildOptions) void {
         "/cjolt.cpp",
     }) catch @panic("error");
     for (sources.items) |src| {
-        lib.addCSourceFile(b.fmt("{s}{s}", .{srcPath(), src}), c_flags.items);
+        lib.addCSourceFile(b.fmt("{s}{s}", .{thisDir(), src}), c_flags.items);
     }
     if (!opts.multi_threaded) {
-        lib.addCSourceFile(b.fmt("{s}/vendor/Jolt/atomic.cpp", .{srcPath()}), c_flags.items);
+        lib.addCSourceFile(b.fmt("{s}/vendor/Jolt/atomic.cpp", .{thisDir()}), c_flags.items);
     }
     step.linkLibrary(lib);
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

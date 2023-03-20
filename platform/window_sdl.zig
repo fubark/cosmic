@@ -1,5 +1,5 @@
 const std = @import("std");
-const build_options = @import("build_options");
+const build_options = @import("platform_options");
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
 const t = stdx.testing;
@@ -593,7 +593,7 @@ fn queryQueueFamily(alloc: std.mem.Allocator, device: vk.VkPhysicalDevice, surfa
         .present_family = null,
     };
 
-    for (families) |family, idx| {
+    for (families, 0..) |family, idx| {
         if (family.queueCount > 0 and family.queueFlags & vk.VK_QUEUE_GRAPHICS_BIT != 0) {
             new.graphics_family = @intCast(u32, idx);
         }

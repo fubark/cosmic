@@ -77,7 +77,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnQuit(self: *EventDispatcher, handler: OnQuitHandler) void {
-        for (self.quit_cbs.items) |it, idx| {
+        for (self.quit_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.quit_cbs.orderedRemove(idx);
             }
@@ -89,7 +89,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnKeyDown(self: *EventDispatcher, handler: OnKeyDownHandler) void {
-        for (self.keydown_cbs.items) |it, idx| {
+        for (self.keydown_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.keydown_cbs.orderedRemove(idx);
             }
@@ -101,7 +101,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnKeyUp(self: *EventDispatcher, handler: OnKeyUpHandler) void {
-        for (self.keyup_cbs.items) |it, idx| {
+        for (self.keyup_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.keyup_cbs.orderedRemove(idx);
             }
@@ -113,7 +113,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnMouseDown(self: *EventDispatcher, handler: OnMouseDownHandler) void {
-        for (self.mousedown_cbs.items) |it, idx| {
+        for (self.mousedown_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.mousedown_cbs.orderedRemove(idx);
             }
@@ -125,7 +125,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnMouseUp(self: *EventDispatcher, handler: OnMouseUpHandler) void {
-        for (self.mouseup_cbs.items) |it, idx| {
+        for (self.mouseup_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.mouseup_cbs.orderedRemove(idx);
             }
@@ -137,7 +137,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnMouseMove(self: *EventDispatcher, handler: OnMouseMoveHandler) void {
-        for (self.mousemove_cbs.items) |it, idx| {
+        for (self.mousemove_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.mousemove_cbs.orderedRemove(idx);
             }
@@ -149,7 +149,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnMouseScroll(self: *EventDispatcher, handler: OnMouseScrollHandler) void {
-        for (self.mousescroll_cbs.items) |it, idx| {
+        for (self.mousescroll_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.mousescroll_cbs.orderedRemove(idx);
             }
@@ -161,7 +161,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnWindowResize(self: *EventDispatcher, handler: OnWindowResizeHandler) void {
-        for (self.winresize_cbs.items) |it, idx| {
+        for (self.winresize_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.winresize_cbs.orderedRemove(idx);
             }
@@ -173,7 +173,7 @@ pub const EventDispatcher = struct {
     }
 
     pub fn removeOnFetchResult(self: *EventDispatcher, handler: OnFetchResultHandler) void {
-        for (self.fetchresult_cbs.items) |it, idx| {
+        for (self.fetchresult_cbs.items, 0..) |it, idx| {
             if (it.cb == handler) {
                 self.fetchresult_cbs.orderedRemove(idx);
             }

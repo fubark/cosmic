@@ -1,29 +1,29 @@
 const std = @import("std");
 
-pub const pkg = std.build.Pkg{
-    .name = "tess2",
-    .source = .{ .path = srcPath() ++ "/tess2.zig" },
-};
-
-pub const dummy_pkg = std.build.Pkg{
-    .name = "tess2",
-    .source = .{ .path = srcPath() ++ "/tess2_dummy.zig" },
-};
-
-pub fn addPackage(step: *std.build.LibExeObjStep, link_tess2: bool) void {
-    if (link_tess2) {
-        step.addIncludePath(srcPath() ++ "/vendor");
-        step.addPackage(pkg);
+pub fn createModule(b: *std.build.Builder, link_lyon: bool) *std.build.Module {
+    if (link_lyon) {
+        const mod = b.createModule(.{
+            .source_file = .{ .path = thisDir() ++ "/tess2.zig" },
+            .dependencies = &.{},
+        });
+        // step.addIncludePath(thisDir() ++ "/vendor");
+        return mod;
     } else {
-        step.addPackage(dummy_pkg);
+        const mod = b.createModule(.{
+            .source_file = .{ .path = thisDir() ++ "/tess2_dummy.zig" },
+            .dependencies = &.{},
+        });
+        return mod;
     }
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     const b = step.builder;
-    const lib = b.addStaticLibrary("tess2", null);
-    lib.setTarget(step.target);
-    lib.setBuildMode(step.build_mode);
+    const lib = step.builder.addStaticLibrary(.{
+        .name = "tess2",
+        .target = step.target,
+        .optimize = step.optimize,
+    });
 
     const c_flags = &[_][]const u8{
     };
@@ -39,15 +39,15 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     };
 
     for (c_files) |file| {
-        const path = b.fmt("{s}/vendor/Source/{s}", .{ srcPath(), file });
+        const path = b.fmt("{s}/vendor/Source/{s}", .{ thisDir(), file });
         lib.addCSourceFile(path, c_flags);
     }
 
-    lib.addIncludePath(srcPath() ++ "/vendor/Include");
+    lib.addIncludePath(thisDir() ++ "/vendor/Include");
     lib.linkLibC();
     step.linkLibrary(lib);
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

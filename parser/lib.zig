@@ -4,7 +4,7 @@ const stdx = @import("../stdx/lib.zig");
 
 pub const pkg = std.build.Pkg{
     .name = "parser",
-    .path = .{ .path = srcPath() ++ "/parser.zig" },
+    .path = .{ .path = thisDir() ++ "/parser.zig" },
 };
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
@@ -13,6 +13,6 @@ pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(new_pkg);
 }
 
-fn srcPath() []const u8 {
+fn thisDir() []const u8 {
     return std.fs.path.dirname(@src().file) orelse unreachable;
 }
