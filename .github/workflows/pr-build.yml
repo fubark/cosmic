@@ -20,16 +20,16 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - host: ubuntu-20.04
+          - host: ubuntu-22.04
             target: x86_64-linux-gnu
             mode: release
-          - host: macos-11
+          - host: macos-12
             target: x86_64-macos-none
             mode: release
-          - host: macos-11
+          - host: macos-12
             target: aarch64-macos-none
             mode: release
-          - host: windows-2019
+          - host: windows-2022
             target: x86_64-windows-gnu
             mode: release
           # - host: windows-2019
@@ -40,17 +40,18 @@ jobs:
         ${{ fromJson('{
           "x86_64-windows-gnu": "-Dtarget=x86_64-windows-gnu -Dcpu=baseline",
           "x86_64-linux-gnu": "-Dtarget=x86_64-linux-gnu -Dcpu=baseline",
-          "x86_64-macos-none": "-Dtarget=x86_64-macos.10.13-none -Dcpu=baseline",
-          "aarch64-macos-none": "-Dtarget=aarch64-macos.11-none -Dcpu=baseline",
+          "x86_64-macos-none": "-Dtarget=x86_64-macos.12-none -Dcpu=baseline",
+          "aarch64-macos-none": "-Dtarget=aarch64-macos.12-none -Dcpu=baseline",
         }')[matrix.config.target] }}
       BUILD_HOST: ${{ matrix.config.host }}
       BUILD_TARGET: ${{ matrix.config.target }}
       BUILD_MODE: ${{ matrix.config.mode }}
       BIN_EXT: ${{ contains(matrix.config.target, 'windows') && '.exe' || '' }}
-      ZIG_MODE_FLAG: ${{ (matrix.config.mode == 'release' && '-Drelease-safe') || '' }}
+      ZIG_MODE_FLAG: ${{ (matrix.config.mode == 'release' && '-Doptimize=ReleaseSafe') || '' }}
+      ZIG_VERSION: 0.11.0-dev.1797+d3c9bfada
     steps:
       - name: Install Linux deps.
-        if: env.BUILD_HOST == 'ubuntu-20.04' && env.BUILD_TARGET == 'x86_64-linux-gnu'
+        if: env.BUILD_HOST == 'ubuntu-22.04' && env.BUILD_TARGET == 'x86_64-linux-gnu'
         run: |
           sudo add-apt-repository -y "deb http://archive.ubuntu.com/ubuntu `lsb_release -sc` main universe restricted multiverse"
           sudo apt-get update -y -qq
@@ -63,22 +64,20 @@ jobs:
           #submodules: recursive
 
       - name: Install zig.
-        uses: goto-bus-stop/setup-zig@v1
-        with:
-          version: master
-          # version: 0.9.0
-
-      - name: Get version.
-        if: env.BUILD_HOST == 'ubuntu-20.04' || env.BUILD_HOST == 'macos-11'
+        if: env.BUILD_HOST == 'ubuntu-22.04'
         run: |
-          zig build version -fstage1 2>&1 | tee version
-          echo "BUILD_VERSION=$(cat version)" >> $GITHUB_ENV
+          wget -c https://ziglang.org/builds/zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz -O - | tar -xJ --strip-components=1 -C /usr/local/bin
 
-      - name: Get version. (windows)
-        if: env.BUILD_HOST == 'windows-2019'
+      - name: Install zig.
+        if: env.BUILD_HOST == 'macos-12'
         run: |
-          zig build version -fstage1 > version 2>&1
-          echo "BUILD_VERSION=$(cat version)" >> $env:GITHUB_ENV
+          wget -c https://ziglang.org/builds/zig-macos-x86_64-${{ env.ZIG_VERSION }}.tar.xz -O - | tar -xJ --strip-components=1 -C /usr/local/bin
+          xcode-select --print-path
+          
+      - name: Install zig.
+        if: env.BUILD_HOST == 'windows-2022'
+        run: |
+          wget -c https://ziglang.org/builds/zig-windows-x86_64-0.11.0-dev.1465+d64dd75e3.zip -O - | tar -J --strip-components=1 -C /usr/local/bin
 
       - name: Cache.
         # Don't cache for windows, since there are issues with subsequent builds. Check to re-enable this later.
@@ -97,21 +96,14 @@ jobs:
       - name: Get extras.
         run: zig build get-extras -fstage1 ${{ (github.event.inputs.deps_rev_override && format('-Ddeps-rev="{0}"', github.event.inputs.deps_rev_override)) || '' }}
 
-      # - name: Get prebuilt v8.
-      #   run: zig build get-v8-lib ${{ env.ZIG_TARGET_FLAG }}
-
-      # # Will fetch zig-v8 if missing.
-      # - name: Generate js API supplement.
-      #   run: zig build gen -Darg="api-js" -Darg="runtime/snapshots/gen_api.js" -Dfetch
-
       # Test core does not build external libs. It's nice to surface problems with the codebase first before doing a full build.
       - name: Test core.
         if: env.BUILD_TARGET != 'aarch64-macos-none'
-        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch -fstage1
+        run: zig build test ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -Dfetch
 
       - name: Test app.
         if: env.BUILD_TARGET != 'aarch64-macos-none' && env.BUILD_TARGET != 'x86_64-windows-gnu'
-        run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }} -fstage1
+        run: zig build test-app ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
 
       # - name: Test behavior.
       #   if: env.BUILD_TARGET != 'aarch64-macos-none'
@@ -119,7 +111,3 @@ jobs:
 
       # - name: Build.
       #   run: zig build cosmic ${{ env.ZIG_MODE_FLAG }} ${{ env.ZIG_TARGET_FLAG }}
-
-      # - name: Test js behavior.
-      #   if: env.BUILD_TARGET != 'aarch64-macos-none'
-      #   run: ./zig-out/${{ env.BUILD_TARGET }}/main/main${{ env.BIN_EXT }} test test/js/test.js
