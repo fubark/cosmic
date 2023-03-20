@@ -30,9 +30,9 @@ jobs:
           - host: ubuntu-22.04
             target: x86_64-linux-gnu
             mode: release
-          - host: macos-12
-            target: x86_64-macos-none
-            mode: release
+          # - host: macos-12
+          #   target: x86_64-macos-none
+          #   mode: release
           - host: macos-12
             target: aarch64-macos-none
             mode: release
@@ -87,12 +87,13 @@ jobs:
       - name: Install zig.
         if: env.BUILD_HOST == 'ubuntu-22.04'
         run: |
-          wget -c https://ziglang.org/builds/zig-linux-x86_64-0.11.0-dev.1465+d64dd75e3.tar.xz -O - | tar -xJ --strip-components=1 -C /usr/local/bin
+          wget -c https://ziglang.org/builds/zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz -O - | tar -xJ --strip-components=1 -C /usr/local/bin
 
       - name: Install zig.
         if: env.BUILD_HOST == 'macos-12'
         run: |
-          wget -c https://ziglang.org/builds/zig-macos-x86_64-0.11.0-dev.1465+d64dd75e3.tar.xz -O - | tar -xJ --strip-components=1 -C /usr/local/bin
+          wget -c https://ziglang.org/builds/zig-macos-x86_64-${{ env.ZIG_VERSION }}.tar.xz -O - | tar -xJ --strip-components=1 -C /usr/local/bin
+          xcode-select --print-path
 
       - name: Install zig.
         if: env.BUILD_HOST == 'windows-2022'
