@@ -92,7 +92,7 @@ pub const App = struct {
                     }),
                     u.Row(.{}, &.{
                         u.Text(.{
-                            .text = c.fmt("{d:.0}ms", .{self.progress_ms}),
+                            .text = c.fmt("{d:.0}ms", .{self.progress_ms}) catch stdx.fatal(),
                             .style = t_style2,
                         }),
                     }),

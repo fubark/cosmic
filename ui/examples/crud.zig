@@ -144,11 +144,11 @@ pub const App = struct {
         return u.Center(.{},
             u.Sized(.{ .width = 600, .height = 500 }, 
                 u.Column(.{}, &.{
-                    u.Padding(.{ .padding = 0, .pad_bottom = 20 },
+                    u.Padding(.{ .padding = 0, .padBottom = 20 },
                         u.Row(.{}, &.{
                             u.Padding(.{ .padding = 10 },
                                 u.Text(.{
-                                    .text = c.fmt("Search: ({} Entries)", .{self.buf.items.len}),
+                                    .text = c.fmt("Search: ({} Entries)", .{self.buf.items.len}) catch stdx.fatal(),
                                     .style = t_style,
                                 }),
                             ),
