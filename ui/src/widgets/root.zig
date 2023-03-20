@@ -138,7 +138,7 @@ pub const Root = struct {
         }
     }
 
-    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, opts: PopoverOptions) !OverlayId {
+    pub fn showPopover(self: *Root, src_widget: *ui.Node, build_ctx: ?*anyopaque, build_fn: *const fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, opts: PopoverOptions) !OverlayId {
         const desc = OverlayDesc{
             .overlay_type = .Popover,
             .build_ctx = build_ctx,
@@ -159,7 +159,7 @@ pub const Root = struct {
     }
 
     /// Modals always appear on top of everything.
-    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, opts: ModalOptions) !OverlayId {
+    pub fn showModal(self: *Root, build_ctx: ?*anyopaque, build_fn: *const fn (?*anyopaque, *ui.BuildContext) ui.FramePtr, opts: ModalOptions) !OverlayId {
         return try self.top_overlays.add(.{
             .overlay_type = .Modal,
             .build_ctx = build_ctx,
@@ -230,12 +230,12 @@ pub const Root = struct {
 
 const ModalOptions = struct {
     close_ctx: ?*anyopaque = null,
-    close_cb: ?fn (?*anyopaque) void = null,
+    close_cb: ?*const fn (?*anyopaque) void = null,
 };
 
 const PopoverOptions = struct {
     close_ctx: ?*anyopaque = null,
-    close_cb: ?fn (?*anyopaque) void = null,
+    close_cb: ?*const fn (?*anyopaque) void = null,
     closeAfterMouseLeave: bool = false,
     closeAfterMouseClick: bool = false,
     placement: PopoverPlacement = .auto,

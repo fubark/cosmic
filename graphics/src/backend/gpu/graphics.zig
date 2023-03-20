@@ -325,11 +325,11 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => {
                 gl.scissor(
-                    @floatToInt(c_int, rect.x),
+                    @floatToInt(c_int, rect.x * self.dpr),
                     // clip-y starts at bottom.
-                    @floatToInt(c_int, @intToFloat(f32, self.height) - (rect.y + rect.height) + 1),
-                    @floatToInt(c_int, rect.width),
-                    @floatToInt(c_int, rect.height - 1)
+                    @floatToInt(c_int, self.dpr * (@intToFloat(f32, self.height) - (rect.y + rect.height))) + 1,
+                    @floatToInt(c_int, rect.width * self.dpr),
+                    @floatToInt(c_int, rect.height * self.dpr) - 1,
                 );
                 self.inner.renderer.setScissorTest(true);
             },
@@ -484,8 +484,8 @@ pub const Graphics = struct {
         // Convert to buffer coords on cpu.
         if (Backend == .OpenGL and IsWasm) {
             // Use bottom left coords.
-            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.buf_height) - start_y)).mul(self.dpr);
-            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.buf_height) - end_y)).mul(self.dpr);
+            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.height) - start_y)).mul(self.dpr);
+            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.height) - end_y)).mul(self.dpr);
             self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
         } else {
             const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, start_y)).mul(self.dpr);
