@@ -1,3 +1,4 @@
+const std = @import("std");
 const stdx = @import("stdx");
 const Function = stdx.Function;
 const graphics = @import("graphics");
@@ -5,67 +6,165 @@ const Color = graphics.Color;
 const platform = @import("platform");
 
 const ui = @import("../ui.zig");
-const w = ui.widgets;
+const u = ui.widgets;
 const log = stdx.log.scoped(.button);
 
-pub const TextButton = struct {
-    props: struct {
+const NullId = std.math.maxInt(u32);
+
+pub const IconButton = struct {
+    props: *const struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
-        bg_color: Color = Color.init(220, 220, 220, 255),
-        bg_pressed_color: Color = Color.Gray.darker(),
-        border_size: f32 = 1,
-        border_color: Color = Color.Gray,
-        corner_radius: f32 = 0,
-        text: []const u8 = "",
+        icon: ui.IconT,
+        halign: ui.HAlign = .center,
     },
 
-    pub fn build(self: *TextButton, _: *ui.BuildContext) ui.FrameId {
-        return w.Button(.{
+    pub const Style = struct {
+        bgColor: ?Color = null,
+        border: ?u.BorderStyle = null,
+        padding: ?f32 = null,
+    };
+
+    pub const ComputedStyle = struct {
+        bgColor: Color = Color.init(220, 220, 220, 255),
+        border: ?u.BorderStyle = null,
+        padding: f32 = 10,
+    };
+
+    pub fn build(self: *IconButton, ctx: *ui.BuildContext) ui.FramePtr {
+        var body: ui.FramePtr = .{};
+
+        const style = ctx.getStyle(IconButton);
+        if (self.props.icon.image_id != NullId) {
+            body = u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint, .width = self.props.icon.size, .height = self.props.icon.size });
+        }
+
+        const b_style = u.ButtonStyle{
+            .bgColor = style.bgColor,
+            .border = style.border,
+        };
+        return u.Button(.{
             .onClick = self.props.onClick,
-            .bg_color = self.props.bg_color,
-            .bg_pressed_color = self.props.bg_pressed_color,
-            .border_size = self.props.border_size,
-            .border_color = self.props.border_color,
-            .corner_radius = self.props.corner_radius },
-            w.Padding(.{ .padding = 10 },
-                w.Text(.{
-                    .text = self.props.text,
-                }),
+            .halign = self.props.halign,
+            .style = b_style, },
+            u.Padding(.{ .padding = style.padding },
+                body,
             ),
         );
     }
 };
 
-/// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
-pub const Button = struct {
-    props: struct {
+pub const TextButton = struct {
+    props: *const struct {
         onClick: Function(fn (ui.MouseUpEvent) void) = .{},
-        bg_color: Color = Color.init(220, 220, 220, 255),
-        bg_pressed_color: Color = Color.Gray.darker(),
-        border_size: f32 = 1,
-        border_color: Color = Color.Gray,
-        corner_radius: f32 = 0,
-        child: ui.FrameId = ui.NullFrameId,
-        halign: ui.HAlign = .Center,
+        text: []const u8 = "",
+        icon: ui.IconT = ui.Icon(NullId, .{}),
     },
 
-    pressed: bool,
+    pub const Style = struct {
+        border: ?u.BorderStyle = null,
+        bgColor: ?Color = null,
+        padding: ?f32 = null,
+        text: ?u.TextStyle = null,
+        halign: ?ui.HAlign = null,
+    };
 
-    pub fn build(self: *Button, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub const ComputedStyle = struct {
+        border: ?u.BorderStyle = null,
+        bgColor: Color = Color.init(220, 220, 220, 255),
+        padding: f32 = 10,
+        text: ?u.TextStyle = null,
+        halign: ui.HAlign = .center,
+    };
+
+    pub fn build(self: *TextButton, ctx: *ui.BuildContext) ui.FramePtr {
+        var body: ui.FramePtr = undefined;
+
+        const style = ctx.getStyle(TextButton);
+        const text_style = ctx.getStylePropPtr(style, "text");
+        if (self.props.icon.image_id == NullId) {
+            body = u.Text(.{
+                .text = self.props.text,
+                .style = text_style,
+            });
+        } else {
+            body = u.Row(.{ .valign = .center }, &.{
+                u.Image(.{ .imageId = self.props.icon.image_id, .tint = self.props.icon.tint, .width = self.props.icon.size, .height = self.props.icon.size }),
+                u.Text(.{
+                    .text = self.props.text,
+                    .style = text_style,
+                }),
+            });
+        }
+
+        const b_style = u.ButtonStyle{
+            .bgColor = style.bgColor,
+            .border = style.border,
+        };
+        return u.Button(.{
+            .onClick = self.props.onClick,
+            .halign = style.halign,
+            .style = b_style, },
+            u.Padding(.{ .padding = style.padding },
+                body,
+            ),
+        );
+    }
+};
+
+pub const ButtonMods = packed union {
+    inner: packed struct {
+        pressed: bool,
+    },
+    value: u8,
+};
+
+/// Starts with child's size. If no child widget, it will use a default size. Then grows to minimum constraints.
+pub const Button = struct {
+    props: *const struct {
+        onClick: Function(fn (ui.MouseUpEvent) void) = .{},
+        child: ui.FramePtr = .{},
+        halign: ui.HAlign = .center,
+        valign: ui.VAlign = .center,
+    },
+
+    mods: ButtonMods = ButtonMods{ .value = 0 },
+
+    pub const Style = struct {
+        bgColor: ?Color = null,
+        border: ?u.BorderStyle = null,
+    };
+
+    pub const ComputedStyle = struct {
+        bgColor: Color = Color.init(220, 220, 220, 255),
+        border: ?u.BorderStyle = null,
+
+        pub fn defaultUpdate(style: *ComputedStyle, mods: ButtonMods) void {
+            if (mods.inner.pressed) {
+                style.bgColor = Color.Gray.darker();
+            }
+        }
+    };
+
+    pub fn build(self: *Button, ctx: *ui.BuildContext) ui.FramePtr {
+        const style = ctx.getStyle(Button);
+        
+        var b_style = u.BorderStyle{};
+        ctx.overrideUserStyle(u.BorderT, &b_style, style.border);
+        b_style.bgColor = style.bgColor;
+        return u.Border(.{ .style = b_style }, self.props.child.dupe());
     }
 
     pub fn init(self: *Button, c: *ui.InitContext) void {
-        self.pressed = false;
+        _ = self;
         c.setMouseDownHandler(c.node, handleMouseDownEvent);
         c.setMouseUpHandler(c.node, handleMouseUpEvent);
     }
 
     fn handleMouseUpEvent(node: *ui.Node, e: ui.MouseUpEvent) void {
         var self = node.getWidget(Button);
-        if (e.val.button == .Left) {
-            if (self.pressed) {
-                self.pressed = false;
+        if (e.val.button == .left) {
+            if (self.mods.inner.pressed) {
+                self.mods.inner.pressed = false;
                 if (self.props.onClick.isPresent()) {
                     self.props.onClick.call(.{ e });
                 }
@@ -75,9 +174,10 @@ pub const Button = struct {
 
     fn handleMouseDownEvent(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(Button);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             e.ctx.requestFocus(.{ .onBlur = onBlur });
-            self.pressed = true;
+            self.mods.inner.pressed = true;
+            // TODO: trigger compute style.
             return .stop;
         }
         return .default;
@@ -86,47 +186,52 @@ pub const Button = struct {
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
         _ = ctx;
         var self = node.getWidget(Button);
-        self.pressed = false;
+        self.mods.inner.pressed = false;
     }
 
     pub fn layout(self: *Button, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
-        if (self.props.child != ui.NullFrameId) {
-            const child_node = c.getNode().children.items[0];
-            const child_size = c.computeLayoutWithMax(child_node, cstr.max_width, cstr.max_height);
-            var res = child_size;
-            res.growToMin(cstr);
+        if (self.props.child.isPresent()) {
+            const border_node = c.getNode().children.items[0];
+            var border_size = c.computeLayoutWithMax(border_node, cstr.max_width, cstr.max_height);
+            const child_node = border_node.children.items[0];
+            const child_size = child_node.layout;
+            const border_extra_width = border_size.width - child_size.width;
+            const border_extra_height = border_size.height - child_size.height;
+            
+            // Make border decorator just as big.
+            border_size.growToMin(cstr);
+            c.setLayout2(border_node, 0, 0, border_size.width, border_size.height);
+
+            // Align child in the border decorator.
+            var x: f32 = 0;
+            var y: f32 = 0;
+
             switch (self.props.halign) {
-                .Left => c.setLayout(child_node, ui.Layout.initWithSize(0, 0, child_size)),
-                .Center => c.setLayout(child_node, ui.Layout.initWithSize((res.width - child_size.width)/2, 0, child_size)),
-                .Right => c.setLayout(child_node, ui.Layout.initWithSize(res.width - child_size.width, 0, child_size)),
+                .left => {},
+                .center => {
+                    x = (border_size.width - border_extra_width - child_size.width)/2;
+                },
+                .right => {
+                    x = border_size.width - border_extra_width - child_size.width;
+                },
             }
-            return res;
+            switch (self.props.valign) {
+                .top => {},
+                .center => {
+                    y = (border_size.height - border_extra_height - child_size.height)/2;
+                },
+                .bottom => {
+                    y = border_size.height - border_extra_height - child_size.height;
+                },
+            }
+            c.setLayout2(child_node, x, y, child_size.width, child_size.height);
+
+            return border_size;
         } else {
             var res = ui.LayoutSize.init(150, 40);
             res.growToMin(cstr);
             return res;
-        }
-    }
-
-    pub fn render(self: *Button, ctx: *ui.RenderContext) void {
-        const bounds = ctx.getAbsBounds();
-        const g = ctx.getGraphics();
-        if (!self.pressed) {
-            g.setFillColor(self.props.bg_color);
-        } else {
-            g.setFillColor(self.props.bg_pressed_color);
-        }
-        if (self.props.corner_radius > 0) {
-            ctx.fillRoundBBox(bounds, self.props.corner_radius);
-            g.setLineWidth(self.props.border_size);
-            g.setStrokeColor(self.props.border_color);
-            ctx.drawRoundBBox(bounds, self.props.corner_radius);
-        } else {
-            ctx.fillBBox(bounds);
-            g.setLineWidth(self.props.border_size);
-            g.setStrokeColor(self.props.border_color);
-            ctx.drawBBox(bounds);
         }
     }
 };

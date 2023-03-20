@@ -99,7 +99,7 @@ pub const WriterIface = struct {
         const Ptr = @TypeOf(writer_ptr);
         const Gen = struct {
             fn write_(ptr_: *anyopaque, data: []const u8) anyerror!usize {
-                const self = stdx.mem.ptrCastAlign(Ptr, ptr_);
+                const self = stdx.ptrCastAlign(Ptr, ptr_);
                 return self.write(data);
             }
         };

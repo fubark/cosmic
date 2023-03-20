@@ -746,7 +746,7 @@ pub const cs_http = struct {
 
         const S = struct {
             fn onSuccess(ptr: *anyopaque, resp: stdx.http.Response) void {
-                const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
+                const ctx = stdx.ptrCastAlign(*RuntimeValue(PromiseId), ptr);
                 const pid = ctx.inner;
                 if (detailed) {
                     runtime.resolvePromise(ctx.rt, pid, resp);
@@ -763,7 +763,7 @@ pub const cs_http = struct {
             }
 
             fn onCurlFailure(ptr: *anyopaque, curle_err: u32) void {
-                const ctx = stdx.mem.ptrCastAlign(*RuntimeValue(PromiseId), ptr).*;
+                const ctx = stdx.ptrCastAlign(*RuntimeValue(PromiseId), ptr).*;
                 const cs_err = switch (curle_err) {
                     curl.CURLE_COULDNT_CONNECT => error.ConnectFailed,
                     curl.CURLE_PEER_FAILED_VERIFICATION => error.CertVerify,
@@ -937,7 +937,7 @@ pub const cs_http = struct {
                     promise_id: PromiseId,
                 };
                 fn onDeinit(ptr: *anyopaque, _: ResourceId) void {
-                    const ctx = stdx.mem.ptrCastAlign(*Context, ptr);
+                    const ctx = stdx.ptrCastAlign(*Context, ptr);
                     runtime.resolvePromise(ctx.rt, ctx.promise_id, ctx.rt.js_true);
                     ctx.rt.alloc.destroy(ctx);
                 }
@@ -1039,7 +1039,7 @@ pub const cs_core = struct {
     }
 
     inline fn printInternal(info: v8.FunctionCallbackInfo, comptime DevMode: bool, comptime Dump: bool) void {
-        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, DevMode, Dump);
     }
 
@@ -1082,14 +1082,14 @@ pub const cs_core = struct {
     /// @param args
     pub fn puts(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, false, false);
         rt.env.printFmt("\n", .{});
     }
 
     pub fn puts_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, true, false);
         if (DevModeToStdout) {
             rt.env.printFmt("\n", .{});
@@ -1101,14 +1101,14 @@ pub const cs_core = struct {
     /// @param args
     pub fn dump(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, false, true);
         rt.env.printFmt("\n", .{});
     }
 
     pub fn dump_DEV(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
         const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+        const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
         printInternal2(rt, info, true, true);
         if (DevModeToStdout) {
             rt.env.printFmt("\n", .{});
@@ -2140,7 +2140,7 @@ pub const cs_worker = struct {
 
 fn reportAsyncTestFailure(data: FuncData, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
-    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
+    const rt = stdx.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
     const test_name = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
     defer rt.alloc.free(test_name);

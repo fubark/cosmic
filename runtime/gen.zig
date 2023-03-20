@@ -49,8 +49,8 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
 
             // RT handle is either data or the first field of data.
-            const rt = if (is_data_rt) stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue())
-                else stdx.mem.ptrCastAlign(*RuntimeContext, info.getData().castTo(v8.Object).getInternalField(0).castTo(v8.External).get());
+            const rt = if (is_data_rt) stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue())
+                else stdx.ptrCastAlign(*RuntimeContext, info.getData().castTo(v8.Object).getInternalField(0).castTo(v8.External).get());
 
             const iso = rt.isolate;
             const ctx = rt.getContext();
@@ -142,7 +142,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         const handle = rt.resources.getNoCheck(res_id);
                         if (!handle.deinited) {
                             @field(native_args, Field.name) = Field.field_type{
-                                .res = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
+                                .res = stdx.ptrCastAlign(Ptr, handle.ptr),
                                 .res_id = res_id,
                                 .obj = info.getThis(),
                             };
@@ -158,7 +158,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         const handle = rt.weak_handles.getNoCheck(handle_id);
                         if (handle.tag != .Null) {
                             @field(native_args, Field.name) = Field.field_type{
-                                .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
+                                .ptr = stdx.ptrCastAlign(Ptr, handle.ptr),
                                 .id = handle_id,
                                 .obj = this,
                             };
@@ -172,7 +172,7 @@ pub fn genJsFunc(comptime native_fn: anytype, comptime opts: GenJsFuncOptions) v
                         const Ptr = comptime stdx.meta.FieldType(Field.field_type, .ptr);
                         const ptr = info.getData().castTo(v8.Object).getInternalField(1).castTo(v8.External).get();
                         @field(native_args, Field.name) = Field.field_type{
-                            .ptr = stdx.mem.ptrCastAlign(Ptr, ptr),
+                            .ptr = stdx.ptrCastAlign(Ptr, ptr),
                         };
                     },
                     .ThisPtr => {
@@ -392,7 +392,7 @@ pub fn genJsGetter(comptime native_cb: anytype) v8.AccessorNameGetterCallback {
     const gen = struct {
         fn get(_: ?*const v8.Name, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
-            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
             const iso = rt.isolate;
             const ctx = rt.context;
 
@@ -436,7 +436,7 @@ pub fn genJsSetter(comptime native_cb: anytype) v8.AccessorNameSetterCallback {
     const gen = struct {
         fn set(_: ?*const v8.Name, value: ?*const anyopaque, raw_info: ?*const v8.C_PropertyCallbackInfo) callconv(.C) void {
             const info = v8.PropertyCallbackInfo.initFromV8(raw_info);
-            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
             const iso = rt.isolate;
             const ctx = rt.context;
 
@@ -472,7 +472,7 @@ pub fn genJsFuncGetValue(comptime native_val: anytype) v8.FunctionCallback {
     const gen = struct {
         fn cb(raw_info: ?*const v8.C_FunctionCallbackInfo) callconv(.C) void {
             const info = v8.FunctionCallbackInfo.initFromV8(raw_info);
-            const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getExternalValue());
+            const rt = stdx.ptrCastAlign(*RuntimeContext, info.getExternalValue());
             const iso = rt.isolate;
 
             var hscope: v8.HandleScope = undefined;

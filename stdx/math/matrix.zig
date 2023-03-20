@@ -264,7 +264,7 @@ test "invert3x3" {
         0, 0, 1,
     };
     const act = mul3x3_3x3(inv, a);
-    for (act) |it, i| {
+    for (act, 0..) |it, i| {
         try t.eqApproxEps(it, exp[i]);
     }
 }
@@ -417,7 +417,7 @@ test "invert4x4" {
         0, 0, 0, 1,
     };
     const act = mul4x4_4x4(inv, a);
-    for (act) |it, i| {
+    for (act, 0..) |it, i| {
         try t.eqApproxEps(it, exp[i]);
     }
 }

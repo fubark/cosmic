@@ -16,7 +16,7 @@ const NullId = std.math.maxInt(u32);
 
 /// Handles a single line of text input.
 pub const TextField = struct {
-    props: struct {
+    props: *const struct {
         bg_color: Color = Color.White,
         text_color: Color = Color.Black,
         focused_border_color: Color = Color.Blue,
@@ -49,11 +49,11 @@ pub const TextField = struct {
         self.node = c.node;
     }
 
-    pub fn deinit(self: *TextField, _: std.mem.Allocator) void {
+    pub fn deinit(self: *TextField, _: *ui.DeinitContext) void {
         self.buf.deinit();
     }
 
-    pub fn build(self: *TextField, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *TextField, c: *ui.BuildContext) ui.FramePtr {
         return w.Padding(.{ .padding = self.props.padding },
             c.build(TextFieldInner, .{
                 .bind = &self.inner,
@@ -162,7 +162,7 @@ pub const TextField = struct {
                 } else {
                     self.buf.removeChar(inner.caret_idx-1);
                 }
-                // self.postLineUpdate(self.caret_line);
+                // self.postLineUpdate(self.caretLoc.lineIdx);
                 inner.caret_idx -= 1;
                 inner.keepCaretFixedInView();
                 inner.resetCaretAnim();
@@ -200,7 +200,7 @@ pub const TextField = struct {
                 } else {
                     self.buf.insertCodepoint(inner.caret_idx, ch) catch @panic("error");
                 }
-                // self.postLineUpdate(self.caret_line);
+                // self.postLineUpdate(self.caretLoc.lineIdx);
                 inner.caret_idx += 1;
                 inner.keepCaretInView();
                 inner.resetCaretAnim();
@@ -233,13 +233,13 @@ pub const TextField = struct {
         if (c.isFocused() and self.props.focused_show_border) {
             g.setStrokeColor(self.props.focused_border_color);
             g.setLineWidth(2);
-            c.drawBBox(bounds);
+            c.strokeBBoxInward(bounds);
         }
     }
 };
 
 pub const TextFieldInner = struct {
-    props: struct {
+    props: *const struct {
         text_color: Color = Color.Black,
         font_size: f32 = 20,
         font_id: graphics.FontId = NullId,
@@ -274,7 +274,7 @@ pub const TextFieldInner = struct {
         self.node = c.node;
     }
 
-    pub fn postPropsUpdate(self: *TextFieldInner) void {
+    pub fn postPropsUpdate(self: *TextFieldInner, _: *ui.UpdateContext) void {
         // Make sure caret_idx is in bounds.
         if (self.caret_idx > self.props.text.len) {
             self.caret_idx = @intCast(u32, self.props.text.len);

@@ -15,6 +15,10 @@ pub const BitArrayList = struct {
         self.buf.deinit();
     }
 
+    pub fn ensureUnusedCapacity(self: *BitArrayList, cap: usize) !void {
+        try self.buf.ensureUnusedCapacity(cap);
+    }
+
     pub fn clearRetainingCapacity(self: *BitArrayList) void {
         self.buf.clearRetainingCapacity();
     }

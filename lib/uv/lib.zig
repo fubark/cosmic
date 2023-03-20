@@ -1,30 +1,34 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const pkg = std.build.Pkg{
-    .name = "uv",
-    .source = .{ .path = srcPath() ++ "/uv.zig" },
-};
-
 pub const Options = struct {
     lib_path: ?[]const u8 = null,
 };
 
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    step.addPackage(pkg);
-    step.addIncludePath(srcPath() ++ "/vendor/include");
-    step.addIncludePath(srcPath() ++ "/");
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/uv.zig" },
+        .dependencies = &.{},
+    });
+    return mod;
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    step.addIncludePath(thisDir() ++ "/vendor/include");
+    step.addIncludePath(thisDir() ++ "/");
+    step.addModule(name, mod);
 }
 
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
-    mode: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
 ) !*std.build.LibExeObjStep {
-
-    const lib = b.addStaticLibrary("uv", null);
-    lib.setTarget(target);
-    lib.setBuildMode(mode);
+    const lib = b.addStaticLibrary(.{
+        .name = "uv",
+        .target = target,
+        .optimize = optimize,
+    });
 
     const alloc = b.allocator;
     var c_flags = std.ArrayList([]const u8).init(alloc);
@@ -128,7 +132,7 @@ pub fn create(
     }
 
     for (c_files.items) |file| {
-        const path = b.fmt("{s}/vendor/{s}", .{ srcPath(), file });
+        const path = b.fmt("{s}/vendor/{s}", .{ thisDir(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
@@ -155,7 +159,7 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
     if (opts.lib_path) |path| {
         linkLibPath(step, path);
     } else {
-        const lib = create(step.builder, step.target, step.build_mode) catch unreachable;
+        const lib = create(step.builder, step.target, step.optimize) catch unreachable;
         linkLib(step, lib);
     }
 }
@@ -177,10 +181,10 @@ fn linkDeps(step: *std.build.LibExeObjStep) void {
     }
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ thisDir(), rel_path }) catch unreachable;
 }

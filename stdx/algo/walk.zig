@@ -370,9 +370,9 @@ pub fn ReverseAddToBuffer(comptime Node: type) type {
 
 fn QueueIface(comptime Node: type) type {
     return struct {
-        begin_add_node_fn: fn (*@This(), u32) void,
-        add_node_fn: fn (*@This(), Node) void,
-        add_nodes_fn: fn (*@This(), []const Node) void,
+        begin_add_node_fn: *const fn (*@This(), u32) void,
+        add_node_fn: *const fn (*@This(), Node) void,
+        add_nodes_fn: *const fn (*@This(), []const Node) void,
 
         // When using addNode, a size is required if you want the order natural order to be FIFO.
         // You are then expected to supply that many nodes with addNode.
@@ -391,7 +391,7 @@ fn QueueIface(comptime Node: type) type {
 }
 
 fn UserVisit(comptime Config: WalkerConfig, comptime Context: type, comptime Node: type) type {
-    return fn (*VisitContext(Config), Context, Node) void;
+    return *const fn (*VisitContext(Config), Context, Node) void;
 }
 
 pub fn VisitContext(comptime Config: WalkerConfig) type {
@@ -421,7 +421,7 @@ pub fn VisitContext(comptime Config: WalkerConfig) type {
 }
 
 fn UserWalker(comptime Context: type, comptime Node: type) type {
-    return fn (*WalkerContext(Node), Context, Node) void;
+    return *const fn (*WalkerContext(Node), Context, Node) void;
 }
 
 pub fn WalkerContext(comptime Node: type) type {
@@ -480,8 +480,8 @@ pub fn Walker(comptime Context: type, comptime Node: type) type {
 
 pub fn WalkerIface(comptime Node: type) type {
     return struct {
-        walk_fn: fn (*@This(), node: Node) void,
-        set_queuer_fn: fn (*@This(), queuer: *QueueIface(Node)) void,
+        walk_fn: *const fn (*@This(), node: Node) void,
+        set_queuer_fn: *const fn (*@This(), queuer: *QueueIface(Node)) void,
 
         pub fn walk(self: *@This(), node: Node) void {
             self.walk_fn(self, node);

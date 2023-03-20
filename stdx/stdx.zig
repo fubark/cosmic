@@ -29,7 +29,6 @@ pub const Function = function.Function;
 pub const FunctionSimple = function.FunctionSimple;
 const callback = @import("callback.zig");
 pub const Callback = callback.Callback;
-pub const IndexSlice = ds.IndexSlice;
 
 // Common utils.
 pub const panic = debug.panic;
@@ -42,3 +41,14 @@ pub inline fn unsupported() noreturn {
 pub inline fn fatal() noreturn {
     panic("error");
 }
+
+pub const Stack = ds.Stack;
+
+const utils = @import("utils.zig");
+pub const Box = utils.Box;
+pub const SizedBox = utils.SizedBox;
+pub const SizedPtr = utils.SizedPtr;
+pub const IndexSlice = utils.IndexSlice;
+pub const Pair = utils.Pair;
+pub const ptrCastAlign = utils.ptrCastAlign;
+pub const ptrAlignCast = utils.ptrCastAlign;

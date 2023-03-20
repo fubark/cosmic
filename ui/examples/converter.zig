@@ -5,16 +5,16 @@ const stdx = @import("stdx");
 const graphics = @import("graphics");
 const Color = graphics.Color;
 const ui = @import("ui");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const helper = @import("helper.zig");
 const log = stdx.log.scoped(.main);
 
 pub const App = struct {
-    tc_field: ui.WidgetRef(w.TextFieldT),
-    tf_field: ui.WidgetRef(w.TextFieldT),
+    tc_field: ui.WidgetRef(u.TextFieldT),
+    tf_field: ui.WidgetRef(u.TextFieldT),
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onChangeTc(self_: *App, text: []const u8) void {
                 const tc = std.fmt.parseFloat(f32, text) catch return;
@@ -25,28 +25,31 @@ pub const App = struct {
                 self_.tc_field.getWidget().setValueFmt("{d:.2}", .{ (tf - 32) * 5 / 9 });
             }
         };
-        return w.Center(.{}, 
-            w.Row(.{}, &.{
-                w.TextField(.{
+        const t_style = u.TextStyle{
+            .color = Color.White,
+        };
+        return u.Center(.{}, 
+            u.Row(.{}, &.{
+                u.TextField(.{
                     .bind = &self.tc_field,
                     .width = 200,
                     .onChangeEnd = c.funcExt(self, S.onChangeTc),
                 }),
-                w.Padding(.{}, 
-                    w.Text(.{
+                u.Padding(.{}, 
+                    u.Text(.{
                         .text = "Celsius =",
-                        .color = Color.White,
+                        .style = t_style,
                     }),
                 ),
-                w.TextField(.{
+                u.TextField(.{
                     .bind = &self.tf_field,
                     .width = 200,
                     .onChangeEnd = c.funcExt(self, S.onChangeTf),
                 }),
-                w.Padding(.{}, 
-                    w.Text(.{
+                u.Padding(.{}, 
+                    u.Text(.{
                         .text = "Fahrenheit",
-                        .color = Color.White,
+                        .style = t_style,
                     }),
                 ),
             }),
@@ -65,7 +68,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(App, .{});
         }
     };

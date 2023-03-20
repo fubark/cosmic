@@ -247,7 +247,7 @@ pub const GradientShader = struct {
         gl.bindBuffer(gl.GL_ARRAY_BUFFER, vert_buf_id);
         bindAttributes(@sizeOf(TexShaderVertex), &.{
             // a_pos
-            ShaderAttribute.init(0, 0, gl.GL_FLOAT, 4),
+            ShaderAttribute.init(0, @offsetOf(TexShaderVertex, "pos"), gl.GL_FLOAT, 4),
         });
 
         return GradientShader{

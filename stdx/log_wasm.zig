@@ -13,10 +13,12 @@ const DebugLog = builtin.mode == .Debug and true;
 var small_buf: [1024]u8 = undefined;
 
 /// Larger logs will use a growing heap allocation.
-var large_buf: std.ArrayList(u8) = undefined;
+var large_buf_inner: std.ArrayList(u8) = undefined;
+var large_buf: *std.ArrayList(u8) = undefined;
 
 pub fn init(alloc: std.mem.Allocator) void {
-    large_buf = std.ArrayList(u8).init(alloc);
+    large_buf_inner = std.ArrayList(u8).init(alloc);
+    large_buf = &large_buf_inner;
 }
 
 pub fn deinit() void {

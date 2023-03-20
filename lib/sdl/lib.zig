@@ -1,29 +1,37 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const stdx = @import("../../stdx/lib.zig");
+pub fn createModule(b: *std.build.Builder, stdx: *std.build.Module) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/sdl.zig" },
+        .dependencies = &.{
+            .{ .name = "stdx", .module = stdx },
+        },
+    });
+    return mod;
+}
 
-pub const pkg = std.build.Pkg{
-    .name = "sdl",
-    .source = .{ .path = srcPath() ++ "/sdl.zig" },
-    .dependencies = &.{ stdx.pkg },
-};
+pub fn addModuleIncludes(step: *std.build.CompileStep) void {
+    // step.linkLibC();
+    step.addIncludePath(thisDir() ++ "/vendor/include");
+    step.addIncludePath(thisDir() ++ "/");
+}
 
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    step.addPackage(pkg);
-    step.linkLibC();
-    step.addIncludePath(srcPath() ++ "/vendor/include");
-    step.addIncludePath(srcPath() ++ "/");
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addModuleIncludes(step);
+    step.addModule(name, mod);
 }
 
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
-    mode: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
 ) !*std.build.LibExeObjStep {
-    const lib = b.addStaticLibrary("sdl2", null);
-    lib.setTarget(target);
-    lib.setBuildMode(mode);
+    const lib = b.addStaticLibrary(.{
+        .name = "sdl2",
+        .target = target,
+        .optimize = optimize,
+    });
 
     const alloc = b.allocator;
 
@@ -334,13 +342,13 @@ pub fn create(
     }
 
     for (c_files.items) |file| {
-        const path = b.fmt("{s}/vendor/src/{s}", .{ srcPath(), file });
+        const path = b.fmt("{s}/vendor/src/{s}", .{ thisDir(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
     lib.linkLibC();
     // Look for our custom SDL_config.h.
-    lib.addIncludePath(srcPath());
+    lib.addIncludePath(thisDir());
     // For local CMake generated config.
     // lib.addIncludePath(fromRoot(b, "vendor/build/include"));
     lib.addIncludePath(fromRoot(b, "vendor/include"));
@@ -361,7 +369,7 @@ pub fn create(
     return lib;
 }
 
-pub fn linkLib(step: *std.build.LibExeObjStep, lib: *std.build.LibExeObjStep) void {
+pub fn linkLib(step: *std.build.CompileStep, lib: *std.build.LibExeObjStep) void {
     linkDeps(step);
     step.linkLibrary(lib);
 }
@@ -409,15 +417,15 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
     if (opts.lib_path) |path| {
         linkLibPath(step, path);
     } else {
-        const lib = create(step.builder, step.target, step.build_mode) catch unreachable;
+        const lib = create(step.builder, step.target, step.optimize) catch unreachable;
         linkLib(step, lib);
     }
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ thisDir(), rel_path }) catch unreachable;
 }

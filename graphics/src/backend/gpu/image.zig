@@ -1,6 +1,6 @@
 const std = @import("std");
 const stdx = @import("stdx");
-const build_options = @import("build_options");
+const build_options = @import("graphics_options");
 const Backend = build_options.GraphicsBackend;
 const gl = @import("gl");
 pub const GLTextureId = gl.GLuint;
@@ -40,7 +40,7 @@ pub const ImageStore = struct {
         return ret;
     }
 
-    pub fn deinit(self: ImageStore) void {
+    pub fn deinit(self: *ImageStore) void {
         // Delete images after since some deinit could have removed images.
         self.images.deinit();
 
@@ -59,7 +59,7 @@ pub const ImageStore = struct {
 
     /// Cleans up images and their textures that are no longer used.
     pub fn processRemovals(self: *ImageStore) void {
-        for (self.removals.items) |*entry, entry_idx| {
+        for (self.removals.items, 0..) |*entry, entry_idx| {
             if (entry.frame_age < gvk.MaxActiveFrames) {
                 entry.frame_age += 1;
                 continue;
@@ -71,7 +71,7 @@ pub const ImageStore = struct {
             self.images.remove(entry.image_id);
 
             // Remove from texture's image list.
-            for (tex.inner.cs_images.items) |id, i| {
+            for (tex.inner.cs_images.items, 0..) |id, i| {
                 if (id == entry.image_id) {
                     _ = tex.inner.cs_images.swapRemove(i);
                 }

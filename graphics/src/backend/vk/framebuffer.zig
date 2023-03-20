@@ -7,7 +7,7 @@ pub fn createFramebuffers(alloc: std.mem.Allocator, device: vk.VkDevice, pass: v
     depth_image_views: []const vk.VkImageView,
 ) []vk.VkFramebuffer {
     const ret = alloc.alloc(vk.VkFramebuffer, image_views.len) catch stdx.fatal();
-    for (image_views) |view, i| {
+    for (image_views, 0..) |view, i| {
         const attachments = &[_]vk.VkImageView{
             view,
             depth_image_views[i],

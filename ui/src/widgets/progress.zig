@@ -6,7 +6,7 @@ const ui = @import("../ui.zig");
 const log = stdx.log.scoped(.render);
 
 pub const ProgressBar = struct {
-    props: struct {
+    props: *const struct {
         max_val: f32 = 100,
         init_val: f32 = 0,
         bar_color: Color = Color.Blue,

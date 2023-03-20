@@ -101,7 +101,7 @@ pub const Font = struct {
     pub fn initOTB(self: *Font, alloc: std.mem.Allocator, id: FontId, data: []const graphics.BitmapFontData) void {
         const strikes = alloc.alloc(BitmapFontStrike, data.len) catch @panic("error");
         var last_size: u8 = 0;
-        for (data) |it, i| {
+        for (data, 0..) |it, i| {
             if (it.size <= last_size) {
                 @panic("Expected ascending font size.");
             }
@@ -138,7 +138,7 @@ pub const Font = struct {
         self.bmfont_scaler.mapping = undefined;
         var cur_bm_idx: u8 = 0;
         var scale: u16 = 1;
-        for (self.bmfont_scaler.mapping) |_, i| {
+        for (self.bmfont_scaler.mapping, 0..) |_, i| {
             var bmdata = data[cur_bm_idx];
             if (i > bmdata.size) {
                 if (cur_bm_idx < data.len-1) {

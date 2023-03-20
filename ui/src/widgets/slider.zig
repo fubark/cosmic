@@ -17,12 +17,12 @@ pub const SliderFloat = SliderBase(true);
 pub fn SliderBase(comptime is_float: bool) type {
     const Value = if (is_float) f32 else i32;
     return struct {
-        props: struct {
+        props: *const struct {
             init_val: Value = 0,
             min_val: Value = 0,
             max_val: Value = if (is_float) 1 else 100,
-            onChangeEnd: ?Function(fn (Value) void) = null,
-            onChange: ?Function(fn (Value) void) = null,
+            onChangeEnd: Function(fn (Value) void) = .{},
+            onChange: Function(fn (Value) void) = .{},
             thumb_color: Color = Color.Blue,
             display_value: bool = true,
         },
@@ -53,15 +53,15 @@ pub fn SliderBase(comptime is_float: bool) type {
 
         fn handleMouseUpEvent(node: *ui.Node, e: ui.Event(MouseUpEvent)) void {
             var self = node.getWidget(Self);
-            if (e.val.button == .Left and self.pressed) {
+            if (e.val.button == .left and self.pressed) {
                 self.pressed = false;
                 self.updateValueFromMouseX(node, e.val.x);
                 if (self.drag_start_value != self.value) {
-                    if (self.props.onChange) |cb| {
-                        cb.call(.{ self.value });
+                    if (self.props.onChange.isPresent()) {
+                        self.props.onChange.call(.{ self.value });
                     }
-                    if (self.props.onChangeEnd) |cb| {
-                        cb.call(.{ self.value });
+                    if (self.props.onChangeEnd.isPresent()) {
+                        self.props.onChangeEnd.call(.{ self.value });
                     }
                 }
             }
@@ -71,7 +71,7 @@ pub fn SliderBase(comptime is_float: bool) type {
 
         fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
             var self = node.getWidget(Self);
-            if (e.val.button == .Left) {
+            if (e.val.button == .left) {
                 self.pressed = true;
                 self.last_value = self.value;
                 self.drag_start_value = self.value;
@@ -101,8 +101,8 @@ pub fn SliderBase(comptime is_float: bool) type {
             var self = node.getWidget(Self);
             self.updateValueFromMouseX(node, e.val.x);
             if (self.last_value != self.value) {
-                if (self.props.onChange) |cb| {
-                    cb.call(.{ self.value });
+                if (self.props.onChange.isPresent()) {
+                    self.props.onChange.call(.{ self.value });
                 }
             }
             self.last_value = self.value;

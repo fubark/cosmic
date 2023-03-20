@@ -7,12 +7,12 @@ const log = stdx.log.scoped(.mouse_area);
 /// Provides drag events for a child widget.
 /// Once dragging has started, it gets drag focus and will receive dragmove and dragend events outside of its bounds.
 pub const MouseDragArea = struct {
-    props: struct {
+    props: *const struct {
         hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onDragStart: stdx.Function(fn (ui.DragStartEvent) void) = .{},
         onDragMove: stdx.Function(fn (ui.DragMoveEvent) void) = .{},
         onDragEnd: stdx.Function(fn (i16, i16) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
         useEnterMouseDown: bool = false,
     },
 
@@ -24,8 +24,8 @@ pub const MouseDragArea = struct {
         }
     }
 
-    pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *MouseDragArea, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     fn onMouseDown(self: *MouseDragArea, e: ui.MouseDownEvent) ui.EventResult {
@@ -36,8 +36,8 @@ pub const MouseDragArea = struct {
         }
         if (self.props.onDragStart.isPresent()) {
             const start_e = ui.DragStartEvent{
-                .src_x = @floatToInt(u32, e.ctx.node.abs_bounds.min_x),
-                .src_y = @floatToInt(u32, e.ctx.node.abs_bounds.min_y),
+                .src_x = e.ctx.node.abs_bounds.min_x,
+                .src_y = e.ctx.node.abs_bounds.min_y,
                 .x = e.val.x,
                 .y = e.val.y,
             };
@@ -72,11 +72,11 @@ pub const MouseDragArea = struct {
 
 /// Provides mouse over events for a child widget.
 pub const MouseHoverArea = struct {
-    props: struct {
+    props: *const struct {
         hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onHoverChange: stdx.Function(fn (ui.HoverChangeEvent) void) = .{},
         onHoverMove: stdx.Function(fn (i16, i16) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
 
         /// Initializes in the hovered state (but doesn't fire onHoverChange(true)).
         /// This is useful for the user to rely on onHoverChange(false) for teardown logic.
@@ -94,8 +94,8 @@ pub const MouseHoverArea = struct {
         }
     }
 
-    pub fn build(self: *MouseHoverArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *MouseHoverArea, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     fn onHoverChange(self: *MouseHoverArea, e: ui.HoverChangeEvent) void {
@@ -122,15 +122,16 @@ pub const MouseHoverArea = struct {
 
 /// Provides mouse events for child widget.
 pub const MouseArea = struct {
-    props: struct {
+    props: *const struct {
+        hitTest: stdx.Function(fn (i16, i16) bool) = .{},
         onClick: stdx.Function(fn (ui.MouseUpEvent) void) = .{},
-        child: ui.FrameId = ui.NullFrameId,
+        child: ui.FramePtr = .{},
     },
 
     pressed: bool,
 
-    pub fn build(self: *MouseArea, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *MouseArea, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     pub fn init(self: *MouseArea, c: *ui.InitContext) void {
@@ -141,8 +142,13 @@ pub const MouseArea = struct {
 
     fn onMouseUp(node: *ui.Node, e: ui.MouseUpEvent) void {
         var self = node.getWidget(MouseArea);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             if (self.pressed) {
+                if (self.props.hitTest.isPresent()) {
+                    if (!self.props.hitTest.call(.{ e.val.x, e.val.y })) {
+                        return;
+                    }
+                }
                 self.pressed = false;
                 if (self.props.onClick.isPresent()) {
                     self.props.onClick.call(.{ e });
@@ -153,11 +159,17 @@ pub const MouseArea = struct {
 
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(MouseArea);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
+            if (self.props.hitTest.isPresent()) {
+                if (!self.props.hitTest.call(.{ e.val.x, e.val.y })) {
+                    return .default;
+                }
+            }
             e.ctx.requestFocus(.{ .onBlur = onBlur });
             self.pressed = true;
+            return .stop;
         }
-        return .stop;
+        return .default;
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {

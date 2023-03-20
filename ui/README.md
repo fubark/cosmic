@@ -6,6 +6,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 - [x] Fast linear time layout algorithm.
 - [x] Widgets defined as plain structs. Easy to navigate with your editor and ZLS.
 - [x] Widget library. Button, Switch, Row, Column, Containers, Text (with layout), TextField, TextArea, Color Picker, Popovers, Modals, and more. Collection is still growing.
+- [x] Widget styling.
 - [x] Custom widgets. Easily create your own widgets with your own build/layout/render steps.
 - [x] Draw with Canvas API / Vector graphics directly from a custom widget.
 - [x] Register input handlers (mouse, keyboard, etc).
@@ -27,7 +28,7 @@ Standalone UI engine for GUI and games in Zig. It has a resemblance to Flutter o
 | Undecided | Android/iOS |
 | Future | WebGPU backend for Win/Mac/Linux/Web |
 
-\* Static binary size. Compiled with -Drelease-safe.
+\* Static binary size. Compiled with -Doptimize=ReleaseSafe.
 
 \** Note for the Vulkan backend on macOS, you need to install MoltenVK. In a future release, the static lib will automatically be included. If you'd like to use OpenGL instead, enable it in cosmic/platform/backend.zig.
 
@@ -50,14 +51,13 @@ cd cosmic
 
 ## Run demo (Desktop)
 ```sh
-# If you are using the latest zig stage3 compiler, append "-fstage1" to the command.
-zig build run -Dpath="ui/examples/counter.zig" -Dgraphics -Drelease-safe
+zig build run -Dpath="ui/examples/counter.zig" -Dgraphics -Doptimize=ReleaseSafe
 ```
 
 ## Run demo (Web/Wasm)
 
 ```sh
-zig build wasm -Dpath="ui/examples/counter.zig" -Dgraphics -Drelease-safe
+zig build wasm -Dpath="ui/examples/counter.zig" -Dgraphics -Doptimize=ReleaseSafe
 cd zig-out/wasm32-freestanding-musl/counter
 python3 -m http.server
 # Or "cosmic http ." if you have cosmic installed.
@@ -112,7 +112,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(Counter, .{});
         }
     };
@@ -127,7 +127,7 @@ Once it kicks off the event loop, it will start updating and rendering the ui gi
 Widgets are defined as plain structs. You can define properties that can be fed into your widget with a special `props` property. The props struct can contain default values. Non default values will have comptime checks when they are copied over from Frames. Any other property besides the `props` is effectively state variables of a widget instance. Some public methods are reserved as widget hooks. These hooks are called at different times in the widget's lifecycle and include `init, postInit, deinit, build, postPropsUpdate, postUpdate, layout, render, renderCustom`. Not declaring one of them will automatically use a default implementation. Each hook contains a context param which lets you invoke useful logic related to the ui. Here is what a widget might look like:
 ```zig
 pub const Counter = struct {
-    props: struct {
+    props: *const struct {
         // A prop with a default value.
         text_color: Color = Color.Blue,
 
@@ -146,19 +146,23 @@ pub const Counter = struct {
         // Invoked after the widget instance and it's child widgets were created.
     }
 
-    pub fn deinit(self: *Counter, alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *Counter, c: *ui.DeinitContext) void {
         // Invoked when the widget instance is destroyed.
     }
 
-    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FramePtr {
         // Invoked when the engine wants to know the structure of this Widget.
     }
 
-    pub fn postPropsUpdate(self: *Counter) void {
+    pub fn prePropsUpdate(self: *Counter, c: *ui.UpdateContext) void {
+        // Invoked before a widget updates its props.
+    }
+
+    pub fn postPropsUpdate(self: *Counter, c: *ui.UpdateContext) void {
         // Invoked when a widget has updated their props from the parent.
     }
 
-    pub fn postUpdate(self: *Counter) void {
+    pub fn postUpdate(self: *Counter, c: *ui.UpdateContext) void {
         // Invoked when a widget and it's children have finished updating. (They have resolved their instance trees from the diff operation.)
     }
 
@@ -184,7 +188,7 @@ Before any widget instances are created, the engine needs to know the structure 
 
     // ... in Counter struct.
 
-    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Counter, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *Counter, _: MouseUpEvent) void {
                 self_.counter += 1;
@@ -196,13 +200,19 @@ Before any widget instances are created, the engine needs to know the structure 
                 u.Padding(.{ .padding = 10, .pad_left = 30, .pad_right = 30 },
                     u.Text(.{
                         .text = c.fmt("{}", .{self.counter}),
-                        .color = Color.White,
+                        .style = u.TextStyle{
+                            .color = Color.White,
+                        },
                     }),
                 ),
                 u.TextButton(.{
                     .text = "Count",
                     .onClick = c.funcExt(self, MouseUpEvent, S.onClick),
-                    .corner_radius = 10,
+                    .style = u.TextButtonStyle{
+                        .button = .{
+                            .cornerRadius = 10,
+                        },
+                    },
                 }),
             }),
         );
@@ -210,7 +220,10 @@ Before any widget instances are created, the engine needs to know the structure 
 ```
 `build` hooks lets you declare child widgets that the current widget is composed of. Behind the scenes this is creating Frames which contain metadata about the declarations. Using frames gives you a lot of freedom in `build` for widget composition. `BuildContext.build()` is used to build a widget which takes in the Widget type and a tuple that can contain the widget's props in addition to reserved props like `bind` and `id`. `BuildContext.list()` is used to group together frames.
 
-The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.NullFrameId`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
+The engine then proceeds to diff the structure provided by `build` against any existing instance tree. If a widget is missing it is created. If one already exists it's reused. When building a unit Widget (one that does not have any children) `build` should return `ui.FramePtr{}` or simply `.{}`. When building a Widget that has multiple children, `BuildContext.fragment()` wraps a list of frame ids as a fragment frame.
+
+### Widget Styles
+The ui module allows you to set default styles for widgets as well as overriding them when declaring the widgets at build time. TODO: Explain Style and ComputedStyle with example.
 
 ### Widget Binding
 Often times you'll want access to a child widget. Here's how you would do that with `WidgetRef` and the reserved `bind` prop.
@@ -218,7 +231,7 @@ Often times you'll want access to a child widget. Here's how you would do that w
 const App = struct {
     slider: WidgetRef(u.SliderT),
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *App, _: MouseUpEvent) void {
                 std.debug.print("slider value {}", .{self_.slider.getWidget().getValue()});
@@ -233,14 +246,14 @@ const App = struct {
 ```
 
 ### Events
-Widgets can add event handlers and request focus for keyboard events:
+Widgets can set event handlers and request focus for keyboard events. Note that each widget can only have one handler per event type.
 ```zig
 const TextField = struct {
     // ...
 
     pub fn init(self: *TextField, c: *ui.InitContext) void {
-        c.addMouseDownHandler(self, onMouseDown);
-        c.addKeyDownHandler(self, onKeyDown);
+        c.setMouseDownHandler(self, onMouseDown);
+        c.setKeyDownHandler(self, onKeyDown);
     }
 
     fn onMouseDown(self: *TextField, e: ui.MouseDownEvent) void {
@@ -250,7 +263,7 @@ const TextField = struct {
     // ...
 };
 ```
-Similarily you can remove handlers. If you forget, they will be cleaned up anyway when the widget is disposed.
+Similarily you can clear handlers. If you forget, they will be cleaned up anyway when the widget is disposed.
 
 ### Layout
 When the engine needs to perform layout, the `layout` hook is invoked. If the widget does not provide a hook, a default implementation is used. Each widget's `layout` is responsible for:

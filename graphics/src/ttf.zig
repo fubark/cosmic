@@ -3,7 +3,6 @@ const stdx = @import("stdx");
 const t = stdx.testing;
 
 const string = stdx.string;
-const ds = stdx.ds;
 const algo = stdx.algo;
 const log = stdx.log.scoped(.ttf);
 
@@ -97,7 +96,7 @@ const GlyphMapperIface = struct {
         const ImplPtr = @TypeOf(ptr);
         const gen = struct {
             fn getGlyphId(_ptr: *anyopaque, cp: u21) FontError!?u16 {
-                const self = stdx.mem.ptrCastAlign(ImplPtr, _ptr);
+                const self = stdx.ptrCastAlign(ImplPtr, _ptr);
                 return self.getGlyphId(cp);
             }
         };
@@ -145,7 +144,7 @@ pub const OpenTypeFont = struct {
     cff_offset: ?usize,
     glyph_map_format: u16,
     glyph_mapper: GlyphMapperIface,
-    glyph_mapper_box: ds.SizedBox,
+    glyph_mapper_box: stdx.SizedBox,
 
     num_glyphs: usize,
 
@@ -340,7 +339,7 @@ pub const OpenTypeFont = struct {
         var stream = std.io.fixedBufferStream(data);
         var reader = std.io.bitReader(.Big, stream.reader());
         var out_bits: usize = undefined;
-        for (cdata) |_, i| {
+        for (cdata, 0..) |_, i| {
             const val = try reader.readBits(u1, 1, &out_bits);
             if (val == 1) {
                 cdata[i] = 255;
@@ -373,7 +372,7 @@ pub const OpenTypeFont = struct {
                 var stream = std.io.fixedBufferStream(data[5..]);
                 var reader = std.io.bitReader(.Big, stream.reader());
                 var out_bits: usize = undefined;
-                for (cdata) |_, i| {
+                for (cdata, 0..) |_, i| {
                     const val = try reader.readBits(u1, 1, &out_bits);
                     if (val == 1) {
                         cdata[i] = 255;
@@ -598,13 +597,13 @@ pub const OpenTypeFont = struct {
                             // loaded_glyph_map = true;
                             continue;
                         } else if (format == 12) {
-                            const mapper = ds.Box(SegmentedCoverageGlyphMapper).create(alloc) catch unreachable;
+                            const mapper = stdx.Box(SegmentedCoverageGlyphMapper).create(alloc) catch unreachable;
                             mapper.ptr.init(data, st_offset);
                             self.glyph_mapper = GlyphMapperIface.init(mapper.ptr);
                             self.glyph_mapper_box = mapper.toSized();
                             loaded_glyph_map = true;
                         } else if (format == 4) {
-                            const mapper = ds.Box(SegmentGlyphMapper).create(alloc) catch unreachable;
+                            const mapper = stdx.Box(SegmentGlyphMapper).create(alloc) catch unreachable;
                             mapper.ptr.init(data, st_offset);
                             self.glyph_mapper = GlyphMapperIface.init(mapper.ptr);
                             self.glyph_mapper_box = mapper.toSized();
@@ -828,7 +827,7 @@ fn allocBigUTF16(alloc: std.mem.Allocator, data: []const u8) []const u8 {
 
     const aligned = alloc.alloc(u16, utf16.len) catch @panic("error");
     defer alloc.free(aligned);
-    for (utf16) |it, i| {
+    for (utf16, 0..) |it, i| {
         aligned[i] = it;
     }
 

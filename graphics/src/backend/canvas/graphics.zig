@@ -164,7 +164,7 @@ pub const Graphics = struct {
         jsFillText(x, y, text.ptr, text.len);
     }
 
-    pub fn drawRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
+    pub fn strokeRect(self: *Self, x: f32, y: f32, width: f32, height: f32) void {
         _ = self;
         jsDrawRect(x, y, width, height);
     }
@@ -179,7 +179,7 @@ pub const Graphics = struct {
         jsFillCircle(x, y, radius);
     }
 
-    pub fn drawCircle(self: *Self, x: f32, y: f32, radius: f32) void {
+    pub fn strokeCircle(self: *Self, x: f32, y: f32, radius: f32) void {
         _ = self;
         jsDrawCircle(x, y, radius);
     }
@@ -193,7 +193,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeCircleArc(self: *Self, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         _ = self;
         if (sweep_rad < 0) {
             jsDrawCircleArc(x, y, radius, start_rad + sweep_rad, start_rad);
@@ -207,7 +207,7 @@ pub const Graphics = struct {
         jsFillEllipse(x, y, h_radius, v_radius);
     }
 
-    pub fn drawEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn strokeEllipse(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         _ = self;
         jsDrawEllipse(x, y, h_radius, v_radius);
     }
@@ -221,7 +221,7 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeEllipseArc(self: *Self, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         _ = self;
         if (sweep_rad < 0) {
             jsDrawEllipseArc(x, y, h_radius, v_radius, start_rad + sweep_rad, start_rad);
@@ -244,7 +244,7 @@ pub const Graphics = struct {
         jsFillPolygon(self.js_buf.getOutputPtr(), pts.len);
     }
 
-    pub fn drawPolygon(self: *Self, pts: []const Vec2) void {
+    pub fn strokePolygon(self: *Self, pts: []const Vec2) void {
         self.js_buf.clearOutput();
         for (pts) |pt| {
             self.js_buf.appendF32(pt.x);
@@ -258,27 +258,27 @@ pub const Graphics = struct {
         jsFillRoundRect(x, y, width, height, radius);
     }
 
-    pub fn drawRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+    pub fn strokeRoundRect(self: *Self, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
         _ = self;
         jsDrawRoundRect(x, y, width, height, radius);
     }
 
-    pub fn drawPoint(self: *Self, x: f32, y: f32) void {
+    pub fn strokePoint(self: *Self, x: f32, y: f32) void {
         _ = self;
         jsDrawPoint(x, y);
     }
 
-    pub fn drawLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
+    pub fn strokeLine(self: *Self, x1: f32, y1: f32, x2: f32, y2: f32) void {
         _ = self;
         jsDrawLine(x1, y1, x2, y2);
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Self, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
+    pub fn strokeQuadraticBezierCurve(self: *Self, x1: f32, y1: f32, cx: f32, cy: f32, x2: f32, y2: f32) void {
         _ = self;
         jsDrawQuadraticBezierCurve(x1, y1, cx, cy, x2, y2);
     }
 
-    pub fn drawCubicBezierCurve(self: *Self, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
+    pub fn strokeCubicBezierCurve(self: *Self, x1: f32, y1: f32, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x2: f32, y2: f32) void {
         _ = self;
         jsDrawCubicBezierCurve(x1, y1, c1x, c1y, c2x, c2y, x2, y2);
     }

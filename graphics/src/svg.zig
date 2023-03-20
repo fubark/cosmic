@@ -54,6 +54,7 @@ pub const PathCommand = enum {
     SmoothCurveTo,
     SmoothCurveToRel,
     ClosePath,
+    LastDummy,
 };
 
 pub fn PathCommandData(comptime Tag: PathCommand) type {
@@ -73,6 +74,7 @@ pub fn PathCommandData(comptime Tag: PathCommand) type {
         .SmoothCurveTo,
         .SmoothCurveToRel => PathSmoothCurveTo,
         .ClosePath => void,
+        .LastDummy => @compileError("dummy"),
     };
 }
 
@@ -283,6 +285,18 @@ pub const PathParser = struct {
                         ch = self.seekToNext() orelse break;
                     }
                 },
+                'A' => {
+                    var cmd = try self.parseEllipticArc(false);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+
+                    // Subsequent args are additional elliptic arc commands.
+                    ch = self.seekToNext() orelse break;
+                    while (!std.ascii.isAlphabetic(ch)) {
+                        cmd = try self.parseEllipticArc(false);
+                        self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                        ch = self.seekToNext() orelse break;
+                    }
+                },
                 'a' => {
                     var cmd = try self.parseEllipticArc(true);
                     self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
@@ -305,6 +319,10 @@ pub const PathParser = struct {
                 },
                 'v' => {
                     const cmd = try self.parsePathVertLineTo(true);
+                    self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
+                },
+                'V' => {
+                    const cmd = try self.parsePathVertLineTo(false);
                     self.cur_cmds.append(@enumToInt(cmd)) catch fatal();
                 },
                 'l' => {

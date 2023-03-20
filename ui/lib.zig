@@ -1,60 +1,49 @@
 const std = @import("std");
 
-const platform = @import("../platform/lib.zig");
-const stdx = @import("../stdx/lib.zig");
-const graphics = @import("../graphics/lib.zig");
-
-const sdl = @import("../lib/sdl/lib.zig");
-const gl = @import("../lib/gl/lib.zig");
-const vk = @import("../lib/vk/lib.zig");
-const freetype = @import("../lib/freetype2/lib.zig");
-const stb = @import("../lib/stb/lib.zig");
-const root = @import("../build.zig");
+const gl_lib = @import("../lib/gl/lib.zig");
+const sdl_lib = @import("../lib/sdl/lib.zig");
+const freetype_lib = @import("../lib/freetype2/lib.zig");
+const stb_lib = @import("../lib/stb/lib.zig");
 
 const GraphicsBackend = @import("../platform/backend.zig").GraphicsBackend;
 
-pub const pkg = std.build.Pkg{
-    .name = "ui",
-    .source = .{ .path = srcPath() ++ "/src/ui.zig" },
-};
-
 pub const Options = struct {
-    graphics_backend: GraphicsBackend,
-    add_dep_pkgs: bool = true,
-    link_lyon: bool = false,
-    link_tess2: bool = false,
     enable_tracy: bool = false,
+    deps: struct {
+        graphics: *std.build.Module,
+        stdx: *std.build.Module,
+        platform: *std.build.Module,
+    },
 };
 
-pub fn addPackage(step: *std.build.LibExeObjStep, opts: Options) void {
-    const b = step.builder;
-
-    var new_pkg = pkg;
-
-    const platform_opts: platform.Options = .{
-        .graphics_backend = opts.graphics_backend,
-        .add_dep_pkgs = opts.add_dep_pkgs,
-    };
-    const platform_pkg = platform.getPackage(b, platform_opts);
-
-    const graphics_opts: graphics.Options = .{
-        .graphics_backend = opts.graphics_backend,
-        .add_dep_pkgs = opts.add_dep_pkgs,
-    };
-    const graphics_pkg = graphics.getPackage(b, graphics_opts);
-
-    new_pkg.dependencies = &.{ stdx.pkg, graphics_pkg, platform_pkg };
-    step.addPackage(new_pkg);
-
-    if (opts.add_dep_pkgs) {
-        graphics.addPackage(step, graphics_opts);
-    }
+pub fn createModule(b: *std.build.Builder, opts: Options) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/src/ui.zig" },
+        .dependencies = &.{
+            .{ .name = "graphics", .module = opts.deps.graphics },
+            .{ .name = "stdx", .module = opts.deps.stdx },
+            .{ .name = "platform", .module = opts.deps.platform },
+        },
+    });
+    return mod;
 }
 
-pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: Options) void {
-    graphics.buildAndLink(step, .{.graphics_backend = opts.graphics_backend});
+pub fn createTestExe(b: *std.build.Builder, target: std.zig.CrossTarget, optimize: std.builtin.OptimizeMode, opts: Options) *std.build.CompileStep {
+    const step = b.addTest(.{
+        .kind = .test_exe,
+        .root_source_file = .{ .path = thisDir() ++ "/test.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    step.addModule("stdx", opts.deps.stdx);
+    step.addModule("platform", opts.deps.platform);
+    step.addModule("graphics", opts.deps.graphics);
+    gl_lib.addModuleIncludes(step);
+    freetype_lib.addModuleIncludes(step);
+    freetype_lib.buildAndLink(step);
+    return step;
 }
 
-fn srcPath() []const u8 {
-    return std.fs.path.dirname(@src().file) orelse unreachable;
+inline fn thisDir() []const u8 {
+    return comptime std.fs.path.dirname(@src().file) orelse unreachable;
 }

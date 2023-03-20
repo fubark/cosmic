@@ -3,16 +3,31 @@ const std = @import("std");
 const sdl = @import("../sdl/lib.zig");
 const stdx = @import("../../stdx/lib.zig");
 
-pub const pkg = std.build.Pkg{
-    .name = "gl",
-    .source = .{ .path = srcPath() ++ "/gl.zig" },
-    .dependencies = &.{ sdl.pkg, stdx.pkg },
+const Options = struct {
+    deps: struct {
+        sdl: *std.build.Module,
+    },
 };
 
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    step.addPackage(pkg);
-    step.addIncludePath(srcPath() ++ "/vendor");
-    step.linkLibC();
+pub fn createModule(b: *std.build.Builder, opts: Options) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/gl.zig" },
+        .dependencies = &.{
+            .{ .name = "sdl", .module = opts.deps.sdl },
+        },
+    });
+    //    .dependencies = &.{ stdx.pkg },
+    return mod;
+}
+
+pub fn addModuleIncludes(step: *std.build.CompileStep) void {
+    step.addIncludePath(thisDir() ++ "/vendor");
+    // step.linkLibC();
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addModuleIncludes(step);
+    step.addModule(name, mod);
 }
 
 pub fn link(step: *std.build.LibExeObjStep) void {
@@ -42,6 +57,6 @@ pub fn link(step: *std.build.LibExeObjStep) void {
     }
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

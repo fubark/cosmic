@@ -2,15 +2,15 @@
 
 pub fn UserVisit(comptime Node: type, comptime Context: type, comptime IncludeEnter: bool) type {
     if (IncludeEnter) {
-        return fn(Context, Node, enter: bool) void;
+        return *const fn(Context, Node, enter: bool) void;
     } else {
-        return fn(Context, Node) void;
+        return *const fn(Context, Node) void;
     }
 }
 
 fn VisitIface(comptime Node: type) type {
     return struct {
-        visit_fn: fn(*@This(), Node) void,
+        visit_fn: *const fn(*@This(), Node) void,
 
         fn visit(self: *@This(), node: Node) void {
             self.visit_fn(self, node);
@@ -30,7 +30,7 @@ pub fn WalkContext(comptime Context: type, comptime Node: type) type {
 }
 
 fn UserWalkFn(comptime Context: type, comptime Node: type) type {
-    return fn (*WalkContext(Context, Node), Node) void;
+    return *const fn (*WalkContext(Context, Node), Node) void;
 }
 
 pub fn Walker(comptime Context: type, comptime Node: type) type {
@@ -145,7 +145,7 @@ pub fn walkPrePostMany(comptime Context: type, ctx: Context, NodeType: type, roo
 
 fn SearchVisitIface(comptime Node: type) type {
     return struct {
-        visit_fn: fn(*@This(), Node) ?Node,
+        visit_fn: *const fn(*@This(), Node) ?Node,
 
         fn visit(self: *@This(), node: Node) ?Node {
             return self.visit_fn(self, node);
@@ -165,11 +165,11 @@ pub fn SearchWalkContext(comptime Context: type, comptime Node: type) type {
 }
 
 pub fn UserPredicate(comptime Context: type, comptime Node: type) type {
-    return fn(Context, Node) bool;
+    return *const fn(Context, Node) bool;
 }
 
 pub fn UserSearchWalkFn(comptime Context: type, comptime Node: type) type {
-    return fn(*SearchWalkContext(Context, Node), Node) ?Node;
+    return *const fn(*SearchWalkContext(Context, Node), Node) ?Node;
 }
 
 pub fn SearchWalker(comptime Context: type, comptime Node: type) type {

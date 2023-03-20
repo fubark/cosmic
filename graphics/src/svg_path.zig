@@ -148,6 +148,12 @@ pub fn flattenSvgPathFill(alloc: std.mem.Allocator, buf: FlattenBuffer, path: sv
                 };
                 try buf.vec2.append(alloc, cur_pt);
             },
+            .EllipticArc => {
+                const data = path.getData(.EllipticArcRel, cur_data_idx);
+                cur_data_idx += @sizeOf(svg.PathCommandData(.EllipticArc)) / 4;
+                // TODO.
+                _ = data;
+            },
             .EllipticArcRel => {
                 const data = path.getData(.EllipticArcRel, cur_data_idx);
                 cur_data_idx += @sizeOf(svg.PathCommandData(.EllipticArcRel)) / 4;

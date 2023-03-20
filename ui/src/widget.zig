@@ -5,10 +5,7 @@ const fatal = stdx.fatal;
 const Vec2 = stdx.math.Vec2;
 
 const ui = @import("ui.zig");
-const Layout = ui.Layout;
-const RenderContext = ui.RenderContext;
-const FrameId = ui.FrameId;
-const GenWidgetVTable = @import("module.zig").GenWidgetVTable;
+const log = stdx.log.scoped(.widget);
 
 /// Id can be an enum literal that is given a unique id at comptime.
 pub const WidgetUserId = usize;
@@ -46,7 +43,7 @@ pub const NodeRef = struct {
 
 pub const BindNodeFunc = struct {
     ctx: ?*anyopaque,
-    func: fn (ctx: ?*anyopaque, node: *Node, bind: bool) void,
+    func: *const fn (ctx: ?*anyopaque, node: *Node, bind: bool) void,
 };
 
 pub const NodeRefMap = struct {
@@ -70,7 +67,7 @@ pub const NodeRefMap = struct {
     }
 
     fn bind(ptr: ?*anyopaque, node: *ui.Node, bind_: bool) void {
-        const self = stdx.mem.ptrCastAlign(*NodeRefMap, ptr);
+        const self = stdx.ptrCastAlign(*NodeRefMap, ptr);
         if (bind_) {
             self.map.put(self.alloc, node.key, node) catch fatal();
         } else {
@@ -116,7 +113,7 @@ pub fn WidgetRef(comptime Widget: type) type {
         pub const widget = getWidget;
 
         pub inline fn getWidget(self: WidgetRefT) *Widget {
-            return stdx.mem.ptrCastAlign(*Widget, self.node.widget);
+            return stdx.ptrCastAlign(*Widget, self.node.widget);
         }
 
         pub inline fn key(self: WidgetRefT) WidgetKey {
@@ -150,17 +147,22 @@ pub const NodeStateMasks = struct {
     pub const diff_used: u8 = 0b00000010;
     /// Indicates the node's bind ptr is a *BindNodeFunc.
     pub const bind_func: u8 = 0b00000100;
+    /// Node has a user style. If true, the erased UserStyle pointer can be accessed from the module map.
+    pub const user_style: u8 = 0b00001000;
+    /// Node has a computed style. If true, the erased Style pointer can be accessed from the module map.
+    pub const computed_style: u8 = 0b00010000;
 };
 
 pub const EventHandlerMasks = struct {
-    pub const mousedown: u8 = 0b00000001;
-    pub const enter_mousedown: u8 = 0b00000010;
-    pub const mouseup: u8 = 0b00000100;
-    pub const global_mouseup: u8 = 0b00001000;
-    pub const global_mousemove: u8 = 0b00010000;
-    pub const hoverchange: u8 = 0b00100000;
-    pub const keyup: u8 = 0b01000000;
-    pub const keydown: u8 = 0b10000000;
+    pub const mousedown: u16 = 1 << 1;
+    pub const enter_mousedown: u16 = 1 << 2;
+    pub const mouseup: u16 = 1 << 3;
+    pub const global_mouseup: u16 = 1 << 4;
+    pub const global_mousemove: u16 = 1 << 5;
+    pub const hoverchange: u16 = 1 << 6;
+    pub const keyup: u16 = 1 << 7;
+    pub const keydown: u16 = 1 << 8;
+    pub const mousewheel: u16 = 1 << 9;
 };
 
 /// A Node contains the metadata for a widget instance and is initially created from a declared Frame.
@@ -177,6 +179,9 @@ pub const Node = struct {
     /// Pointer to the widget instance.
     widget: *anyopaque,
 
+    /// If the Widget has props, the node owns a reference to the Frame that contains the props.
+    frame: ui.FramePtr,
+
     /// Is only defined if has_widget_id = true.
     id: WidgetUserId,
 
@@ -185,7 +190,7 @@ pub const Node = struct {
 
     /// The final layout is set by it's parent during the layout phase.
     /// x, y are relative to the parent's position.
-    layout: Layout,
+    layout: ui.Layout,
 
     /// Absolute bounds of the node is computed when traversing the render tree.
     abs_bounds: stdx.math.BBox,
@@ -197,16 +202,11 @@ pub const Node = struct {
     /// Unmanaged slice of child event ordering. Only defined if has_child_event_ordering = true.
     child_event_ordering: []const *Node,
 
-    // TODO: It might be better to keep things simple and only allow one callback per event type per node. If the widget wants more they can multiplex in their implementation.
-    // TODO: Instead of storing all these callbacks per node, use hashmaps with node id as the key.
-    /// Singly linked lists of events attached to this node. Can be NullId.
-    mouse_down_list: u32,
-    mouse_scroll_list: u32,
-    key_up_list: u32,
-    key_down_list: u32,
+    /// TODO: Each node tracks it's own theme so that partially building widgets can get the theme easily.
+    // theme_id: u32,
 
     /// Indicates which events this widget is currently listening for.
-    event_handler_mask: u8,
+    event_handler_mask: u16,
 
     /// Various boolean states for the node.
     state_mask: u8,
@@ -226,16 +226,14 @@ pub const Node = struct {
             .key = key,
             .parent = parent,
             .widget = widget,
+            .frame = .{},
             .bind = null,
             .children = std.ArrayList(*Node).init(alloc),
             .child_event_ordering = undefined,
             .layout = undefined,
             .abs_bounds = stdx.math.BBox.initZero(),
             .key_to_child = std.AutoHashMap(WidgetKey, *Node).init(alloc),
-            .mouse_down_list = NullId,
-            .mouse_scroll_list = NullId,
-            .key_up_list = NullId,
-            .key_down_list = NullId,
+            // .theme_id = NullId,
             .state_mask = 0,
             .event_handler_mask = 0,
             .has_child_event_ordering = false,
@@ -252,7 +250,7 @@ pub const Node = struct {
     }
 
     pub fn getWidget(self: Node, comptime Widget: type) *Widget {
-        return stdx.mem.ptrCastAlign(*Widget, self.widget);
+        return stdx.ptrCastAlign(*Widget, self.widget);
     }
 
     pub fn deinit(self: *Node) void {
@@ -280,7 +278,7 @@ pub const Node = struct {
 
     /// Depth-first search of the first child that has the specified widget type.
     pub fn findChild(self: *Node, comptime Widget: type) ?WidgetRef(Widget) {
-        if (findChildRec(self, GenWidgetVTable(Widget))) |node| {
+        if (findChildRec(self, ui.GenWidgetVTable(Widget))) |node| {
             return WidgetRef(Widget).init(node);
         } else return null;
     }
@@ -316,15 +314,15 @@ pub const Node = struct {
         return self.abs_bounds;
     }
 
-    pub inline fn clearHandlerMask(self: *Node, mask: u8) void {
+    pub inline fn clearHandlerMask(self: *Node, mask: u16) void {
         self.event_handler_mask &= ~mask;
     }
 
-    pub inline fn setHandlerMask(self: *Node, mask: u8) void {
+    pub inline fn setHandlerMask(self: *Node, mask: u16) void {
         self.event_handler_mask |= mask;
     }
 
-    pub inline fn hasHandler(self: Node, mask: u8) bool {
+    pub inline fn hasHandler(self: Node, mask: u16) bool {
         return self.event_handler_mask & mask > 0;
     }
 
@@ -339,34 +337,43 @@ pub const Node = struct {
     pub inline fn hasState(self: Node, mask: u8) bool {
         return self.state_mask & mask > 0;
     }
+
+    pub fn dumpPath(self: Node) void {
+        log.debug("{s} {}", .{self.vtable.name, self.children.items.len});
+        if (self.parent) |parent| {
+            parent.dumpPath();
+        }
+    }
 };
 
 /// VTable for a Widget.
 pub const WidgetVTable = struct {
 
     /// Creates a new Widget on the heap and returns the pointer.
-    create: fn (alloc: std.mem.Allocator, init_ctx: *anyopaque, props_ptr: ?[*]const u8) *anyopaque,
+    create: *const fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame) *anyopaque,
 
     /// Runs post init on an existing Widget.
-    postInit: fn (widget_ptr: *anyopaque, init_ctx: *anyopaque) void,
+    postInit: *const fn (widget_ptr: *anyopaque, init_ctx: *ui.InitContext) void,
 
     /// Updates the props on an existing Widget.
-    updateProps: fn (widget_ptr: *anyopaque, props_ptr: [*]const u8) void,
+    updateProps: *const fn (mod: *ui.Module, node: *Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *ui.UpdateContext) void,
 
     /// Runs post update.
-    postUpdate: fn (node: *Node) void,
+    postUpdate: *const fn (node: *Node, ctx: *ui.UpdateContext) void,
 
     /// Generates the frame for an existing Widget.
-    build: fn (widget_ptr: *anyopaque, build_ctx: *anyopaque) FrameId,
+    build: *const fn (widget_ptr: *anyopaque, build_ctx: *ui.BuildContext) ui.FramePtr,
 
     /// Renders an existing Widget.
-    render: fn (node: *Node, render_ctx: *RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
+    render: *const fn (node: *Node, render_ctx: *ui.RenderContext, parent_abs_x: f32, parent_abs_y: f32) void,
 
     /// Computes the layout size for an existing Widget and sets the relative positioning for it's child nodes.
-    layout: fn (widget_ptr: *anyopaque, layout_ctx: *anyopaque) LayoutSize,
+    layout: *const fn (widget_ptr: *anyopaque, ctx: *ui.LayoutContext) ui.LayoutSize,
 
     /// Destroys an existing Widget.
-    destroy: fn (node: *Node, alloc: std.mem.Allocator) void,
+    destroy: *const fn (mod: *ui.Module, node: *Node) void,
+
+    deinitFrame: *const fn (mod: *ui.Module, frame: ui.Frame) void,
 
     name: []const u8,
 
@@ -376,79 +383,4 @@ pub const WidgetVTable = struct {
     /// If no children can overlap, mouse events propagate down the widget tree on the first child hit.
     /// If children can overlap, mouse events continue to check silbing hits until `stop` is returned from a handler.
     children_can_overlap: bool,
-};
-
-pub const LayoutSize = struct {
-    width: f32,
-    height: f32,
-
-    pub fn init(width: f32, height: f32) LayoutSize {
-        return .{
-            .width = width,
-            .height = height,
-        };
-    }
-
-    pub fn growToMin(self: *LayoutSize, cstr: ui.SizeConstraints) void {
-        if (self.width < cstr.min_width) {
-            self.width = cstr.min_width;
-        }
-        if (self.height < cstr.min_height) {
-            self.height = cstr.min_height;
-        }
-    }
-
-    pub fn growToWidth(self: *LayoutSize, width: f32) void {
-        if (self.width < width) {
-            self.width = width;
-        }
-    }
-
-    pub fn growToHeight(self: *LayoutSize, height: f32) void {
-        if (self.height < height) {
-            self.height = height;
-        }
-    }
-
-    pub fn limitToMinMax(self: *LayoutSize, cstr: ui.SizeConstraints) void {
-        self.growToMin(cstr);
-        self.cropToMax(cstr);
-    }
-
-    pub fn cropToMax(self: *LayoutSize, cstr: ui.SizeConstraints) void {
-        if (self.width > cstr.max_width) {
-            self.width = cstr.max_width;
-        }
-        if (self.height > cstr.max_height) {
-            self.height = cstr.max_height;
-        }
-    }
-
-    pub fn cropTo(self: *LayoutSize, max_size: LayoutSize) void {
-        if (self.width > max_size.width) {
-            self.width = max_size.width;
-        }
-        if (self.height > max_size.height) {
-            self.height = max_size.height;
-        }
-    }
-
-    pub fn cropToWidth(self: *LayoutSize, width: f32) void {
-        if (self.width > width) {
-            self.width = width;
-        }
-    }
-
-    pub fn cropToHeight(self: *LayoutSize, height: f32) void {
-        if (self.height > height) {
-            self.height = height;
-        }
-    }
-
-    pub fn toIncSize(self: LayoutSize, inc_width: f32, inc_height: f32) LayoutSize {
-        return .{
-            .width = self.width + inc_width,
-            .height = self.height + inc_height,
-        };
-    }
 };

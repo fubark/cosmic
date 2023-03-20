@@ -191,11 +191,11 @@ export fn wasmResolvePromise(id: PromiseId, data_size: u32) void {
         js_buffer.input_buf.resize(js_buffer.alloc, data_size) catch unreachable;
         std.mem.copy(u8, copy, js_buffer.input_buf.items[0..data_size]);
         if (p.then_copy_to) |dst| {
-            stdx.mem.ptrCastAlign(*[]u8, dst).* = copy;
+            stdx.ptrCastAlign(*[]u8, dst).* = copy;
         }
     } else {
         if (p.then_copy_to) |dst| {
-            const dst_slice = stdx.mem.ptrCastAlign([*]u8, dst)[0..data_size];
+            const dst_slice = stdx.ptrCastAlign([*]u8, dst)[0..data_size];
             std.mem.copy(u8, dst_slice, js_buffer.input_buf.items[0..data_size]);
         }
     }
@@ -224,7 +224,7 @@ pub fn resolvePromise(id: PromiseId, value: anytype) void {
     const p = promises.getPtrNoCheck(id);
 
     if (p.then_copy_to) |dst| {
-        stdx.mem.ptrCastAlign(*@TypeOf(value), dst).* = value;
+        stdx.ptrCastAlign(*@TypeOf(value), dst).* = value;
     }
 
     p.resolved = true;
@@ -274,7 +274,7 @@ const PromiseInternal = struct {
     cur_resolved_deps: u32,
     child_deps_list_id: ?PromiseDepId,
     then_copy_to: ?*anyopaque,
-    data_ptr: ds.SizedPtr,
+    data_ptr: stdx.SizedPtr,
     auto_free: bool,
     resolved: bool,
     dynamic_size: bool,
@@ -735,7 +735,7 @@ fn c_qsort(base: [*]u8, nmemb: usize, size: usize, c_compare: fn (*anyopaque, *a
         .c_compare = c_compare,
         .buf = base[0..nmemb*size],
     };
-    for (idxes) |_, i| {
+    for (idxes, 0..) |_, i| {
         idxes[i] = i;
     }
     std.sort.sort(u32, idxes, ctx, S.lessThan);
@@ -743,7 +743,7 @@ fn c_qsort(base: [*]u8, nmemb: usize, size: usize, c_compare: fn (*anyopaque, *a
     // Copy to temporary buffer.
     const temp = galloc.alloc(u8, nmemb * size) catch fatal();
     defer galloc.free(temp);
-    for (idxes) |idx, i| {
+    for (idxes, 0..) |idx, i| {
         std.mem.copy(u8, temp[i*size..i*size+size], ctx.buf[idx*size..idx*size+size]);
     }
     std.mem.copy(u8, ctx.buf, temp);

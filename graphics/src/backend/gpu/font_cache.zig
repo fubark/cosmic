@@ -1,5 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
+const builtin = @import("builtin");
+const IsWasm = builtin.target.isWasm();
 const ds = stdx.ds;
 
 const graphics = @import("../../graphics.zig");
@@ -86,8 +88,10 @@ pub const FontCache = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.main_atlas.dumpBufferToDisk("main_atlas.bmp");
-        self.bitmap_atlas.dumpBufferToDisk("bitmap_atlas.bmp");
+        if (builtin.mode == .Debug and !IsWasm) {
+            self.main_atlas.dumpBufferToDisk("main_atlas.bmp");
+            self.bitmap_atlas.dumpBufferToDisk("bitmap_atlas.bmp");
+        }
 
         self.main_atlas.deinit();
         self.bitmap_atlas.deinit();
@@ -230,7 +234,7 @@ pub const FontCache = struct {
                 continue;
             }
             var match = true;
-            for (font_seq) |needle, i| {
+            for (font_seq, 0..) |needle, i| {
                 if (it.fonts[i] != needle) {
                     match = false;
                     break;
@@ -344,11 +348,13 @@ pub const GlyphResult = struct {
     glyph: *Glyph,
 };
 
+const OutlineMaxNoScale = 18;
+
 // Computes bitmap font size and also updates the requested font size if necessary.
 pub fn computeRenderFontSize(desc: FontDesc, font_size: *f32) u16 {
     switch (desc.font_type) {
         .Outline => {
-            if (font_size.* <= 16) {
+            if (font_size.* <= OutlineMaxNoScale) {
                 if (font_size.* < MinRenderFontSize) {
                     font_size.* = MinRenderFontSize;
                     return MinRenderFontSize;

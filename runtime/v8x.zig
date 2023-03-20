@@ -319,8 +319,8 @@ pub fn throwErrorExceptionFmt(alloc: std.mem.Allocator, isolate: v8.Isolate, com
 pub fn updateOptionalPersistent(comptime T: type, iso: v8.Isolate, existing: *?v8.Persistent(T), mb_val: ?T) void {
     if (mb_val) |val| {
         if (existing.* != null) {
-            const existing_addr = stdx.mem.ptrCastAlign(*const v8.C_InternalAddress, existing.*.?.inner.handle);
-            const val_addr = stdx.mem.ptrCastAlign(*const v8.C_InternalAddress, val.handle);
+            const existing_addr = stdx.ptrCastAlign(*const v8.C_InternalAddress, existing.*.?.inner.handle);
+            const val_addr = stdx.ptrCastAlign(*const v8.C_InternalAddress, val.handle);
             if (existing_addr.* != val_addr.*) {
                 // Internal addresses doesn't match, deinit existing persistent.
                 existing.*.?.deinit();

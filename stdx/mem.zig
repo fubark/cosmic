@@ -1,6 +1,6 @@
 const std = @import("std");
 const ds = @import("ds/ds.zig");
-const stdx = @import("stdx");
+const stdx = @import("stdx.zig");
 const t = stdx.testing;
 const log = stdx.log.scoped(.mem);
 
@@ -14,20 +14,6 @@ pub fn dupeAlign(alloc: std.mem.Allocator, comptime T: type, comptime A: u8, src
 pub fn ptrCastTo(ptr_to_ptr: anytype, from: anytype) void {
     const Ptr = std.meta.Child(@TypeOf(ptr_to_ptr));
     ptr_to_ptr.* = @ptrCast(Ptr, from);
-}
-
-/// @alignCast seems to be broken (does not insert runtime checks) when passed a comptime int from an expression like @typeInfo(Ptr).Pointer.alignment (for cases where Ptr has a custom alignment, eg. *align(1) u32).
-/// Current fix is to branch to common alignments.
-pub fn ptrCastAlign(comptime Ptr: type, ptr: anytype) Ptr {
-    const alignment = @typeInfo(Ptr).Pointer.alignment;
-    switch (alignment) {
-        0 => return @ptrCast(Ptr, ptr),
-        1 => return @ptrCast(Ptr, @alignCast(1, ptr)),
-        2 => return @ptrCast(Ptr, @alignCast(2, ptr)),
-        4 => return @ptrCast(Ptr, @alignCast(4, ptr)),
-        8 => return @ptrCast(Ptr, @alignCast(8, ptr)),
-        else => unreachable,
-    }
 }
 
 // Same as std.mem.replace except we write to an ArrayList.
@@ -113,4 +99,17 @@ pub fn lastIndexOfPos(comptime T: type, haystack: []const T, start: usize, needl
 
 pub fn removeConst(comptime T: type, val: *const T) *T {
     return @intToPtr(*T, @ptrToInt(val));
+}
+
+pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    if (a.len != b.len) return false;
+    if (a.ptr == b.ptr) return true;
+    for (a, 0..) |item, index| {
+        if (@typeInfo(T) == .Struct) {
+            if (std.meta.eql(b[index], item)) return false;
+        } else {
+            if (b[index] != item) return false;
+        }
+    }
+    return true;
 }

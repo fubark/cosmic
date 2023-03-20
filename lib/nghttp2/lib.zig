@@ -3,11 +3,13 @@ const std = @import("std");
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
-    mode: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
 ) !*std.build.LibExeObjStep {
-    const lib = b.addStaticLibrary("nghttp2", null);
-    lib.setTarget(target);
-    lib.setBuildMode(mode);
+    const lib = b.addStaticLibrary(.{
+        .name = "nghttp2",
+        .target = target,
+        .optimize = optimize,
+    });
 
     const c_flags = &[_][]const u8{
         "-DNGHTTP2_STATICLIB=1",
@@ -53,7 +55,7 @@ pub fn create(
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
-    const lib = create(step.builder, step.target, step.build_mode) catch unreachable;
+    const lib = create(step.builder, step.target, step.optimize) catch unreachable;
     linkLib(step, lib);
 }
 

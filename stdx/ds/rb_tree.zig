@@ -120,7 +120,7 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
             return id;
         }
 
-        pub fn allocValuesInOrder(self: Self, alloc: std.mem.Allocator) []const Value {
+        pub fn allocValuesInOrder(self: Self, alloc: std.mem.Allocator) ![]const Value {
             var vals = std.ArrayList(Value).initCapacity(alloc, self.size) catch unreachable;
             var cur = self.first();
             while (cur) |id| {
@@ -130,7 +130,7 @@ pub fn RbTree(comptime Id: type, comptime Value: type, comptime Context: type, c
             return vals.toOwnedSlice();
         }
 
-        pub fn allocNodeIdsInOrder(self: Self, alloc: std.mem.Allocator) []const Id {
+        pub fn allocNodeIdsInOrder(self: Self, alloc: std.mem.Allocator) ![]const Id {
             var node_ids = std.ArrayList(Id).initCapacity(alloc, self.size) catch unreachable;
             var cur = self.first();
             while (cur) |id| {
@@ -802,7 +802,7 @@ test "Insert where rotations need to set reattached nodes to black." {
     const h = try tree.insert(18);
     try t.eq(tree.isValid(), true);
 
-    const vals = tree.allocNodeIdsInOrder(t.alloc);
+    const vals = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(vals);
     try t.eqSlice(TestId, vals, &.{ d, b, a, g, h, e, c, f });
 }
@@ -904,7 +904,7 @@ test "Insert in order." {
     _ = try tree.insert(9);
     _ = try tree.insert(10);
 
-    const vals = tree.allocValuesInOrder(t.alloc);
+    const vals = try tree.allocValuesInOrder(t.alloc);
     defer t.alloc.free(vals);
     try t.eqSlice(TestId, vals, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
 }
@@ -924,7 +924,7 @@ test "Insert in reverse order." {
     _ = try tree.insert(2);
     _ = try tree.insert(1);
 
-    const vals = tree.allocValuesInOrder(t.alloc);
+    const vals = try tree.allocValuesInOrder(t.alloc);
     defer t.alloc.free(vals);
     try t.eqSlice(TestId, vals, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
 }
@@ -973,7 +973,7 @@ test "Remove root with no children." {
     try t.eq(tree.root, a);
 
     try tree.remove(a);
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{});
 }
@@ -991,7 +991,7 @@ test "Remove root with left red child." {
     try tree.remove(a);
     try t.eq(tree.getNode(b).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b });
 }
@@ -1009,7 +1009,7 @@ test "Remove root with right red child." {
     try tree.remove(a);
     try t.eq(tree.getNode(b).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b });
 }
@@ -1033,7 +1033,7 @@ test "Remove root with two red children." {
     try t.eq(tree.getNode(c).?.left, b);
     try t.eq(tree.getNode(b).?.color, .Red);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b, c });
 }
@@ -1050,7 +1050,7 @@ test "Remove red non-root." {
 
     try tree.remove(b);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ a });
 }
@@ -1072,7 +1072,7 @@ test "Remove black non-root with left red child." {
     try t.eq(tree.getNode(d).?.parent, a);
     try t.eq(tree.getNode(d).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ d, a, c });
 }
@@ -1094,7 +1094,7 @@ test "Remove black non-root with right red child." {
     try t.eq(tree.getNode(d).?.parent, a);
     try t.eq(tree.getNode(d).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b, a, d });
 }
@@ -1121,7 +1121,7 @@ test "Remove non-root with double black case: Parent is red, right sibling is bl
     try t.eq(tree.getNode(c).?.left, TestNullId);
     try t.eq(tree.getNode(e).?.color, .Red);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b, a, c, e });
 }
@@ -1148,7 +1148,7 @@ test "Remove non-root with double black case: Parent is red, left sibling is bla
     try t.eq(tree.getNode(b).?.right, TestNullId);
     try t.eq(tree.getNode(e).?.color, .Red);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ e, b, a, c });
 }
@@ -1172,7 +1172,7 @@ test "Remove non-root with double black case: Right sibling is black, and siblin
     try t.eq(tree.getNode(c).?.color, .Black);
     try t.eq(tree.getNode(d).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ a, c, d });
 }
@@ -1196,7 +1196,7 @@ test "Remove non-root with double black case: Left sibling is black, and sibling
     try t.eq(tree.getNode(b).?.color, .Black);
     try t.eq(tree.getNode(d).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ d, b, a });
 }
@@ -1222,7 +1222,7 @@ test "Remove non-root case 5: parent is red, right sibling is black, sibling's l
 
     try tree.remove(d);
     try t.eq(tree.isValid(), true);
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b, f, e, a, c });
 }
@@ -1252,7 +1252,7 @@ test "Remove non-root with double black case: Parent is black, right sibling is 
     try t.eq(tree.getNode(d).?.color, .Black);
     try t.eq(tree.getNode(e).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ a, c, d, e, f });
 }
@@ -1282,7 +1282,7 @@ test "Remove non-root with double black case: Parent is black, left sibling is r
     try t.eq(tree.getNode(d).?.color, .Black);
     try t.eq(tree.getNode(e).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ f, e, d, b, a });
 }
@@ -1305,7 +1305,7 @@ test "Remove non-root with double black case: Parent is black, right sibling is 
     try t.eq(tree.getNode(c).?.color, .Black);
     try t.eq(tree.getNode(d).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ a, d, c });
 }
@@ -1328,7 +1328,7 @@ test "Remove non-root with double black case: Parent is black, left sibling is b
     try t.eq(tree.getNode(b).?.color, .Black);
     try t.eq(tree.getNode(d).?.color, .Black);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b, d, a });
 }
@@ -1351,7 +1351,7 @@ test "Remove non-root with double black case: Parent is black, right sibling is 
     try t.eq(tree.getNode(a).?.color, .Black);
     try t.eq(tree.getNode(c).?.color, .Red);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ a, c });
 }
@@ -1374,7 +1374,7 @@ test "Remove non-root with double black case: Parent is black, left sibling is b
     try t.eq(tree.getNode(a).?.color, .Black);
     try t.eq(tree.getNode(b).?.color, .Red);
 
-    const node_ids = tree.allocNodeIdsInOrder(t.alloc);
+    const node_ids = try tree.allocNodeIdsInOrder(t.alloc);
     defer t.alloc.free(node_ids);
     try t.eqSlice(TestId, node_ids, &.{ b, a });
 }

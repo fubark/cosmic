@@ -14,7 +14,7 @@ pub const KeyUpEvent = Event(platform.KeyUpEvent);
 pub const MouseDownEvent = Event(platform.MouseDownEvent);
 pub const MouseUpEvent = Event(platform.MouseUpEvent);
 pub const MouseMoveEvent = Event(platform.MouseMoveEvent);
-pub const MouseScrollEvent = Event(platform.MouseScrollEvent);
+pub const MouseWheelEvent = Event(platform.MouseScrollEvent);
 
 pub const HoverChangeEvent = struct {
     ctx: *EventContext,
@@ -25,19 +25,19 @@ pub const HoverChangeEvent = struct {
 
 pub const DragStartEvent = struct {
     /// Absolute position of the child widget that is wrapped.
-    src_x: u32,
-    src_y: u32,
+    src_x: f32,
+    src_y: f32,
 
     /// Mouse position.
     x: i16,
     y: i16,
 
-    pub fn getSrcOffsetX(self: DragStartEvent) i16 {
-        return self.x - @intCast(i16, self.src_x);
+    pub fn getSrcOffsetX(self: DragStartEvent) f32 {
+        return @intToFloat(f32, self.x) - self.src_x;
     }
 
-    pub fn getSrcOffsetY(self: DragStartEvent) i16 {
-        return self.y - @intCast(i16, self.src_y);
+    pub fn getSrcOffsetY(self: DragStartEvent) f32 {
+        return @intToFloat(f32, self.y) - self.src_y;
     }
 };
 
@@ -75,40 +75,40 @@ pub const EventContext = struct {
 };
 
 pub fn KeyDownHandler(comptime Context: type) type {
-    return fn (Context, KeyDownEvent) void;
+    return *const fn (Context, KeyDownEvent) void;
 }
 
 pub fn KeyUpHandler(comptime Context: type) type {
-    return fn (Context, KeyUpEvent) void;
+    return *const fn (Context, KeyUpEvent) void;
 }
 
 pub fn MouseMoveHandler(comptime Context: type) type {
-    return fn (Context, MouseMoveEvent) void;
+    return *const fn (Context, MouseMoveEvent) void;
 }
 
 pub fn MouseDownHandler(comptime Context: type) type {
-    return fn (Context, MouseDownEvent) EventResult;
+    return *const fn (Context, MouseDownEvent) EventResult;
 }
 
 pub fn MouseUpHandler(comptime Context: type) type {
-    return fn (Context, MouseUpEvent) void;
+    return *const fn (Context, MouseUpEvent) void;
 }
 
-pub fn MouseScrollHandler(comptime Context: type) type {
-    return fn (Context, MouseScrollEvent) void;
+pub fn MouseWheelHandler(comptime Context: type) type {
+    return *const fn (Context, MouseWheelEvent) EventResult;
 }
 
 pub fn HoverChangeHandler(comptime Context: type) type {
-    return fn (Context, HoverChangeEvent) void;
+    return *const fn (Context, HoverChangeEvent) void;
 }
 
 pub fn IntervalHandler(comptime Context: type) type {
-    return fn (Context, IntervalEvent) void;
+    return *const fn (Context, IntervalEvent) void;
 }
 
 pub const EventResult = enum(u1) {
     /// Allow the engine to continue with the default behavior.
-    /// Usually these means the event continues to propagate down to the children.
+    /// This usually means the event continues to propagate down to the children.
     default = 0,
     /// Stop the event from propagating to children.
     stop = 1,

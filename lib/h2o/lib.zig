@@ -10,36 +10,37 @@ const Options = struct {
     zlib_includes: []const []const u8,
 };
 
-pub const pkg = std.build.Pkg{
-    .name = "h2o",
-    .source = .{ .path = srcPath() ++ "/h2o.zig" },
-};
-
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    new_pkg.dependencies = &.{ uv.pkg, ssl.pkg };
-    step.addPackage(new_pkg);
-    step.addIncludePath(srcPath() ++ "/");
-    step.addIncludePath(srcPath() ++ "/vendor/include");
-    step.addIncludePath(srcPath() ++ "/vendor/deps/picotls/include");
-    step.addIncludePath(srcPath() ++ "/vendor/deps/quicly/include");
-    step.addIncludePath(srcPath() ++ "/../openssl/vendor/include");
-    if (step.target.getOsTag() == .windows) {
-        step.addIncludePath(srcPath() ++ "/../mingw/win_posix/include");
-        step.addIncludePath(srcPath() ++ "/../mingw/winpthreads/include");
-    }
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/h2o.zig" },
+        .dependencies = &.{},
+    });
+    // new_pkg.dependencies = &.{ uv.pkg, ssl.pkg };
+    // step.addPackage(new_pkg);
+    // step.addIncludePath(thisDir() ++ "/");
+    // step.addIncludePath(thisDir() ++ "/vendor/include");
+    // step.addIncludePath(thisDir() ++ "/vendor/deps/picotls/include");
+    // step.addIncludePath(thisDir() ++ "/vendor/deps/quicly/include");
+    // step.addIncludePath(thisDir() ++ "/../openssl/vendor/include");
+    // if (step.target.getOsTag() == .windows) {
+    //     step.addIncludePath(thisDir() ++ "/../mingw/win_posix/include");
+    //     step.addIncludePath(thisDir() ++ "/../mingw/winpthreads/include");
+    // }
+    return mod;
 }
 
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
-    mode: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     opts: Options,
 ) !*std.build.LibExeObjStep {
 
-    const lib = b.addStaticLibrary("h2o", null);
-    lib.setTarget(target);
-    lib.setBuildMode(mode);
+    const lib = b.addStaticLibrary(.{
+        .name = "h2o",
+        .target = target,
+        .optimize = optimize,
+    });
     // lib.c_std = .C99;
 
     const alloc = b.allocator;
@@ -208,7 +209,7 @@ pub fn create(
     });
 
     for (c_files.items) |file| {
-        const path = b.fmt("{s}/vendor/{s}", .{ srcPath(), file });
+        const path = b.fmt("{s}/vendor/{s}", .{ thisDir(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
@@ -232,7 +233,7 @@ pub fn create(
     lib.linkLibC();
 
     // Load user_config.h here. include/h2o.h was patched to include user_config.h
-    lib.addIncludePath(srcPath());
+    lib.addIncludePath(thisDir());
 
     for (opts.openssl_includes) |path| {
         lib.addIncludePath(path);
@@ -279,15 +280,15 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: LinkOptions) void {
         linkLibPath(step, path);
     } else {
         const b = step.builder;
-        const lib = create(b, step.target, step.build_mode, .{
+        const lib = create(b, step.target, step.optimize, .{
             .openssl_includes = &.{
-                srcPath() ++ "/../openssl/vendor/include",
+                thisDir() ++ "/../openssl/vendor/include",
             },
             .libuv_includes = &.{
-                srcPath() ++ "/../uv/vendor/include",
+                thisDir() ++ "/../uv/vendor/include",
             },
             .zlib_includes = &.{
-                srcPath() ++ "/../zlib/vendor",
+                thisDir() ++ "/../zlib/vendor",
             },
         }) catch unreachable;
         linkLib(step, lib);
@@ -302,10 +303,10 @@ pub fn linkLibPath(step: *std.build.LibExeObjStep, path: []const u8) void {
     step.addAssemblyFile(path);
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ thisDir(), rel_path }) catch unreachable;
 }

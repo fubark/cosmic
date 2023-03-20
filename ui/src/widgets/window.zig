@@ -8,15 +8,16 @@ const u = ui.widgets;
 const log = stdx.log.scoped(.window);
 
 pub const Window = struct {
-    props: struct {
+    props: *const struct {
         bgColor: Color = Color.DarkGray,
         title: []const u8 = "",
         initX: f32 = 0,
         initY: f32 = 0,
         initWidth: f32 = 300,
         initHeight: f32 = 200,
-        child: ui.FrameId = ui.NullFrameId,
-        onClose: ?stdx.Function(fn (ui.WidgetRef(Window)) void) = null,
+        child: ui.FramePtr = .{},
+        onClose: stdx.Function(fn (ui.WidgetRef(Window)) void) = .{},
+        closeIcon: graphics.ImageId,
     },
 
     x: f32,
@@ -25,8 +26,8 @@ pub const Window = struct {
     height: f32,
 
     /// For dragging window.
-    drag_start_offset_x: i16,
-    drag_start_offset_y: i16,
+    drag_start_offset_x: f32,
+    drag_start_offset_y: f32,
 
     /// For resizing window.
     drag_start_x: i16,
@@ -37,7 +38,15 @@ pub const Window = struct {
     drag_start_win_bottom: f32,
     resize_type: ResizeType,
 
-    const TitleBarHeight = 30;
+    pub const Style = struct {
+        titleColor: ?Color = null,
+        titleBgColor: ?Color = null,
+    };
+
+    pub const ComputedStyle = struct {
+        titleColor: Color = Color.White,
+        titleBgColor: Color = Color.DarkGray,
+    };
 
     pub fn init(self: *Window, ctx: *ui.InitContext) void {
         self.x = self.props.initX;
@@ -48,7 +57,10 @@ pub const Window = struct {
         ctx.setMouseDownHandler(self, onMouseDown);
     }
 
-    pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Window, ctx: *ui.BuildContext) ui.FramePtr {
+        const style = ctx.getStyle(Window);
+        const tstyle = u.TextStyle{ .color = style.titleColor };
+        const cstyle = u.IconButtonStyle{ .border = .{ .size = 0 }, .bgColor = Color.Transparent, .padding = 5 };
         return u.Positioned(.{ .x = self.x, .y = self.y, .width = self.width, .height = self.height },
             u.MouseHoverArea(.{
                 .hitTest = ctx.funcExt(self, hitResizeBorder),
@@ -60,22 +72,24 @@ pub const Window = struct {
                     .onDragStart = ctx.funcExt(self, onDragStartBorder),
                     .onDragMove = ctx.funcExt(self, onDragMoveBorder), },
                     u.Column(.{}, &.{
-                        u.Container(.{ .bgColor = Color.Gray, .width = ui.ExpandedWidth, .height = TitleBarHeight },
-                            u.Row(.{}, &.{
-                                u.Flex(.{},
-                                    u.MouseDragArea(.{
-                                        .onDragStart = ctx.funcExt(self, onDragStartTitle),
-                                        .onDragMove = ctx.funcExt(self, onDragMoveTitle), },
-                                        u.Text(.{ .text = self.props.title }),
+                        u.Container(.{ .bgColor = style.titleBgColor, .width = ui.ExpandedWidth },
+                            u.MouseDragArea(.{
+                                .onDragStart = ctx.funcExt(self, onDragStartTitle),
+                                .onDragMove = ctx.funcExt(self, onDragMoveTitle), },
+                                u.Row(.{}, &.{
+                                    u.Flex(.{},
+                                        u.Text(.{ .text = self.props.title, .style = tstyle }),
                                     ),
-                                ),
-                                u.Button(.{ .onClick = ctx.funcExt(ctx.node, onClickClose) }, 
-                                    u.Text(.{ .text = "close" }),
-                                ),
-                            }),
+                                    u.IconButton(.{
+                                        .onClick = ctx.funcExt(ctx.node, onClickClose),
+                                        .style = cstyle,
+                                        .icon = ui.Icon(self.props.closeIcon, .{ .size = 16 }),
+                                    }), 
+                                }),
+                            ),  
                         ),
                         u.Container(.{ .bgColor = self.props.bgColor, .width = ui.ExpandedWidth, .height = ui.ExpandedHeight }, 
-                            self.props.child,
+                            self.props.child.dupe(),
                         ),
                     }),
                 ),
@@ -267,8 +281,8 @@ pub const Window = struct {
     }
 
     fn onDragMoveTitle(self: *Window, e: ui.DragMoveEvent) void {
-        self.x = @intToFloat(f32, e.x - self.drag_start_offset_x);
-        self.y = @intToFloat(f32, e.y - self.drag_start_offset_y);
+        self.x = @intToFloat(f32, e.x) - self.drag_start_offset_x;
+        self.y = @intToFloat(f32, e.y) - self.drag_start_offset_y;
         const root_size = e.ctx.getRootLayoutSize();
         if (self.x < 0) {
             self.x = 0;
@@ -284,9 +298,9 @@ pub const Window = struct {
 
     fn onClickClose(node: *ui.Node, _: ui.MouseUpEvent) void {
         const self = node.getWidget(Window);
-        if (self.props.onClose) |cb| {
+        if (self.props.onClose.isPresent()) {
             const src = ui.WidgetRef(Window).init(node);
-            cb.call(.{ src });
+            self.props.onClose.call(.{ src });
         }
     }
 };

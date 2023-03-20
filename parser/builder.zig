@@ -29,86 +29,82 @@ const grammars = @import("grammars.zig");
 // Since parsers currently only exist at runtime, we need to hardcode the rules.
 pub fn initMetaGrammar(c: *Grammar, alloc: std.mem.Allocator) void {
     c.init(alloc, "Grammar");
-    const op = c.addOp;
-    const top = c.addTokenOp;
-    const ops = c.addOps;
-    const tops = c.addTokenOps;
 
     c.addRule("Grammar", matchZeroOrMore(
-        op(c.matchRule("Declaration")),
+        c.addOp(c.matchRule("Declaration")),
     ));
 
-    c.addInlineRule("Declaration", matchChoice(ops(&.{
+    c.addInlineRule("Declaration", matchChoice(c.addOps(&.{
         c.matchRule("RuleDeclaration"),
         c.matchRule("TokensDeclaration"),
     })));
 
-    c.addRule("TokensDeclaration", matchSeq(ops(&.{
+    c.addRule("TokensDeclaration", matchSeq(c.addOps(&.{
         c.matchTokText("Directive", "@tokens"),
         c.matchLiteral("{"),
         matchZeroOrMore(
-            op(c.matchRule("TokenDeclaration")),
+            c.addOp(c.matchRule("TokenDeclaration")),
         ),
         c.matchLiteral("}"),
     })));
 
-    c.addRule("TokenDeclaration", matchSeq(ops(&.{
+    c.addRule("TokenDeclaration", matchSeq(c.addOps(&.{
         c.matchTokCap("Identifier"),
         matchZeroOrMore(
-            op(c.matchRule("RuleDirective")),
+            c.addOp(c.matchRule("RuleDirective")),
         ),
         c.matchLiteral("{"),
         c.matchRule("Seq"),
         c.matchLiteral("}"),
     })));
 
-    c.addRule("Seq", matchOneOrMore(op(
-        matchChoice(ops(&.{
+    c.addRule("Seq", matchOneOrMore(c.addOp(
+        matchChoice(c.addOps(&.{
             c.matchRule("Choice"),
             c.matchRule("Term"),
         })),
     )));
 
-    c.addRule("Choice", matchSeq(ops(&.{
+    c.addRule("Choice", matchSeq(c.addOps(&.{
         c.matchRule("Term"),
-        matchOneOrMore(op(
-            matchSeq(ops(&.{
+        matchOneOrMore(c.addOp(
+            matchSeq(c.addOps(&.{
                 c.matchLiteralCap("|"),
                 c.matchRule("Term"),
             })),
         )),
     })));
 
-    c.addRule("RuleMatcher", matchSeq(ops(&.{
+    c.addRule("RuleMatcher", matchSeq(c.addOps(&.{
         c.matchRule("Identifier"),
         matchOptional(
-            op(matchSeq(ops(&.{
+            c.addOp(matchSeq(c.addOps(&.{
                 c.matchLiteral("="),
                 c.matchRule("StringLiteral"),
             }))),
         ),
     })));
 
-    c.addRule("Term", matchSeq(ops(&.{
+    c.addRule("Term", matchSeq(c.addOps(&.{
         matchOptional(
-            op(matchChoice(ops(&.{
+            c.addOp(matchChoice(c.addOps(&.{
                 c.matchLiteralCap("!"),
                 c.matchLiteralCap("&"),
             }))),
         ),
-        matchChoice(ops(&.{
+        matchChoice(c.addOps(&.{
             c.matchRule("RuleMatcher"),
             c.matchRule("StringLiteral"),
             c.matchRule("Directive"),
             c.matchRule("CharSetLiteral"),
-            matchSeq(ops(&.{
+            matchSeq(c.addOps(&.{
                 c.matchLiteral("("),
                 c.matchRule("Seq"),
                 c.matchLiteral(")"),
             })),
         })),
         matchOptional(
-            op(matchChoice(ops(&.{
+            c.addOp(matchChoice(c.addOps(&.{
                 c.matchLiteralCap("*"),
                 c.matchLiteralCap("+"),
                 c.matchLiteralCap("?"),
@@ -116,20 +112,20 @@ pub fn initMetaGrammar(c: *Grammar, alloc: std.mem.Allocator) void {
         ),
     })));
 
-    c.addRule("RuleDeclaration", matchSeq(ops(&.{
+    c.addRule("RuleDeclaration", matchSeq(c.addOps(&.{
         c.matchTokCap("Identifier"),
         matchZeroOrMore(
-            op(c.matchRule("RuleDirective")),
+            c.addOp(c.matchRule("RuleDirective")),
         ),
         c.matchLiteral("{"),
         c.matchRule("Seq"),
         c.matchLiteral("}"),
     })));
 
-    c.addRule("RuleDirective", matchSeq(ops(&.{
+    c.addRule("RuleDirective", matchSeq(c.addOps(&.{
         c.matchTokCap("Directive"),
         matchOptional(
-            op(matchSeq(ops(&.{
+            c.addOp(matchSeq(c.addOps(&.{
                 c.matchLiteral("("),
                 // Support just one param for now.
                 c.matchRule("Identifier"),
@@ -138,22 +134,22 @@ pub fn initMetaGrammar(c: *Grammar, alloc: std.mem.Allocator) void {
         ),
     })));
 
-    c.addTokenRule("Directive", matchTokenSeq(tops(&.{
+    c.addTokenRule("Directive", matchTokenSeq(c.addTokenOps(&.{
         matchExactChar('@'),
-        matchTokenOneOrMore(top(matchAsciiLetter())),
+        matchTokenOneOrMore(c.addTokenOp(matchAsciiLetter())),
     })));
 
-    c.addTokenRule("Identifier", matchTokenOneOrMore(top(matchAsciiLetter())));
+    c.addTokenRule("Identifier", matchTokenOneOrMore(c.addTokenOp(matchAsciiLetter())));
 
-    c.addTokenRule("CharSetLiteral", matchTokenSeq(tops(&.{
+    c.addTokenRule("CharSetLiteral", matchTokenSeq(c.addTokenOps(&.{
         matchExactChar('['),
         matchUntilChar(']'),
     })));
 
-    c.addTokenRule("StringLiteral", matchTokenSeq(tops(&.{
+    c.addTokenRule("StringLiteral", matchTokenSeq(c.addTokenOps(&.{
         matchExactChar('\''),
-        matchTokenOneOrMore(top(
-            matchTokenChoice(tops(&.{
+        matchTokenOneOrMore(c.addTokenOp(
+            matchTokenChoice(c.addTokenOps(&.{
                 c.tokMatchText("\\\\"),
                 c.tokMatchText("\\'"),
                 matchNotChar('\''),
@@ -162,7 +158,7 @@ pub fn initMetaGrammar(c: *Grammar, alloc: std.mem.Allocator) void {
         matchExactChar('\''),
     })));
 
-    c.addTokenRuleExt("Punctuator", matchTokenChoice(tops(&.{
+    c.addTokenRuleExt("Punctuator", matchTokenChoice(c.addTokenOps(&.{
         matchExactChar('{'),
         matchExactChar('}'),
         matchExactChar('('),

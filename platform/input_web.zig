@@ -5,7 +5,7 @@ const KeyCode = platform.KeyCode;
 const Map = b: {
     var map: [256]KeyCode = undefined;
 
-    for (map) |*it, i| {
+    for (map, 0..) |*it, i| {
         @setEvalBranchQuota(100000);
         it.* = std.meta.intToEnum(KeyCode, i) catch .Unknown;
     }

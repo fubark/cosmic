@@ -5,24 +5,24 @@ const graphics = @import("graphics");
 const Color = graphics.Color;
 
 const ui = @import("../ui.zig");
-const w = ui.widgets;
+const u = ui.widgets;
 
 const log = stdx.log.scoped(.color_picker);
 
 // TODO: Split this into ColorPicker and ColorPickerOption.
 pub const ColorPicker = struct {
-    props: struct {
+    props: *const struct {
         label: []const u8 = "Color",
         fontSize: f32 = 16,
         init_val: Color = Color.White,
-        onPreviewChange: ?Function(fn (Color) void) = null,
-        onResult: ?Function(fn (color: Color, save: bool) void) = null,
+        onPreviewChange: Function(fn (Color) void) = .{},
+        onResult: Function(fn (color: Color, save: bool) void) = .{},
     },
 
     color: Color,
-    slider: ui.WidgetRef(w.SliderT),
-    preview: ui.WidgetRef(w.SizedT),
-    root: *w.Root,
+    slider: ui.WidgetRef(u.SliderT),
+    preview: ui.WidgetRef(u.SizedT),
+    root: *u.Root,
     node: *ui.Node,
 
     popover_inner: ui.WidgetRef(ColorPickerPopover),
@@ -34,21 +34,24 @@ pub const ColorPicker = struct {
         self.color = self.props.init_val;
     }
 
-    pub fn build(self: *ColorPicker, c: *ui.BuildContext) ui.FrameId {
-        return w.MouseArea(.{ .onClick = c.funcExt(self, onClick) },
-            w.Row(.{ .valign = .Center }, &.{
-                w.Flex(.{}, 
-                    w.Text(.{
+    pub fn build(self: *ColorPicker, c: *ui.BuildContext) ui.FramePtr {
+        const t_style = u.TextStyle{
+            .fontSize = self.props.fontSize,
+            .color = Color.White,
+        };
+        return u.MouseArea(.{ .onClick = c.funcExt(self, onClick) },
+            u.Row(.{ .valign = .center }, &.{
+                u.Flex(.{}, 
+                    u.Text(.{
                         .text = self.props.label,
-                        .fontSize = self.props.fontSize,
-                        .color = Color.White,
+                        .style = t_style,
                     }),
                 ),
-                w.Sized(.{
+                u.Sized(.{
                     .bind = &self.preview,
                     .width = 30,
                     .height = 30,
-                }, ui.NullFrameId),
+                }, .{}),
             }),
         );
     }
@@ -61,22 +64,23 @@ pub const ColorPicker = struct {
 
     fn onClick(self: *ColorPicker, _: ui.MouseUpEvent) void {
         const S = struct {
-            fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
-                const self_ = stdx.mem.ptrCastAlign(*ColorPicker, ptr);
+            fn buildPopover(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
+                const self_ = stdx.ptrCastAlign(*ColorPicker, ptr);
                 return c_.build(ColorPickerPopover, .{
                     .bind = &self_.popover_inner,
+                    .popoverId = self_.popover,
                     .init_val = self_.color,
                     .onPreviewChange = self_.props.onPreviewChange,
                 });
             }
             fn onPopoverClose(ptr: ?*anyopaque) void {
-                const self_ = stdx.mem.ptrCastAlign(*ColorPicker, ptr);
+                const self_ = stdx.ptrCastAlign(*ColorPicker, ptr);
                 const inner = self_.popover_inner.getWidget();
                 if (inner.save_result) {
                     self_.color = inner.color;
                 }
-                if (self_.props.onResult) |cb| {
-                    cb.call(.{ self_.color, inner.save_result });
+                if (self_.props.onResult.isPresent()) {
+                    self_.props.onResult.call(.{ self_.color, inner.save_result });
                 }
             }
         };
@@ -88,13 +92,14 @@ pub const ColorPicker = struct {
 };
 
 const ColorPickerPopover = struct {
-    props: struct {
+    props: *const struct {
         init_val: Color,
-        onPreviewChange: ?Function(fn (Color) void) = null,
+        popoverId: u32,
+        onPreviewChange: Function(fn (Color) void) = .{},
     },
 
-    palette: ui.WidgetRef(w.StretchT),
-    hue_slider: ui.WidgetRef(w.SliderT),
+    palette: ui.WidgetRef(u.StretchT),
+    hue_slider: ui.WidgetRef(u.SliderT),
 
     save_result: bool,
     color: Color,
@@ -102,7 +107,7 @@ const ColorPickerPopover = struct {
     palette_yratio: f32,
     hue: f32,
     is_pressed: bool,
-    window: *ui.widgets.PopoverOverlay,
+    window: *u.PopoverOverlayT,
 
     const ThumbRadius = 10;
 
@@ -115,7 +120,7 @@ const ColorPickerPopover = struct {
         self.save_result = false;
 
         // Set custom post render over the popover window.
-        self.window = c.node.parent.?.getWidget(ui.widgets.PopoverOverlay);
+        self.window = c.getRoot().getPopoverOverlay(self.props.popoverId);
         self.window.custom_post_render = postPopoverRender;
         self.window.custom_post_render_ctx = self;
         
@@ -164,8 +169,8 @@ const ColorPickerPopover = struct {
             self.palette_yratio = 1;
         }
         self.color = Color.fromHsv(self.hue, self.palette_xratio, 1 - self.palette_yratio);
-        if (self.props.onPreviewChange) |cb| {
-            cb.call(.{ self.color });
+        if (self.props.onPreviewChange.isPresent()) {
+            self.props.onPreviewChange.call(.{ self.color });
         }
     }
 
@@ -181,7 +186,7 @@ const ColorPickerPopover = struct {
         c.clearGlobalMouseUpHandler(n);
     }
 
-    pub fn build(self: *ColorPickerPopover, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ColorPickerPopover, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClickSave(self_: *ColorPickerPopover, _: ui.MouseUpEvent) void {
                 self_.save_result = true;
@@ -191,19 +196,19 @@ const ColorPickerPopover = struct {
                 // Update color.
                 self_.hue = @intToFloat(f32, hue);
                 self_.color = Color.fromHsv(self_.hue, self_.palette_xratio, 1 - self_.palette_yratio);
-                if (self_.props.onPreviewChange) |cb| {
-                    cb.call(.{ self_.color });
+                if (self_.props.onPreviewChange.isPresent()) {
+                    self_.props.onPreviewChange.call(.{ self_.color });
                 }
             }
         };
-        return w.Sized(.{ .width = 200 },
-            w.Column(.{ .expand_child_width = true }, &.{
-                w.Stretch(.{
+        return u.Sized(.{ .width = 200 },
+            u.Column(.{ .expandChildWidth = true }, &.{
+                u.Stretch(.{
                     .method = .WidthAndKeepRatio,
                     .aspect_ratio = 1,
                     .bind = &self.palette,
-                }, ui.NullFrameId),
-                w.Slider(.{
+                }, .{}),
+                u.Slider(.{
                     .min_val = 0,
                     .max_val = 360,
                     .init_val = @floatToInt(i32, self.hue),
@@ -211,7 +216,7 @@ const ColorPickerPopover = struct {
                     .thumb_color = Color.Transparent,
                     .onChange = c.funcExt(self, S.onChangeHue),
                 }),
-                w.TextButton(.{
+                u.TextButton(.{
                     .text = "Save",
                     .onClick = c.funcExt(self, S.onClickSave),
                 }),
@@ -267,7 +272,7 @@ const ColorPickerPopover = struct {
         g.fillCircle(thumb_x, thumb_y, ThumbRadius);
         g.setStrokeColor(Color.White);
         g.setLineWidth(2);
-        g.drawCircle(thumb_x, thumb_y, ThumbRadius);
+        g.strokeCircle(thumb_x, thumb_y, ThumbRadius);
 
         // Draw the palette.
         const palette_bounds = self.palette.getAbsBounds();
@@ -278,7 +283,7 @@ const ColorPickerPopover = struct {
     }
 
     fn postPopoverRender(ptr: ?*anyopaque, c: *ui.RenderContext) void {
-        const self = stdx.mem.ptrCastAlign(*ColorPickerPopover, ptr);
+        const self = stdx.ptrCastAlign(*ColorPickerPopover, ptr);
         const palette_bounds = self.palette.getAbsBounds();
         const g = c.gctx;
 
@@ -291,6 +296,6 @@ const ColorPickerPopover = struct {
         g.fillCircle(cursor_x, cursor_y, ThumbRadius);
         g.setStrokeColor(Color.White);
         g.setLineWidth(2);
-        g.drawCircle(cursor_x, cursor_y, ThumbRadius);
+        g.strokeCircle(cursor_x, cursor_y, ThumbRadius);
     }
 };

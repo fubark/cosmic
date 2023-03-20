@@ -4,29 +4,28 @@ const sdl = @import("../sdl/lib.zig");
 
 // Generate build_info.h in glslang repo root with: ./build_info.py . -i build_info.h.tmpl -o glslang/build_info.h 
 
-pub const pkg = std.build.Pkg{
-    .name = "glslang",
-    .source = .{ .path = srcPath() ++ "/glslang.zig" },
-    .dependencies = &.{},
-};
-
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    var new_pkg = pkg;
-    step.addPackage(new_pkg);
-    step.addIncludePath(srcPath() ++ "/vendor");
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/glslang.zig" },
+        .dependencies = &.{},
+    });
+    // step.addIncludePath(thisDir() ++ "/vendor");
+    return mod;
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     const b = step.builder;
-    const lib = b.addStaticLibrary("glslang", null);
-    lib.setTarget(step.target);
-    lib.setBuildMode(step.build_mode);
-    lib.addIncludePath(srcPath() ++ "/vendor");
+    const lib = step.builder.addStaticLibrary(.{
+        .name = "glslang",
+        .target = step.target,
+        .optimize = step.optimize,
+    });
+    lib.addIncludePath(thisDir() ++ "/vendor");
     lib.linkLibCpp();
 
     var c_flags = std.ArrayList([]const u8).init(b.allocator);
     c_flags.appendSlice(&.{ "-std=c++17" }) catch @panic("error");
-    if (step.build_mode == .Debug) {
+    if (step.optimize == .Debug) {
         // c_flags.append("-O0") catch @panic("error");
     }
 
@@ -84,11 +83,11 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     }
 
     for (sources.items) |src| {
-        lib.addCSourceFile(b.fmt("{s}{s}", .{srcPath(), src}), c_flags.items);
+        lib.addCSourceFile(b.fmt("{s}{s}", .{thisDir(), src}), c_flags.items);
     }
     step.linkLibrary(lib);
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

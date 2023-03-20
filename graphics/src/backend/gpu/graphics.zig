@@ -22,7 +22,7 @@ const tess2 = @import("tess2");
 const pt = lyon.initPt;
 const t = stdx.testing;
 const trace = stdx.debug.tracy.trace;
-const build_options = @import("build_options");
+const build_options = @import("graphics_options");
 const Backend = build_options.GraphicsBackend;
 
 const graphics = @import("../../graphics.zig");
@@ -31,12 +31,8 @@ const SubQuadBez = graphics.curve.SubQuadBez;
 const CubicBez = graphics.curve.CubicBez;
 const Color = graphics.Color;
 const BlendMode = graphics.BlendMode;
-const VMetrics = graphics.font.VMetrics;
-const TextMetrics = graphics.TextMetrics;
-const Font = graphics.font.Font;
 pub const font_cache = @import("font_cache.zig");
 pub const FontCache = font_cache.FontCache;
-const ImageId = graphics.ImageId;
 const TextAlign = graphics.TextAlign;
 const TextBaseline = graphics.TextBaseline;
 const FontId = graphics.FontId;
@@ -137,11 +133,11 @@ pub const Graphics = struct {
     light_color: Vec3 = Vec3.init(5, 5, 5),
     light_vec: Vec3 = Vec3.init(-1, -1, 0).normalize(),
 
-    pub fn initGL(self: *Graphics, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32) !void {
+    pub fn initGL(self: *Graphics, alloc: std.mem.Allocator, renderer: *ggl.Renderer, dpr: f32, stats: *graphics.FrameStats) !void {
         self.initDefault(alloc, dpr);
         try self.initCommon(alloc);
         self.inner.renderer = renderer;
-        self.batcher = Batcher.initGL(alloc, renderer, &self.image_store);
+        self.batcher = Batcher.initGL(alloc, renderer, &self.image_store, stats);
     }
 
     pub fn initVK(self: *Graphics, alloc: std.mem.Allocator, dpr: f32, renderer: *gvk.Renderer, vk_ctx: VkContext) !void {
@@ -329,11 +325,11 @@ pub const Graphics = struct {
         switch (Backend) {
             .OpenGL => {
                 gl.scissor(
-                    @floatToInt(c_int, rect.x),
+                    @floatToInt(c_int, rect.x * self.dpr),
                     // clip-y starts at bottom.
-                    @floatToInt(c_int, @intToFloat(f32, self.height) - (rect.y + rect.height)),
-                    @floatToInt(c_int, rect.width),
-                    @floatToInt(c_int, rect.height)
+                    @floatToInt(c_int, self.dpr * (@intToFloat(f32, self.height) - (rect.y + rect.height))) + 1,
+                    @floatToInt(c_int, rect.width * self.dpr),
+                    @floatToInt(c_int, rect.height * self.dpr) - 1,
                 );
                 self.inner.renderer.setScissorTest(true);
             },
@@ -422,11 +418,14 @@ pub const Graphics = struct {
     }
 
     pub fn setPaintState(self: *Graphics, ps: *PaintState) void {
+        if (self.ps != ps) {
+            self.pushClearColor(ps.clear_color);
+        }
         self.ps = ps;
     }
 
     pub fn setMainPaintState(self: *Graphics) void {
-        self.ps = self.main_ps;
+        self.setPaintState(self.main_ps);
     }
 
     pub fn setFont(self: *Graphics, font_id: FontId) void {
@@ -445,8 +444,17 @@ pub const Graphics = struct {
         gl.clear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
     }
 
+    pub fn getClearColor(self: *Graphics) Color {
+        return self.ps.clear_color;
+    }
+
     pub fn setClearColor(self: *Graphics, color: Color) void {
         self.ps.clear_color = color;
+        self.pushClearColor(color);
+    }
+
+    fn pushClearColor(self: *Graphics, color: Color) void {
+        _ = self;
         if (Backend == .OpenGL) {
             const f = color.toFloatArray();
             gl.clearColor(f[0], f[1], f[2], f[3]);
@@ -476,8 +484,8 @@ pub const Graphics = struct {
         // Convert to buffer coords on cpu.
         if (Backend == .OpenGL and IsWasm) {
             // Use bottom left coords.
-            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.buf_height) - start_y)).mul(self.dpr);
-            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.buf_height) - end_y)).mul(self.dpr);
+            const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, @intToFloat(f32, self.height) - start_y)).mul(self.dpr);
+            const end_screen_pos = self.ps.view_xform.interpolatePt(vec2(end_x, @intToFloat(f32, self.height) - end_y)).mul(self.dpr);
             self.batcher.beginGradient(start_screen_pos, start_color, end_screen_pos, end_color);
         } else {
             const start_screen_pos = self.ps.view_xform.interpolatePt(vec2(start_x, start_y)).mul(self.dpr);
@@ -523,16 +531,48 @@ pub const Graphics = struct {
         self.ps.text_baseline = baseline;
     }
 
-    pub fn measureText(self: *Graphics, str: []const u8, res: *TextMetrics) void {
+    pub fn measureText(self: *Graphics, str: []const u8, res: *graphics.TextMetrics) void {
         text_renderer.measureText(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, str, res, true);
     }
 
-    pub fn measureFontText(self: *Graphics, group_id: FontGroupId, size: f32, str: []const u8, res: *TextMetrics) void {
+    pub fn measureFontText(self: *Graphics, group_id: FontGroupId, size: f32, str: []const u8, res: *graphics.TextMetrics) void {
         text_renderer.measureText(self, group_id, size, self.dpr_ceil, str, res, true);
     }
 
     pub inline fn textGlyphIter(self: *Graphics, font_gid: FontGroupId, size: f32, str: []const u8) graphics.TextGlyphIterator {
         return text_renderer.textGlyphIter(self, font_gid, size, self.dpr_ceil, str);
+    }
+
+    pub fn fillTextRun(self: *Graphics, x: f32, y: f32, run: graphics.TextRun) void {
+        self.fillTextRunExt(x, y, run, .{
+            .@"align" = self.ps.text_align,
+            .baseline = self.ps.text_baseline,
+        });
+    }
+
+    pub fn fillTextRunExt(self: *Graphics, x: f32, y: f32, run: graphics.TextRun, opts: graphics.TextOptions) void {
+        var vert: TexShaderVertex = undefined;
+        var vdata: VertexData(4, 6) = undefined;
+
+        const start = self.getFillTextStartPos(x, y, run.str, opts);
+        const firstSegment = run.segments[0];
+        var iter = text_renderer.RenderTextIterator.init(self, firstSegment.fontGroupId, firstSegment.fontSize, self.dpr_ceil, start.x, start.y, run.str[firstSegment.start..firstSegment.end]);
+        while (iter.nextCodepointQuad(true)) {
+            self.pushCodepointQuad(&vdata, &vert, iter.quad, firstSegment.color);
+        }
+        for (run.segments[1..]) |segment| {
+            const lastCp = iter.quad.cp;
+            iter = text_renderer.RenderTextIterator.init(self, segment.fontGroupId, segment.fontSize, self.dpr_ceil, iter.x, iter.y, run.str[segment.start..segment.end]);
+
+            const fgroup = self.font_cache.getFontGroup(segment.fontGroupId);
+            const glyph_info = self.font_cache.getOrLoadFontGroupGlyph(self, fgroup, iter.iter.inner.render_font_size, lastCp);
+            iter.iter.inner.prev_glyph_id_opt = glyph_info.glyph.glyph_id;
+            iter.iter.inner.prev_glyph_font = glyph_info.font;
+
+            while (iter.nextCodepointQuad(true)) {
+                self.pushCodepointQuad(&vdata, &vert, iter.quad, segment.color);
+            }
+        }
     }
 
     pub inline fn fillText(self: *Graphics, x: f32, y: f32, str: []const u8) void {
@@ -545,66 +585,71 @@ pub const Graphics = struct {
     pub fn fillTextExt(self: *Graphics, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) void {
         // log.info("draw text '{s}'", .{str});
         var vert: TexShaderVertex = undefined;
-
         var vdata: VertexData(4, 6) = undefined;
 
-        var start_x = x;
-        var start_y = y;
+        const start = self.getFillTextStartPos(x, y, str, opts);
+        var iter = text_renderer.RenderTextIterator.init(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, start.x, start.y, str);
+        while (iter.nextCodepointQuad(true)) {
+            self.pushCodepointQuad(&vdata, &vert, iter.quad, self.ps.fill_color);
+        }
+    }
 
+    fn getFillTextStartPos(self: *Graphics, x: f32, y: f32, str: []const u8, opts: graphics.TextOptions) Vec2 {
+        var res = Vec2.init(x, y);
         if (opts.@"align" != .Left) {
-            var metrics: TextMetrics = undefined;
+            var metrics: graphics.TextMetrics = undefined;
             self.measureText(str, &metrics);
             switch (opts.@"align") {
                 .Left => {},
-                .Right => start_x = x-metrics.width,
-                .Center => start_x = x-metrics.width/2,
+                .Right => res.x = x-metrics.width,
+                .Center => res.x = x-metrics.width/2,
             }
         }
         if (opts.baseline != .Top) {
             const vmetrics = self.font_cache.getPrimaryFontVMetrics(self.ps.font_gid, self.ps.font_size);
             switch (opts.baseline) {
                 .Top => {},
-                .Middle => start_y = y - vmetrics.height / 2,
-                .Alphabetic => start_y = y - vmetrics.ascender,
-                .Bottom => start_y = y - vmetrics.height,
+                .Middle => res.y = y - vmetrics.height / 2,
+                .Alphabetic => res.y = y - vmetrics.ascender,
+                .Bottom => res.y = y - vmetrics.height,
             }
         }
-        var iter = text_renderer.RenderTextIterator.init(self, self.ps.font_gid, self.ps.font_size, self.dpr_ceil, start_x, start_y, str);
+        return res;
+    }
 
-        while (iter.nextCodepointQuad(true)) {
-            self.setCurrentTexture(iter.quad.image);
+    fn pushCodepointQuad(self: *Graphics, vdata: *VertexData(4, 6), vert: *TexShaderVertex, quad: text_renderer.TextureQuad, color: Color) void {
+        self.setCurrentTexture(quad.image);
 
-            if (iter.quad.is_color_bitmap) {
-                vert.setColor(Color.White);
-            } else {
-                vert.setColor(self.ps.fill_color);
-            }
-
-            // top left
-            vert.setXY(iter.quad.x0, iter.quad.y0);
-            vert.setUV(iter.quad.u0, iter.quad.v0);
-            vdata.verts[0] = vert;
-
-            // top right
-            vert.setXY(iter.quad.x1, iter.quad.y0);
-            vert.setUV(iter.quad.u1, iter.quad.v0);
-            vdata.verts[1] = vert;
-
-            // bottom right
-            vert.setXY(iter.quad.x1, iter.quad.y1);
-            vert.setUV(iter.quad.u1, iter.quad.v1);
-            vdata.verts[2] = vert;
-
-            // bottom left
-            vert.setXY(iter.quad.x0, iter.quad.y1);
-            vert.setUV(iter.quad.u0, iter.quad.v1);
-            vdata.verts[3] = vert;
-
-            // indexes
-            vdata.setRect(0, 0, 1, 2, 3);
-
-            self.pushVertexData(4, 6, &vdata);
+        if (quad.is_color_bitmap) {
+            vert.setColor(Color.White);
+        } else {
+            vert.setColor(color);
         }
+
+        // top left
+        vert.setXY(quad.x0, quad.y0);
+        vert.setUV(quad.u0, quad.v0);
+        vdata.verts[0] = vert.*;
+
+        // top right
+        vert.setXY(quad.x1, quad.y0);
+        vert.setUV(quad.u1, quad.v0);
+        vdata.verts[1] = vert.*;
+
+        // bottom right
+        vert.setXY(quad.x1, quad.y1);
+        vert.setUV(quad.u1, quad.v1);
+        vdata.verts[2] = vert.*;
+
+        // bottom left
+        vert.setXY(quad.x0, quad.y1);
+        vert.setUV(quad.u0, quad.v1);
+        vdata.verts[3] = vert.*;
+
+        // indexes
+        vdata.setRect(0, 0, 1, 2, 3);
+
+        self.pushVertexData(4, 6, vdata);
     }
 
     pub inline fn setCurrentTexture(self: *Graphics, image_tex: image.ImageTex) void {
@@ -621,15 +666,27 @@ pub const Graphics = struct {
         self.batcher.pushVertexData(num_verts, num_indices, data);
     }
 
-    pub fn drawRectVec(self: *Graphics, pos: Vec2, width: f32, height: f32) void {
-        self.drawRect(pos.x, pos.y, width, height);
+    pub fn strokeRectVec(self: *Graphics, pos: Vec2, width: f32, height: f32) void {
+        self.strokeRect(pos.x, pos.y, width, height);
     }
 
-    pub fn drawRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
-        self.drawRectBounds(x, y, x + width, y + height);
+    pub fn strokeRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32) void {
+        self.strokeRectBounds(x, y, x + width, y + height);
     }
 
-    pub fn drawRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+    pub fn strokeRectBoundsInward(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        // Top border.
+        self.fillRectBoundsColor(x0, y0, x1, y0 + self.ps.line_width, self.ps.stroke_color);
+        // Right border.
+        self.fillRectBoundsColor(x1 - self.ps.line_width, y0 + self.ps.line_width, x1, y1 - self.ps.line_width, self.ps.stroke_color);
+        // Bottom border.
+        self.fillRectBoundsColor(x0, y1 - self.ps.line_width, x1, y1, self.ps.stroke_color);
+        // Left border.
+        self.fillRectBoundsColor(x0, y0 + self.ps.line_width, x0 + self.ps.line_width, y1 - self.ps.line_width, self.ps.stroke_color);
+    }
+
+    pub fn strokeRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top border.
         self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 - self.ps.line_width_half, x1 + self.ps.line_width_half, y0 + self.ps.line_width_half, self.ps.stroke_color);
@@ -674,28 +731,48 @@ pub const Graphics = struct {
         self.fillCircleSectorN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
-    pub fn drawRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
-        self.drawRoundRectBounds(x, y, x + width, y + height, radius);
+    pub fn strokeRoundRect(self: *Graphics, x: f32, y: f32, width: f32, height: f32, radius: f32) void {
+        self.strokeRoundRectBounds(x, y, x + width, y + height, radius);
     }
 
-    pub fn drawRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+    pub fn strokeRoundRectBoundsInward(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
         self.batcher.beginTex(self.white_tex);
         // Top left corner.
-        self.drawCircleArcN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
+        self.strokeCircleArcInwardN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
+        // Left side.
+        self.fillRectBoundsColor(x0, y0 + radius, x0 + self.ps.line_width, y1 - radius, self.ps.stroke_color);
+        // Bottom left corner.
+        self.strokeCircleArcInwardN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
+        // Top.
+        self.fillRectBoundsColor(x0 + radius, y0, x1 - radius, y0 + self.ps.line_width, self.ps.stroke_color);
+        // Bottom.
+        self.fillRectBoundsColor(x0 + radius, y1 - self.ps.line_width, x1 - radius, y1, self.ps.stroke_color);
+        // Top right corner.
+        self.strokeCircleArcInwardN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
+        // Right side.
+        self.fillRectBoundsColor(x1 - self.ps.line_width, y0 + radius, x1, y1 - radius, self.ps.stroke_color);
+        // Bottom right corner.
+        self.strokeCircleArcInwardN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
+    }
+
+    pub fn strokeRoundRectBounds(self: *Graphics, x0: f32, y0: f32, x1: f32, y1: f32, radius: f32) void {
+        self.batcher.beginTex(self.white_tex);
+        // Top left corner.
+        self.strokeCircleArcN(x0 + radius, y0 + radius, radius, math.pi, math.pi_half, 90);
         // Left side.
         self.fillRectBoundsColor(x0 - self.ps.line_width_half, y0 + radius, x0 + self.ps.line_width_half, y1 - radius, self.ps.stroke_color);
         // Bottom left corner.
-        self.drawCircleArcN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
+        self.strokeCircleArcN(x0 + radius, y1 - radius, radius, math.pi_half, math.pi_half, 90);
         // Top.
         self.fillRectBoundsColor(x0 + radius, y0 - self.ps.line_width_half, x1 - radius, y0 + self.ps.line_width_half, self.ps.stroke_color);
         // Bottom.
         self.fillRectBoundsColor(x0 + radius, y1 - self.ps.line_width_half, x1 - radius, y1 + self.ps.line_width_half, self.ps.stroke_color);
         // Top right corner.
-        self.drawCircleArcN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
+        self.strokeCircleArcN(x1 - radius, y0 + radius, radius, -math.pi_half, math.pi_half, 90);
         // Right side.
         self.fillRectBoundsColor(x1 - self.ps.line_width_half, y0 + radius, x1 + self.ps.line_width_half, y1 - radius, self.ps.stroke_color);
         // Bottom right corner.
-        self.drawCircleArcN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
+        self.strokeCircleArcN(x1 - radius, y1 - radius, radius, 0, math.pi_half, 90);
     }
 
     pub fn drawPlane(self: *Graphics) void {
@@ -770,7 +847,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeCircleArc(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32) void {
         self.batcher.beginTex(self.white_tex);
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
@@ -778,16 +855,24 @@ pub const Graphics = struct {
         }
         // Approx 1 arc sector per degree.
         var n = @floatToInt(u32, @ceil(@fabs(sweep_rad) / math.pi_2 * 360));
-        self.drawCircleArcN(x, y, radius, start_rad, sweep_rad, n);
+        self.strokeCircleArcN(x, y, radius, start_rad, sweep_rad, n);
     }
 
     // n is the number of sections in the arc we will draw.
-    pub fn drawCircleArcN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
-        self.batcher.beginTex(self.white_tex);
-        self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
-
+    pub fn strokeCircleArcN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
         const inner_rad = radius - self.ps.line_width_half;
         const outer_rad = radius + self.ps.line_width_half;
+        self.strokeCircleArcExtN(x, y, inner_rad, outer_rad, start_rad, sweep_rad, n);
+    }
+
+    pub fn strokeCircleArcInwardN(self: *Graphics, x: f32, y: f32, radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+        const inner_rad = radius - self.ps.line_width;
+        self.strokeCircleArcExtN(x, y, inner_rad, radius, start_rad, sweep_rad, n);
+    }
+
+    pub fn strokeCircleArcExtN(self: *Graphics, x: f32, y: f32, innerRadius: f32, outerRadius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
+        self.batcher.beginTex(self.white_tex);
+        self.batcher.ensureUnusedBuffer(2 + n * 2, n * 3 * 2);
 
         var vert: TexShaderVertex = undefined;
         vert.setColor(self.ps.stroke_color);
@@ -796,9 +881,9 @@ pub const Graphics = struct {
         // Add first two vertices.
         var cos = @cos(start_rad);
         var sin = @sin(start_rad);
-        vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
+        vert.setXY(x + cos * innerRadius, y + sin * innerRadius);
         self.batcher.mesh.pushVertex(vert);
-        vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
+        vert.setXY(x + cos * outerRadius, y + sin * outerRadius);
         self.batcher.mesh.pushVertex(vert);
 
         const rad_per_n = sweep_rad / @intToFloat(f32, n);
@@ -810,9 +895,9 @@ pub const Graphics = struct {
             // Add inner/outer vertex.
             cos = @cos(rad);
             sin = @sin(rad);
-            vert.setXY(x + cos * inner_rad, y + sin * inner_rad);
+            vert.setXY(x + cos * innerRadius, y + sin * innerRadius);
             self.batcher.mesh.pushVertex(vert);
-            vert.setXY(x + cos * outer_rad, y + sin * outer_rad);
+            vert.setXY(x + cos * outerRadius, y + sin * outerRadius);
             self.batcher.mesh.pushVertex(vert);
 
             // Add arc sector.
@@ -871,14 +956,17 @@ pub const Graphics = struct {
         self.fillCircleSectorN(x, y, radius, start_rad, sweep_rad, num_tri);
     }
 
-    // Same implementation as fillEllipse when h_radius = v_radius.
+    /// Same implementation as fillEllipse when h_radius = v_radius.
+    /// TODO: Allow error tolerance option:
+    /// th = arccos(2 * (1 - e / r)^2 - 1)
+    /// num_vertices = ceil(2*pi/th)
     pub fn fillCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
         self.fillCircleSectorN(x, y, radius, 0, math.pi_2, 360);
     }
 
     // Same implementation as drawEllipse when h_radius = v_radius. Might be slightly faster since we use fewer vars.
-    pub fn drawCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
-        self.drawCircleArcN(x, y, radius, 0, math.pi_2, 360);
+    pub fn strokeCircle(self: *Graphics, x: f32, y: f32, radius: f32) void {
+        self.strokeCircleArcN(x, y, radius, 0, math.pi_2, 360);
     }
 
     pub fn fillEllipseSectorN(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32, n: u32) void {
@@ -935,7 +1023,7 @@ pub const Graphics = struct {
         self.fillEllipseSectorN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
+    pub fn strokeEllipseArc(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32, start_rad: f32, sweep_rad: f32) void {
         if (builtin.mode == .Debug) {
             stdx.debug.assertInRange(start_rad, -math.pi_2, math.pi_2);
             stdx.debug.assertInRange(sweep_rad, -math.pi_2, math.pi_2);
@@ -987,16 +1075,16 @@ pub const Graphics = struct {
         }
     }
 
-    pub fn drawEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
+    pub fn strokeEllipse(self: *Graphics, x: f32, y: f32, h_radius: f32, v_radius: f32) void {
         self.drawEllipseArcN(x, y, h_radius, v_radius, 0, math.pi_2, 360);
     }
 
-    pub fn drawPoint(self: *Graphics, x: f32, y: f32) void {
+    pub fn strokePoint(self: *Graphics, x: f32, y: f32) void {
         self.batcher.beginTex(self.white_tex);
         self.fillRectBoundsColor(x - self.ps.line_width_half, y - self.ps.line_width_half, x + self.ps.line_width_half, y + self.ps.line_width_half, self.ps.stroke_color);
     }
 
-    pub fn drawLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
+    pub fn strokeLine(self: *Graphics, x1: f32, y1: f32, x2: f32, y2: f32) void {
         self.batcher.beginTex(self.white_tex);
         const normal = vec2(y2 - y1, x2 - x1).toLength(self.ps.line_width_half);
         self.fillQuad(
@@ -1008,7 +1096,7 @@ pub const Graphics = struct {
         );
     }
 
-    pub fn drawQuadraticBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
+    pub fn strokeQuadraticBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), x0: f32, y0: f32, cx: f32, cy: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const q_bez = QuadBez{
             .x0 = x0,
@@ -1033,7 +1121,7 @@ pub const Graphics = struct {
         self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawCubicBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez), x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
+    pub fn strokeCubicBezierCurve(self: *Graphics, vec2_buf: *std.ArrayListUnmanaged(Vec2), qbez_buf: *std.ArrayListUnmanaged(SubQuadBez), x0: f32, y0: f32, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x1: f32, y1: f32) void {
         self.batcher.beginTex(self.white_tex);
         const c_bez = CubicBez{
             .x0 = x0,
@@ -1707,7 +1795,7 @@ pub const Graphics = struct {
         self.batcher.ensureUnusedBuffer(mesh.verts.len*2, mesh.verts.len*2);
         const vert_start = self.batcher.mesh.getNextIndexId();
         const norm_len = 1;
-        for (mesh.verts) |vert, i| {
+        for (mesh.verts, 0..) |vert, i| {
             var new_vert = vert;
             new_vert.setColor(Color.Blue);
             self.batcher.mesh.pushVertex(new_vert);
@@ -1793,7 +1881,7 @@ pub const Graphics = struct {
         const vp = self.ps.view_xform.getAppliedTransform(self.ps.proj_xform);
 
         // Apply animation.
-        for (amesh.transition_markers) |marker, i| {
+        for (amesh.transition_markers, 0..) |marker, i| {
             const tt = marker.time_t;
             const time_idx = marker.time_idx;
             const transition = amesh.anim.transitions[i];
@@ -1857,7 +1945,7 @@ pub const Graphics = struct {
                         self.batcher.beginAnim3D(tex);
                     }
                     const mat_idx = self.batcher.mesh.cur_mats_buf_size;
-                    for (node.skin) |joint, i| {
+                    for (node.skin, 0..) |joint, i| {
                         var xform = Transform.initRowMajor(joint.inv_bind_mat);
                         cur_id = joint.node_id;
                         while (cur_id != NullId) {
@@ -1975,7 +2063,7 @@ pub const Graphics = struct {
         self.batcher.beginMvp(cur_mvp);
     }
 
-    pub fn drawPolygon(self: *Graphics, pts: []const Vec2) void {
+    pub fn strokePolygon(self: *Graphics, pts: []const Vec2) void {
         _ = pts;
         self.batcher.beginTex(self.white_tex);
         // TODO: Implement this.
@@ -1990,7 +2078,7 @@ pub const Graphics = struct {
         self.pushLyonVertexData(&data, self.ps.stroke_color);
     }
 
-    pub fn drawSubImage(self: *Graphics, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: ImageId) void {
+    pub fn drawSubImage(self: *Graphics, src_x: f32, src_y: f32, src_width: f32, src_height: f32, x: f32, y: f32, width: f32, height: f32, image_id: graphics.ImageId) void {
         const img = self.image_store.images.get(image_id);
         self.batcher.beginTex(image.ImageDesc{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2029,7 +2117,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: ImageId, tint: Color) void {
+    pub fn drawImageScaled(self: *Graphics, x: f32, y: f32, width: f32, height: f32, image_id: graphics.ImageId, tint: Color) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2085,7 +2173,7 @@ pub const Graphics = struct {
         self.batcher.mesh.pushQuadIndexes(start_idx, start_idx + 1, start_idx + 2, start_idx + 3);
     }
 
-    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: ImageId, tint: Color) void {
+    pub fn drawImage(self: *Graphics, x: f32, y: f32, image_id: graphics.ImageId, tint: Color) void {
         const img = self.image_store.images.getNoCheck(image_id);
         self.batcher.beginTex(image.ImageTex{ .image_id = image_id, .tex_id = img.tex_id });
         self.batcher.ensureUnusedBuffer(4, 6);
@@ -2154,7 +2242,7 @@ pub const Graphics = struct {
 
     /// Binds an image to the write buffer. 
     /// Note this doesn't bind a paint state. If the image has it's own paint state, it should be set just before this call.
-    pub fn bindOffscreenImage(self: *Graphics, image_id: ImageId) void {
+    pub fn bindOffscreenImage(self: *Graphics, image_id: graphics.ImageId) void {
         self.endCmd();
         var img = self.image_store.images.getPtrNoCheck(image_id);
         if (img.fbo_id == null) {
@@ -2219,6 +2307,8 @@ pub const Graphics = struct {
         self.height = height;
         self.buf_width = buf_width;
         self.buf_height = buf_height;
+
+        self.setMainPaintState();
 
         // TODO: Viewport only needs to be set on window resize or multiple windows are active.
         gl.viewport(0, 0, @intCast(c_int, buf_width), @intCast(c_int, buf_height));
@@ -2446,7 +2536,7 @@ fn dumpPolygons(alloc: std.mem.Allocator, polys: []const []const Vec2) void {
     defer buf.deinit();
     const writer = buf.writer();
 
-    for (polys) |poly, i| {
+    for (polys, 0..) |poly, i| {
         std.fmt.format(writer, "polygon {} ", .{i}) catch unreachable;
         for (poly) |pt_| {
             std.fmt.format(writer, "{d:.2}, {d:.2},", .{pt_.x, pt_.y}) catch unreachable;
@@ -2526,7 +2616,7 @@ pub const PaintState = struct {
 
             .clip_rect = undefined,
             .blend_mode = ._undefined,
-            .clear_color = undefined,
+            .clear_color = Color.init(20, 20, 20, 255),
         };
     }
 

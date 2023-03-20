@@ -67,7 +67,7 @@ pub fn indexOf(str: []const u8, needle: u8) ?usize {
 }
 
 pub fn findIndexOf(str: []const u8, cb: fn (u8) bool) ?usize {
-    for (str) |ch, i| {
+    for (str, 0..) |ch, i| {
         if (cb(ch)) {
             return i;
         }

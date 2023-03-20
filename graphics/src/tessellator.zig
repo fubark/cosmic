@@ -162,7 +162,7 @@ pub const Tessellator = struct {
                 .out_verts = try alloc.dupe(Vec2, self.out_verts.items),
                 .out_idxes = try alloc.dupe(u16, self.out_idxes.items),
                 .verts = try alloc.dupe(InternalVertex, self.verts.items),
-                .deferred_verts = try alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items),
+                .deferred_verts = try alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.buf.items),
             };
         };
 
@@ -173,7 +173,7 @@ pub const Tessellator = struct {
             .out_verts = try alloc.dupe(Vec2, self.out_verts.items),
             .out_idxes = try alloc.dupe(u16, self.out_idxes.items),
             .verts = try alloc.dupe(InternalVertex, self.verts.items),
-            .deferred_verts = try alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.data.items),
+            .deferred_verts = try alloc.dupe(PooledHandleSLLBuffer(DeferredVertexNodeId, DeferredVertexNode).Node, self.deferred_verts.nodes.buf.items),
         };
     }
 

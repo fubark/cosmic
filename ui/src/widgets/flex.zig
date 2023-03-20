@@ -10,25 +10,25 @@ const module = @import("../module.zig");
 
 /// Lays out children vertically.
 pub const Column = struct {
-    props: struct {
+    props: *const struct {
         bg_color: ?Color = null,
-        valign: ui.VAlign = .Top,
+        valign: ui.VAlign = .top,
 
         /// Prefers child to take up max width of available space.
-        expand_child_width: bool = false,
+        expandChildWidth: bool = false,
         spacing: f32 = 0,
 
         /// Whether the columns's height will expand to the max height of available space.
         /// flex and flex_fit are only used when expand is true.
         expand: bool = false,
         flex: u32 = 1,
-        flex_fit: ui.FlexFit = .Exact,
+        flex_fit: ui.FlexFit = .exact,
 
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
     },
 
-    pub fn build(self: *Column, c: *ui.BuildContext) ui.FrameId {
-        return c.fragment(self.props.children);
+    pub fn build(self: *Column, c: *ui.BuildContext) ui.FramePtr {
+        return c.fragment(self.props.children.dupe());
     }
 
     pub fn layout(self: *Column, c: *ui.LayoutContext) ui.LayoutSize {
@@ -40,7 +40,7 @@ pub const Column = struct {
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.height -= total_spacing;
 
-        const min_width = if (self.props.expand_child_width) vacant_size.width else 0;
+        const min_width = if (self.props.expandChildWidth) vacant_size.width else 0;
 
         // First pass computes non expanding children.
         var has_expanding_children = false;
@@ -102,7 +102,7 @@ pub const Column = struct {
                 }
                 var child_size: ui.LayoutSize = undefined;
                 switch (flex_fit) {
-                    .ShrinkAndGive => {
+                    .shrinkAndGive => {
                         child_size = c.computeLayout(it, min_width, 0, max_child_size.width, max_child_size.height);
                         c.setLayout(it, ui.Layout.init(0, cur_y, child_size.width, child_size.height));
                         cur_y += child_size.height + self.props.spacing;
@@ -125,7 +125,7 @@ pub const Column = struct {
             }
         } else {
             // No expanding children. Check to realign vertically.
-            if (self.props.expand and self.props.valign == .Bottom) {
+            if (self.props.expand and self.props.valign == .bottom) {
                 const inner_height = cur_y - self.props.spacing;
                 var scratch_y = cstr.max_height - inner_height;
                 for (c.node.children.items) |it| {
@@ -164,23 +164,25 @@ pub const Column = struct {
 };
 
 pub const Row = struct {
-    props: struct {
+    props: *const struct {
         bg_color: ?Color = null,
         flex: u32 = 1,
-        valign: ui.VAlign = .Top,
-        halign: ui.HAlign = .Left,
+        valign: ui.VAlign = .top,
+        halign: ui.HAlign = .left,
 
         spacing: f32 = 0,
+
+        expandChildHeight: bool = false,
 
         /// Whether the row's width will shrink to the total width of it's children or expand to the parent container's width.
         /// Expands to the parent container's width by default.
         expand: bool = false,
 
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        children: ui.FrameListPtr = .{},
     },
 
-    pub fn build(self: *Row, c: *ui.BuildContext) ui.FrameId {
-        return c.fragment(self.props.children);
+    pub fn build(self: *Row, c: *ui.BuildContext) ui.FramePtr {
+        return c.fragment(self.props.children.dupe());
     }
 
     pub fn layout(self: *Row, c: *ui.LayoutContext) ui.LayoutSize {
@@ -191,6 +193,8 @@ pub const Row = struct {
 
         const total_spacing = if (c.node.children.items.len > 0) self.props.spacing * @intToFloat(f32, c.node.children.items.len-1) else 0;
         vacant_size.width -= total_spacing;
+
+        const min_height = if (self.props.expandChildHeight) vacant_size.height else 0;
 
         // First pass computes non expanding children.
         var has_expanding_children = false;
@@ -210,7 +214,7 @@ pub const Row = struct {
                     continue;
                 }
             }
-            var child_size = c.computeLayoutWithMax(it, vacant_size.width, vacant_size.height);
+            var child_size = c.computeLayout(it, 0, min_height, vacant_size.width, vacant_size.height);
             c.setLayout(it, ui.Layout.init(cur_x, 0, child_size.width, child_size.height));
             cur_x += child_size.width + self.props.spacing;
             vacant_size.width -= child_size.width;
@@ -241,7 +245,7 @@ pub const Row = struct {
                 }
 
                 max_child_size.width = flex_unit_size * @intToFloat(f32, flex);
-                var child_size = c.computeLayout(it, max_child_size.width, 0, max_child_size.width, max_child_size.height);
+                var child_size = c.computeLayout(it, max_child_size.width, min_height, max_child_size.width, max_child_size.height);
                 c.setLayout(it, ui.Layout.init(cur_x, 0, child_size.width, child_size.height));
                 cur_x += child_size.width + self.props.spacing;
                 if (child_size.height > max_child_height) {
@@ -250,7 +254,7 @@ pub const Row = struct {
             }
         } else {
             // No expanding children. Check to realign in x dim.
-            if (self.props.halign == .Right) {
+            if (self.props.halign == .right) {
                 const inner_width = cur_x - self.props.spacing;
                 var scratch_x = cstr.max_width - inner_width;
                 for (c.node.children.items) |it| {
@@ -260,9 +264,9 @@ pub const Row = struct {
             }
         }
 
-        if (self.props.valign != .Top) {
+        if (self.props.valign != .top) {
             switch (self.props.valign) {
-                .Center => {
+                .center => {
                     for (c.node.children.items) |child| {
                         c.setLayoutPos(child, child.layout.x, (max_child_height - child.layout.height) * 0.5);
                     }
@@ -300,23 +304,23 @@ pub const Row = struct {
 
 /// Interpreted by Column or Row as a flexible widget. The flex property is used determine how it fits in the parent container.
 pub const Flex = struct {
-    props: struct {
-        child: ui.FrameId = ui.NullFrameId,
+    props: *const struct {
+        child: ui.FramePtr = .{},
 
         /// Flex properties are used by the parent.
         flex: u32 = 1,
-        flex_fit: ui.FlexFit = .Exact,
+        flex_fit: ui.FlexFit = .exact,
     },
 
-    pub fn build(self: *Flex, _: *ui.BuildContext) ui.FrameId {
-        return self.props.child;
+    pub fn build(self: *Flex, _: *ui.BuildContext) ui.FramePtr {
+        return self.props.child.dupe();
     }
 
     /// Computes the child layout preferring to stretch it and returns the current constraint.
     pub fn layout(self: *Flex, c: *ui.LayoutContext) ui.LayoutSize {
         const cstr = c.getSizeConstraints();
 
-        if (self.props.child == ui.NullFrameId) {
+        if (self.props.child.isNull()) {
             return cstr.getMinLayoutSize();
         }
 

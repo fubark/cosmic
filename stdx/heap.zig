@@ -111,7 +111,7 @@ const WasmDefaultAllocator = struct {
             .num_free_pages = 0,
             .mem = undefined,
         };
-        if (builtin.is_test) {
+        if (comptime builtin.is_test and builtin.cpu.arch.isWasm()) {
             self.mem = .{
                 .buf = try t.alloc.alignedAlloc(u8, PageSize, PageSize * MaxTestPages),
                 .len = 0,
@@ -187,24 +187,17 @@ const WasmDefaultAllocator = struct {
     fn alloc(
         ptr: *anyopaque,
         len: usize,
-        alignment: u29,
-        len_align: u29,
+        log2_align: u8,
         ret_addr: usize,
-    ) std.mem.Allocator.Error![]u8 {
+    ) ?[*]u8 {
         _ = ret_addr;
 
         const self = @ptrCast(*WasmDefaultAllocator, @alignCast(@sizeOf(usize), ptr));
         if (len == 0) {
             stdx.panic("TODO: len 0");
         }
-        const payload_size = if (len_align == 0) len else b: {
-            // len_align is not always a power of two so std.mem.alignForward won't work.
-            if (len_align == 1) {
-                break :b len;
-            } else {
-                break :b len + len_align - @mod(len, len_align);
-            }
-        };
+        const payload_size = len;
+        const alignment = @as(u29, 1) << @intCast(u5, log2_align);
 
         // Need enough space for Node and alignment.
         const req_num_bytes = payload_size + @sizeOf(Node) + alignment - 1;
@@ -215,20 +208,20 @@ const WasmDefaultAllocator = struct {
             // Small allocation.
             if (self.segments[seg_size-1]) |free_node| {
                 self.segments[seg_size-1] = free_node.next.node;
-                return self.allocToNode(free_node, seg_size, payload_size, alignment);
+                return self.allocToNode(free_node, seg_size, payload_size, alignment).ptr;
             } else {
                 // Allocate a page for size.
-                try self.allocSegmentPage(seg_size);
+                self.allocSegmentPage(seg_size) catch stdx.fatal();
 
                 const free_node = self.segments[seg_size-1].?;
                 self.segments[seg_size-1] = free_node.next.node;
-                return self.allocToNode(free_node, seg_size, payload_size, alignment);
+                return self.allocToNode(free_node, seg_size, payload_size, alignment).ptr;
             }
         } else {
             // Big allocation.
 
             const req_num_pages = @divTrunc(req_num_bytes - 1, PageSize) + 1;
-            const first = try self.allocContiguousPages(req_num_pages);
+            const first = self.allocContiguousPages(req_num_pages) catch stdx.fatal();
 
             // Assumes node addr has no offset from it's base frame addr.
             const user_addr = std.mem.alignForward(@ptrToInt(first) + @sizeOf(Node), alignment);
@@ -241,7 +234,7 @@ const WasmDefaultAllocator = struct {
                     .seg_size = seg_size,
                 },
             };
-            return @intToPtr([*]u8, user_addr)[0..payload_size];
+            return @intToPtr([*]u8, user_addr);
         }
     }
 
@@ -399,28 +392,19 @@ const WasmDefaultAllocator = struct {
     fn resize(
         ptr: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_align: u8,
         new_len: usize,
-        len_align: u29,
         ret_addr: usize,
-    ) ?usize {
+    ) bool {
+        _ = log2_align;
         _ = ret_addr;
-        _ = buf_align;
         const self = @ptrCast(*WasmDefaultAllocator, @alignCast(@sizeOf(usize), ptr));
         _ = self;
         if (new_len == 0) {
             stdx.panic("TODO: new_len 0");
         }
 
-        const new_payload_size = if (len_align == 0) new_len else b: {
-            // len_align is not always a power of two so std.mem.alignForward won't work.
-            if (len_align == 1) {
-                break :b new_len;
-            } else {
-                break :b new_len + len_align - @mod(new_len, len_align);
-            }
-        };
-
+        const new_payload_size = new_len;
         const user_node_addr = @ptrToInt(buf.ptr) - @sizeOf(Node);
         const user_node = @intToPtr(*Node, user_node_addr);
 
@@ -429,21 +413,21 @@ const WasmDefaultAllocator = struct {
         if (new_payload_size <= user_node.user_size) {
             // TODO: If this is a big allocation, check to free unused pages.
             user_node.user_size = new_payload_size;
-            return new_len;
+            return true;
         } else {
             // TODO: Check to grow.
-            return null;
+            return false;
         }
     }
 
     fn free(
         ptr: *anyopaque,
         buf: []u8,
-        buf_align: u29,
+        log2_align: u8,
         ret_addr: usize,
     ) void {
+        _ = log2_align;
         _ = ret_addr;
-        _ = buf_align;
         const self = @ptrCast(*WasmDefaultAllocator, @alignCast(@sizeOf(usize), ptr));
 
         const user_node_addr = @ptrToInt(buf.ptr) - @sizeOf(Node);
@@ -545,70 +529,160 @@ const WasmDefaultAllocator = struct {
 };
 
 test "WasmDefaultAllocator" {
-    var wgpa: WasmDefaultAllocator = undefined;
-    try wgpa.init(.{ .initial_pages = 16 });
-    defer wgpa.deinit();
+    if (builtin.cpu.arch.isWasm()) {
+        var wgpa: WasmDefaultAllocator = undefined;
+        try wgpa.init(.{ .initial_pages = 16 });
+        defer wgpa.deinit();
 
-    const alloc = wgpa.allocator();
-    const start_addr = @ptrToInt(wgpa.mem.buf.ptr);
+        const alloc = wgpa.allocator();
+        const start_addr = @ptrToInt(wgpa.mem.buf.ptr);
 
-    // Small allocations using the same segment.
-    const small1 = try alloc.alloc(u8, 16);
-    try t.expect(@ptrToInt(small1.ptr) >= start_addr and @ptrToInt(small1.ptr) < start_addr + wgpa.mem.len);
-    const small2 = try alloc.alloc(u8, 16);
-    try t.expect(@ptrToInt(small2.ptr) >= start_addr and @ptrToInt(small2.ptr) < start_addr + wgpa.mem.len);
-    try t.eq(@ptrToInt(small2.ptr), @ptrToInt(small1.ptr) + 32);
+        // Small allocations using the same segment.
+        const small1 = try alloc.alloc(u8, 16);
+        try t.expect(@ptrToInt(small1.ptr) >= start_addr and @ptrToInt(small1.ptr) < start_addr + wgpa.mem.len);
+        const small2 = try alloc.alloc(u8, 16);
+        try t.expect(@ptrToInt(small2.ptr) >= start_addr and @ptrToInt(small2.ptr) < start_addr + wgpa.mem.len);
+        try t.eq(@ptrToInt(small2.ptr), @ptrToInt(small1.ptr) + 32);
 
-    // Small allocation reuses freed slot.
-    const small_addr = @ptrToInt(small1.ptr);
-    alloc.free(small1);
-    const small3 = try alloc.alloc(u8, 16);
-    try t.eq(@ptrToInt(small3.ptr), small_addr);
+        // Small allocation reuses freed slot.
+        const small_addr = @ptrToInt(small1.ptr);
+        alloc.free(small1);
+        const small3 = try alloc.alloc(u8, 16);
+        try t.eq(@ptrToInt(small3.ptr), small_addr);
+    }
 }
 
 test "WasmDefaultAllocator.growMemory large allocation/free." {
-    var wgpa: WasmDefaultAllocator = undefined;
-    try wgpa.init(.{ .initial_pages = 2 });
-    defer wgpa.deinit();
+    if (builtin.cpu.arch.isWasm()) {
+        var wgpa: WasmDefaultAllocator = undefined;
+        try wgpa.init(.{ .initial_pages = 2 });
+        defer wgpa.deinit();
 
-    try t.eq(wgpa.num_free_pages, 2);
-    try t.eq(wgpa.countFreePages(), 2);
-    try wgpa.growMemory(2);
-    try t.eq(wgpa.num_free_pages, 4);
-    try t.eq(wgpa.countFreePages(), 4);
+        try t.eq(wgpa.num_free_pages, 2);
+        try t.eq(wgpa.countFreePages(), 2);
+        try wgpa.growMemory(2);
+        try t.eq(wgpa.num_free_pages, 4);
+        try t.eq(wgpa.countFreePages(), 4);
 
-    // Allocate one page from free list head.
-    const alloc = wgpa.allocator();
-    var buf = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
-    try t.eq(wgpa.num_free_pages, 3);
-    try t.eq(wgpa.countFreePages(), 3);
+        // Allocate one page from free list head.
+        const alloc = wgpa.allocator();
+        var buf = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
+        try t.eq(wgpa.num_free_pages, 3);
+        try t.eq(wgpa.countFreePages(), 3);
 
-    // Allocate two pages from free list head.
-    var buf2 = try alloc.alloc(u8, WasmDefaultAllocator.PageSize + 1);
-    try t.eq(wgpa.num_free_pages, 1);
-    try t.eq(wgpa.countFreePages(), 1);
+        // Allocate two pages from free list head.
+        var buf2 = try alloc.alloc(u8, WasmDefaultAllocator.PageSize + 1);
+        try t.eq(wgpa.num_free_pages, 1);
+        try t.eq(wgpa.countFreePages(), 1);
 
-    alloc.free(buf);
-    try t.eq(wgpa.num_free_pages, 2);
-    try t.eq(wgpa.countFreePages(), 2);
+        alloc.free(buf);
+        try t.eq(wgpa.num_free_pages, 2);
+        try t.eq(wgpa.countFreePages(), 2);
 
-    alloc.free(buf2);
-    try t.eq(wgpa.num_free_pages, 4);
-    try t.eq(wgpa.countFreePages(), 4);
+        alloc.free(buf2);
+        try t.eq(wgpa.num_free_pages, 4);
+        try t.eq(wgpa.countFreePages(), 4);
 
-    // Allocate two buffers one page each.
-    buf = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
-    buf2 = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
-    // Free the first so there is a used page inbetween the freelist.
-    alloc.free(buf);
-    // Allocate two pages this time so it allocates at the end of the list instead of the head.
-    buf = try alloc.alloc(u8, WasmDefaultAllocator.PageSize + 1);
-    try t.eq(wgpa.num_free_pages, 1);
-    try t.eq(wgpa.countFreePages(), 1);
+        // Allocate two buffers one page each.
+        buf = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
+        buf2 = try alloc.alloc(u8, (WasmDefaultAllocator.NumSegments + 1) * WasmDefaultAllocator.WordSize);
+        // Free the first so there is a used page inbetween the freelist.
+        alloc.free(buf);
+        // Allocate two pages this time so it allocates at the end of the list instead of the head.
+        buf = try alloc.alloc(u8, WasmDefaultAllocator.PageSize + 1);
+        try t.eq(wgpa.num_free_pages, 1);
+        try t.eq(wgpa.countFreePages(), 1);
 
-    // Free the middle page last to check that the freelist is reconnected from start to end.
-    alloc.free(buf);
-    alloc.free(buf2);
-    try t.eq(wgpa.num_free_pages, 4);
-    try t.eq(wgpa.countFreePages(), 4);
+        // Free the middle page last to check that the freelist is reconnected from start to end.
+        alloc.free(buf);
+        alloc.free(buf2);
+        try t.eq(wgpa.num_free_pages, 4);
+        try t.eq(wgpa.countFreePages(), 4);
+    }
 }
+
+pub const TraceAllocator = struct {
+    allocMem: usize,
+    freedMem: usize,
+    resizeMem: usize,
+    peakMem: usize,
+    child: std.mem.Allocator,
+
+    const vtable = std.mem.Allocator.VTable{
+        .alloc = alloc,
+        .resize = resize,
+        .free = free,
+    };
+
+    pub fn init(self: *TraceAllocator, child: std.mem.Allocator) void {
+        self.* = .{
+            .allocMem = 0,
+            .freedMem = 0,
+            .resizeMem = 0,
+            .peakMem = 0,
+            .child = child,
+        };
+    }
+
+    pub fn deinit(self: *TraceAllocator) void {
+        _ = self;
+    }
+
+    pub fn allocator(self: *TraceAllocator) std.mem.Allocator {
+        return std.mem.Allocator{
+            .ptr = self,
+            .vtable = &vtable,
+        };
+    }
+
+    fn alloc(
+        ptr: *anyopaque,
+        len: usize,
+        alignment: u29,
+        len_align: u29,
+        ret_addr: usize,
+    ) std.mem.Allocator.Error![]u8 {
+        const self = @ptrCast(*TraceAllocator, @alignCast(@sizeOf(usize), ptr));
+        const res = try self.child.rawAlloc(len, alignment, len_align, ret_addr);
+        self.allocMem += res.len;
+        if (self.allocMem - self.freedMem > self.peakMem) {
+            self.peakMem = self.allocMem - self.freedMem;
+        }
+        return res;
+    }
+
+    fn resize(
+        ptr: *anyopaque,
+        buf: []u8,
+        buf_align: u29,
+        new_len: usize,
+        len_align: u29,
+        ret_addr: usize,
+    ) ?usize {
+        const self = @ptrCast(*TraceAllocator, @alignCast(@sizeOf(usize), ptr));
+        if (self.child.rawResize(buf, buf_align, new_len, len_align, ret_addr)) |newSize| {
+            if (newSize > buf.len) {
+                self.resizeMem += newSize - buf.len;
+            }
+            return newSize;
+        } else return null;
+    }
+
+    fn free(
+        ptr: *anyopaque,
+        buf: []u8,
+        buf_align: u29,
+        ret_addr: usize,
+    ) void {
+        const self = @ptrCast(*TraceAllocator, @alignCast(@sizeOf(usize), ptr));
+        self.child.rawFree(buf, buf_align, ret_addr);
+        self.freedMem += buf.len;
+    }
+
+    fn dump(self: TraceAllocator) void {
+        log.info("alloc: {}", .{self.allocMem});
+        log.info("freed: {}", .{self.freedMem});
+        log.info("peak: {}", .{self.peakMem});
+        log.info("resize: {}", .{self.resizeMem});
+    }
+};

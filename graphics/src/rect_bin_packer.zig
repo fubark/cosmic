@@ -43,7 +43,7 @@ pub const RectBinPacker = struct {
         return new;
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: *Self) void {
         self.spans.deinit();
         self.resize_cbs.deinit();
     }
@@ -56,7 +56,7 @@ pub const RectBinPacker = struct {
     }
 
     pub fn removeResizeCallback(self: *Self, needle: ResizeCallback) void {
-        for (self.resize_cbs.items) |it, i| {
+        for (self.resize_cbs.items, 0..) |it, i| {
             if (it.cb == needle) {
                 self.resize_cbs.orderedRemove(i);
                 break;
@@ -424,7 +424,7 @@ test "Resize." {
     };
     const S = struct {
         fn onResize(ptr: ?*anyopaque, width: u32, height: u32) void {
-            const ctx_ = stdx.mem.ptrCastAlign(*Context, ptr);
+            const ctx_ = stdx.ptrCastAlign(*Context, ptr);
             ctx_.width = width;
             ctx_.height = height;
         }

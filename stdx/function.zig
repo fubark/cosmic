@@ -1,9 +1,16 @@
+const std = @import("std");
 const stdx = @import("stdx.zig");
 const t = stdx.testing;
 const Closure = stdx.Closure;
 const ClosureIface = stdx.ClosureIface;
 const ClosureSimple = stdx.ClosureSimple;
 const ClosureSimpleIface = stdx.ClosureSimpleIface;
+
+const FunctionType = enum {
+    none,
+    free,
+    closure,
+};
 
 /// An interface for a free function or a closure.
 /// Default values represent a null value which can be queried from Function.isNull().
@@ -14,19 +21,23 @@ pub fn Function(comptime Fn: type) type {
     var dummy: stdx.meta.FnParamsTuple(Fn) = undefined;
     _ = dummy;
     return struct {
-        ctx: *anyopaque = undefined,
-        call_fn: ?fn (*const anyopaque, *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) = null,
+        funcT: FunctionType = .none,
+        inner: union {
+            free: struct {
+                ctx: *anyopaque = undefined,
+                callFn: *const fn (*const anyopaque, *anyopaque, stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn),
+                userFn: *const anyopaque,
+            },
+            closure: ClosureIface(Fn),
+        } = undefined,
 
-        // For closures.
-        user_fn: *const anyopaque = undefined,
-
+        pub const Function = true;
         const FunctionT = @This();
 
         pub fn initNull() FunctionT {
             return .{
-                .ctx = undefined,
-                .call_fn = null,
-                .user_fn = undefined,
+                .funcT = .none,
+                .inner = undefined,
             };
         }
 
@@ -36,9 +47,10 @@ pub fn Function(comptime Fn: type) type {
 
         pub fn initClosureIface(iface: ClosureIface(Fn)) FunctionT {
             return .{
-                .ctx = iface.capture_ptr,
-                .call_fn = iface.call_fn,
-                .user_fn = iface.user_fn,
+                .funcT = .closure,
+                .inner = .{
+                    .closure = iface
+                },
             };
         }
 
@@ -47,21 +59,26 @@ pub fn Function(comptime Fn: type) type {
             stdx.meta.assertPointerType(ContextPtr);
             const gen = struct {
                 fn call(_: *const anyopaque, ptr: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-                    const ctx = stdx.mem.ptrCastAlign(ContextPtr, ptr);
-                    return @call(.{}, func, .{ctx} ++ args);
+                    const ctx = stdx.ptrCastAlign(ContextPtr, ptr);
+                    return @call(.auto, func, .{ctx} ++ args);
                 }
             };
             return .{
-                .ctx = ctx_ptr,
-                .call_fn = gen.call,
-                .user_fn = func,
+                .funcT = .free,
+                .inner = .{
+                    .free = .{
+                        .ctx = ctx_ptr,
+                        .callFn = gen.call,
+                        .userFn = func,
+                    },
+                },
             };
         }
 
         pub fn init(comptime func: anytype) FunctionT {
             const gen = struct {
                 fn call(_: *const anyopaque, _: *anyopaque, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-                    return @call(.{}, func, args);
+                    return @call(.auto, func, args);
                 }
             };
             return .{
@@ -71,16 +88,30 @@ pub fn Function(comptime Fn: type) type {
             };
         }
 
+        pub fn deinit(self: FunctionT, alloc: std.mem.Allocator) void {
+            if (self.funcT == .closure) {
+                self.inner.closure.deinit(alloc);
+            }
+        }
+
         pub fn isNull(self: FunctionT) bool {
-            return self.call_fn == null;
+            return self.funcT == .none;
         }
 
         pub fn isPresent(self: FunctionT) bool {
-            return self.call_fn != null;
+            return self.funcT != .none;
         }
 
         pub fn call(self: FunctionT, args: stdx.meta.FnParamsTuple(Fn)) stdx.meta.FnReturn(Fn) {
-            return self.call_fn.?(self.user_fn, self.ctx, args);
+            switch (self.funcT) {
+                .free => {
+                    return self.inner.free.callFn(self.inner.free.userFn, self.inner.free.ctx, args);
+                },
+                .closure => {
+                    return self.inner.closure.call(args);
+                },
+                else => stdx.fatal(),
+            }
         }
     };
 }
@@ -108,7 +139,7 @@ test "Function" {
 pub fn FunctionSimple(comptime Param: type) type {
     return struct {
         ctx: *anyopaque,
-        call_fn: fn (*const anyopaque, *anyopaque, Param) void,
+        call_fn: *const fn (*const anyopaque, *anyopaque, Param) void,
 
         // For closures.
         user_fn: *const anyopaque,
@@ -132,7 +163,7 @@ pub fn FunctionSimple(comptime Param: type) type {
             stdx.meta.assertPointerType(ContextPtr);
             const gen = struct {
                 fn call(_: *const anyopaque, ptr: *anyopaque, arg: Param) void {
-                    const ctx = stdx.mem.ptrCastAlign(ContextPtr, ptr);
+                    const ctx = stdx.ptrCastAlign(ContextPtr, ptr);
                     func(ctx, arg);
                 }
             };

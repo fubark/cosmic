@@ -132,7 +132,7 @@ pub const Grammar = struct {
         var name_to_rule = std.AutoHashMap(CharSlice, RuleId).init(alloc);
         defer name_to_rule.deinit();
 
-        for (self.token_decls.items) |decl, idx| {
+        for (self.token_decls.items, 0..) |decl, idx| {
             name_to_token_tag.put(decl.name, @intCast(u32, idx)) catch unreachable;
 
             // Generate Rules that wrap TokenRules with a string value as the only field.
@@ -145,7 +145,7 @@ pub const Grammar = struct {
                 target_decl.replace_with = @intCast(u32, idx);
             }
         }
-        for (self.decls.items) |it, idx| {
+        for (self.decls.items, 0..) |it, idx| {
             name_to_rule.put(it.name, @intCast(u32, idx)) catch unreachable;
         }
 
@@ -194,7 +194,7 @@ pub const Grammar = struct {
         // For each rule, check if it can do left term recursion.
         var visited_map = std.AutoHashMap(RuleId, void).init(alloc);
         defer visited_map.deinit();
-        for (self.decls.items) |*decl, idx| {
+        for (self.decls.items, 0..) |*decl, idx| {
             const rule_id = @intCast(u32, idx);
             decl.is_left_recursive = self.isLeftRecursive(rule_id, &visited_map);
         }
@@ -389,7 +389,7 @@ pub const Grammar = struct {
     }
 
     fn findTokenDecl(self: *Self, name: []const u8) ?TokenTag {
-        for (self.token_decls.items) |it, idx| {
+        for (self.token_decls.items, 0..) |it, idx| {
             const token_name = self.getString(it.name);
             if (std.mem.eql(u8, token_name, name)) {
                 return @intCast(u32, idx);
@@ -399,7 +399,7 @@ pub const Grammar = struct {
     }
 
     pub fn findRuleDeclId(self: *Self, name: []const u8) ?RuleId {
-        for (self.decls.items) |it, idx| {
+        for (self.decls.items, 0..) |it, idx| {
             const rule_name = self.getString(it.name);
             if (std.mem.eql(u8, rule_name, name)) {
                 return @intCast(u32, idx);
@@ -795,7 +795,7 @@ pub const RuleDecl = struct {
 };
 
 pub const MatchOpId = u32;
-pub const MatchOpSlice = ds.IndexSlice(MatchOpId);
+pub const MatchOpSlice = stdx.IndexSlice(MatchOpId);
 
 pub const MatchOp = union(enum) {
     MatchOneOrMore: struct {
@@ -914,7 +914,7 @@ pub const TokenDecl = struct {
 };
 
 pub const TokenMatchOpId = u32;
-pub const TokenMatchOpSlice = ds.IndexSlice(TokenMatchOpId);
+pub const TokenMatchOpSlice = stdx.IndexSlice(TokenMatchOpId);
 
 // eg. [a-zA-Z0-9]
 pub const CharSetRange = struct {
@@ -922,10 +922,10 @@ pub const CharSetRange = struct {
     end_incl: u8,
 };
 const CharSetRangeId = u32;
-pub const CharSetRangeSlice = ds.IndexSlice(CharSetRangeId);
+pub const CharSetRangeSlice = stdx.IndexSlice(CharSetRangeId);
 
 const CharId = u32;
-pub const CharSlice = ds.IndexSlice(CharId);
+pub const CharSlice = stdx.IndexSlice(CharId);
 
 pub const TokenMatchOp = union(enum) {
     MatchRule: struct {

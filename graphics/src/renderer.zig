@@ -1,7 +1,7 @@
 const std = @import("std");
 const stdx = @import("stdx");
 const fatal = stdx.fatal;
-const build_options = @import("build_options");
+const build_options = @import("graphics_options");
 const Backend = build_options.GraphicsBackend;
 const platform = @import("platform");
 const vk = @import("vk");
@@ -35,11 +35,11 @@ pub const Renderer = struct {
         self.gctx.initVK(alloc, win.impl.dpr, &self.inner.vk, vk_ctx);
     }
 
-    pub fn init(self: *Renderer, alloc: std.mem.Allocator, dpr: f32) !void {
+    pub fn init(self: *Renderer, alloc: std.mem.Allocator, dpr: f32, stats: *FrameStats) !void {
         switch (Backend) {
             .OpenGL => {
                 try self.inner.renderer.init(alloc);
-                try self.gctx.init(alloc, dpr, &self.inner.renderer);
+                try self.gctx.init(alloc, dpr, &self.inner.renderer, stats);
             },
             else => {},
         }
@@ -61,6 +61,11 @@ pub const Renderer = struct {
     }
 };
 
+pub const FrameStats = struct {
+    last_triangles: u32,
+    cur_triangles: u32,
+};
+
 /// A WindowRenderer abstracts how and where a frame is drawn to and provides:
 /// 1. An interface to begin/end a frame.
 /// 2. A graphics context to paint things to a frame.
@@ -70,10 +75,15 @@ pub const WindowRenderer = struct {
     swapchain: graphics.SwapChain,
     renderer: Renderer,
     win: *platform.Window,
+    stats: FrameStats,
 
     /// Creates a renderer that targets a window.
     pub fn init(self: *WindowRenderer, alloc: std.mem.Allocator, win: *platform.Window) !void {
         self.win = win;
+        self.stats = .{
+            .last_triangles = 0,
+            .cur_triangles = 0,
+        };
         switch (Backend) {
             .Vulkan => {
                 self.swapchain.initVK(alloc, win);
@@ -81,7 +91,7 @@ pub const WindowRenderer = struct {
             },
             .OpenGL => {
                 self.swapchain.init(alloc, win);
-                try self.renderer.init(alloc, win.impl.dpr);
+                try self.renderer.init(alloc, win.impl.dpr, &self.stats);
             },
             else => {},
         }
@@ -100,6 +110,8 @@ pub const WindowRenderer = struct {
     /// Start of frame with a camera view.
     pub inline fn beginFrame(self: *WindowRenderer, cam: graphics.Camera) void {
         self.swapchain.beginFrame();
+        self.stats.last_triangles = self.stats.cur_triangles;
+        self.stats.cur_triangles = 0;
         switch (Backend) {
             .Vulkan => {
                 const cur_image_idx = self.swapchain.impl.cur_image_idx;

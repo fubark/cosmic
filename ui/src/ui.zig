@@ -1,17 +1,26 @@
 const std = @import("std");
+const graphics = @import("graphics");
 
 const module = @import("module.zig");
 pub const Module = module.Module;
-pub const Layout = module.Layout;
 pub const TextMeasureId = module.TextMeasureId;
+pub const UpdateContext = module.UpdateContext;
 pub const RenderContext = module.RenderContext;
-pub const LayoutContext = module.LayoutContext;
 pub const InitContext = module.InitContext;
+pub const DeinitContext = module.DeinitContext;
 pub const ModuleContext = module.ModuleContext;
 pub const CommonContext = module.CommonContext;
 pub const IntervalId = module.IntervalId;
 pub const WidgetProps = module.WidgetProps;
-pub const SizeConstraints = module.SizeConstraints;
+pub const WidgetComputedStyle = module.WidgetComputedStyle;
+pub const WidgetUserStyle = module.WidgetUserStyle;
+pub const GenWidgetVTable = module.GenWidgetVTable;
+
+const layout = @import("layout.zig");
+pub const Layout = layout.Layout;
+pub const SizeConstraints = layout.SizeConstraints;
+pub const LayoutContext = layout.LayoutContext;
+pub const LayoutSize = layout.LayoutSize;
 
 const events = @import("events.zig");
 pub const Event = events.Event;
@@ -21,14 +30,14 @@ pub const KeyUpEvent = events.KeyUpEvent;
 pub const MouseDownEvent = events.MouseDownEvent;
 pub const MouseUpEvent = events.MouseUpEvent;
 pub const MouseMoveEvent = events.MouseMoveEvent;
-pub const MouseScrollEvent = events.MouseScrollEvent;
+pub const MouseWheelEvent = events.MouseWheelEvent;
 pub const HoverChangeEvent = events.HoverChangeEvent;
 pub const DragStartEvent = events.DragStartEvent;
 pub const DragMoveEvent = events.DragMoveEvent;
 pub const EventContext = events.EventContext;
 pub const EventResult = events.EventResult;
 
-const build = @import("build.zig");
+const build = @import("ui_build.zig");
 pub const BuildContext = build.BuildContext;
 pub const PtrId = build.PtrId;
 
@@ -39,10 +48,10 @@ pub const Import = config.Import;
 const frame = @import("frame.zig");
 pub const Frame = frame.Frame;
 pub const FrameId = frame.FrameId;
-pub const NullId = @import("std").math.maxInt(u32);
-pub const NullFrameId = frame.NullFrameId;
+pub const FramePtr = frame.FramePtr;
+pub const FrameListId = frame.FrameListId;
 pub const FrameListPtr = frame.FrameListPtr;
-pub const FramePropsPtr = frame.FramePropsPtr;
+pub const NullId = @import("std").math.maxInt(u32);
 pub const NoChild = NullId;
 
 const widget = @import("widget.zig");
@@ -58,7 +67,6 @@ pub const WidgetRef = widget.WidgetRef;
 pub const NodeRefMap = widget.NodeRefMap;
 pub const BindNodeFunc = widget.BindNodeFunc;
 pub const WidgetVTable = widget.WidgetVTable;
-pub const LayoutSize = widget.LayoutSize;
 
 pub const widgets = @import("widgets.zig");
 
@@ -70,25 +78,25 @@ pub const Tween = tween.Tween;
 pub const SimpleTween = tween.SimpleTween;
 
 pub const VAlign = enum(u2) {
-    Top = 0,
-    Center = 1,
-    Bottom = 2,
+    top = 0,
+    center = 1,
+    bottom = 2,
 };
 
 pub const HAlign = enum(u2) {
-    Left = 0,
-    Center = 1,
-    Right = 2,
+    left = 0,
+    center = 1,
+    right = 2,
 };
 
 pub const FlexFit = enum(u2) {
     /// Prefers to fit exactly the available space.
-    Exact = 0,
+    exact = 0,
     /// Prefers to wrap the child. If the available space is less than the child's dimension, prefers to fit the available space.
-    Shrink = 1,
+    shrink = 1,
     /// Like Shrink but in the case that the child size is less than the available space; instead of skipping the missing space to the next flex widget,
     /// that missing space is given to the next flex widget, which can make the next flex widget bigger than it's calculated flex size.
-    ShrinkAndGive = 2,
+    shrinkAndGive = 2,
 };
 
 pub const FlexInfo = struct {
@@ -110,3 +118,79 @@ pub const ExpandedWidth = std.math.inf_f32;
 pub const ExpandedHeight = std.math.inf_f32;
 
 pub const OverlayId = @import("widgets/root.zig").OverlayId;
+
+pub const IconT = struct {
+    image_id: graphics.ImageId,
+    tint: graphics.Color,
+    size: ?f32 = null,
+};
+
+const IconOptions = struct{
+    tint: graphics.Color = graphics.Color.White,
+    size: ?f32 = null,
+};
+
+pub fn Icon(image_id: graphics.ImageId, opts: IconOptions) IconT {
+    return .{
+        .image_id = image_id,
+        .tint = opts.tint,
+        .size = opts.size,
+    };
+}
+
+const SlicePtrType = enum {
+    static,
+    rc,
+};
+
+/// TODO: Consider renaming to `Slice`.
+pub fn SlicePtr(comptime T: type) type {
+    return struct {
+        ptr_t: SlicePtrType = .static,
+        inner: union {
+            static: []const T,
+            rc: struct {
+                slice: []const T,
+                refId: u32,
+            },
+        } = .{ .static = &.{} },
+
+        pub const SlicePtr = true;
+        const SlicePtrT = @This();
+
+        pub fn initStatic(from: []const T) SlicePtrT {
+            return .{
+                .ptr_t = .static,
+                .inner = .{
+                    .static = from,
+                },
+            };
+        }
+
+        pub fn destroy(self: SlicePtrT) void {
+            switch (self.ptr_t) {
+                .static => {},
+                .rc => {
+                    module.gbuild_ctx.mod.common.releaseRcSlice(T, self);
+                },
+            }
+        }
+
+        pub fn dupeRef(self: SlicePtrT) SlicePtrT {
+            switch (self.ptr_t) {
+                .static => {},
+                .rc => {
+                    module.gbuild_ctx.mod.common.retainRcSlice(self.inner.rc.refId);
+                },
+            }
+            return self;
+        }
+
+        pub fn slice(self: SlicePtrT) []const T {
+            return switch (self.ptr_t) {
+                .static => self.inner.static,
+                .rc => self.inner.rc.slice,
+            };
+        }
+    };
+}

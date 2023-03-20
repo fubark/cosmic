@@ -56,14 +56,14 @@ pub const FontAtlas = struct {
 
         const S = struct {
             fn onResize(ptr: ?*anyopaque, width_: u32, height_: u32) void {
-                const self_ = stdx.mem.ptrCastAlign(*FontAtlas, ptr);
+                const self_ = stdx.ptrCastAlign(*FontAtlas, ptr);
                 self_.resizeLocalBuffer(width_, height_);
             }
         };
         self.packer.addResizeCallback(self, S.onResize);
     }
 
-    pub fn deinit(self: FontAtlas) void {
+    pub fn deinit(self: *FontAtlas) void {
         self.packer.deinit();
         self.alloc.free(self.gl_buf);
         self.g.image_store.markForRemoval(self.image.image_id);
@@ -127,7 +127,7 @@ pub const FontAtlas = struct {
         var buf_offset: usize = (x + y * self.width) * self.channels;
         var src_offset: usize = 0;
         while (row < height) : (row += 1) {
-            for (src[src_offset .. src_offset + src_row_size]) |it, i| {
+            for (src[src_offset .. src_offset + src_row_size], 0..) |it, i| {
                 const dst_idx = buf_offset + (i * self.channels);
                 self.gl_buf[dst_idx + 0] = 255;
                 self.gl_buf[dst_idx + 1] = 255;
@@ -175,7 +175,7 @@ pub const FontAtlas = struct {
 
 /// Updates gpu texture before current draw call batch is sent to gpu.
 fn syncFontAtlasToGpu(ptr: ?*anyopaque) void {
-    const self = stdx.mem.ptrCastAlign(*FontAtlas, ptr);
+    const self = stdx.ptrCastAlign(*FontAtlas, ptr);
     self.dirty = false;
 
     // Send bitmap data.

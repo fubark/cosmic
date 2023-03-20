@@ -64,7 +64,7 @@ pub fn updateStorageBufferDescriptorSet(device: vk.VkDevice, desc_set: vk.VkDesc
 pub fn createDescriptorSets(alloc: std.mem.Allocator, device: vk.VkDevice, pool: vk.VkDescriptorPool, n: u32, layout: vk.VkDescriptorSetLayout) []vk.VkDescriptorSet {
     const layouts = alloc.alloc(vk.VkDescriptorSetLayout, n) catch fatal();
     defer alloc.free(layouts);
-    for (layouts) |_, i| {
+    for (layouts, 0..) |_, i| {
         layouts[i] = layout;
     }
     var sets = alloc.alloc(vk.VkDescriptorSet, n) catch fatal();

@@ -50,7 +50,7 @@ fn update(delta_ms: f32) anyerror!void {
 
     g.setLineWidth(8);
     g.setStrokeColor(Color.Red.darker());
-    g.drawRect(60, 100, 300, 200);
+    g.strokeRect(60, 100, 300, 200);
 
     g.translate(0, -120);
     g.rotateDeg(20);
@@ -80,18 +80,18 @@ fn update(delta_ms: f32) anyerror!void {
     g.fillCircleSectorDeg(550, 150, 100, 0, 120);
 
     g.setStrokeColor(Color.Yellow);
-    g.drawCircle(700, 200, 70);
+    g.strokeCircle(700, 200, 70);
     g.setStrokeColor(Color.Yellow.darker());
-    g.drawCircleArcDeg(700, 200, 70, 0, 120);
+    g.strokeCircleArcDeg(700, 200, 70, 0, 120);
 
     g.setFillColor(Color.Purple);
     g.fillEllipse(850, 70, 80, 40);
     g.setFillColor(Color.Purple.lighter());
     g.fillEllipseSectorDeg(850, 70, 80, 40, 0, 240);
     g.setStrokeColor(Color.Brown);
-    g.drawEllipse(850, 70, 80, 40);
+    g.strokeEllipse(850, 70, 80, 40);
     g.setStrokeColor(Color.Brown.lighter());
-    g.drawEllipseArcDeg(850, 70, 80, 40, 0, 120);
+    g.strokeEllipseArcDeg(850, 70, 80, 40, 0, 120);
 
     g.setFillColor(Color.Red);
     g.fillTriangle(850, 70, 800, 170, 900, 170);
@@ -114,18 +114,18 @@ fn update(delta_ms: f32) anyerror!void {
     try g.fillPolygon(&polygon);
     g.setStrokeColor(Color.Yellow);
     g.setLineWidth(3);
-    g.drawPolygon(&polygon);
+    g.strokePolygon(&polygon);
 
     g.setFillColor(Color.Blue.darker());
     g.fillRoundRect(70, 430, 200, 120, 30);
     g.setLineWidth(7);
     g.setStrokeColor(Color.Blue);
-    g.drawRoundRect(70, 430, 200, 120, 30);
+    g.strokeRoundRect(70, 430, 200, 120, 30);
 
     g.setStrokeColor(Color.Orange);
     g.setLineWidth(3);
-    g.drawPoint(220, 220);
-    g.drawLine(240, 220, 300, 320);
+    g.strokePoint(220, 220);
+    g.strokeLine(240, 220, 300, 320);
 
     // Svg.
     g.translate(0, 570);
@@ -147,8 +147,8 @@ fn update(delta_ms: f32) anyerror!void {
     g.resetTransform();
     g.setLineWidth(3);
     g.setStrokeColor(Color.Yellow);
-    g.drawQuadraticBezierCurve(0, 0, 200, 0, 200, 200);
-    g.drawCubicBezierCurve(0, 0, 200, 0, 0, 200, 200, 200);
+    g.strokeQuadraticBezierCurve(0, 0, 200, 0, 200, 200);
+    g.strokeCubicBezierCurve(0, 0, 200, 0, 0, 200, 200, 200);
 
     // Images.
     g.drawImageScaled(450, 290, @intToFloat(f32, game_char_image.width) / 3, @intToFloat(f32, game_char_image.height) / 3, game_char_image.id);
@@ -164,17 +164,17 @@ fn initAssets(alloc: std.mem.Allocator) !void {
 
     const gctx = app.gctx;
 
-    font_id = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
-    const emoji_font = try gctx.addFontFromPathTTF(srcPath() ++ "/../../examples/assets/NotoColorEmoji.ttf");
+    font_id = try gctx.addFontFromPathTTF(thisDir() ++ "/../../examples/assets/NunitoSans-Regular.ttf");
+    const emoji_font = try gctx.addFontFromPathTTF(thisDir() ++ "/../../examples/assets/NotoColorEmoji.ttf");
     try gctx.addFallbackFont(emoji_font);
 
-    const game_char_data = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/game-char.png", MaxFileSize);
+    const game_char_data = try std.fs.cwd().readFileAlloc(alloc, thisDir() ++ "/../../examples/assets/game-char.png", MaxFileSize);
     defer alloc.free(game_char_data);
     game_char_image = try gctx.createImage(game_char_data);
 
-    zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
+    zig_logo_svg = try std.fs.cwd().readFileAlloc(alloc, thisDir() ++ "/../../examples/assets/zig-logo-dark.svg", MaxFileSize);
 
-    const tiger_head_svg = try std.fs.cwd().readFileAlloc(alloc, srcPath() ++ "/../../examples/assets/tiger-head.svg", MaxFileSize);
+    const tiger_head_svg = try std.fs.cwd().readFileAlloc(alloc, thisDir() ++ "/../../examples/assets/tiger-head.svg", MaxFileSize);
     defer alloc.free(tiger_head_svg);
 
     var parser = graphics.svg.SvgParser.init(alloc);
@@ -257,6 +257,6 @@ pub usingnamespace if (IsWasm) struct {
     }
 } else struct {};
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return (comptime std.fs.path.dirname(@src().file) orelse unreachable);
 }

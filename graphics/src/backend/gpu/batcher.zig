@@ -1,5 +1,5 @@
 const std = @import("std");
-const Backend = @import("build_options").GraphicsBackend;
+const Backend = @import("graphics_options").GraphicsBackend;
 const builtin = @import("builtin");
 const IsWasm = builtin.target.isWasm();
 const stdx = @import("stdx");
@@ -116,6 +116,7 @@ pub const Batcher = struct {
         else => void,
     },
     image_store: *graphics.gpu.ImageStore,
+    stats: *graphics.FrameStats,
 
     /// Vars for gradient shader.
     start_pos: Vec2,
@@ -127,7 +128,8 @@ pub const Batcher = struct {
     pub fn initGL(
         alloc: std.mem.Allocator,
         renderer: *graphics.gl.Renderer,
-        image_store: *graphics.gpu.ImageStore
+        image_store: *graphics.gpu.ImageStore,
+        stats: *graphics.FrameStats,
     ) Batcher {
         var new = Batcher{
             .mesh = &renderer.mesh,
@@ -153,6 +155,7 @@ pub const Batcher = struct {
             .end_pos = undefined,
             .end_color = undefined,
             .image_store = image_store,
+            .stats = stats,
         };
         return new;
     }
@@ -233,7 +236,7 @@ pub const Batcher = struct {
         vk.assertSuccess(res);
         new.inner.host_materials_buf = host_materials_buf[0..new.inner.materials_buf.size/@sizeOf(graphics.Material)];
 
-        for (new.inner.batcher_frames) |*frame, i| {
+        for (new.inner.batcher_frames, 0..) |*frame, i| {
             const renderer_frame = renderer.frames[i];
             var host_cam_buf: *graphics.gpu.ShaderCamera = undefined;
             res = vk.mapMemory(new.inner.ctx.device, renderer_frame.u_cam_buf.mem, 0, renderer_frame.u_cam_buf.size, 0, @ptrCast([*c]?*anyopaque, &host_cam_buf));
@@ -627,6 +630,7 @@ pub const Batcher = struct {
                 gl.bindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.inner.renderer.index_buf_id);
                 gl.bufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(c_long, num_indexes * @sizeOf(u32)), self.mesh.index_buf.ptr, gl.GL_DYNAMIC_DRAW);
 
+                self.stats.cur_triangles += @divExact(num_indexes, 3);
                 gl.drawElements(gl.GL_TRIANGLES, num_indexes, self.mesh.index_buffer_type, 0);
             },
             .Vulkan => {

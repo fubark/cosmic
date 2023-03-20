@@ -55,11 +55,11 @@ pub const App = struct {
         self.cwd = c.alloc.dupe(u8, cwd) catch @panic("error");
     }
 
-    pub fn deinit(self: *App, alloc: std.mem.Allocator) void {
-        alloc.free(self.cwd);
+    pub fn deinit(self: *App, ctx: *ui.DeinitContext) void {
+        ctx.alloc.free(self.cwd);
     }
 
-    pub fn build(self: *App, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *App, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onSliderChange(self_: *App, value: i32) void {
                 self_.font_size = @intToFloat(f32, value);
@@ -95,11 +95,16 @@ pub const App = struct {
                 self_.font_family = graphics.FontFamily{ .Font = font_id };
             }
 
-            fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FrameId {
-                const self_ = stdx.mem.ptrCastAlign(*App, ptr);
+            fn onCloseFileDialog(self_: *App) void {
+                self_.root.closeModal(self_.file_m);
+            }
+
+            fn buildFileDialog(ptr: ?*anyopaque, c_: *ui.BuildContext) ui.FramePtr {
+                const self_ = stdx.ptrCastAlign(*App, ptr);
                 return u.FileDialog(.{
                     .init_cwd = self_.cwd,
                     .onResult = c_.funcExt(self_, onOpenFont),
+                    .onRequestClose = c_.funcExt(self_, onCloseFileDialog),
                 });
             }
 
@@ -115,6 +120,13 @@ pub const App = struct {
             .onChange = c.closure(self, S.onSliderChange),
         };
 
+        const ta_style = u.TextAreaStyle{
+            // .fontFamily = "Tamzen",
+            .fontFamily = self.font_family,
+            .fontSize = self.font_size,
+            .color = self.text_color,
+            .bgColor = self.bg_color,
+        };
         return u.Row(.{}, &.{
             u.Flex(.{ .flex = 3 },
                 u.Column(.{}, &.{
@@ -122,12 +134,8 @@ pub const App = struct {
                         u.Padding(.{ .padding = 10 }, 
                             u.TextArea(.{
                                 .bind = &self.text_editor,
-                                // .fontFamily = "Tamzen",
-                                .fontFamily = self.font_family,
-                                .fontSize = self.font_size,
                                 .initValue = "The quick brown fox 🦊 jumps over the lazy dog 🐶.\n\nThe graphics and UI are built on top of Freetype and OpenGL/Vulkan.",
-                                .textColor = self.text_color,
-                                .bgColor = self.bg_color,
+                                .style = ta_style,
                             }),
                         ),
                     ),
@@ -178,7 +186,7 @@ pub fn main() !void {
 
 fn update(delta_ms: f32) void {
     const S = struct {
-        fn buildRoot(_: void, c: *ui.BuildContext) ui.FrameId {
+        fn buildRoot(_: void, c: *ui.BuildContext) ui.FramePtr {
             return c.build(App, .{});
         }
     };

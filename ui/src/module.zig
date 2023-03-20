@@ -13,19 +13,18 @@ const platform = @import("platform");
 const EventDispatcher = platform.EventDispatcher;
 
 const ui = @import("ui.zig");
+const u = ui.widgets;
 const events = @import("events.zig");
 const Frame = ui.Frame;
 const BindNode = @import("frame.zig").BindNode;
 const ui_render = @import("render.zig");
-const LayoutSize = ui.LayoutSize;
 const NullId = stdx.ds.CompactNull(u32);
-const NullFrameId = NullId;
 const TextMeasure = ui.TextMeasure;
 pub const TextMeasureId = usize;
 pub const IntervalId = u32;
 const log = stdx.log.scoped(.module);
 
-const build_ = @import("build.zig");
+const build_ = @import("ui_build.zig");
 const BuildContext = build_.BuildContext;
 
 /// Using a global BuildContext makes widget declarations more idiomatic.
@@ -35,25 +34,166 @@ pub fn getWidgetIdByType(comptime Widget: type) ui.WidgetTypeId {
     return @ptrToInt(GenWidgetVTable(Widget));
 }
 
+fn updateWidgetUserStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame: ui.Frame) ?*const WidgetUserStyle(Widget) {
+    const UserStyle = WidgetUserStyle(Widget);
+    if (frame.style) |style| {
+        if (frame.style_is_owned) {
+            const user_style = stdx.ptrCastAlign(*const UserStyle, style);
+            // Persist user style.
+            if (!node.hasState(ui.NodeStateMasks.user_style)) {
+                const new = mod.alloc.create(UserStyle) catch fatal();
+                new.* = user_style.*;
+                mod.common.node_user_styles.put(mod.alloc, node, .{
+                    .ptr = .{
+                        .owned = new,
+                    },
+                    .owned = true,
+                }) catch fatal();
+                node.setStateMask(ui.NodeStateMasks.user_style);
+                return new;
+            } else {
+                const handle = mod.common.node_user_styles.getPtr(node).?;
+                var existing: *UserStyle = undefined;
+                if (!handle.owned) {
+                    existing = mod.alloc.create(UserStyle) catch fatal();
+                    handle.ptr = .{
+                        .owned = existing,
+                    };
+                    handle.owned = true;
+                } else {
+                    existing = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                }
+                existing.* = user_style.*;
+                return existing;
+            }
+        } else {
+            const user_style = stdx.ptrCastAlign(*const UserStyle, style);
+            if (!node.hasState(ui.NodeStateMasks.user_style)) {
+                mod.common.node_user_styles.put(mod.alloc, node, .{
+                    .ptr = .{
+                        .not_owned = style,
+                    },
+                    .owned = false,
+                }) catch fatal();
+                node.setStateMask(ui.NodeStateMasks.user_style);
+            } else {
+                const handle = mod.common.node_user_styles.getPtr(node).?;
+                if (handle.owned) {
+                    const existing = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                    mod.alloc.destroy(existing);
+                    handle.owned = false;
+                }
+                handle.ptr.not_owned = user_style;
+            }
+            return user_style;
+        }
+    } else {
+        if (node.hasState(ui.NodeStateMasks.user_style)) {
+            const handle = mod.common.node_user_styles.get(node).?;
+            if (handle.owned) {
+                const existing = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                mod.alloc.destroy(existing);
+            }
+            _ = mod.common.node_user_styles.remove(node);
+            node.clearStateMask(ui.NodeStateMasks.user_style);
+        }
+        return null;
+    }
+}
+
+fn updateWidgetStyle(comptime Widget: type, mod: *Module, node: *ui.Node, frame: ui.Frame) void {
+    const Style = WidgetComputedStyle(Widget);
+    const StyleMods = WidgetStyleMods(Widget);
+    if (StyleMods != void) {
+        const widget = stdx.ptrCastAlign(*Widget, node.widget);
+        if (widget.mods.value > 0) {
+            var computed = mod.common.getCurrentStyleDefault(Widget).*;
+            if (updateWidgetUserStyle(Widget, mod, node, frame)) |user_style| {
+                inline for (comptime std.meta.fieldNames(Style)) |name| {
+                    if (@field(user_style, name)) |value| {
+                        @field(computed, name) = value;
+                    }
+                }
+            }
+            mod.common.getCurrentStyleUpdateFuncDefault(Widget)(&computed, widget.mods);
+
+            if (!node.hasState(ui.NodeStateMasks.computed_style)) {
+                const new = mod.alloc.create(Style) catch fatal();
+                new.* = computed;
+                mod.common.node_computed_styles.put(mod.alloc, node, new) catch fatal();
+                node.setStateMask(ui.NodeStateMasks.computed_style);
+            } else {
+                const existing = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+                existing.* = computed;
+            }
+            return;
+        }
+    }
+
+    // Has user style.
+    if (updateWidgetUserStyle(Widget, mod, node, frame)) |user_style| {
+        var computed = mod.common.getCurrentStyleDefault(Widget).*;
+
+        inline for (comptime std.meta.fieldNames(Style)) |name| {
+            if (@field(user_style, name)) |value| {
+                @field(computed, name) = value;
+            }
+        }
+
+        if (!node.hasState(ui.NodeStateMasks.computed_style)) {
+            const new = mod.alloc.create(Style) catch fatal();
+            new.* = computed;
+            mod.common.node_computed_styles.put(mod.alloc, node, new) catch fatal();
+            node.setStateMask(ui.NodeStateMasks.computed_style);
+        } else {
+            const existing = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+            existing.* = computed;
+        }
+    } else {
+        // Remove computed.
+        if (node.hasState(ui.NodeStateMasks.computed_style)) {
+            const existing = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+            mod.alloc.destroy(existing);
+            _ = mod.common.node_computed_styles.remove(node);
+            node.clearStateMask(ui.NodeStateMasks.computed_style);
+        }
+    }
+}
+
 /// Generates the vtable for a Widget.
 pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
     const gen = struct {
 
-        fn create(alloc: std.mem.Allocator, ctx_ptr: *anyopaque, props_ptr: ?[*]const u8) *anyopaque {
-            const ctx = stdx.mem.ptrCastAlign(*InitContext, ctx_ptr);
+        fn create(mod: *Module, node: *ui.Node, framePtr: ui.FramePtr, frame: ui.Frame) *anyopaque {
+            const ctx = &mod.init_ctx;
 
             const new: *Widget = if (@sizeOf(Widget) > 0) b: {
-                break :b alloc.create(Widget) catch unreachable;
+                const res = mod.alloc.create(Widget) catch unreachable;
+                node.widget = res;
+                break :b res;
             } else undefined;
 
             if (@sizeOf(Widget) > 0) {
                 if (comptime WidgetHasProps(Widget)) {
-                    if (props_ptr) |props| {
+                    if (frame.props) |ptr| {
                         const Props = WidgetProps(Widget);
-                        new.props = std.mem.bytesToValue(Props, props[0..@sizeOf(Props)]);
+                        const props = stdx.ptrCastAlign(*const Props, ptr);
+
+                        // Copy frame props pointer and own a reference to the frame.
+                        new.props = props;
+                        node.frame = framePtr.dupe();
                     }
                 }
             }
+
+            // Styles are computed just before Widget.init so they can be accessed.
+            // eg. TextStyle.fontSize needs to be cached in Text widget to skip recomputing the layout.
+            // This also means that any modifiers need to be inited on Widget struct init with default values.
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                updateWidgetStyle(Widget, mod, node, frame);
+            }
+
             if (@hasDecl(Widget, "init")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.init))) {
                     @compileError("Invalid init function: " ++ @typeName(@TypeOf(Widget.init)) ++ " Widget: " ++ @typeName(Widget));
@@ -61,18 +201,12 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 // Call widget's init to set state.
                 new.init(ctx);
             }
-            if (@sizeOf(Widget) > 0) {
-                return new;
-            } else {
-                // Use a dummy pointer when size = 0.
-                var dummy: bool = undefined;
-                return &dummy;
-            }
+
+            return node.widget;
         }
 
-        fn postInit(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) void {
-            const ctx = stdx.mem.ptrCastAlign(*InitContext, ctx_ptr);
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+        fn postInit(widget_ptr: *anyopaque, ctx: *InitContext) void {
+            const widget = stdx.ptrCastAlign(*Widget, widget_ptr);
             if (@hasDecl(Widget, "postInit")) {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *InitContext) void, @TypeOf(Widget.postInit))) {
                     @compileError("Invalid postInit function: " ++ @typeName(@TypeOf(Widget.postInit)) ++ " Widget: " ++ @typeName(Widget));
@@ -81,38 +215,58 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn updateProps(widget_ptr: *anyopaque, props_ptr: [*]const u8) void {
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+        fn updateProps(mod: *Module, node: *ui.Node, framePtr: ui.FramePtr, frame: ui.Frame, ctx: *UpdateContext) void {
+            const widget = stdx.ptrCastAlign(*Widget, node.widget);
             if (comptime WidgetHasProps(Widget)) {
-                const Props = WidgetProps(Widget);
-                widget.props = std.mem.bytesToValue(Props, props_ptr[0..@sizeOf(Props)]);
+                if (frame.props) |ptr| {
+                    const Props = WidgetProps(Widget);
+                    const props = stdx.ptrCastAlign(*const Props, ptr);
+
+                    if (@hasDecl(Widget, "prePropsUpdate")) {
+                        if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext, *const Props) void, @TypeOf(Widget.prePropsUpdate))) {
+                            @compileError("Invalid prePropsUpdate function: " ++ @typeName(@TypeOf(Widget.prePropsUpdate)) ++ " Widget: " ++ @typeName(Widget));
+                        }
+                        widget.prePropsUpdate(ctx, props);
+                    }
+
+                    widget.props = props;
+                    // Update ref counts.
+                    ctx.handleFrameUpdate(node.frame, framePtr);
+                    node.frame = framePtr;
+                }
             }
+
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                updateWidgetStyle(Widget, mod, node, frame);
+            }
+
             if (@hasDecl(Widget, "postPropsUpdate")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget) void, @TypeOf(Widget.postPropsUpdate))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext) void, @TypeOf(Widget.postPropsUpdate))) {
                     @compileError("Invalid postPropsUpdate function: " ++ @typeName(@TypeOf(Widget.postPropsUpdate)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                widget.postPropsUpdate();
+                widget.postPropsUpdate(ctx);
             }
         }
 
-        fn postUpdate(node: *ui.Node) void {
+        fn postUpdate(node: *ui.Node, ctx: *UpdateContext) void {
             if (@hasDecl(Widget, "postUpdate")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*ui.Node) void, @TypeOf(Widget.postUpdate))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *UpdateContext) void, @TypeOf(Widget.postUpdate))) {
                     @compileError("Invalid postUpdate function: " ++ @typeName(@TypeOf(Widget.postUpdate)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                Widget.postUpdate(node);
+                const widget = stdx.ptrCastAlign(*Widget, node.widget);
+                widget.postUpdate(ctx);
             }
         }
 
-        fn build(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) ui.FrameId {
-            const ctx = stdx.mem.ptrCastAlign(*BuildContext, ctx_ptr);
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+        fn build(widget_ptr: *anyopaque, ctx: *BuildContext) ui.FramePtr {
+            const widget = stdx.ptrCastAlign(*Widget, widget_ptr);
 
             if (!@hasDecl(Widget, "build")) {
                 // No build function. Return null child.
-                return NullFrameId;
+                return .{};
             } else {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *BuildContext) ui.FrameId, @TypeOf(Widget.build))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *BuildContext) ui.FramePtr, @TypeOf(Widget.build))) {
                     @compileError("Invalid build function: " ++ @typeName(@TypeOf(Widget.build)) ++ " Widget: " ++ @typeName(Widget));
                 }
             }
@@ -140,14 +294,14 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                 if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.renderCustom))) {
                     @compileError("Invalid renderCustom function: " ++ @typeName(@TypeOf(Widget.renderCustom)) ++ " Widget: " ++ @typeName(Widget));
                 }
-                const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                const widget = stdx.ptrCastAlign(*Widget, node.widget);
                 widget.renderCustom(ctx);
             } else {
                 if (@hasDecl(Widget, "render")) {
                     if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *RenderContext) void, @TypeOf(Widget.render))) {
                         @compileError("Invalid render function: " ++ @typeName(@TypeOf(Widget.render)) ++ " Widget: " ++ @typeName(Widget));
                     }
-                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                    const widget = stdx.ptrCastAlign(*Widget, node.widget);
                     widget.render(ctx);
                 }
                 if (@hasDecl(Widget, "postRender")) {
@@ -156,7 +310,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     }
                     const temp = ctx.node;
                     ui_render.defaultRenderChildren(node, ctx);
-                    const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+                    const widget = stdx.ptrCastAlign(*Widget, node.widget);
                     ctx.node = temp;
                     widget.postRender(ctx);
                 } else {
@@ -165,16 +319,15 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             }
         }
 
-        fn layout(widget_ptr: *anyopaque, ctx_ptr: *anyopaque) LayoutSize {
-            const ctx = stdx.mem.ptrCastAlign(*LayoutContext, ctx_ptr);
+        fn layout(widget_ptr: *anyopaque, ctx: *ui.LayoutContext) ui.LayoutSize {
             if (builtin.mode == .Debug) {
                 if (ctx.node.debug) {
                     log.debug("layout: {}", .{ctx.getSizeConstraints()});
                 }
             }
-            const widget = stdx.mem.ptrCastAlign(*Widget, widget_ptr);
+            const widget = stdx.ptrCastAlign(*Widget, widget_ptr);
             if (@hasDecl(Widget, "layout")) {
-                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *LayoutContext) LayoutSize, @TypeOf(Widget.layout))) {
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *ui.LayoutContext) ui.LayoutSize, @TypeOf(Widget.layout))) {
                     @compileError("Invalid layout function: " ++ @typeName(@TypeOf(Widget.layout)) ++ " Widget: " ++ @typeName(Widget));
                 }
                 return widget.layout(ctx);
@@ -185,12 +338,12 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
 
         /// The default layout passes the constraints to the children and reports the size of its children.
         /// Multiple children are stacked over each other like a ZStack.
-        fn defaultLayout(c: *LayoutContext) LayoutSize {
+        fn defaultLayout(c: *ui.LayoutContext) ui.LayoutSize {
             var max_width: f32 = 0;
             var max_height: f32 = 0;
             for (c.node.children.items) |child| {
                 const child_size = c.computeLayoutInherit(child);
-                c.setLayout(child, Layout.init(0, 0, child_size.width, child_size.height));
+                c.setLayout(child, ui.Layout.init(0, 0, child_size.width, child_size.height));
                 if (child_size.width > max_width) {
                     max_width = child_size.width;
                 }
@@ -198,27 +351,90 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
                     max_height = child_size.height;
                 }
             }
-            var res = LayoutSize.init(max_width, max_height);
+            var res = ui.LayoutSize.init(max_width, max_height);
             res.growToMin(c.cstr);
             return res;
         }
 
-        fn destroy(node: *ui.Node, alloc: std.mem.Allocator) void {
+        fn destroy(mod: *Module, node: *ui.Node) void {
             if (node.bind) |bind| {
                 // Unbind.
                 if (node.hasState(ui.NodeStateMasks.bind_func)) {
-                    const bind_func = stdx.mem.ptrCastAlign(*ui.BindNodeFunc, bind);
+                    const bind_func = stdx.ptrCastAlign(*ui.BindNodeFunc, bind);
                     bind_func.func(bind_func.ctx, node, false);
                 } else {
-                    const ref = stdx.mem.ptrCastAlign(*ui.WidgetRef(Widget), bind);
+                    const ref = stdx.ptrCastAlign(*ui.WidgetRef(Widget), bind);
                     ref.binded = false;
                 }
             }
-            const widget = stdx.mem.ptrCastAlign(*Widget, node.widget);
+            const widget = stdx.ptrCastAlign(*Widget, node.widget);
             if (@hasDecl(Widget, "deinit")) {
-                widget.deinit(alloc);
+                if (comptime !stdx.meta.hasFunctionSignature(fn (*Widget, *DeinitContext) void, @TypeOf(Widget.deinit))) {
+                    @compileError("Invalid deinit function: " ++ @typeName(@TypeOf(Widget.deinit)) ++ " Widget: " ++ @typeName(Widget));
+                }
+                widget.deinit(&mod.deinit_ctx);
             }
-            alloc.destroy(widget);
+
+            if (@hasField(Widget, "props")) {
+                // Release frame reference.
+                node.frame.destroy();
+            }
+
+            const Style = WidgetComputedStyle(Widget);
+            if (Style != void) {
+                const UserStyle = WidgetUserStyle(Widget);
+                if (node.hasState(ui.NodeStateMasks.user_style)) {
+                    const handle = mod.common.node_user_styles.get(node).?;
+                    if (handle.owned) {
+                        const style = stdx.ptrCastAlign(*UserStyle, handle.ptr.owned);
+                        mod.alloc.destroy(style);
+                    }
+                    _ = mod.common.node_user_styles.remove(node);
+                }
+                if (node.hasState(ui.NodeStateMasks.computed_style)) {
+                    const style = stdx.ptrCastAlign(*Style, mod.common.node_computed_styles.get(node).?);
+                    mod.alloc.destroy(style);
+                    _ = mod.common.node_computed_styles.remove(node);
+                }
+            }
+            mod.alloc.destroy(widget);
+        }
+
+        fn deinitFrame(mod: *Module, frame: ui.Frame) void {
+            if (@hasDecl(Widget, "deinitFrame")) {
+                Widget.deinitFrame(frame, &mod.deinit_ctx);
+            }
+
+            const UserStyle = WidgetUserStyle(Widget);
+            if (UserStyle != void) {
+                if (frame.style) |ptr| {
+                    if (frame.style_is_owned) {
+                        const style = stdx.ptrCastAlign(*const UserStyle, ptr);
+                        mod.build_ctx.dynamic_alloc.destroy(style);
+                    }
+                }
+            }
+
+            const Props = WidgetProps(Widget);
+            if (Props != void) {
+                if (frame.props) |ptr| {
+                    const props = stdx.ptrCastAlign(*Props, ptr);
+
+                    // Release ref counted props.
+                    inline for (comptime std.meta.fields(Props)) |field| {
+                        if (field.type == ui.FramePtr) {
+                            @field(props, field.name).destroy();
+                        } else if (field.type == ui.FrameListPtr) {
+                            @field(props, field.name).destroy();
+                        } else if (@typeInfo(field.type) == .Struct and @hasDecl(field.type, "SlicePtr")) {
+                            @field(props, field.name).destroy();
+                        } else if (@typeInfo(field.type) == .Struct and @hasDecl(field.type, "Function")) {
+                            @field(props, field.name).deinit(mod.build_ctx.dynamic_alloc);
+                        }
+                    }
+                    mod.build_ctx.dynamic_alloc.destroy(props);
+                }
+            }
         }
 
         const vtable = ui.WidgetVTable{
@@ -230,6 +446,7 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
             .render = render,
             .layout = layout,
             .destroy = destroy,
+            .deinitFrame = deinitFrame,
             .has_post_update = @hasDecl(Widget, "postUpdate"),
             .children_can_overlap = @hasDecl(Widget, "ChildrenCanOverlap") and Widget.ChildrenCanOverlap,
             .name = @typeName(Widget),
@@ -239,11 +456,13 @@ pub fn GenWidgetVTable(comptime Widget: type) *const ui.WidgetVTable {
     return &gen.vtable;
 }
 
-pub const FragmentVTable = GenWidgetVTable(struct {});
+const Fragment = struct {};
+pub const FragmentVTable = GenWidgetVTable(Fragment);
 
-const EventType = enum(u3) {
+const EventType = enum {
     mouseup,
     mousedown,
+    mousewheel,
     enter_mousedown,
     global_mouseup,
     global_mousemove,
@@ -266,8 +485,10 @@ pub const Module = struct {
     user_root: ui.NodeRef,
 
     init_ctx: InitContext,
+    deinit_ctx: DeinitContext,
     build_ctx: BuildContext,
-    layout_ctx: LayoutContext,
+    update_ctx: UpdateContext,
+    layout_ctx: ui.LayoutContext,
     render_ctx: RenderContext,
     event_ctx: ui.EventContext,
     mod_ctx: ModuleContext,
@@ -275,6 +496,9 @@ pub const Module = struct {
     common: ModuleCommon,
 
     text_measure_batch_buf: std.ArrayList(*graphics.TextMeasure),
+
+    debug_dump_after_num_updates: if (builtin.mode == .Debug) ?u32 else void,
+    trace: if (builtin.mode == .Debug) std.ArrayListUnmanaged(Trace) else void,
 
     pub fn init(
         self: *Module,
@@ -286,25 +510,41 @@ pub const Module = struct {
             .root_node = null,
             .user_root = .{},
             .init_ctx = InitContext.init(self),
+            .deinit_ctx = DeinitContext.init(self),
             .build_ctx = undefined,
-            .layout_ctx = LayoutContext.init(self, g),
+            .layout_ctx = ui.LayoutContext.init(self, g),
             .event_ctx = ui.EventContext.init(self),
             .render_ctx = undefined,
+            .update_ctx = undefined,
             .mod_ctx = ModuleContext.init(self),
             .common = undefined,
             .text_measure_batch_buf = std.ArrayList(*graphics.TextMeasure).init(alloc),
+            .debug_dump_after_num_updates = undefined,
+            .trace = undefined,
         };
         self.common.init(alloc, self, g);
-        self.build_ctx = BuildContext.init(alloc, self.common.arena_alloc, self);
+        self.build_ctx.init(alloc, alloc, self);
         self.render_ctx = RenderContext.init(&self.common.ctx, g);
+        self.update_ctx = .{
+            .common = &self.common.ctx,
+            .node = undefined,
+        };
+        if (builtin.mode == .Debug) {
+            self.debug_dump_after_num_updates = null;
+            self.trace = .{};
+        }
+        gbuild_ctx = &self.build_ctx;
     }
 
     pub fn deinit(self: *Module) void {
-        self.build_ctx.deinit();
         self.text_measure_batch_buf.deinit();
 
         // Destroy widget nodes.
         if (self.root_node != null) {
+            // Remove from prev update.
+            self.common.removeHandlers();
+            self.common.removeNodes();
+
             const S = struct {
                 fn visit(mod: *Module, node: *ui.Node) void {
                     mod.destroyNode(node);
@@ -315,6 +555,13 @@ pub const Module = struct {
         }
 
         self.common.deinit();
+
+        // Deinit frames after nodes have been removed to report any remaining ref counted frames.
+        self.build_ctx.deinit();
+
+        if (builtin.mode == .Debug) {
+            self.trace.deinit(self.alloc);
+        }
     }
 
     pub fn setContextProvider(self: *Module, provider: fn (key: u32) ?*anyopaque) void {
@@ -325,27 +572,27 @@ pub const Module = struct {
     pub fn addInputHandlers(self: *Module, dispatcher: *EventDispatcher) void {
         const S = struct {
             fn onKeyDown(ctx: ?*anyopaque, e: platform.KeyDownEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processKeyDownEvent(e);
             }
             fn onKeyUp(ctx: ?*anyopaque, e: platform.KeyUpEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processKeyUpEvent(e);
             }
             fn onMouseDown(ctx: ?*anyopaque, e: platform.MouseDownEvent) platform.EventResult {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 return self_.processMouseDownEvent(e);
             }
             fn onMouseUp(ctx: ?*anyopaque, e: platform.MouseUpEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processMouseUpEvent(e);
             }
             fn onMouseScroll(ctx: ?*anyopaque, e: platform.MouseScrollEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
-                self_.processMouseScrollEvent(e);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
+                self_.processMouseWheelEvent(e);
             }
             fn onMouseMove(ctx: ?*anyopaque, e: platform.MouseMoveEvent) void {
-                const self_ = stdx.mem.ptrCastAlign(*Module, ctx);
+                const self_ = stdx.ptrCastAlign(*Module, ctx);
                 self_.processMouseMoveEvent(e);
             }
         };
@@ -369,7 +616,7 @@ pub const Module = struct {
 
     fn getWidget(self: *Module, comptime Widget: type, node: *ui.Node) *Widget {
         _ = self;
-        return stdx.mem.ptrCastAlign(*Widget, node.widget);
+        return stdx.ptrCastAlign(*Widget, node.widget);
     }
 
     /// The way to receive paste events from the browser.
@@ -529,30 +776,51 @@ pub const Module = struct {
         return !propagate;
     }
 
-    pub fn processMouseScrollEvent(self: *Module, e: platform.MouseScrollEvent) void {
+    pub fn processMouseWheelEvent(self: *Module, e: platform.MouseScrollEvent) void {
         const xf = @intToFloat(f32, e.x);
         const yf = @intToFloat(f32, e.y);
         if (self.root_node) |node| {
-            _ = self.processMouseScrollEventRecurse(node, xf, yf, e);
+            if (node.abs_bounds.containsPt(xf, yf)) {
+                _ = self.processMouseWheelEventRecurse(node, xf, yf, e);
+            }
         }
     }
 
-    fn processMouseScrollEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseScrollEvent) bool {
-        if (node.abs_bounds.containsPt(xf, yf)) {
-            var cur = node.mouse_scroll_list;
-            while (cur != NullId) {
-                const sub = self.common.mouse_scroll_event_subs.getNoCheck(cur);
-                sub.handleEvent(&self.event_ctx, e);
-                cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
-            }
-            const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+    /// Returns true to stop propagation.
+    fn processMouseWheelEventRecurse(self: *Module, node: *ui.Node, xf: f32, yf: f32, e: platform.MouseScrollEvent) bool {
+        const event_children = if (!node.has_child_event_ordering) node.children.items else node.child_event_ordering;
+
+        if (!node.vtable.children_can_overlap) {
+            // Greedy hit check. Skips siblings.
             for (event_children) |child| {
-                if (self.processMouseScrollEventRecurse(child, xf, yf, e)) {
+                if (child.abs_bounds.containsPt(xf, yf)) {
+                    if (self.processMouseWheelEventRecurse(child, xf, yf, e)) {
+                        return true;
+                    }
                     break;
                 }
             }
-            return true;
-        } else return false;
+        } else {
+            // Continues to hit check siblings until `stop` is received.
+            for (event_children) |child| {
+                if (child.abs_bounds.containsPt(xf, yf)) {
+                    if (self.processMouseWheelEventRecurse(child, xf, yf, e)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Bubble up.
+
+        var propagate = true;
+        if (node.hasHandler(ui.EventHandlerMasks.mousewheel)) {
+            const sub = self.common.node_mousewheel_map.get(node).?;
+            if (sub.handleEvent(&self.event_ctx, e) == .stop) {
+                propagate = false;
+            }
+        }
+        return !propagate;
     }
 
     pub fn processMouseMoveEvent(self: *Module, e: platform.MouseMoveEvent) void {
@@ -654,9 +922,9 @@ pub const Module = struct {
         }
     }
 
-    fn updateRoot(self: *Module, root_id: ui.FrameId) !void {
-        if (root_id != NullFrameId) {
-            const root = self.build_ctx.getFrame(root_id);
+    fn updateRoot(self: *Module, root_id: ui.FramePtr) !void {
+        if (root_id.isPresent()) {
+            const root = root_id.get();
             if (self.root_node) |root_node| {
                 if (root_node.vtable == root.vtable) {
                     try self.updateExistingNode(null, root_id, root_node);
@@ -689,7 +957,7 @@ pub const Module = struct {
     /// 3. Build frames. Diff tree and create/update nodes from frames.
     /// 4. Compute layout.
     /// 5. Run next post layout cbs.
-    pub fn preUpdate(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FrameId, layout_size: LayoutSize) UpdateError!void {
+    pub fn preUpdate(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, layout_size: ui.LayoutSize) UpdateError!void {
         self.common.updateIntervals(delta_ms, &self.event_ctx);
 
         // Remove event handlers marked for removal. This should happen before removing and invalidating nodes.
@@ -700,35 +968,36 @@ pub const Module = struct {
 
         // TODO: check if we have to update
 
-        // Reset the builder buffer before we call any Component.build
-        self.build_ctx.resetBuffer();
-        if (self.common.use_first_arena) {
-            self.common.arena_allocators[0].deinit();
-            self.common.arena_allocators[0].state = .{};
-            self.common.arena_alloc = self.common.arena_allocs[0];
-        } else {
-            self.common.arena_allocators[1].deinit();
-            self.common.arena_allocators[1].state = .{};
-            self.common.arena_alloc = self.common.arena_allocs[1];
+        defer {
+            for (self.common.build_owned_frames.items) |ptr| {
+                ptr.destroy();
+            }
+            self.common.build_owned_frames.clearRetainingCapacity();
         }
-        self.build_ctx.arena_alloc = self.common.arena_alloc;
-        self.common.use_first_arena = !self.common.use_first_arena;
+
+        if (builtin.mode == .Debug) {
+            self.trace.clearRetainingCapacity();
+        }
 
         // Update global build context for idiomatic widget declarations.
         gbuild_ctx = &self.build_ctx;
 
         // TODO: Provide a different context for the bootstrap function since it doesn't have a frame or node. Currently uses the BuildContext.
         self.build_ctx.prepareCall(undefined, undefined);
-        const user_root_id = bootstrap_fn(bootstrap_ctx, &self.build_ctx);
-        if (user_root_id != NullFrameId) {
-            const user_root = self.build_ctx.getFrame(user_root_id);
-            if (user_root.vtable == FragmentVTable) {
+        const user_root = bootstrap_fn(bootstrap_ctx, &self.build_ctx);
+        if (user_root.isPresent()) {
+            // user root frame isn't owned by the build step directly since it's a prop under the Root frame.
+            const user_root_frame = self.build_ctx.getFrame(user_root.id);
+
+            if (user_root_frame.vtable == FragmentVTable) {
+                try self.common.build_owned_frames.append(self.alloc, user_root);
                 return error.UserRootCantBeFragment;
             }
         }
 
         // The user root widget is wrapped by the Root widget to facilitate things like modals and popovers.
-        const root_id = self.build_ctx.build(ui.widgets.Root, .{ .user_root = user_root_id });
+        const root_id = self.build_ctx.build(ui.widgets.Root, .{ .user_root = user_root });
+        try self.common.build_owned_frames.append(self.alloc, root_id);
 
         // Since the aim is to do layout in linear time, the tree should be built first.
         // Traverse to see which nodes need to be created/deleted.
@@ -748,7 +1017,7 @@ pub const Module = struct {
         // The goal here is to perform layout in linear time, more specifically pre and post visits to each node.
         if (self.root_node != null) {
             const size = self.layout_ctx.computeLayout(self.root_node.?, 0, 0, layout_size.width, layout_size.height);
-            self.layout_ctx.setLayout(self.root_node.?, Layout.init(0, 0, size.width, size.height));
+            self.layout_ctx.setLayout(self.root_node.?, ui.Layout.init(0, 0, size.width, size.height));
         }
 
         // Run logic that needs to happen after layout.
@@ -767,16 +1036,30 @@ pub const Module = struct {
     /// Update a full app frame. Parts of the update are split up to facilitate testing.
     /// A bootstrap fn is needed to tell the module how to build the root frame.
     /// A width and height is needed to specify the root container size in which subsequent widgets will use for layout.
-    pub fn updateAndRender(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FrameId, width: f32, height: f32) !void {
-        const layout_size = LayoutSize.init(width, height);
+    pub fn updateAndRender(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, width: f32, height: f32) !void {
+        const layout_size = ui.LayoutSize.init(width, height);
         try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
         self.render(delta_ms);
         self.postUpdate();
+        if (builtin.mode == .Debug) {
+            if (self.debug_dump_after_num_updates) |num_updates| {
+                if (num_updates == 0) {
+                    self.debug_dump_after_num_updates = null;
+                } else {
+                    if (num_updates - 1 == 0) {
+                        self.dumpTree();
+                        self.debug_dump_after_num_updates = null;
+                    } else {
+                        self.debug_dump_after_num_updates = num_updates - 1;
+                    }
+                }
+            }
+        }
     }
 
     /// Just do an update without rendering.
-    pub fn update(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FrameId, width: f32, height: f32) !void {
-        const layout_size = LayoutSize.init(width, height);
+    pub fn update(self: *Module, delta_ms: f32, bootstrap_ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(bootstrap_ctx), *BuildContext) ui.FramePtr, width: f32, height: f32) !void {
+        const layout_size = ui.LayoutSize.init(width, height);
         try self.preUpdate(delta_ms, bootstrap_ctx, bootstrap_fn, layout_size);
         self.postUpdate();
     }
@@ -790,28 +1073,34 @@ pub const Module = struct {
     /// so the widget is updated with the frame's props.
     /// Recursively update children.
     /// This assumes the frame's key is equal to the node's key.
-    fn updateExistingNode(self: *Module, parent: ?*ui.Node, frame_id: ui.FrameId, node: *ui.Node) UpdateError!void {
+    fn updateExistingNode(self: *Module, parent: ?*ui.Node, frame_ptr: ui.FramePtr, node: *ui.Node) UpdateError!void {
         _ = parent;
+        if (builtin.mode == .Debug) {
+            try self.trace.append(self.alloc, .{ .node = node, .trace_t = .update });
+        }
+
         // Update frame and props.
-        const frame = self.build_ctx.getFrame(frame_id);
+        const frame = frame_ptr.get();
 
         // if (parent) |pn| {
         //     node.transform = pn.transform;
         // }
         const widget_vtable = frame.vtable;
-        if (frame.props.len > 0) {
-            const props_ptr = self.build_ctx.frame_props.getBytesPtr(frame.props);
-            widget_vtable.updateProps(node.widget, props_ptr);
+
+        if (frame.props != null or frame.style != null) {
+            self.update_ctx.node = node;
+            widget_vtable.updateProps(self, node, frame_ptr, frame, &self.update_ctx);
         }
 
         defer {
             if (widget_vtable.has_post_update) {
-                widget_vtable.postUpdate(node);
+                self.update_ctx.node = node;
+                widget_vtable.postUpdate(node, &self.update_ctx);
             }
         }
 
-        const child_frame_id = self.buildChildFrame(frame_id, node, widget_vtable);
-        if (child_frame_id == NullId) {
+        const child_frame_ptr = self.buildChildFrame(frame_ptr, node, widget_vtable);
+        if (child_frame_ptr.isNull()) {
             if (node.children.items.len > 0) {
                 for (node.children.items) |it| {
                     self.removeNode(it);
@@ -820,55 +1109,62 @@ pub const Module = struct {
             node.children.items.len = 0;
             return;
         }
-        const child_frame = self.build_ctx.getFrame(child_frame_id);
+        try self.common.build_owned_frames.append(self.alloc, child_frame_ptr);
+        const child_frame = child_frame_ptr.get();
         if (child_frame.vtable == FragmentVTable) {
             // Fragment frame, diff it's children instead.
 
-            const child_frames = child_frame.fragment_children;
             // Start by doing fast array iteration to update nodes with the same key/idx.
             // Once there is a discrepancy, switch to the slower method of key map checks.
             var child_idx: u32 = 0;
-            while (child_idx < child_frames.len) : (child_idx += 1) {
-                const child_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
-                const child_frame_ = self.build_ctx.getFrame(child_id);
-                if (child_frame_.vtable == FragmentVTable) {
-                    return error.NestedFragment;
+
+            if (child_frame.fragment_children.isPresent()) {
+                var cur_child = child_frame.fragment_children.get().head;
+                while (cur_child) |frame_node| {
+                    const child_id = frame_node.data;
+                    const child_frame_ = child_id.get();
+                    if (child_frame_.vtable == FragmentVTable) {
+                        return error.NestedFragment;
+                    }
+                    if (node.children.items.len <= child_idx) {
+                        // TODO: Create nodes for the rest of the frames instead.
+                        try self.updateChildFramesWithKeyMap(node, child_idx, cur_child);
+                        return;
+                    }
+                    const child_node = node.children.items[child_idx];
+                    if (child_node.vtable != child_frame_.vtable) {
+                        try self.updateChildFramesWithKeyMap(node, child_idx, cur_child);
+                        return;
+                    }
+                    const frame_key = child_frame_.key orelse ui.WidgetKey{.ListIdx = child_idx};
+                    if (!std.meta.eql(child_node.key, frame_key)) {
+                        try self.updateChildFramesWithKeyMap(node, child_idx, cur_child);
+                        return;
+                    }
+                    try self.updateExistingNode(node, child_id, child_node);
+                    child_idx += 1;
+                    cur_child = frame_node.next;
                 }
-                if (node.children.items.len <= child_idx) {
-                    // TODO: Create nodes for the rest of the frames instead.
-                    try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
-                    return;
-                }
-                const child_node = node.children.items[child_idx];
-                if (child_node.vtable != child_frame_.vtable) {
-                    try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
-                    return;
-                }
-                const frame_key = child_frame_.key orelse ui.WidgetKey{.ListIdx = child_idx};
-                if (!std.meta.eql(child_node.key, frame_key)) {
-                    try self.updateChildFramesWithKeyMap(node, child_idx, child_frames);
-                    return;
-                }
-                try self.updateExistingNode(node, child_id, child_node);
             }
+
             // Remove left over children.
             if (child_idx < node.children.items.len) {
                 for (node.children.items[child_idx..]) |it| {
                     self.removeNode(it);
                 }
-                node.children.items.len = child_frames.len;
+                node.children.items.len = child_idx;
             }
         } else {
             // One child frame.
             if (node.children.items.len == 0) {
-                const new_child = try self.createAndInitNode(node, child_frame_id, 0);
+                const new_child = try self.createAndInitNode(node, child_frame_ptr, 0);
                 node.children.append(new_child) catch unreachable;
                 return;
             }
             const child_node = node.children.items[0];
             if (child_node.vtable != child_frame.vtable) {
                 self.removeNode(child_node);
-                const new_child = try self.createAndInitNode(node, child_frame_id, 0);
+                const new_child = try self.createAndInitNode(node, child_frame_ptr, 0);
                 node.children.items[0] = new_child;
                 if (node.children.items.len > 1) {
                     for (node.children.items[1..]) |it| {
@@ -880,7 +1176,7 @@ pub const Module = struct {
             const frame_key = if (child_frame.key != null) child_frame.key.? else ui.WidgetKey{.ListIdx = 0};
             if (!std.meta.eql(child_node.key, frame_key)) {
                 self.removeNode(child_node);
-                const new_child = try self.createAndInitNode(node, child_frame_id, 0);
+                const new_child = try self.createAndInitNode(node, child_frame_ptr, 0);
                 node.children.items[0] = new_child;
                 if (node.children.items.len > 1) {
                     for (node.children.items[1..]) |it| {
@@ -890,16 +1186,17 @@ pub const Module = struct {
                 return;
             }
             // Same child.
-            try self.updateExistingNode(node, child_frame_id, child_node);
+            try self.updateExistingNode(node, child_frame_ptr, child_node);
         }
     }
 
     /// Slightly slower method to update with frame children that utilizes a key map.
-    fn updateChildFramesWithKeyMap(self: *Module, parent: *ui.Node, start_idx: u32, child_frames: ui.FrameListPtr) UpdateError!void {
+    fn updateChildFramesWithKeyMap(self: *Module, parent: *ui.Node, start_idx: u32, start_child: ?*stdx.ds.SLLUnmanaged(ui.FramePtr).Node) UpdateError!void {
         var child_idx: u32 = start_idx;
-        while (child_idx < child_frames.len): (child_idx += 1) {
-            const frame_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
-            const frame = self.build_ctx.getFrame(frame_id);
+        var cur_child = start_child;
+        while (cur_child) |frame_node| {
+            const frame_id = frame_node.data;
+            const frame = frame_id.get();
 
             if (frame.vtable == FragmentVTable) {
                 return error.NestedFragment;
@@ -925,10 +1222,13 @@ pub const Module = struct {
                     const new_child = try self.createAndInitNode(parent, frame_id, child_idx);
                     parent.children.append(new_child) catch unreachable;
                     child_idx += 1;
-                    while (child_idx < child_frames.len) : (child_idx += 1) {
-                        const frame_id_ = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
+                    cur_child = frame_node.next;
+                    while (cur_child) |frame_node_| {
+                        const frame_id_ = frame_node_.data;
                         const new_child_ = try self.createAndInitNode(parent, frame_id_, child_idx);
                         parent.children.append(new_child_) catch unreachable;
+                        child_idx += 1;
+                        cur_child = frame_node_.next;
                     }
                     break;
                 }
@@ -942,6 +1242,8 @@ pub const Module = struct {
 
                 parent.children.items[child_idx] = new_child;
             }
+            child_idx += 1;
+            cur_child = frame_node.next;
         }
 
         // All the unused children were moved to the end so we can delete them all.
@@ -957,8 +1259,9 @@ pub const Module = struct {
         }
 
         // Truncate existing children list to frame children list.
-        if (parent.children.items.len > child_frames.len) {
-            parent.children.shrinkRetainingCapacity(child_frames.len);
+        const num_child_frames = child_idx;
+        if (parent.children.items.len > num_child_frames) {
+            parent.children.shrinkRetainingCapacity(num_child_frames);
         }
     }
 
@@ -989,29 +1292,34 @@ pub const Module = struct {
         const widget_vtable = node.vtable;
 
         // Make sure event handlers are removed.
-        if (node.hasHandler(ui.EventHandlerMasks.keyup)) {
-            self.common.ctx.clearKeyUpHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.keydown)) {
-            self.common.ctx.clearKeyDownHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
-            self.common.ctx.clearEnterMouseDownHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
-            self.common.ctx.clearMouseDownHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
-            self.common.ctx.clearMouseUpHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.global_mouseup)) {
-            self.common.ctx.clearGlobalMouseUpHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.global_mousemove)) {
-            self.common.ctx.clearGlobalMouseMoveHandler(node);
-        }
-        if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
-            self.common.ctx.clearHoverChangeHandler(node);
+        if (node.event_handler_mask > 0) {
+            if (node.hasHandler(ui.EventHandlerMasks.keyup)) {
+                self.common.ctx.clearKeyUpHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.keydown)) {
+                self.common.ctx.clearKeyDownHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.enter_mousedown)) {
+                self.common.ctx.clearEnterMouseDownHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.mousewheel)) {
+                self.common.ctx.clearMouseWheelHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.mousedown)) {
+                self.common.ctx.clearMouseDownHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.mouseup)) {
+                self.common.ctx.clearMouseUpHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.global_mouseup)) {
+                self.common.ctx.clearGlobalMouseUpHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.global_mousemove)) {
+                self.common.ctx.clearGlobalMouseMoveHandler(node);
+            }
+            if (node.hasHandler(ui.EventHandlerMasks.hoverchange)) {
+                self.common.ctx.clearHoverChangeHandler(node);
+            }
         }
 
         // TODO: Make faster.
@@ -1031,7 +1339,7 @@ pub const Module = struct {
         }
 
         // Destroy widget state/props after firing any cleanup events. eg. hover end event.
-        widget_vtable.destroy(node, self.alloc);
+        widget_vtable.destroy(self.mod_ctx.mod, node);
 
         node.deinit();
 
@@ -1039,19 +1347,19 @@ pub const Module = struct {
     }
 
     /// Builds the child frame for a given frame.
-    fn buildChildFrame(self: *Module, frame_id: ui.FrameId, node: *ui.Node, widget_vtable: *const ui.WidgetVTable) ui.FrameId {
-        self.build_ctx.prepareCall(frame_id, node);
+    fn buildChildFrame(self: *Module, frame_ptr: ui.FramePtr, node: *ui.Node, widget_vtable: *const ui.WidgetVTable) ui.FramePtr {
+        self.build_ctx.prepareCall(frame_ptr.id, node);
         return widget_vtable.build(node.widget, &self.build_ctx);
     }
 
-    inline fn createAndInitNode(self: *Module, parent: ?*ui.Node, frame_id: ui.FrameId, idx: u32) UpdateError!*ui.Node {
+    inline fn createAndInitNode(self: *Module, parent: ?*ui.Node, frame_ptr: ui.FramePtr, idx: u32) UpdateError!*ui.Node {
         const new_node = self.alloc.create(ui.Node) catch unreachable;
-        return self.initNode(parent, frame_id, idx, new_node);
+        return self.initNode(parent, frame_ptr, idx, new_node);
     }
 
     /// Allow passing in a new node so a ref can be obtained beforehand.
-    fn initNode(self: *Module, parent: ?*ui.Node, frame_id: ui.FrameId, idx: u32, new_node: *ui.Node) UpdateError!*ui.Node {
-        const frame = self.build_ctx.getFrame(frame_id);
+    fn initNode(self: *Module, parent: ?*ui.Node, frame_ptr: ui.FramePtr, idx: u32, new_node: *ui.Node) UpdateError!*ui.Node {
+        const frame = frame_ptr.get();
         const widget_vtable = frame.vtable;
 
         errdefer {
@@ -1060,7 +1368,6 @@ pub const Module = struct {
             }
             self.destroyNode(new_node);
         }
-        const props_ptr = if (frame.props.len > 0) self.build_ctx.frame_props.getBytesPtr(frame.props) else null;
 
         // Init instance.
         // log.warn("create node {}", .{frame.type_id});
@@ -1085,17 +1392,16 @@ pub const Module = struct {
         }
 
         self.init_ctx.prepareForNode(new_node);
-        const new_widget = widget_vtable.create(self.alloc, &self.init_ctx, props_ptr);
-        new_node.widget = new_widget;
+        const new_widget = widget_vtable.create(self, new_node, frame_ptr, frame);
 
         // Bind to ref after initializing the widget.
         if (frame.widget_bind) |bind| {
             if (frame.is_bind_func) {
-                const bind_func = stdx.mem.ptrCastAlign(*ui.BindNodeFunc, frame.widget_bind);
+                const bind_func = stdx.ptrCastAlign(*ui.BindNodeFunc, frame.widget_bind);
                 bind_func.func(bind_func.ctx, new_node, true);
                 new_node.setStateMask(ui.NodeStateMasks.bind_func);
             } else {
-                stdx.mem.ptrCastAlign(*ui.NodeRef, bind).* = ui.NodeRef.init(new_node);
+                stdx.ptrCastAlign(*ui.NodeRef, bind).* = ui.NodeRef.init(new_node);
             }
             new_node.bind = bind;
         }
@@ -1110,27 +1416,32 @@ pub const Module = struct {
         //log.warn("created: {}", .{frame.type_id});
 
         // Build child frames and create child nodes from them.
-        const child_frame_id = self.buildChildFrame(frame_id, new_node, widget_vtable);
-        if (child_frame_id != NullId) {
-            const child_frame = self.build_ctx.getFrame(child_frame_id);
-            if (child_frame.vtable == FragmentVTable) {
-                // Fragment frame.
-                const child_frames = child_frame.fragment_children;
+        const child_frame_ptr = self.buildChildFrame(frame_ptr, new_node, widget_vtable);
+        if (child_frame_ptr.isPresent()) {
+            try self.common.build_owned_frames.append(self.alloc, child_frame_ptr);
+            const child_frame = child_frame_ptr.get();
 
-                // Iterate using a counter since the frame list buffer is dynamic.
-                var child_idx: u32 = 0;
-                while (child_idx < child_frames.len) : (child_idx += 1) {
-                    const child_id = self.build_ctx.frame_lists.items[child_frames.id + child_idx];
-                    const child_frame_ = self.build_ctx.getFrame(child_id);
-                    if (child_frame_.vtable == FragmentVTable) {
-                        return error.NestedFragment;
+            if (child_frame.vtable == FragmentVTable) {
+                if (child_frame.fragment_children.isPresent()) {
+                    // Fragment frame.
+                    var cur_child = child_frame.fragment_children.get().head;
+                    // Iterate using a counter since the frame list buffer is dynamic.
+                    var child_idx: u32 = 0;
+                    while (cur_child) |frame_node| {
+                        const child_id = frame_node.data;
+                        const child_frame_ = child_id.get();
+                        if (child_frame_.vtable == FragmentVTable) {
+                            return error.NestedFragment;
+                        }
+                        const child_node = try self.createAndInitNode(new_node, child_id, child_idx);
+                        new_node.children.append(child_node) catch unreachable;
+                        child_idx += 1;
+                        cur_child = frame_node.next;
                     }
-                    const child_node = try self.createAndInitNode(new_node, child_id, child_idx);
-                    new_node.children.append(child_node) catch unreachable;
                 }
             } else {
                 // Single child frame.
-                const child_node = try self.createAndInitNode(new_node, child_frame_id, 0);
+                const child_node = try self.createAndInitNode(new_node, child_frame_ptr, 0);
                 new_node.children.append(child_node) catch unreachable;
             }
         }
@@ -1139,6 +1450,12 @@ pub const Module = struct {
         self.init_ctx.prepareForNode(new_node);
         widget_vtable.postInit(new_widget, &self.init_ctx);
         return new_node;
+    }
+
+    pub fn dumpTrace(self: Module) void {
+        for (self.trace.items) |trace| {
+            log.debug("{s} {}", .{trace.node.vtable.name, trace.trace_t});
+        }
     }
 
     pub fn dumpTreeById(self: Module, comptime lit: @Type(.EnumLiteral)) void {
@@ -1154,12 +1471,31 @@ pub const Module = struct {
     }
 
     fn dumpTreeR(self: Module, depth: u32, node: *ui.Node) void {
-        log.debug("{[0]s: <[1]}{[2]s}", .{ "", depth * 2, node.vtable.name });
-        log.debug("{[0]s: <[1]}{[2]}", .{ "", (depth + 1) * 2, node.getAbsBounds()});
+        const S = struct{
+            pub var buf: [256]u8 = undefined;
+        };
+        if (node.vtable == GenWidgetVTable(u.TextT)) {
+            const text = node.getWidget(u.TextT);
+            const buf = std.fmt.bufPrint(&S.buf, "{[0]s: <[1]}{[2]s} \"{[3]s}\"", .{ "", depth * 2, node.vtable.name, text.props.text.slice() }) catch fatal();
+            log.debug("{s}", .{buf});
+        } else {
+            const buf = std.fmt.bufPrint(&S.buf, "{[0]s: <[1]}{[2]s}", .{ "", depth * 2, node.vtable.name }) catch fatal();
+            log.debug("{s}", .{buf});
+        }
+        const buf = std.fmt.bufPrint(&S.buf, "{[0]s: <[1]}{[2]}", .{ "", (depth + 1) * 2, node.getAbsBounds()}) catch fatal();
+        log.debug("{s}", .{buf});
         for (node.children.items) |child| {
             self.dumpTreeR(depth + 1, child);
         }
     }
+};
+
+pub const UpdateContext = struct {
+    common: *CommonContext,
+    node: *ui.Node,
+
+    pub usingnamespace MixinContextFrameOps(UpdateContext);
+    pub usingnamespace MixinContextStyleOps(UpdateContext);
 };
 
 pub const RenderContext = struct {
@@ -1181,8 +1517,8 @@ pub const RenderContext = struct {
         };
     }
 
-    pub inline fn drawBBox(self: *RenderContext, bounds: stdx.math.BBox) void {
-        self.gctx.drawRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
+    pub inline fn strokeBBoxInward(self: *RenderContext, bounds: stdx.math.BBox) void {
+        self.gctx.strokeRectBoundsInward(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
     }
 
     pub inline fn fillBBox(self: *RenderContext, bounds: stdx.math.BBox) void {
@@ -1193,8 +1529,8 @@ pub const RenderContext = struct {
         self.gctx.fillRoundRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y, radius);
     }
 
-    pub inline fn drawRoundBBox(self: *RenderContext, bounds: stdx.math.BBox, radius: f32) void {
-        self.gctx.drawRoundRectBounds(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y, radius);
+    pub inline fn strokeRoundBBoxInward(self: *RenderContext, bounds: stdx.math.BBox, radius: f32) void {
+        self.gctx.strokeRoundRectBoundsInward(bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y, radius);
     }
 
     pub inline fn clipBBox(self: *RenderContext, bounds: stdx.math.BBox) void {
@@ -1226,8 +1562,29 @@ pub const RenderContext = struct {
 
     pub usingnamespace MixinContextNodeReadOps(RenderContext);
     pub usingnamespace MixinContextSharedOps(RenderContext);
+    pub usingnamespace MixinContextStyleOps(RenderContext);
+    pub usingnamespace MixinContextFontOps(RenderContext);
     // pub usingnamespace MixinContextReadOps(RenderContext);
 };
+
+fn WidgetStyleMods(comptime Widget: type) type {
+    return switch (Widget) {
+        ui.widgets.ButtonT => ui.widgets.ButtonMods,
+        else => void,
+    };
+}
+
+pub fn WidgetComputedStyle(comptime Widget: type) type {
+    if (@hasDecl(Widget, "ComputedStyle")) {
+        return Widget.ComputedStyle;
+    } else return void;
+}
+
+pub inline fn WidgetUserStyle(comptime Widget: type) type {
+    if (@hasDecl(Widget, "Style")) {
+        return Widget.Style;
+    } else return void;
+}
 
 /// Requires Context.common.
 pub fn MixinContextEventOps(comptime Context: type) type {
@@ -1255,6 +1612,90 @@ pub fn MixinContextEventOps(comptime Context: type) type {
     };
 }
 
+pub fn MixinContextStyleOps(comptime Context: type) type {
+    return struct {
+        pub inline fn getStyle(self: *Context, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+            return self.common.getNodeStyle(Widget, self.node);
+        }
+
+        pub inline fn getDefaultStyle(self: *Context, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+            return self.common.common.getCurrentStyleDefault(Widget);
+        }
+
+        pub inline fn overrideUserStyle(self: *Context, comptime Widget: type, userStyle: *WidgetUserStyle(Widget), mbOverride: ?WidgetUserStyle(Widget)) void {
+            _ = self;
+            if (mbOverride) |override| {
+                const Style = WidgetUserStyle(Widget);
+                inline for (comptime std.meta.fieldNames(Style)) |name| {
+                    if (@field(override, name)) |value| {
+                        @field(userStyle, name) = value;
+                    }
+                }
+            }
+        }
+
+        pub inline fn getStylePropPtr(self: *BuildContext, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {
+            return self.common.common.getStylePropPtr(style, prop);
+        }
+    };
+}
+
+pub fn MixinContextFrameOps(comptime Context: type) type {
+    return struct {
+        pub fn handleFrameUpdate(self: Context, old: ui.FramePtr, new: ui.FramePtr) void {
+            if (old.id != new.id) {
+                if (old.isPresent()) {
+                    old.destroy();
+                }
+                if (new.isPresent()) {
+                    self.retainFrame(new);
+                }
+            }
+        }
+
+        pub fn handleFrameListUpdate(self: Context, old: ui.FrameListPtr, new: ui.FrameListPtr) void {
+            _ = self;
+            if (old.id != new.id) {
+                if (old.isPresent()) {
+                    old.destroy();
+                }
+                if (new.isPresent()) {
+                    _ = new.dupe();
+                }
+            }
+        }
+
+        pub fn handleSlicePtrUpdate(self: Context, comptime T: type, old: ui.SlicePtr(T), new: ui.SlicePtr(T)) void {
+            _ = self;
+            if (old.ptr_t != new.ptr_t) {
+                if (old.ptr_t == .static and new.ptr_t == .rc) {
+                    _ = new.dupeRef();
+                } else if (old.ptr_t == .rc and new.ptr_t == .static) {
+                    old.destroy();
+                }
+                return;
+            }
+            if (old.ptr_t == .rc and old.inner.rc.refId != new.inner.rc.refId) {
+                old.destroy();
+                _ = new.dupeRef();
+            }
+        }
+
+        pub fn releaseFrame(self: Context, ptr: ui.FramePtr) void {
+            _ = self;
+            if (ptr.isPresent()) {
+                ptr.destroy();
+            }
+        }
+            
+        pub fn retainFrame(self: Context, ptr: ui.FramePtr) void {
+            if (ptr.isPresent()) {
+                return self.common.common.mod.build_ctx.frames.incRef(ptr.id);
+            }
+        }
+    };
+}
+
 /// Requires Context.common.
 pub fn MixinContextSharedOps(comptime Context: type) type {
     return struct {
@@ -1270,9 +1711,9 @@ pub fn MixinContextSharedOps(comptime Context: type) type {
             return self.common.common.mod.getUserRoot(Widget);
         }
 
-        pub inline fn getRootLayoutSize(self: Context) LayoutSize {
+        pub inline fn getRootLayoutSize(self: Context) ui.LayoutSize {
             const layout = self.common.common.mod.root_node.?.layout;
-            return LayoutSize.init(layout.width, layout.height);
+            return ui.LayoutSize.init(layout.width, layout.height);
         }
     };
 }
@@ -1301,8 +1742,8 @@ pub fn MixinContextFontOps(comptime Context: type) type {
             return self.common.textGlyphIter(font_gid, font_size, str);
         }
 
-        pub inline fn textLayout(self: *Context, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, buf: *graphics.TextLayout) void {
-            return self.common.textLayout(font_gid, font_size, str, max_width, buf);
+        pub inline fn textLayout(self: *Context, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, spanStartX: f32, buf: *graphics.TextLayout) void {
+            return self.common.textLayout(font_gid, font_size, str, max_width, spanStartX, buf);
         }
 
         pub inline fn getFontGroupBySingleFontName(self: Context, name: []const u8) graphics.FontGroupId {
@@ -1335,8 +1776,8 @@ pub fn MixinContextFontOps(comptime Context: type) type {
     };
 }
 
-const BlurHandler = fn (node: *ui.Node, ctx: *CommonContext) void;
-const PasteHandler = fn (node: *ui.Node, ctx: *CommonContext, str: []const u8) void;
+const BlurHandler = *const fn (node: *ui.Node, ctx: *CommonContext) void;
+const PasteHandler = *const fn (node: *ui.Node, ctx: *CommonContext, str: []const u8) void;
 
 /// Ops that need an attached node.
 /// Requires Context.node and Context.common.
@@ -1374,8 +1815,8 @@ pub fn MixinContextNodeOps(comptime Context: type) type {
             self.common.setMouseDownHandler(self.node, ctx, cb);
         }
 
-        pub inline fn addMouseScrollHandler(self: Context, ctx: anytype, cb: events.MouseScrollHandler(@TypeOf(ctx))) void {
-            self.common.addMouseScrollHandler(self.node, ctx, cb);
+        pub inline fn setMouseWheelHandler(self: Context, ctx: anytype, cb: events.MouseWheelHandler(@TypeOf(ctx))) void {
+            self.common.setMouseWheelHandler(self.node, ctx, cb);
         }
 
         pub inline fn setKeyDownHandler(self: *Context, ctx: anytype, cb: events.KeyDownHandler(@TypeOf(ctx))) void {
@@ -1433,141 +1874,6 @@ pub fn MixinContextInputOps(comptime Context: type) type {
     };
 }
 
-/// Contains the min/max space for a child widget to occupy.
-/// When min_width == max_width or min_height == max_height, the parent is forcing a tight size on the child.
-pub const SizeConstraints = struct {
-    min_width: f32,
-    min_height: f32,
-    max_width: f32,
-    max_height: f32,
-
-    pub inline fn getMaxLayoutSize(self: SizeConstraints) ui.LayoutSize {
-        return ui.LayoutSize.init(self.max_width, self.max_height);
-    }
-
-    pub inline fn getMinLayoutSize(self: SizeConstraints) ui.LayoutSize {
-        return ui.LayoutSize.init(self.min_width, self.min_height);
-    }
-};
-
-pub const LayoutContext = struct {
-    mod: *Module,
-    common: *CommonContext,
-    gctx: *graphics.Graphics,
-
-    /// Size constraints are set by the parent, and consumed by child widget's `layout`.
-    cstr: SizeConstraints,
-    node: *ui.Node,
-
-    fn init(mod: *Module, gctx: *graphics.Graphics) LayoutContext {
-        return .{
-            .mod = mod,
-            .common = &mod.common.ctx,
-            .gctx = gctx,
-            .cstr = undefined,
-            .node = undefined,
-        };
-    }
-
-    pub inline fn getSizeConstraints(self: LayoutContext) SizeConstraints {
-        return self.cstr;
-    }
-
-    /// Computes the layout for a node with a maximum size.
-    pub fn computeLayoutWithMax(self: *LayoutContext, node: *ui.Node, max_width: f32, max_height: f32) LayoutSize {
-        // Creates another context on the stack so the caller can continue to use their context.
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = .{
-                .min_width = 0,
-                .min_height = 0,
-                .max_width = max_width,
-                .max_height = max_height,
-            },
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    /// Computes the layout for a node that prefers an exact size.
-    pub fn computeLayoutExact(self: *LayoutContext, node: *ui.Node, width: f32, height: f32) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = .{
-                .min_width = width,
-                .min_height = height,
-                .max_width = width,
-                .max_height = height,
-            },
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    /// Computes the layout for a node with given size constraints.
-    pub fn computeLayout(self: *LayoutContext, node: *ui.Node, min_width: f32, min_height: f32, max_width: f32, max_height: f32) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common  = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = .{
-                .min_width = min_width,
-                .min_height = min_height,
-                .max_width = max_width,
-                .max_height = max_height,
-            },
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    /// Computes the layout for a node with given size constraints.
-    pub fn computeLayout2(self: *LayoutContext, node: *ui.Node, cstr: SizeConstraints) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common  = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = cstr,
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    pub fn computeLayoutInherit(self: *LayoutContext, node: *ui.Node) LayoutSize {
-        var child_ctx = LayoutContext{
-            .mod = self.mod,
-            .common  = &self.mod.common.ctx,
-            .gctx = self.gctx,
-            .cstr = self.cstr,
-            .node = node,
-        };
-        return node.vtable.layout(node.widget, &child_ctx);
-    }
-
-    pub fn setLayout(self: *LayoutContext, node: *ui.Node, layout: Layout) void {
-        _ = self;
-        node.layout = layout;
-    }
-
-    pub fn setLayoutPos(self: *LayoutContext, node: *ui.Node, x: f32, y: f32) void {
-        _ = self;
-        node.layout.x = x;
-        node.layout.y = y;
-    }
-
-    pub inline fn getLayout(self: *LayoutContext, node: *ui.Node) Layout {
-        _ = self;
-        return node.layout;
-    }
-
-    pub usingnamespace MixinContextNodeOps(LayoutContext);
-    pub usingnamespace MixinContextFontOps(LayoutContext);
-};
-
 const RequestFocusOptions = struct {
     onBlur: ?BlurHandler = null,
     onPaste: ?PasteHandler = null,
@@ -1577,6 +1883,19 @@ const RequestFocusOptions = struct {
 pub const CommonContext = struct {
     common: *ModuleCommon,
     alloc: std.mem.Allocator,
+
+    pub inline fn getNodeStyle(self: CommonContext, comptime Widget: type, node: *ui.Node) *const WidgetComputedStyle(Widget) {
+        const Style = WidgetComputedStyle(Widget);
+
+        if (GenWidgetVTable(Widget) != node.vtable) {
+            stdx.panic("Type assertion failed.");
+        }
+        if (!node.hasState(ui.NodeStateMasks.computed_style)) {
+            return self.common.getCurrentStyleDefault(Widget);
+        } else {
+            return stdx.ptrCastAlign(*Style, self.common.node_computed_styles.get(node).?);
+        }
+    }
 
     pub inline fn getFontVMetrics(self: CommonContext, font_gid: graphics.FontGroupId, font_size: f32) graphics.VMetrics {
         return self.common.g.getFontVMetrics(font_gid, font_size);
@@ -1608,8 +1927,8 @@ pub const CommonContext = struct {
         return self.common.g.textGlyphIter(font_gid, font_size, str);
     }
 
-    pub inline fn textLayout(self: *CommonContext, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, buf: *graphics.TextLayout) void {
-        self.common.g.textLayout(font_gid, font_size, str, max_width, buf);
+    pub inline fn textLayout(self: *CommonContext, font_gid: graphics.FontGroupId, font_size: f32, str: []const u8, max_width: f32, spanStartX: f32, buf: *graphics.TextLayout) void {
+        self.common.g.textLayout(font_gid, font_size, str, max_width, spanStartX, buf);
     }
 
     pub inline fn getFontGroupForSingleFont(self: CommonContext, font_id: graphics.FontId) graphics.FontGroupId {
@@ -1834,36 +2153,32 @@ pub const CommonContext = struct {
         }
     }
 
-    pub fn addMouseScrollHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseScrollHandler(@TypeOf(ctx))) void {
-        const closure = Closure(@TypeOf(ctx), fn (ui.MouseScrollEvent) void).init(self.alloc, ctx, cb).iface();
-        const sub = Subscriber(platform.MouseScrollEvent){
+    pub fn setMouseWheelHandler(self: CommonContext, node: *ui.Node, ctx: anytype, cb: events.MouseWheelHandler(@TypeOf(ctx))) void {
+        const closure = Closure(@TypeOf(ctx), fn (ui.MouseWheelEvent) ui.EventResult).init(self.alloc, ctx, cb).iface();
+        const sub = SubscriberRet(platform.MouseScrollEvent, ui.EventResult){
             .closure = closure,
             .node = node,
         };
-        if (self.common.mouse_scroll_event_subs.getLast(node.mouse_scroll_list)) |last_id| {
-            _ = self.common.mouse_scroll_event_subs.insertAfter(last_id, sub) catch unreachable;
+        const res = self.common.node_mousewheel_map.getOrPut(self.alloc, node) catch fatal();
+        if (res.found_existing) {
+            res.value_ptr.deinit(self.alloc);
+            res.value_ptr.* = sub;
         } else {
-            node.mouse_scroll_list = self.common.mouse_scroll_event_subs.add(sub) catch unreachable;
+            res.value_ptr.* = sub;
+            node.setHandlerMask(ui.EventHandlerMasks.mousewheel);
         }
     }
 
-    pub fn removeMouseScrollHandler(self: *CommonContext, node: *ui.Node, comptime Context: type, func: events.MouseScrollHandler(Context)) void {
-        var cur = node.mouse_scroll_list;
-        var prev = NullId;
-        while (cur != NullId) {
-            const sub = self.common.mouse_scroll_event_subs.getNoCheck(cur);
-            if (sub.closure.user_fn == @ptrCast(*const anyopaque, func)) {
-                sub.deinit(self.alloc);
-                if (prev == NullId) {
-                    node.mouse_scroll_list = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
-                    self.common.mouse_scroll_event_subs.removeAssumeNoPrev(cur) catch unreachable;
-                } else {
-                    self.common.mouse_scroll_event_subs.removeAfter(prev) catch unreachable;
-                }
-                // Continue scanning for duplicates.
+    pub fn clearMouseWheelHandler(self: *CommonContext, node: *ui.Node) void {
+        if (self.common.node_mousewheel_map.getPtr(node)) |sub| {
+            if (!sub.to_remove) {
+                sub.to_remove = true;
+                node.clearHandlerMask(ui.EventHandlerMasks.mousewheel);
+                self.common.to_remove_handlers.append(self.alloc, .{
+                    .event_t = .mousewheel,
+                    .node = node,
+                }) catch fatal();
             }
-            prev = cur;
-            cur = self.common.mouse_scroll_event_subs.getNextNoCheck(cur);
         }
     }
 
@@ -1982,19 +2297,23 @@ pub const CommonContext = struct {
     }
 };
 
+const UserStyleHandle = struct {
+    ptr: union {
+        owned: *anyopaque,
+        not_owned: *const anyopaque,
+    },
+    owned: bool,
+};
+
 // TODO: Refactor similar ops to their own struct. 
 pub const ModuleCommon = struct {
     alloc: std.mem.Allocator,
     mod: *Module,
 
-    /// Arena allocators that get freed after two update cycles.
-    /// Allocations should survive two update cycles so that nodes that have been discarded from tree diff still have valid props memory.
-    /// Two are needed to alternate on each engine update.
-    arena_allocators: [2]std.heap.ArenaAllocator,
-    arena_allocs: [2]std.mem.Allocator,
-    use_first_arena: bool,
-    /// The current arena allocator.
-    arena_alloc: std.mem.Allocator,
+    textRunSegmentsBuf: std.ArrayListUnmanaged(graphics.TextRunSegment),
+    build_owned_frames: std.ArrayListUnmanaged(ui.FramePtr),
+
+    slice_rcs: stdx.ds.PooledHandleList(u32, u32),
 
     g: *graphics.Graphics,
     text_measures: stdx.ds.PooledHandleList(TextMeasureId, TextMeasure),
@@ -2006,7 +2325,6 @@ pub const ModuleCommon = struct {
 
     /// Mouse handlers.
     global_mouse_up_list: std.ArrayListUnmanaged(*ui.Node),
-    mouse_scroll_event_subs: stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)),
     node_global_mousemove_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseMoveEvent)),
     /// Mouse move events fire far more frequently so iteration should be fast.
     global_mouse_move_list: std.ArrayListUnmanaged(*ui.Node),
@@ -2015,6 +2333,7 @@ pub const ModuleCommon = struct {
     node_enter_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mousedown_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseDownEvent, ui.EventResult)),
     node_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
+    node_mousewheel_map: std.AutoHashMapUnmanaged(*ui.Node, SubscriberRet(platform.MouseScrollEvent, ui.EventResult)),
     node_global_mouseup_map: std.AutoHashMapUnmanaged(*ui.Node, Subscriber(platform.MouseUpEvent)),
 
     /// Hover change event is more reliable than MouseEnter and MouseExit.
@@ -2031,6 +2350,32 @@ pub const ModuleCommon = struct {
     last_focused_widget: ?*ui.Node,
     hit_last_focused: bool,
     widget_hit_flag: bool,
+
+    /// Maps node to custom style. The style type is erased and is determined by the Widget type.
+    /// TODO: Currently styles are allocated on the heap, it might be better to have an arraylist per Style type and store indexes instead.
+    node_user_styles: std.AutoHashMapUnmanaged(*ui.Node, UserStyleHandle),
+
+    /// Nodes that have dynamic styles either because of per widget user styles or the widget has style modifiers,
+    /// cache their computed styles in this map.
+    /// When all style modifiers are false and there are no user style overrides,
+    /// the computed style will be removed and the current theme style will be returned instead.
+    /// TODO: Also reduce capacity if map is reduced by some threshold of current cap.
+    node_computed_styles: std.AutoHashMapUnmanaged(*ui.Node, *anyopaque),
+
+    /// Style defaults.
+    default_button_style: u.ButtonT.ComputedStyle,
+    default_update_button_style: *const fn (*u.ButtonT.ComputedStyle, u.ButtonMods) void,
+    default_text_button_style: u.TextButtonT.ComputedStyle,
+    default_icon_button_style: u.IconButtonT.ComputedStyle,
+    default_text_style: u.TextT.ComputedStyle,
+    defTextLinkStyle: u.TextLinkT.ComputedStyle,
+    default_text_area_style: u.TextAreaT.ComputedStyle,
+    defTextEditorStyle: u.TextEditorT.ComputedStyle,
+    default_window_style: u.WindowT.ComputedStyle,
+    default_scroll_view_style: u.ScrollViewT.ComputedStyle,
+    default_tab_view_style: u.TabViewT.ComputedStyle,
+    default_border_style: u.BorderT.ComputedStyle,
+    defPopoverOverlayStyle: u.PopoverOverlayT.ComputedStyle,
 
     /// It's useful to have latest mouse position.
     cur_mouse_x: i16,
@@ -2054,7 +2399,7 @@ pub const ModuleCommon = struct {
 
     to_remove_nodes: std.ArrayListUnmanaged(*ui.Node),
 
-    context_provider: fn (key: u32) ?*anyopaque,
+    context_provider: *const fn (key: u32) ?*anyopaque,
 
     fn init(self: *ModuleCommon, alloc: std.mem.Allocator, mod: *Module, g: *graphics.Graphics) void {
         const S = struct {
@@ -2066,10 +2411,9 @@ pub const ModuleCommon = struct {
         self.* = .{
             .alloc = alloc,
             .mod = mod,
-            .arena_allocators = .{ std.heap.ArenaAllocator.init(alloc), std.heap.ArenaAllocator.init(alloc) },
-            .arena_allocs = undefined,
-            .use_first_arena = true,
-            .arena_alloc = undefined,
+            .build_owned_frames = .{},
+            .slice_rcs = stdx.ds.PooledHandleList(u32, u32).init(alloc),
+            .textRunSegmentsBuf = .{},
 
             .g = g,
             .text_measures = stdx.ds.PooledHandleList(TextMeasureId, TextMeasure).init(alloc),
@@ -2082,11 +2426,11 @@ pub const ModuleCommon = struct {
             .node_enter_mousedown_map = .{},
             .node_mousedown_map = .{},
             .node_mouseup_map = .{},
+            .node_mousewheel_map = .{},
             .node_global_mouseup_map = .{},
             .node_global_mousemove_map = .{},
             .global_mouse_up_list = .{},
             .global_mouse_move_list = .{},
-            .mouse_scroll_event_subs = stdx.ds.PooledHandleSLLBuffer(u32, Subscriber(platform.MouseScrollEvent)).init(alloc),
             .has_mouse_move_subs = false,
             .node_hoverchange_map = .{},
             .hovered_nodes = .{},
@@ -2103,6 +2447,22 @@ pub const ModuleCommon = struct {
             .cur_mouse_x = 0,
             .cur_mouse_y = 0,
 
+            .node_user_styles = .{},
+            .node_computed_styles = .{},
+            .default_button_style = .{},
+            .default_update_button_style = u.ButtonT.ComputedStyle.defaultUpdate,
+            .default_text_button_style = .{},
+            .default_icon_button_style = .{},
+            .default_text_style = .{},
+            .defTextLinkStyle = .{},
+            .default_window_style = .{},
+            .default_text_area_style = .{},
+            .defTextEditorStyle = .{},
+            .default_scroll_view_style = .{},
+            .default_tab_view_style = .{},
+            .default_border_style = .{},
+            .defPopoverOverlayStyle = .{},
+
             .ctx = .{
                 .common = self,
                 .alloc = alloc, 
@@ -2112,12 +2472,11 @@ pub const ModuleCommon = struct {
             .to_remove_handlers = .{},
             .to_remove_nodes = .{},
         };
-        self.arena_allocs[0] = self.arena_allocators[0].allocator();
-        self.arena_allocs[1] = self.arena_allocators[1].allocator();
-        self.arena_alloc = self.arena_allocs[0];
     }
 
     fn deinit(self: *ModuleCommon) void {
+        // Assumes all nodes have called destroyNode.
+
         self.id_map.deinit();
         self.text_measures.deinit();
 
@@ -2132,16 +2491,17 @@ pub const ModuleCommon = struct {
             self.interval_sessions.deinit();
         }
 
-        {
-            var iter = self.mouse_scroll_event_subs.iterator();
-            while (iter.next()) |it| {
-                it.data.deinit(self.alloc);
-            }
-            self.mouse_scroll_event_subs.deinit();
-        }
-
         self.removeHandlers();
         self.removeNodes();
+
+        if (self.node_user_styles.size > 0) {
+            stdx.panic("Unexpected num node user styles > 0");
+        }
+        self.node_user_styles.deinit(self.alloc);
+        if (self.node_computed_styles.size > 0) {
+            stdx.panicFmt("Unexpected num node computed styles {} > 0", .{self.node_computed_styles.size});
+        }
+        self.node_computed_styles.deinit(self.alloc);
 
         self.to_remove_handlers.deinit(self.alloc);
         self.to_remove_nodes.deinit(self.alloc);
@@ -2158,13 +2518,105 @@ pub const ModuleCommon = struct {
         self.node_mouseup_map.deinit(self.alloc);
         self.node_enter_mousedown_map.deinit(self.alloc);
         self.node_mousedown_map.deinit(self.alloc);
+        self.node_mousewheel_map.deinit(self.alloc);
 
-        self.arena_allocators[0].deinit();
-        self.arena_allocators[1].deinit();
+        self.build_owned_frames.deinit(self.alloc);
+
+        if (builtin.mode == .Debug) {
+            if (self.slice_rcs.size() > 0) {
+                log.debug("{} remaining slices.", .{self.slice_rcs.size()});
+                stdx.panic("");
+            }
+        }
+        self.slice_rcs.deinit();
+
+        self.textRunSegmentsBuf.deinit(self.alloc);
+    }
+
+    pub fn initRcSlice(self: *ModuleCommon, comptime T: type, slice: []const T) !ui.SlicePtr(T) {
+        const id = try self.slice_rcs.add(1);
+        return ui.SlicePtr(T){
+            .ptr_t = .rc,
+            .inner = .{
+                .rc = .{
+                    .slice = slice,
+                    .refId = id,
+                },
+            },
+        };
+    }
+
+    pub fn dupeRcSlice(self: *ModuleCommon, comptime T: type, slice: []const T) !ui.SlicePtr(T) {
+        const id = try self.slice_rcs.add(1);
+        const dupe = try self.alloc.dupe(T, slice);
+        return ui.SlicePtr(T){
+            .ptr_t = .rc,
+            .inner = .{
+                .rc = .{
+                    .slice = dupe,
+                    .refId = id,
+                },
+            },
+        };
+    }
+
+    pub fn releaseRcSlice(self: *ModuleCommon, comptime T: type, ptr: ui.SlicePtr(T)) void {
+        const count = self.slice_rcs.getPtrNoCheck(ptr.inner.rc.refId);
+        if (count.* == 1) {
+            self.alloc.free(ptr.inner.rc.slice);
+            self.slice_rcs.remove(ptr.inner.rc.refId);
+        }
+        count.* -= 1;
+    }
+
+    pub fn retainRcSlice(self: *ModuleCommon, id: u32) void {
+        const count = self.slice_rcs.getPtrNoCheck(id);
+        count.* += 1;
+    }
+
+    pub inline fn getStylePropPtr(self: *ModuleCommon, style: anytype, comptime prop: []const u8) ?*const stdx.meta.ChildOrStruct(@TypeOf(@field(style, prop))) {
+        _ = self;
+        const Prop = @TypeOf(@field(style, prop));
+        if (@typeInfo(Prop) == .Optional) {
+            return if (@field(style, prop) != null) &@field(style, prop).? else null;
+        } else {
+            return &@field(style, prop);
+        }
+    }
+
+    inline fn getCurrentStyleDefault(self: *ModuleCommon, comptime Widget: type) *const WidgetComputedStyle(Widget) {
+        const Style = WidgetComputedStyle(Widget);
+        return switch (Style) {
+            u.ButtonT.ComputedStyle => &self.default_button_style,
+            u.TextButtonT.ComputedStyle => &self.default_text_button_style,
+            u.TextT.ComputedStyle => &self.default_text_style,
+            u.TextLinkT.ComputedStyle => &self.defTextLinkStyle,
+            u.WindowT.ComputedStyle => &self.default_window_style,
+            u.TextAreaT.ComputedStyle => &self.default_text_area_style,
+            u.TextEditorT.ComputedStyle => &self.defTextEditorStyle,
+            u.IconButtonT.ComputedStyle => &self.default_icon_button_style,
+            u.ScrollViewT.ComputedStyle => &self.default_scroll_view_style,
+            u.TabViewT.ComputedStyle => &self.default_tab_view_style,
+            u.BorderT.ComputedStyle => &self.default_border_style,
+            u.PopoverOverlayT.ComputedStyle => &self.defPopoverOverlayStyle,
+            else => @compileError("Unsupported style: " ++ @typeName(Widget)),
+        };
+    }
+
+    fn CurrentStyleUpdateFunc(comptime Widget: type) type {
+        return *const fn (*WidgetComputedStyle(Widget), WidgetStyleMods(Widget)) void;
+    }
+
+    fn getCurrentStyleUpdateFuncDefault(self: *ModuleCommon, comptime Widget: type) CurrentStyleUpdateFunc(Widget) {
+        const Style = WidgetComputedStyle(Widget);
+        return switch (Style) {
+            u.ButtonT.ComputedStyle => self.default_update_button_style,
+            else => @compileError("Unsupported style: " ++ @typeName(Widget)),
+        };
     }
 
     fn cancelRemoveHandler(self: *ModuleCommon, event_t: EventType, node: *ui.Node) void {
-        for (self.to_remove_handlers.items) |ref, i| {
+        for (self.to_remove_handlers.items, 0..) |ref, i| {
             if (ref.node == node and ref.event_t == event_t) {
                 _ = self.to_remove_handlers.swapRemove(i);
                 break;
@@ -2181,7 +2633,7 @@ pub const ModuleCommon = struct {
                     const sub = self.node_hoverchange_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_hoverchange_map.remove(ref.node);
-                    for (self.hovered_nodes.items) |node, i| {
+                    for (self.hovered_nodes.items, 0..) |node, i| {
                         if (node == ref.node) {
                             _ = self.hovered_nodes.orderedRemove(i);
                             break;
@@ -2213,11 +2665,16 @@ pub const ModuleCommon = struct {
                     sub.deinit(self.alloc);
                     _ = self.node_mouseup_map.remove(ref.node);
                 },
+                .mousewheel => {
+                    const sub = self.node_mousewheel_map.get(ref.node).?;
+                    sub.deinit(self.alloc);
+                    _ = self.node_mousewheel_map.remove(ref.node);
+                },
                 .global_mouseup => {
                     const sub = self.node_global_mouseup_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_global_mouseup_map.remove(ref.node);
-                    for (self.global_mouse_up_list.items) |node, i| {
+                    for (self.global_mouse_up_list.items, 0..) |node, i| {
                         if (node == ref.node) {
                             _ = self.global_mouse_up_list.orderedRemove(i);
                             break;
@@ -2228,7 +2685,7 @@ pub const ModuleCommon = struct {
                     const sub = self.node_global_mousemove_map.get(ref.node).?;
                     sub.deinit(self.alloc);
                     _ = self.node_global_mousemove_map.remove(ref.node);
-                    for (self.global_mouse_move_list.items) |node, i| {
+                    for (self.global_mouse_move_list.items, 0..) |node, i| {
                         if (node == ref.node) {
                             _ = self.global_mouse_move_list.orderedRemove(i);
                             break;
@@ -2295,6 +2752,22 @@ pub const ModuleContext = struct {
     }
 };
 
+pub const DeinitContext = struct {
+    mod: *Module,
+    alloc: std.mem.Allocator,
+    common: *CommonContext,
+
+    fn init(mod: *Module) DeinitContext {
+        return .{
+            .mod = mod,
+            .alloc = mod.alloc,
+            .common = &mod.common.ctx,
+        };
+    }
+
+    pub usingnamespace MixinContextFrameOps(DeinitContext);
+};
+
 pub const InitContext = struct {
     mod: *Module,
     alloc: std.mem.Allocator,
@@ -2347,6 +2820,8 @@ pub const InitContext = struct {
     pub usingnamespace MixinContextNodeOps(InitContext);
     pub usingnamespace MixinContextFontOps(InitContext);
     pub usingnamespace MixinContextSharedOps(InitContext);
+    pub usingnamespace MixinContextFrameOps(InitContext);
+    pub usingnamespace MixinContextStyleOps(InitContext);
 };
 
 fn SubscriberRet(comptime T: type, comptime Return: type) type {
@@ -2440,9 +2915,9 @@ const TestModule = struct {
     size: ui.LayoutSize,
 
     pub fn init(self: *TestModule) void {
-        self.g.init(t.alloc, 1, undefined) catch fatal();
+        self.g.init(t.alloc, 1, undefined, undefined) catch fatal();
         self.mod.init(t.alloc, &self.g);
-        self.size = LayoutSize.init(800, 600);
+        self.size = ui.LayoutSize.init(800, 600);
     }
 
     pub fn deinit(self: *TestModule) void {
@@ -2450,7 +2925,7 @@ const TestModule = struct {
         self.g.deinit();
     }
 
-    pub fn preUpdate(self: *TestModule, ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(ctx), *BuildContext) ui.FrameId) !void {
+    pub fn preUpdate(self: *TestModule, ctx: anytype, comptime bootstrap_fn: fn (@TypeOf(ctx), *BuildContext) ui.FramePtr) !void {
         try self.mod.preUpdate(0, ctx, bootstrap_fn, self.size);
     }
 
@@ -2465,17 +2940,17 @@ const TestModule = struct {
 
 test "Node removal also removes the children." {
     const A = struct {
-        props: struct {
-            child: ui.FrameId,
+        props: *const struct {
+            child: ui.FramePtr,
         },
-        fn build(self: *@This(), _: *BuildContext) ui.FrameId {
-            return self.props.child;
+        fn build(self: *@This(), _: *BuildContext) ui.FramePtr {
+            return self.props.child.dupe();
         }
     };
     const B = struct {};
     const S = struct {
-        fn bootstrap(delete: bool, c: *BuildContext) ui.FrameId {
-            var child: ui.FrameId = NullFrameId;
+        fn bootstrap(delete: bool, c: *BuildContext) ui.FramePtr {
+            var child: ui.FramePtr = .{};
             if (!delete) {
                 child = c.build(A, .{ 
                     .child = c.build(B, .{}),
@@ -2495,6 +2970,7 @@ test "Node removal also removes the children." {
     try mod.preUpdate(false, S.bootstrap);
     const root = mod.getNodeByTag(.root).?;
     try t.eq(root.numChildrenR(), 2);
+
     try mod.preUpdate(true, S.bootstrap);
     try t.eq(root.numChildrenR(), 0);
 }
@@ -2503,8 +2979,8 @@ test "User root should not allow fragment frame." {
     const A = struct {
     };
     const S = struct {
-        fn bootstrap(_: void, c: *BuildContext) ui.FrameId {
-            const list = c.list(.{
+        fn bootstrap(_: void, c: *BuildContext) ui.FramePtr {
+            const list = c.list(&.{
                 c.build(A, .{}),
                 c.build(A, .{}),
             });
@@ -2518,18 +2994,18 @@ test "User root should not allow fragment frame." {
     try t.expectError(mod.preUpdate({}, S.bootstrap), error.UserRootCantBeFragment);
 }
 
-test "BuildContext.list() will skip over a NullFrameId item." {
+test "BuildContext.list() will skip over a null FramePtr item." {
     const B = struct {};
     const A = struct {
-        fn build(_: *@This(), c: *BuildContext) ui.FrameId {
-            return c.fragment(c.list(.{
-                NullFrameId,
+        fn build(_: *@This(), c: *BuildContext) ui.FramePtr {
+            return c.fragment(c.list(&.{
+                .{},
                 c.build(B, .{}),
             }));
         }
     };
     const S = struct {
-        fn bootstrap(_: void, c: *BuildContext) ui.FrameId {
+        fn bootstrap(_: void, c: *BuildContext) ui.FramePtr {
             return c.build(A, .{
                 .id = .root,
             });
@@ -2549,18 +3025,18 @@ test "BuildContext.list() will skip over a NullFrameId item." {
 
 test "Don't allow nested fragment frames." {
     const A = struct {
-        props: struct { child: ui.FrameId },
-        fn build(self: *@This(), _: *BuildContext) ui.FrameId {
-            return self.props.child;
+        props: *const struct { child: ui.FramePtr },
+        fn build(self: *@This(), _: *BuildContext) ui.FramePtr {
+            return self.props.child.dupe();
         }
     };
     const B = struct {};
     const S = struct {
-        fn bootstrap(_: void, c: *ui.BuildContext) ui.FrameId {
-            const nested_list = c.list(.{
+        fn bootstrap(_: void, c: *ui.BuildContext) ui.FramePtr {
+            const nested_list = c.list(&.{
                 c.build(B, .{}),
             });
-            const list = c.list(.{
+            const list = c.list(&.{
                 c.build(B, .{}),
                 c.fragment(nested_list),
             });
@@ -2578,24 +3054,24 @@ test "Don't allow nested fragment frames." {
 
 test "BuildContext.range" {
     const A = struct {
-        props: struct {
+        props: *const struct {
             children: ui.FrameListPtr,
         },
-        fn build(self: *@This(), c: *BuildContext) ui.FrameId {
-            return c.fragment(self.props.children);
+        fn build(self: *@This(), c: *BuildContext) ui.FramePtr {
+            return c.fragment(self.props.children.dupe());
         }
     };
     const B = struct {};
     // Test case where a child widget uses BuildContext.list. Check if this causes problems with BuildContext.range.
     const S = struct {
-        fn bootstrap(_: void, c: *BuildContext) ui.FrameId {
+        fn bootstrap(_: void, c: *BuildContext) ui.FramePtr {
             return c.build(A, .{
                 .id = .root,
                 .children = c.range(1, {}, buildChild),
             });
         }
-        fn buildChild(_: void, c: *BuildContext, _: u32) ui.FrameId {
-            const list = c.list(.{
+        fn buildChild(_: void, c: *BuildContext, _: u32) ui.FramePtr {
+            const list = c.list(&.{
                 c.build(B, .{}),
             });
             return c.build(A, .{ .children = list });
@@ -2619,6 +3095,7 @@ test "Widget instance lifecycle." {
             c.setKeyDownHandler({}, onKeyDown);
             c.setMouseDownHandler({}, onMouseDown);
             c.setEnterMouseDownHandler({}, onEnterMouseDown);
+            c.setMouseWheelHandler({}, onMouseWheel);
             c.setMouseUpHandler({}, onMouseUp);
             c.setGlobalMouseMoveHandler(@as(u32, 1), onMouseMove);
             _ = c.addInterval(Duration.initSecsF(1), {}, onInterval);
@@ -2636,15 +3113,18 @@ test "Widget instance lifecycle." {
         }
         fn onMouseUp(_: void, _: ui.MouseUpEvent) void {}
         fn onMouseMove(_: u32, _: ui.MouseMoveEvent) void {}
+        fn onMouseWheel(_: void, _: ui.MouseWheelEvent) ui.EventResult {
+            return .default;
+        }
     };
     const S = struct {
-        fn bootstrap(build: bool, c: *BuildContext) ui.FrameId {
+        fn bootstrap(build: bool, c: *BuildContext) ui.FramePtr {
             if (build) {
                 return c.build(A, .{
                     .id = .root,
                 });
             } else {
-                return NullFrameId;
+                return .{};
             }
         }
     };
@@ -2663,33 +3143,37 @@ test "Widget instance lifecycle." {
 
     try t.eq(mod.common.node_keyup_map.size, 1);
     const keyup_sub = mod.common.node_keyup_map.get(root.?).?;
-    try t.eq(keyup_sub.closure.user_fn, A.onKeyUp);
+    try t.eq(keyup_sub.closure.userFnPtr, A.onKeyUp);
 
     try t.eq(mod.common.node_keydown_map.size, 1);
     const keydown_sub = mod.common.node_keydown_map.get(root.?).?;
-    try t.eq(keydown_sub.closure.user_fn, A.onKeyDown);
+    try t.eq(keydown_sub.closure.userFnPtr, A.onKeyDown);
 
     try t.eq(mod.common.node_mousedown_map.size, 1);
     const mousedown_sub = mod.common.node_mousedown_map.get(root.?).?;
-    try t.eq(mousedown_sub.closure.user_fn, A.onMouseDown);
+    try t.eq(mousedown_sub.closure.userFnPtr, A.onMouseDown);
 
     try t.eq(mod.common.node_enter_mousedown_map.size, 1);
     const enter_mousedown_sub = mod.common.node_enter_mousedown_map.get(root.?).?;
-    try t.eq(enter_mousedown_sub.closure.user_fn, A.onEnterMouseDown);
+    try t.eq(enter_mousedown_sub.closure.userFnPtr, A.onEnterMouseDown);
 
     try t.eq(mod.common.node_mouseup_map.size, 1);
     const mouseup_sub = mod.common.node_mouseup_map.get(root.?).?;
-    try t.eq(mouseup_sub.closure.user_fn, A.onMouseUp);
+    try t.eq(mouseup_sub.closure.userFnPtr, A.onMouseUp);
 
     try t.eq(mod.common.node_global_mousemove_map.size, 1);
     const mousemove_sub = mod.common.node_global_mousemove_map.get(root.?).?;
-    try t.eq(mousemove_sub.closure.user_fn, A.onMouseMove);
+    try t.eq(mousemove_sub.closure.userFnPtr, A.onMouseMove);
+
+    try t.eq(mod.common.node_mousewheel_map.size, 1);
+    const mousewheel_sub = mod.common.node_mousewheel_map.get(root.?).?;
+    try t.eq(mousewheel_sub.closure.userFnPtr, A.onMouseWheel);
 
     try t.eq(mod.common.interval_sessions.size(), 1);
     var iter = mod.common.interval_sessions.iterator();
     const interval_sub = iter.next().?;
     try t.eq(interval_sub.node, root.?);
-    try t.eq(interval_sub.closure.user_fn, A.onInterval);
+    try t.eq(interval_sub.closure.userFnPtr, A.onInterval);
 
     try tmod.preUpdate(false, S.bootstrap);
     // Run preupdate again to remove marked event handlers.
@@ -2706,6 +3190,7 @@ test "Widget instance lifecycle." {
     try t.eq(mod.common.node_mouseup_map.size, 0);
     try t.eq(mod.common.node_global_mouseup_map.size, 0);
     try t.eq(mod.common.node_global_mousemove_map.size, 0);
+    try t.eq(mod.common.node_mousewheel_map.size, 0);
     try t.eq(mod.common.interval_sessions.size(), 0);
 }
 
@@ -2725,7 +3210,7 @@ test "Module.update creates or updates existing node" {
             };
         }
 
-        fn build(self: *@This(), c: *BuildContext) ui.FrameId {
+        fn build(self: *@This(), c: *BuildContext) ui.FramePtr {
             if (self.flag) {
                 return c.build(Foo, .{});
             } else {
@@ -2737,7 +3222,7 @@ test "Module.update creates or updates existing node" {
     {
         // Different root frame type creates new node.
         const S2 = struct {
-            fn bootstrap(flag: bool, c: *BuildContext) ui.FrameId {
+            fn bootstrap(flag: bool, c: *BuildContext) ui.FramePtr {
                 if (flag) {
                     return c.build(Foo, .{
                         .id = .root,
@@ -2763,7 +3248,7 @@ test "Module.update creates or updates existing node" {
     {
         // Different child frame type creates new node.
         const S2 = struct {
-            fn bootstrap(_: void, c: *BuildContext) ui.FrameId {
+            fn bootstrap(_: void, c: *BuildContext) ui.FramePtr {
                 return c.build(Root, .{
                     .id = .root,
                 });
@@ -2788,23 +3273,23 @@ test "Diff matches child with key." {
     const C = struct {};
     const B = struct {};
     const A = struct {
-        props: struct {
-            children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+        props: *const struct {
+            children: ui.FrameListPtr = .{},
         },
-        fn build(self: *@This(), c: *BuildContext) ui.FrameId {
-            return c.fragment(self.props.children);
+        fn build(self: *@This(), c: *BuildContext) ui.FramePtr {
+            return c.fragment(self.props.children.dupe());
         }
     };
     {
         const S = struct {
-            fn bootstrap(step: bool, c: *BuildContext) ui.FrameId {
-                var b = ui.NullFrameId;
+            fn bootstrap(step: bool, c: *BuildContext) ui.FramePtr {
+                var b = ui.FramePtr{};
                 if (!step) {
                     b = c.build(B, .{});
                 }
                 return c.build(A, .{
                     .id = .root,
-                    .children = c.list(.{
+                    .children = c.list(&.{
                         b,
                         c.build(C, .{ .key = ui.WidgetKeyId(1) }),
                     }),
@@ -2844,27 +3329,27 @@ test "Props memory should still be valid at node destroy time." {
     };
 
     const A = struct {
-        props: struct {
-            str: []const u8,
+        props: *const struct {
+            str: ui.SlicePtr(u8),
             buf: []u8,
         },
 
-        pub fn deinit(self: *@This(), _: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), _: *ui.DeinitContext) void {
             // str should still point to valid memory.
-            std.mem.copy(u8, self.props.buf, self.props.str);
+            std.mem.copy(u8, self.props.buf, self.props.str.slice());
         }
     };
 
     const S = struct {
-        fn bootstrap(opts: Options, c: *BuildContext) ui.FrameId {
+        fn bootstrap(opts: Options, c: *BuildContext) ui.FramePtr {
             if (opts.decl) {
                 return c.build(A, .{
                     .id = .root,
-                    .str = c.fmt("foo", .{}),
+                    .str = c.fmt("foo", .{}) catch fatal(),
                     .buf = opts.buf,
                 });
             } else {
-                return NullFrameId;
+                return .{};
             }
         }
     };
@@ -2879,7 +3364,7 @@ test "Props memory should still be valid at node destroy time." {
     var root = mod.getNodeByTag(.root).?;
     try t.eq(root.vtable, GenWidgetVTable(A));
     const widget = root.getWidget(A);
-    try t.eqStr(widget.props.str, "foo");
+    try t.eqStr(widget.props.str.slice(), "foo");
 
     try mod.preUpdate(Options{ .buf = &buf, .decl = false }, S.bootstrap);
     try t.eqStr(buf[0..3], "foo");
@@ -2903,7 +3388,7 @@ test "Setting and clearing an event handler in the same update cycle results in 
     };
 
     const S = struct {
-        fn bootstrap(_: void, c: *BuildContext) ui.FrameId {
+        fn bootstrap(_: void, c: *BuildContext) ui.FramePtr {
             return c.build(A, .{
                 .id = .root,
             });
@@ -2921,15 +3406,14 @@ test "Setting and clearing an event handler in the same update cycle results in 
 }
 
 test "WidgetRef binding." {
-    const u = ui.widgets;
     const A = struct {};
     const Options = struct {
         decl: bool,
         ref: *ui.WidgetRef(A),
     };
     const S = struct {
-        fn bootstrap(opts: Options, c: *BuildContext) ui.FrameId {
-            var child = NullFrameId;
+        fn bootstrap(opts: Options, c: *BuildContext) ui.FramePtr {
+            var child = ui.FramePtr{};
             if (opts.decl) {
                 child = c.build(A, .{ .bind = opts.ref });
             }
@@ -2950,15 +3434,14 @@ test "WidgetRef binding." {
 }
 
 test "NodeRefMap binding." {
-    const u = ui.widgets;
     const A = struct {};
     const Options = struct {
         decl: bool,
         bind: *ui.BindNodeFunc,
     };
     const S = struct {
-        fn bootstrap(opts: Options, c: *BuildContext) ui.FrameId {
-            var child = NullFrameId;
+        fn bootstrap(opts: Options, c: *BuildContext) ui.FramePtr {
+            var child = ui.FramePtr{};
             if (opts.decl) {
                 child = c.build(A, .{ .bind = opts.bind, .key = ui.WidgetKeyId(10) });
             }
@@ -2982,7 +3465,7 @@ test "NodeRefMap binding." {
 
 // test "BuildContext.build disallows using a prop that's not declared in Widget.props" {
 //     const Foo = struct {
-//         props: struct {
+//         props: *const struct {
 //             bar: usize,
 //         };
 //     };
@@ -2991,42 +3474,6 @@ test "NodeRefMap binding." {
 //     defer mod.deinit();
 //     _ = mod.build_ctx.new(.Foo, .{ .text = "foo" });
 // }
-
-pub const LayoutConstraints = struct {
-    min_width: f32,
-    max_width: f32,
-    min_height: f32,
-    max_height: f32,
-};
-
-pub const Layout = struct {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-
-    pub fn init(x: f32, y: f32, width: f32, height: f32) Layout {
-        return .{
-            .x = x,
-            .y = y,
-            .width = width,
-            .height = height,
-        };
-    }
-
-    pub fn initWithSize(x: f32, y: f32, size: LayoutSize) Layout {
-        return .{
-            .x = x,
-            .y = y,
-            .width = size.width,
-            .height = size.height,
-        };
-    }
-
-    pub inline fn contains(self: Layout, x: f32, y: f32) bool {
-        return x >= self.x and x <= self.x + self.width and y >= self.y and y <= self.y + self.height;
-    }
-};
 
 const IntervalSession = struct {
     dur: Duration,
@@ -3062,13 +3509,20 @@ pub fn WidgetHasProps(comptime Widget: type) bool {
     if (!@hasField(Widget, "props")) {
         return false;
     }
-    const PropsField = std.meta.fieldInfo(Widget, .props);
-    return @typeInfo(PropsField.field_type) == .Struct;
+    const Props = stdx.meta.FieldType(Widget, .props);
+    if (@typeInfo(Props) == .Pointer and @typeInfo(Props).Pointer.is_const) {
+        const Child = @typeInfo(Props).Pointer.child;
+        if (@typeInfo(Child) == .Struct) {
+            return true;
+        }
+    }
+    return false;
 }
 
 pub fn WidgetProps(comptime Widget: type) type {
     if (WidgetHasProps(Widget)) {
-        return std.meta.fieldInfo(Widget, .props).field_type;
+        const Props = stdx.meta.FieldType(Widget, .props);
+        return std.meta.Child(Props);
     } else {
         return void;
         // @compileError(@typeName(Widget) ++ " doesn't have props field.");
@@ -3078,4 +3532,14 @@ pub fn WidgetProps(comptime Widget: type) type {
 const UpdateError = error {
     NestedFragment,
     UserRootCantBeFragment,
+    OutOfMemory,
+};
+
+const TraceType = enum {
+    update,
+};
+
+const Trace = struct {
+    node: *ui.Node,
+    trace_t: TraceType,
 };

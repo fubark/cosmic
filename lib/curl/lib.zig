@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const pkg = std.build.Pkg{
     .name = "curl",
-    .source = .{ .path = srcPath() ++ "/curl.zig" },
+    .source = .{ .path = thisDir() ++ "/curl.zig" },
 };
 
 const Options = struct {
@@ -14,19 +14,20 @@ const Options = struct {
 
 pub fn addPackage(step: *std.build.LibExeObjStep) void {
     step.addPackage(pkg);
-    step.addIncludePath(srcPath() ++ "/vendor/include/curl");
+    step.addIncludePath(thisDir() ++ "/vendor/include/curl");
 }
 
 pub fn create(
     b: *std.build.Builder,
     target: std.zig.CrossTarget,
-    mode: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     opts: Options,
 ) !*std.build.LibExeObjStep {
-
-    const lib = b.addStaticLibrary("curl", null);
-    lib.setTarget(target);
-    lib.setBuildMode(mode);
+    const lib = b.addStaticLibrary(.{
+        .name = "curl",
+        .target = target,
+        .optimize = optimize,
+    });
 
     const alloc = b.allocator;
 
@@ -226,7 +227,7 @@ pub fn create(
     };
 
     for (c_files) |file| {
-        const path = b.fmt("{s}/vendor/lib/{s}", .{ srcPath(), file });
+        const path = b.fmt("{s}/vendor/lib/{s}", .{ thisDir(), file });
         lib.addCSourceFile(path, c_flags.items);
     }
 
@@ -275,17 +276,17 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep, opts: LinkOptions) void {
     if (opts.lib_path) |path| {
         linkLibPath(step, path);
     } else {
-        const lib = create(b, step.target, step.build_mode, .{
+        const lib = create(b, step.target, step.optimize, .{
             // Use the same openssl config so curl knows what features it has.
             .openssl_includes = &.{
-                srcPath() ++ "/../openssl/include",
-                srcPath() ++ "/../openssl/vendor/include",
+                thisDir() ++ "/../openssl/include",
+                thisDir() ++ "/../openssl/vendor/include",
             },
             .nghttp2_includes = &.{
-                srcPath() ++ "/../nghttp2/vendor/lib/includes",
+                thisDir() ++ "/../nghttp2/vendor/lib/includes",
             },
             .zlib_includes = &.{
-                srcPath() ++ "/../zlib/vendor",
+                thisDir() ++ "/../zlib/vendor",
             },
         }) catch unreachable;
         linkLib(step, lib);
@@ -310,10 +311,10 @@ fn linkDeps(step: *std.build.LibExeObjStep) void {
     }
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }
 
 fn fromRoot(b: *std.build.Builder, rel_path: []const u8) []const u8 {
-    return std.fs.path.resolve(b.allocator, &.{ srcPath(), rel_path }) catch unreachable;
+    return std.fs.path.resolve(b.allocator, &.{ thisDir(), rel_path }) catch unreachable;
 }

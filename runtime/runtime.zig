@@ -366,7 +366,7 @@ pub const RuntimeContext = struct {
             fn onWatcherQueueChanged(_loop: [*c]uv.uv_loop_t) callconv(.C) void {
                 // log.debug("on queue changed", .{});
                 const loop = @ptrCast(*uv.uv_loop_t, _loop);
-                const rt = stdx.mem.ptrCastAlign(*RuntimeContext, loop.data.?);
+                const rt = stdx.ptrCastAlign(*RuntimeContext, loop.data.?);
                 const res_ = uv.uv_async_send(rt.uv_dummy_async);
                 uv.assertNoError(res_);
             }
@@ -581,7 +581,7 @@ pub const RuntimeContext = struct {
             ) callconv(.C) ?*const v8.C_Module {
                 _ = import_assertions;
                 const ctx = v8.Context{ .handle = ctx_ptr.? };
-                const rt = stdx.mem.ptrCastAlign(*RuntimeContext, ctx.getEmbedderData(0).castTo(v8.External).get());
+                const rt = stdx.ptrCastAlign(*RuntimeContext, ctx.getEmbedderData(0).castTo(v8.External).get());
                 const js_spec = v8.String{ .handle = spec_.? };
                 const iso_ = ctx.getIsolate();
 
@@ -808,7 +808,7 @@ pub const RuntimeContext = struct {
         switch (handle.tag) {
             .CsWindow => {
                 // TODO: This should do cleanup like deleteCsWindowBySdlId
-                const window = stdx.mem.ptrCastAlign(*CsWindow, handle.ptr);
+                const window = stdx.ptrCastAlign(*CsWindow, handle.ptr);
                 if (self.dev_mode and self.dev_ctx.restart_requested) {
                     // Skip deiniting the window for a dev mode restart.
                     window.deinit(self, self.dev_ctx.dev_window == window);
@@ -819,11 +819,11 @@ pub const RuntimeContext = struct {
                 // Update current vars.
                 self.num_windows -= 1;
                 if (self.num_windows > 0) {
-                    if (self.active_window == stdx.mem.ptrCastAlign(*CsWindow, handle.ptr)) {
+                    if (self.active_window == stdx.ptrCastAlign(*CsWindow, handle.ptr)) {
                         // TODO: Revisit this. For now just pick the last available window.
                         const list_id = self.getResourceListId(handle.tag);
                         if (self.resources.findInList(list_id, {}, findFirstActiveResource)) |res_id| {
-                            self.active_window = stdx.mem.ptrCastAlign(*CsWindow, self.resources.getNoCheck(res_id).ptr);
+                            self.active_window = stdx.ptrCastAlign(*CsWindow, self.resources.getNoCheck(res_id).ptr);
                         }
                     }
                 } else {
@@ -832,13 +832,13 @@ pub const RuntimeContext = struct {
                 self.deinitResourceHandleInternal(id);
             },
             .CsHttpServer => {
-                const server = stdx.mem.ptrCastAlign(*HttpServer, handle.ptr);
+                const server = stdx.ptrCastAlign(*HttpServer, handle.ptr);
                 if (server.closed) {
                     self.deinitResourceHandleInternal(id);
                 } else {
                     const S = struct {
                         fn onShutdown(ptr: *anyopaque, _: *HttpServer) void {
-                            const ctx = stdx.mem.ptrCastAlign(*ExternalResourceHandle, ptr);
+                            const ctx = stdx.ptrCastAlign(*ExternalResourceHandle, ptr);
                             ctx.rt.deinitResourceHandleInternal(ctx.res_id);
                         }
                     };
@@ -863,10 +863,10 @@ pub const RuntimeContext = struct {
         }
         switch (handle.tag) {
             .CsWindow => {
-                self.alloc.destroy(stdx.mem.ptrCastAlign(*CsWindow, handle.ptr));
+                self.alloc.destroy(stdx.ptrCastAlign(*CsWindow, handle.ptr));
             },
             .CsHttpServer => {
-                self.alloc.destroy(stdx.mem.ptrCastAlign(*HttpServer, handle.ptr));
+                self.alloc.destroy(stdx.ptrCastAlign(*HttpServer, handle.ptr));
             },
             else => unreachable,
         }
@@ -874,7 +874,7 @@ pub const RuntimeContext = struct {
 
     fn v8MessageCallback(message: ?*const v8.C_Message, value: ?*const v8.C_Value) callconv(.C) void {
         const val = v8.Value{.handle = value.?};
-        const rt = stdx.mem.ptrCastAlign(*RuntimeContext, val.castTo(v8.External).get());
+        const rt = stdx.ptrCastAlign(*RuntimeContext, val.castTo(v8.External).get());
 
         // Only interested in the first uncaught exception.
         if (!rt.received_uncaught_exception) {
@@ -906,7 +906,7 @@ pub const RuntimeContext = struct {
         if (self.resources.has(res_id)) {
             const item = self.resources.getNoCheck(res_id);
             if (item.tag == Tag) {
-                return stdx.mem.ptrCastAlign(*Resource(Tag), item.ptr);
+                return stdx.ptrCastAlign(*Resource(Tag), item.ptr);
             }
         }
         return null;
@@ -1036,7 +1036,7 @@ pub const RuntimeContext = struct {
                 if (res.tag == .Dummy) {
                     return false;
                 }
-                const cs_window = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+                const cs_window = stdx.ptrCastAlign(*CsWindow, res.ptr);
                 return cs_window.window.impl.id == _sdl_win_id;
             }
         };
@@ -1318,7 +1318,7 @@ pub const RuntimeContext = struct {
                             const handle = self.weak_handles.getNoCheck(handle_id);
                             if (handle.tag != .Null) {
                                 return T{
-                                    .ptr = stdx.mem.ptrCastAlign(Ptr, handle.ptr),
+                                    .ptr = stdx.ptrCastAlign(Ptr, handle.ptr),
                                     .id = handle_id,
                                     .obj = val.castTo(v8.Object),
                                 };
@@ -1549,7 +1549,7 @@ const ProcessHandle = struct {
 
         var opts: uv.uv_process_options_t = undefined;
         opts.file = cfile;
-        opts.args = stdx.mem.ptrCastAlign([*c][*c]u8, cargs.ptr);
+        opts.args = stdx.ptrCastAlign([*c][*c]u8, cargs.ptr);
         opts.exit_cb = onExit;
         opts.flags = 0;
         opts.env = null;
@@ -1811,7 +1811,7 @@ fn updateMultipleWindows(rt: *RuntimeContext, comptime DevMode: bool) void {
             cur_res = rt.resources.getNextIdNoCheck(cur_res);
             continue;
         }
-        const win = stdx.mem.ptrCastAlign(*CsWindow, res.ptr);
+        const win = stdx.ptrCastAlign(*CsWindow, res.ptr);
 
         win.window.makeCurrent();
         var cam: graphics.Camera = undefined;
@@ -2072,7 +2072,7 @@ pub const CsWindow = struct {
 pub fn onFreeResource(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
     const info = v8.WeakCallbackInfo.initFromC(c_info);
     const ptr = info.getParameter();
-    const external = stdx.mem.ptrCastAlign(*ExternalResourceHandle, ptr);
+    const external = stdx.ptrCastAlign(*ExternalResourceHandle, ptr);
     external.rt.destroyResourceHandle(external.res_id);
 }
 
@@ -2542,17 +2542,17 @@ const WeakHandle = struct {
     fn deinit(self: *Self, rt: *RuntimeContext) void {
         switch (self.tag) {
             .DrawCommandList => {
-                const ptr = stdx.mem.ptrCastAlign(*graphics.DrawCommandList, self.ptr);
+                const ptr = stdx.ptrCastAlign(*graphics.DrawCommandList, self.ptr);
                 ptr.deinit();
                 rt.alloc.destroy(ptr);
             },
             .Sound => {
-                const ptr = stdx.mem.ptrCastAlign(*audio.Sound, self.ptr);
+                const ptr = stdx.ptrCastAlign(*audio.Sound, self.ptr);
                 ptr.deinit(rt.alloc);
                 rt.alloc.destroy(ptr);
             },
             .Random => {
-                const ptr = stdx.mem.ptrCastAlign(*Random, self.ptr);
+                const ptr = stdx.ptrCastAlign(*Random, self.ptr);
                 rt.alloc.destroy(ptr);
             },
             .Null => {},
@@ -2691,7 +2691,7 @@ const ExternalResourceHandle = struct {
 
 fn reportIsolatedTestFailure(data: FuncData, val: v8.Value) void {
     const obj = data.val.castTo(v8.Object);
-    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
+    const rt = stdx.ptrCastAlign(*RuntimeContext, obj.getInternalField(0).castTo(v8.External).get());
 
     const test_name = v8x.allocValueAsUtf8(rt.alloc, rt.isolate, rt.getContext(), obj.getInternalField(1));
     defer rt.alloc.free(test_name);
@@ -2799,7 +2799,7 @@ const ModuleInfo = struct {
 
 pub fn finalizeHandle(c_info: ?*const v8.C_WeakCallbackInfo) callconv(.C) void {
     const info = v8.WeakCallbackInfo.initFromC(c_info);
-    const rt = stdx.mem.ptrCastAlign(*RuntimeContext, info.getParameter());
+    const rt = stdx.ptrCastAlign(*RuntimeContext, info.getParameter());
     const id = @intCast(u32, @ptrToInt(info.getInternalField(1)) / 2);
     rt.destroyWeakHandle(id);
 }

@@ -16,7 +16,7 @@ pub const Graphics = struct {
     default_font_metrics: graphics.VMetrics,
     tessellator: Tessellator,
 
-    getOrLoadFontGlyphFn: fn (*Self, font: *graphics.Font, cp: u21) ?*Glyph,
+    getOrLoadFontGlyphFn: *const fn (*Self, font: *graphics.Font, cp: u21) ?*Glyph,
 
     pub fn init(self: *Self, alloc: std.mem.Allocator) void {
         _ = alloc;

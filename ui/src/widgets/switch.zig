@@ -8,7 +8,7 @@ const w = ui.widgets;
 const log = stdx.log.scoped(.switch_);
 
 pub const Switch = struct {
-    props: struct {
+    props: *const struct {
         label: ?[]const u8 = null,
         init_val: bool = false,
         onChange: ?stdx.Function(fn (bool) void) = null,
@@ -28,7 +28,7 @@ pub const Switch = struct {
         self.anim.finish();
     }
     
-    pub fn build(self: *Switch, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *Switch, c: *ui.BuildContext) ui.FramePtr {
         const S = struct {
             fn onClick(self_: *Switch, _: ui.MouseUpEvent) void {
                 self_.toggle();
@@ -39,7 +39,7 @@ pub const Switch = struct {
             w.Sized(.{
                 .width = Width,
                 .height = Height,
-            }, ui.NullFrameId),
+            }, .{}),
         );
     }
 

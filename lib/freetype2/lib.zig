@@ -6,33 +6,42 @@ const std = @import("std");
 // Minor changes:
 // 1. Added "#include <freetype/internal/ftmmtypes.h>" to ttgxvar.h to fix "unknown type name 'GX_ItemVarStoreRec'"
 
-pub const pkg = std.build.Pkg{
-    .name = "freetype",
-    .source = .{ .path = srcPath() ++ "/freetype.zig" },
-};
+pub fn createModule(b: *std.build.Builder) *std.build.Module {
+    const mod = b.createModule(.{
+        .source_file = .{ .path = thisDir() ++ "/freetype.zig" },
+        .dependencies = &.{},
+    });
+    return mod;
+}
 
-pub fn addPackage(step: *std.build.LibExeObjStep) void {
-    step.addPackage(pkg);
-    step.addIncludePath(srcPath() ++ "/include");
-    step.addIncludePath(srcPath() ++ "/vendor/include");
+pub fn addModuleIncludes(step: *std.build.CompileStep) void {
+    step.addIncludePath(thisDir() ++ "/vendor");
+    step.addIncludePath(thisDir() ++ "/include");
+    step.addIncludePath(thisDir() ++ "/vendor/include");
     if (step.target.getCpuArch().isWasm()) {
-        step.addIncludePath(srcPath() ++ "/../wasm/include");
+        step.addIncludePath(thisDir() ++ "/../wasm/include");
     }
-    step.linkLibC();
+    // step.linkLibC();
+}
+
+pub fn addModule(step: *std.build.CompileStep, name: []const u8, mod: *std.build.Module) void {
+    addModuleIncludes(step);
+    step.addModule(name, mod);
 }
 
 pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     const target = step.target;
-    const build_mode = step.build_mode;
+    const build_mode = step.optimize;
 
-    const b = step.builder;
-    const lib = b.addStaticLibrary("freetype2", null);
-    lib.setTarget(target);
-    lib.setBuildMode(build_mode);
-    lib.addIncludePath(srcPath() ++ "/include");
-    lib.addIncludePath(srcPath() ++ "/vendor/include");
+    const lib = step.builder.addStaticLibrary(.{
+        .name = "freetype2",
+        .target = step.target,
+        .optimize = step.optimize,
+    });
+    lib.addIncludePath(thisDir() ++ "/include");
+    lib.addIncludePath(thisDir() ++ "/vendor/include");
     if (target.getCpuArch().isWasm()) {
-        lib.addIncludePath(srcPath() ++ "/../wasm/include");
+        lib.addIncludePath(thisDir() ++ "/../wasm/include");
     }
     lib.linkLibC();
 
@@ -43,47 +52,47 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     }
 
     const src_files: []const []const u8 = &.{
-        srcPath() ++ "/vendor/src/base/ftinit.c",
-        srcPath() ++ "/vendor/src/base/ftsystem.c",
-        srcPath() ++ "/vendor/src/base/ftobjs.c",
-        srcPath() ++ "/vendor/src/base/ftstream.c",
-        srcPath() ++ "/vendor/src/base/ftutil.c",
-        srcPath() ++ "/vendor/src/base/ftdebug.c",
-        srcPath() ++ "/vendor/src/base/ftgloadr.c",
-        srcPath() ++ "/vendor/src/base/ftfntfmt.c",
-        srcPath() ++ "/vendor/src/base/ftrfork.c",
-        srcPath() ++ "/vendor/src/base/ftcalc.c",
-        srcPath() ++ "/vendor/src/base/fttrigon.c",
-        srcPath() ++ "/vendor/src/base/ftoutln.c",
-        srcPath() ++ "/vendor/src/base/ftlcdfil.c",
-        srcPath() ++ "/vendor/src/base/fterrors.c",
-        srcPath() ++ "/vendor/src/base/ftbitmap.c",
+        thisDir() ++ "/vendor/src/base/ftinit.c",
+        thisDir() ++ "/vendor/src/base/ftsystem.c",
+        thisDir() ++ "/vendor/src/base/ftobjs.c",
+        thisDir() ++ "/vendor/src/base/ftstream.c",
+        thisDir() ++ "/vendor/src/base/ftutil.c",
+        thisDir() ++ "/vendor/src/base/ftdebug.c",
+        thisDir() ++ "/vendor/src/base/ftgloadr.c",
+        thisDir() ++ "/vendor/src/base/ftfntfmt.c",
+        thisDir() ++ "/vendor/src/base/ftrfork.c",
+        thisDir() ++ "/vendor/src/base/ftcalc.c",
+        thisDir() ++ "/vendor/src/base/fttrigon.c",
+        thisDir() ++ "/vendor/src/base/ftoutln.c",
+        thisDir() ++ "/vendor/src/base/ftlcdfil.c",
+        thisDir() ++ "/vendor/src/base/fterrors.c",
+        thisDir() ++ "/vendor/src/base/ftbitmap.c",
 
         // ttf driver, depends on sfnt driver.
-        srcPath() ++ "/vendor/src/truetype/ttdriver.c",
-        srcPath() ++ "/vendor/src/truetype/ttgload.c",
-        srcPath() ++ "/vendor/src/truetype/ttgxvar.c",
-        srcPath() ++ "/vendor/src/truetype/ttinterp.c",
-        srcPath() ++ "/vendor/src/truetype/ttobjs.c",
-        srcPath() ++ "/vendor/src/truetype/ttpload.c",
+        thisDir() ++ "/vendor/src/truetype/ttdriver.c",
+        thisDir() ++ "/vendor/src/truetype/ttgload.c",
+        thisDir() ++ "/vendor/src/truetype/ttgxvar.c",
+        thisDir() ++ "/vendor/src/truetype/ttinterp.c",
+        thisDir() ++ "/vendor/src/truetype/ttobjs.c",
+        thisDir() ++ "/vendor/src/truetype/ttpload.c",
 
         // sfnt driver.
-        srcPath() ++ "/vendor/src/sfnt/sfdriver.c",
-        srcPath() ++ "/vendor/src/sfnt/sfobjs.c",
-        srcPath() ++ "/vendor/src/sfnt/ttload.c",
-        srcPath() ++ "/vendor/src/sfnt/ttmtx.c",
-        srcPath() ++ "/vendor/src/sfnt/ttkern.c",
-        srcPath() ++ "/vendor/src/sfnt/ttcolr.c",
-        srcPath() ++ "/vendor/src/sfnt/ttcmap.c",
-        srcPath() ++ "/vendor/src/sfnt/ttcpal.c",
-        srcPath() ++ "/vendor/src/sfnt/ttsvg.c",
-        srcPath() ++ "/vendor/src/sfnt/ttsbit.c",
-        srcPath() ++ "/vendor/src/sfnt/ttpost.c",
-        // srcPath() ++ "/vendor/src/sfnt/sfwoff.c",
+        thisDir() ++ "/vendor/src/sfnt/sfdriver.c",
+        thisDir() ++ "/vendor/src/sfnt/sfobjs.c",
+        thisDir() ++ "/vendor/src/sfnt/ttload.c",
+        thisDir() ++ "/vendor/src/sfnt/ttmtx.c",
+        thisDir() ++ "/vendor/src/sfnt/ttkern.c",
+        thisDir() ++ "/vendor/src/sfnt/ttcolr.c",
+        thisDir() ++ "/vendor/src/sfnt/ttcmap.c",
+        thisDir() ++ "/vendor/src/sfnt/ttcpal.c",
+        thisDir() ++ "/vendor/src/sfnt/ttsvg.c",
+        thisDir() ++ "/vendor/src/sfnt/ttsbit.c",
+        thisDir() ++ "/vendor/src/sfnt/ttpost.c",
+        // thisDir() ++ "/vendor/src/sfnt/sfwoff.c",
 
         // Renderers.
-        srcPath() ++ "/vendor/src/smooth/smooth.c",
-        srcPath() ++ "/vendor/src/smooth/ftgrays.c",
+        thisDir() ++ "/vendor/src/smooth/smooth.c",
+        thisDir() ++ "/vendor/src/smooth/ftgrays.c",
     };
     lib.addCSourceFiles(src_files, c_flags.items);
 
@@ -96,6 +105,6 @@ pub fn buildAndLink(step: *std.build.LibExeObjStep) void {
     step.linkLibrary(lib);
 }
 
-inline fn srcPath() []const u8 {
+inline fn thisDir() []const u8 {
     return comptime std.fs.path.dirname(@src().file) orelse @panic("error");
 }

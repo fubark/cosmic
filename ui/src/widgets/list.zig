@@ -10,22 +10,25 @@ const NullId = std.math.maxInt(u32);
 const log = stdx.log.scoped(.list);
 
 pub const ScrollList = struct {
-    props: struct {
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+    props: *const struct {
+        children: ui.FrameListPtr = .{},
         bg_color: Color = Color.White,
     },
 
     list: ui.WidgetRef(List),
 
-    pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FrameId {
+    pub fn build(self: *ScrollList, c: *ui.BuildContext) ui.FramePtr {
+        const sv_style = w.ScrollViewStyle{
+            .bgColor = self.props.bg_color,
+        };
         return w.ScrollView(.{
             .enable_hscroll = false,
-            .bg_color = self.props.bg_color },
+            .style = sv_style },
             w.Stretch(.{ .method = .Width },
                 c.build(List, .{
                     .bind = &self.list,
                     .bg_color = self.props.bg_color,
-                    .children = self.props.children,
+                    .children = self.props.children.dupe(),
                 }),
             ),
         );
@@ -39,8 +42,8 @@ pub const ScrollList = struct {
 
 /// Fills maximum space and lays out children in a column.
 pub const List = struct {
-    props: struct {
-        children: ui.FrameListPtr = ui.FrameListPtr.init(0, 0),
+    props: *const struct {
+        children: ui.FrameListPtr = .{},
         bg_color: Color = Color.White,
     },
 
@@ -52,8 +55,8 @@ pub const List = struct {
         c.setKeyDownHandler(self, onKeyDown);
     }
 
-    pub fn build(self: *List, c: *ui.BuildContext) ui.FrameId {
-        return c.fragment(self.props.children);
+    pub fn build(self: *List, c: *ui.BuildContext) ui.FramePtr {
+        return c.fragment(self.props.children.dupe());
     }
 
     fn onBlur(node: *ui.Node, ctx: *ui.CommonContext) void {
@@ -66,8 +69,9 @@ pub const List = struct {
         switch (ke.code) {
             .ArrowDown => {
                 self.selected_idx += 1;
-                if (self.selected_idx >= self.props.children.len) {
-                    self.selected_idx = self.props.children.len-1;
+                const len = self.props.children.size();
+                if (self.selected_idx >= len) {
+                    self.selected_idx = @intCast(u32, len)-1;
                 } 
             },
             .ArrowUp => {
@@ -81,7 +85,7 @@ pub const List = struct {
 
     fn onMouseDown(node: *ui.Node, e: ui.MouseDownEvent) ui.EventResult {
         var self = node.getWidget(List);
-        if (e.val.button == .Left) {
+        if (e.val.button == .left) {
             e.ctx.requestFocus(.{ .onBlur = onBlur });
             const xf = @intToFloat(f32, e.val.x);
             const yf = @intToFloat(f32, e.val.y);
@@ -98,17 +102,19 @@ pub const List = struct {
                     }
                 }
             }
+            return .stop;
         }
         return .default;
     }
 
-    pub fn postPropsUpdate(self: *List) void {
+    pub fn postPropsUpdate(self: *List, _: *ui.UpdateContext) void {
         if (self.selected_idx != NullId) {
-            if (self.selected_idx >= self.props.children.len) {
-                if (self.props.children.len == 0) {
+            const len = self.props.children.size();
+            if (self.selected_idx >= len) {
+                if (len == 0) {
                     self.selected_idx = NullId;
                 } else {
-                    self.selected_idx = self.props.children.len - 1;
+                    self.selected_idx = @intCast(u32, len) - 1;
                 }
             }
         }
@@ -149,7 +155,7 @@ pub const List = struct {
             g.setStrokeColor(Color.Blue);
             g.setLineWidth(2);
             const child = node.children.items[self.selected_idx];
-            g.drawRectBounds(child.abs_bounds.min_x, child.abs_bounds.min_y, bounds.max_x, child.abs_bounds.max_y);
+            g.strokeRectBounds(child.abs_bounds.min_x, child.abs_bounds.min_y, bounds.max_x, child.abs_bounds.max_y);
         }
     }
 };
